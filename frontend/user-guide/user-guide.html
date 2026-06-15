@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ZARODA SMS — User Guide</title>
+<style>
+/* ── TOKENS ─────────────────────────────────────────── */
+:root {
+  --navy:       #1a2e5a;
+  --navy-deep:  #0f1c38;
+  --navy-mid:   #243f7a;
+  --gold:       #d4af37;
+  --gold-light: #f0d060;
+  --gold-dim:   #9a7e22;
+  --orange:     #f5820a;
+  --white:      #ffffff;
+  --off-white:  #f7f8fc;
+  --muted:      #f0f2f8;
+  --border:     #e2e6f0;
+  --text:       #1a2040;
+  --text-mid:   #4a5278;
+  --text-soft:  #7a82a8;
+  --green:      #22c55e;
+  --red:        #ef4444;
+  --sidebar-w:  280px;
+  --radius:     12px;
+  --radius-sm:  8px;
+  font-size: 15px;
+}
+
+/* ── RESET ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--off-white);
+  color: var(--text);
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── SIDEBAR ───────────────────────────────────────── */
+#sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--navy-deep);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding: 20px 16px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+.brand-logo-img {
+  width: 148px;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  border-radius: 8px;
+}
+.brand-text { line-height: 1.1; }
+.brand-name { font-size: 13px; font-weight: 700; color: var(--white); letter-spacing: 0.5px; }
+.brand-sub  { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 1px; }
+
+.sidebar-search {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+.sidebar-search input {
+  background: none; border: none; outline: none;
+  color: var(--white); font-size: 12px; width: 100%;
+}
+.sidebar-search input::placeholder { color: rgba(255,255,255,0.35); }
+.sidebar-search svg { flex-shrink: 0; opacity: 0.4; }
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.sidebar-nav::-webkit-scrollbar { width: 3px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+.nav-section { margin-top: 4px; }
+.nav-section-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; color: rgba(255,255,255,0.28);
+  padding: 10px 16px 4px;
+}
+
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 16px; cursor: pointer;
+  border-radius: 0;
+  color: rgba(255,255,255,0.65);
+  font-size: 12.5px;
+  transition: all 0.15s;
+  position: relative;
+  border: none; background: none; width: 100%; text-align: left;
+}
+.nav-item:hover { background: rgba(255,255,255,0.07); color: var(--white); }
+.nav-item.active {
+  background: rgba(212,175,55,0.15);
+  color: var(--gold);
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--gold);
+  border-radius: 0 2px 2px 0;
+}
+.nav-icon { width: 16px; text-align: center; flex-shrink: 0; font-size: 13px; }
+.nav-badge {
+  margin-left: auto;
+  background: var(--gold); color: var(--navy-deep);
+  font-size: 9px; font-weight: 700;
+  padding: 1px 5px; border-radius: 10px;
+}
+.nav-badge.new { background: var(--orange); color: white; }
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.version-tag {
+  font-size: 10px; color: rgba(255,255,255,0.25);
+  text-align: center;
+}
+
+/* ── MAIN CONTENT ──────────────────────────────────── */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px;
+  height: 56px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.topbar-left { display: flex; align-items: center; gap: 8px; }
+.topbar-title { font-size: 15px; font-weight: 700; color: var(--navy); }
+.topbar-breadcrumb { font-size: 12px; color: var(--text-soft); }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+
+.role-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--muted); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 10px;
+  font-size: 11px; font-weight: 600; color: var(--text-mid);
+  cursor: pointer; transition: all 0.15s;
+}
+.role-pill:hover { border-color: var(--navy); color: var(--navy); }
+.role-pill.active { background: var(--navy); color: var(--white); border-color: var(--navy); }
+.role-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px;
+  scroll-behavior: smooth;
+}
+
+/* ── ARTICLE STYLES ────────────────────────────────── */
+.article { max-width: 780px; }
+.article-hidden { display: none; }
+
+.article-hero {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
+  border-radius: var(--radius);
+  padding: 32px 36px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.article-hero::after {
+  content: '';
+  position: absolute; top: -40px; right: -40px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(212,175,55,0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(212,175,55,0.2);
+  border: 1px solid rgba(212,175,55,0.35);
+  color: var(--gold);
+  font-size: 11px; font-weight: 600;
+  padding: 4px 10px; border-radius: 20px;
+  margin-bottom: 12px;
+}
+.hero-title {
+  font-size: 26px; font-weight: 800;
+  color: var(--white); line-height: 1.2;
+  margin-bottom: 8px;
+}
+.hero-sub { font-size: 13.5px; color: rgba(255,255,255,0.65); line-height: 1.6; }
+
+.roles-access {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 16px;
+}
+.role-tag {
+  font-size: 10.5px; font-weight: 600;
+  padding: 3px 9px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.75);
+}
+
+.article-body { color: var(--text); }
+
+h2.section-title {
+  font-size: 17px; font-weight: 700; color: var(--navy);
+  margin: 28px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+h2.section-title .title-icon {
+  width: 28px; height: 28px;
+  background: var(--muted); border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+
+h3.step-title {
+  font-size: 14px; font-weight: 700; color: var(--navy);
+  margin: 18px 0 6px;
+}
+
+p { font-size: 13.5px; line-height: 1.7; color: var(--text-mid); margin-bottom: 10px; }
+
+/* ── STEP CARDS ────────────────────────────────────── */
+.steps { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.step-card {
+  display: flex; gap: 14px; align-items: flex-start;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+  transition: border-color 0.15s;
+}
+.step-card:hover { border-color: var(--navy); }
+.step-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--navy); color: var(--gold);
+  font-size: 12px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.step-content { flex: 1; }
+.step-label { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+.step-desc  { font-size: 12.5px; color: var(--text-soft); line-height: 1.5; }
+
+/* ── INFO BOXES ────────────────────────────────────── */
+.info-box {
+  border-radius: var(--radius-sm); padding: 12px 14px; margin: 12px 0;
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 12.5px; line-height: 1.55;
+}
+.info-box.tip    { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+.info-box.warn   { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+.info-box.info   { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+.info-box.danger { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+.info-icon { font-size: 16px; flex-shrink: 0; margin-top: 0px; }
+
+/* ── QUICK ACTIONS GRID ─────────────────────────────── */
+.quick-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px; margin: 14px 0;
+}
+.quick-card {
+  background: var(--white); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); padding: 16px 14px;
+  cursor: pointer; transition: all 0.15s;
+  text-align: center;
+}
+.quick-card:hover {
+  border-color: var(--navy);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(26,46,90,0.10);
+}
+.quick-icon { font-size: 24px; margin-bottom: 8px; }
+.quick-label { font-size: 12px; font-weight: 600; color: var(--navy); }
+.quick-sub   { font-size: 11px; color: var(--text-soft); margin-top: 2px; }
+
+/* ── ROLE COMPARISON TABLE ──────────────────────────── */
+.role-table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 12.5px; }
+.role-table th {
+  background: var(--navy); color: var(--gold);
+  padding: 9px 12px; text-align: left; font-size: 11.5px;
+  font-weight: 700; letter-spacing: 0.3px;
+}
+.role-table th:first-child { border-radius: 8px 0 0 0; }
+.role-table th:last-child  { border-radius: 0 8px 0 0; }
+.role-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text-mid); vertical-align: top; }
+.role-table tr:hover td { background: var(--muted); }
+.check { color: var(--green); font-weight: 700; }
+.cross { color: var(--red); opacity: 0.5; }
+
+/* ── FEATURE PILLS ──────────────────────────────────── */
+.feature-list { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
+.feature-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--muted); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 10px;
+  font-size: 11.5px; font-weight: 500; color: var(--text-mid);
+}
+.feature-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+
+/* ── FAQ ACCORDION ──────────────────────────────────── */
+.faq-item { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; overflow: hidden; }
+.faq-q {
+  width: 100%; text-align: left; background: var(--white);
+  border: none; padding: 13px 16px;
+  font-size: 13px; font-weight: 600; color: var(--navy);
+  cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  transition: background 0.15s;
+}
+.faq-q:hover { background: var(--muted); }
+.faq-chevron { transition: transform 0.2s; font-size: 12px; opacity: 0.5; }
+.faq-item.open .faq-chevron { transform: rotate(180deg); }
+.faq-a {
+  padding: 0 16px; max-height: 0; overflow: hidden;
+  transition: max-height 0.25s ease, padding 0.2s;
+  font-size: 13px; color: var(--text-mid); line-height: 1.65;
+  background: var(--muted);
+}
+.faq-item.open .faq-a { max-height: 400px; padding: 12px 16px; }
+
+/* ── KEYBOARD SHORTCUT ──────────────────────────────── */
+kbd {
+  display: inline-block;
+  background: var(--white); border: 1.5px solid var(--border);
+  border-radius: 4px; padding: 2px 6px;
+  font-size: 11px; font-family: monospace; color: var(--text-mid);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+/* ── CONTACT BOX ────────────────────────────────────── */
+.contact-box {
+  background: linear-gradient(135deg, var(--navy), var(--navy-mid));
+  border-radius: var(--radius); padding: 20px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-top: 20px;
+  flex-wrap: wrap;
+}
+.contact-info { color: rgba(255,255,255,0.8); font-size: 12.5px; }
+.contact-info strong { color: var(--white); }
+.contact-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.contact-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 20px;
+  font-size: 12px; font-weight: 600; text-decoration: none;
+  transition: all 0.15s;
+}
+.contact-btn.primary { background: var(--gold); color: var(--navy-deep); }
+.contact-btn.primary:hover { background: var(--gold-light); }
+.contact-btn.ghost { border: 1px solid rgba(255,255,255,0.3); color: var(--white); }
+.contact-btn.ghost:hover { background: rgba(255,255,255,0.1); }
+
+/* ── WELCOME HERO ───────────────────────────────────── */
+.welcome-modules {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px; margin: 16px 0;
+}
+.module-card {
+  background: var(--white); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+  cursor: pointer; transition: all 0.15s;
+}
+.module-card:hover { border-color: var(--navy); box-shadow: 0 3px 12px rgba(26,46,90,0.08); }
+.module-card-icon { font-size: 22px; margin-bottom: 8px; }
+.module-card-name { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 3px; }
+.module-card-desc { font-size: 11.5px; color: var(--text-soft); line-height: 1.4; }
+
+/* ── MOBILE ─────────────────────────────────────────── */
+#menu-toggle { display: none; }
+@media (max-width: 768px) {
+  #sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 100;
+  }
+  #sidebar.open { transform: translateX(0); }
+  #overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5); z-index: 90;
+  }
+  #overlay.show { display: block; }
+  #menu-toggle {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; background: var(--navy);
+    border-radius: var(--radius-sm); border: none; cursor: pointer;
+    color: white; font-size: 18px; margin-right: 8px;
+  }
+  .content { padding: 18px; }
+  .article-hero { padding: 20px; }
+  .hero-title { font-size: 20px; }
+  .quick-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── SEARCH HIGHLIGHT ────────────────────────────────── */
+.highlight { background: rgba(212,175,55,0.35); border-radius: 2px; }
+.search-empty { text-align: center; padding: 40px 20px; color: var(--text-soft); }
+.search-empty-icon { font-size: 32px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div id="overlay" onclick="closeSidebar()"></div>
+
+<!-- ── SIDEBAR ─────────────────────────────────────── -->
+<nav id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img
+        src="zaroda-logo.png"
+        alt="ZARODA Solutions"
+        class="brand-logo-img"
+        onerror="this.style.display='none';document.getElementById('brand-fallback').style.display='flex'"
+      />
+      <div id="brand-fallback" style="display:none;align-items:center;gap:8px;">
+        <div style="width:32px;height:32px;background:var(--gold);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:var(--navy-deep);">Z</div>
+        <div class="brand-text">
+          <div class="brand-name">ZARODA SMS</div>
+          <div class="brand-sub">User Guide</div>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-search">
+      <svg width="14" height="14" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input type="text" id="search-input" placeholder="Search guide…" oninput="handleSearch(this.value)"/>
+    </div>
+  </div>
+
+  <div class="sidebar-nav" id="sidebar-nav">
+
+    <div class="nav-section">
+      <div class="nav-section-label">Getting Started</div>
+      <button class="nav-item active" onclick="showPage('welcome')" data-page="welcome">
+        <span class="nav-icon">🏠</span> Welcome to ZARODA
+      </button>
+      <button class="nav-item" onclick="showPage('roles')" data-page="roles">
+        <span class="nav-icon">👤</span> Roles & Permissions
+      </button>
+      <button class="nav-item" onclick="showPage('onboarding')" data-page="onboarding">
+        <span class="nav-icon">🚀</span> School Onboarding
+      </button>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">Core Modules</div>
+      <button class="nav-item" onclick="showPage('academic')" data-page="academic">
+        <span class="nav-icon">📚</span> Academic & Timetable
+      </button>
+      <button class="nav-item" onclick="showPage('finance')" data-page="finance">
+        <span class="nav-icon">💰</span> Finance & Fees
+      </button>
+      <button class="nav-item" onclick="showPage('communication')" data-page="communication">
+        <span class="nav-icon">📢</span> Communication
+      </button>
+      <button class="nav-item" onclick="showPage('prorecords')" data-page="prorecords">
+        <span class="nav-icon">📋</span> Professional Records
+      </button>
+      <button class="nav-item" onclick="showPage('library')" data-page="library">
+        <span class="nav-icon">📖</span> Library
+        <span class="nav-badge">FREE</span>
+      </button>
+      <button class="nav-item" onclick="showPage('sports')" data-page="sports">
+        <span class="nav-icon">🏆</span> Sports
+      </button>
+      <button class="nav-item" onclick="showPage('discipline')" data-page="discipline">
+        <span class="nav-icon">⚖️</span> Discipline & Guidance
+      </button>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">For Teachers</div>
+      <button class="nav-item" onclick="showPage('teacher-invite')" data-page="teacher-invite">
+        <span class="nav-icon">📨</span> Share Invite Link
+        <span class="nav-badge new">NEW</span>
+      </button>
+      <button class="nav-item" onclick="showPage('ai-tools')" data-page="ai-tools">
+        <span class="nav-icon">🤖</span> AI Tools
+      </button>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">Help</div>
+      <button class="nav-item" onclick="showPage('faq')" data-page="faq">
+        <span class="nav-icon">❓</span> FAQ
+      </button>
+      <button class="nav-item" onclick="showPage('support')" data-page="support">
+        <span class="nav-icon">💬</span> Contact Support
+      </button>
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div style="text-align:center;padding-bottom:4px;">
+      <img
+        src="zaroda-logo.png"
+        alt="ZARODA Solutions"
+        style="height:36px;width:auto;object-fit:contain;opacity:0.7;"
+        onerror="this.style.display='none'"
+      />
+    </div>
+    <div class="version-tag">INNOVATIVE. RELIABLE. FORWARD.</div>
+    <div class="version-tag" style="margin-top:2px;">v1.0 · www.zarodasolutions.app</div>
+  </div>
+</nav>
+
+<!-- ── MAIN ─────────────────────────────────────────── -->
+<div id="main">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button id="menu-toggle" onclick="toggleSidebar()">☰</button>
+      <div>
+        <div class="topbar-title" id="topbar-title">Welcome to ZARODA SMS</div>
+        <div class="topbar-breadcrumb" id="topbar-breadcrumb">User Guide → Getting Started</div>
+      </div>
+    </div>
+    <div class="topbar-right" id="role-filter">
+      <span style="font-size:11px;color:var(--text-soft);margin-right:4px;">View as:</span>
+      <button class="role-pill active" onclick="setRole('all',this)">
+        <span class="role-dot" style="background:#888"></span> All
+      </button>
+      <button class="role-pill" onclick="setRole('teacher',this)">
+        <span class="role-dot" style="background:#22c55e"></span> Teacher
+      </button>
+      <button class="role-pill" onclick="setRole('hoi',this)">
+        <span class="role-dot" style="background:#3b82f6"></span> HOI
+      </button>
+      <button class="role-pill" onclick="setRole('parent',this)">
+        <span class="role-dot" style="background:#f59e0b"></span> Parent
+      </button>
+    </div>
+  </header>
+
+  <main class="content" id="content">
+
+    <!-- ══ WELCOME ══════════════════════════════════════ -->
+    <article class="article" id="page-welcome">
+      <div class="article-hero">
+        <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-bottom:20px;">
+          <img
+            src="zaroda-logo.png"
+            alt="ZARODA Solutions — Innovative. Reliable. Forward."
+            style="height:90px;width:auto;object-fit:contain;border-radius:10px;flex-shrink:0;"
+            onerror="this.style.display='none'"
+          />
+          <div>
+            <div class="hero-badge">🎓 ZARODA School Management System</div>
+            <h1 class="hero-title">Welcome to ZARODA SMS</h1>
+          </div>
+        </div>
+        <p class="hero-sub">Kenya's CBC/CBE-aligned school management platform. Everything your school needs — academic records, finance, communication, library, sports, discipline, and AI-powered tools — in one place.</p>
+        <div class="roles-access">
+          <span class="role-tag">HOI</span>
+          <span class="role-tag">Teachers</span>
+          <span class="role-tag">Bursar</span>
+          <span class="role-tag">Parents</span>
+          <span class="role-tag">Learners</span>
+        </div>
+      </div>
+
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">🗂</span> All Modules</h2>
+        <div class="welcome-modules">
+          <div class="module-card" onclick="showPage('academic')">
+            <div class="module-card-icon">📚</div>
+            <div class="module-card-name">Academic Core</div>
+            <div class="module-card-desc">Learners, streams, timetable, CBC report cards, KICD assessments</div>
+          </div>
+          <div class="module-card" onclick="showPage('finance')">
+            <div class="module-card-icon">💰</div>
+            <div class="module-card-name">Finance</div>
+            <div class="module-card-desc">Fees, M-Pesa, invoices, payroll, FPE/FDJSE/FDSSE, cashbook</div>
+          </div>
+          <div class="module-card" onclick="showPage('communication')">
+            <div class="module-card-icon">📢</div>
+            <div class="module-card-name">Communication</div>
+            <div class="module-card-desc">SMS, email, WhatsApp, announcements, parent messaging</div>
+          </div>
+          <div class="module-card" onclick="showPage('prorecords')">
+            <div class="module-card-icon">📋</div>
+            <div class="module-card-name">Professional Records</div>
+            <div class="module-card-desc">AI schemes of work, lesson plans, notes, KICD records</div>
+          </div>
+          <div class="module-card" onclick="showPage('library')">
+            <div class="module-card-icon">📖</div>
+            <div class="module-card-name">Library</div>
+            <div class="module-card-desc">Book catalogue, borrowing, returns. Completely free.</div>
+          </div>
+          <div class="module-card" onclick="showPage('sports')">
+            <div class="module-card-icon">🏆</div>
+            <div class="module-card-name">Sports</div>
+            <div class="module-card-desc">Teams, inter-class, talent analytics, push to Base championships</div>
+          </div>
+          <div class="module-card" onclick="showPage('discipline')">
+            <div class="module-card-icon">⚖️</div>
+            <div class="module-card-name">Discipline</div>
+            <div class="module-card-desc">Incident recording, counselling, behaviour records, QASO reports</div>
+          </div>
+        </div>
+
+        <div class="info-box tip">
+          <span class="info-icon">💡</span>
+          <span>Use the <strong>role filter</strong> in the top-right corner to see only what's relevant to your role. Teachers, HOI, and Parents each see a tailored view.</span>
+        </div>
+
+        <div class="contact-box">
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <img
+              src="zaroda-logo.png"
+              alt="ZARODA Solutions"
+              style="height:52px;width:auto;object-fit:contain;flex-shrink:0;border-radius:6px;"
+              onerror="this.style.display='none'"
+            />
+            <div class="contact-info">
+              <strong>Need help? We're here.</strong><br/>
+              +254 781 230 805 · support@zarodasolutions.app
+            </div>
+          </div>
+          <div class="contact-links">
+            <a href="https://wa.me/254781230805" target="_blank" class="contact-btn primary">💬 WhatsApp Us</a>
+            <a href="mailto:support@zarodasolutions.app" class="contact-btn ghost">✉ Email</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ ROLES ═════════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-roles">
+      <div class="article-hero">
+        <div class="hero-badge">👤 Access Control</div>
+        <h1 class="hero-title">Roles & Permissions</h1>
+        <p class="hero-sub">ZARODA SMS has 11 roles. Each role sees only what is relevant to their work. Role assignment is done by the school administrator.</p>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">🔑</span> Role Summary</h2>
+        <table class="role-table">
+          <thead>
+            <tr><th>Role</th><th>Who</th><th>Finance</th><th>Pro Records</th><th>Discipline</th><th>Reports</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>HOI</strong></td><td>Head of Institution</td><td class="check">✓ Full</td><td class="check">✓ Approve</td><td class="check">✓ Full</td><td class="check">✓ All</td></tr>
+            <tr><td><strong>DHOIS</strong></td><td>Deputy HOI</td><td class="check">✓ Full</td><td class="check">✓ Approve</td><td class="check">✓ Full</td><td class="check">✓ All</td></tr>
+            <tr><td><strong>Bursar</strong></td><td>Finance Officer</td><td class="check">✓ Full</td><td class="cross">—</td><td class="cross">—</td><td class="check">✓ Finance</td></tr>
+            <tr><td><strong>Class Teacher</strong></td><td>Form/Class Teacher</td><td class="cross">—</td><td class="check">✓ Own</td><td class="check">✓ Record</td><td class="check">✓ Class</td></tr>
+            <tr><td><strong>Subject Teacher</strong></td><td>Subject specialist</td><td class="cross">—</td><td class="check">✓ Own</td><td class="check">✓ Record</td><td class="cross">—</td></tr>
+            <tr><td><strong>Parent</strong></td><td>Guardian</td><td class="check">✓ View/Pay</td><td class="cross">—</td><td class="cross">—</td><td class="check">✓ Child only</td></tr>
+            <tr><td><strong>Learner</strong></td><td>Student</td><td class="check">✓ View</td><td class="cross">—</td><td class="cross">—</td><td class="check">✓ Own</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box info">
+          <span class="info-icon">ℹ️</span>
+          <span>Counselling session notes are <strong>strictly confidential</strong> — only the counsellor who recorded them and the HOI can view the content. No other role can access counselling notes.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ ONBOARDING ════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-onboarding">
+      <div class="article-hero">
+        <div class="hero-badge">🚀 Setup</div>
+        <h1 class="hero-title">School Onboarding</h1>
+        <p class="hero-sub">Get your school live on ZARODA SMS in minutes. Start with one class — the whole school can join later.</p>
+        <div class="roles-access"><span class="role-tag">HOI</span><span class="role-tag">Admin</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">📝</span> Getting Started</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Create your account</div><div class="step-desc">Sign up at app.zarodasolutions.app or use a teacher's invite link. Enter your school name, county, sub-county and zone.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Set up your first stream</div><div class="step-desc">Add one class (e.g. "Grade 4 North") to start. You can add more streams anytime. 2-week free trial, no card needed.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Register learners</div><div class="step-desc">Bulk upload via CSV or PDF, or add individually. The AI parser reads most PDF admission lists automatically.</div></div></div>
+          <div class="step-card"><div class="step-num">4</div><div class="step-content"><div class="step-label">Invite your teachers</div><div class="step-desc">Go to Staff → Invite. Each teacher receives a link to create their account and is assigned their stream(s).</div></div></div>
+          <div class="step-card"><div class="step-num">5</div><div class="step-content"><div class="step-label">Generate the timetable</div><div class="step-desc">ZARODA auto-generates a KICD-compliant timetable for each grade band. Review, adjust if needed, then publish.</div></div></div>
+          <div class="step-card"><div class="step-num">6</div><div class="step-content"><div class="step-label">Set up fees</div><div class="step-desc">Create your fee structure for the term. Generate invoices for the whole stream in one click.</div></div></div>
+        </div>
+        <div class="info-box warn">
+          <span class="info-icon">⚠️</span>
+          <span>Your 2-week free trial covers all modules with no restrictions. After the trial, billing is <strong>KES 2,400/stream/year</strong> (primary/junior) or <strong>KES 3,360/stream/year</strong> (senior). Schools with 3+ streams get a 30% discount.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ ACADEMIC ══════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-academic">
+      <div class="article-hero">
+        <div class="hero-badge">📚 Module</div>
+        <h1 class="hero-title">Academic Core & Timetable</h1>
+        <p class="hero-sub">Manage learners, streams, CBC assessments, report cards, and KICD-compliant timetables across all grade bands.</p>
+        <div class="roles-access"><span class="role-tag">HOI</span><span class="role-tag">Teachers</span><span class="role-tag">Parents</span><span class="role-tag">Learners</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">🗓</span> KICD Timetable</h2>
+        <p>The timetable engine follows the official Kenya MoE CBE Timetabling Guidelines exactly — 7 grade bands, correct lesson durations, break positions, and creative arts before breaks.</p>
+        <div class="feature-list">
+          <span class="feature-pill"><span class="dot"></span> Pre-Primary: 25 lessons/week · 30 min</span>
+          <span class="feature-pill"><span class="dot"></span> Grade 1–3: 31 lessons/week · 30 min</span>
+          <span class="feature-pill"><span class="dot"></span> Grade 4–6: 35 lessons/week · 35 min</span>
+          <span class="feature-pill"><span class="dot"></span> Grade 7–9: 41 lessons/week · 40 min</span>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">📊</span> CBC Report Cards</h2>
+        <p>ZARODA generates fully formatted CBC report cards aligned to KICD performance levels. AI writes personalised comments for each learner automatically.</p>
+        <div class="info-box tip">
+          <span class="info-icon">💡</span>
+          <span>Performance levels: <strong>EE</strong> (Exceeding), <strong>ME</strong> (Meeting), <strong>AE</strong> (Approaching), <strong>BE</strong> (Below) for Grade 1–6. Grade 7–12 use EE1/EE2 through BE1/BE2.</span>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">👨‍🎓</span> Learner Registration</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Go to Learners → Add Learner</div><div class="step-desc">Add individually or bulk upload. For bulk upload, upload the PDF admission list — AI extracts names, admission numbers, and DOBs.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Assign to a stream</div><div class="step-desc">Each learner belongs to one stream per academic year. Stream determines their timetable, teacher, and report card.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Link a parent account</div><div class="step-desc">Enter the guardian's phone number and email. They receive an SMS with login details to access the parent portal.</div></div></div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ FINANCE ═══════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-finance">
+      <div class="article-hero">
+        <div class="hero-badge">💰 Module</div>
+        <h1 class="hero-title">Finance & Fees</h1>
+        <p class="hero-sub">Full school financial management — fee collection, M-Pesa STK push, government fund tracking, payroll, and QASO-ready financial reports.</p>
+        <div class="roles-access"><span class="role-tag">HOI</span><span class="role-tag">Bursar</span><span class="role-tag">Parents</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">📱</span> M-Pesa Payments</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Parent pays via M-Pesa</div><div class="step-desc">Bursar enters parent's phone number and clicks "Send STK Push". Parent receives a prompt on their phone to enter their PIN.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Automatic reconciliation</div><div class="step-desc">Once parent approves, ZARODA automatically matches the payment to the learner's account using their admission number. No manual entry needed.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Receipt generated instantly</div><div class="step-desc">A receipt (RCP-YYYY-NNNNN) is created and sent to the parent. The cashbook is updated automatically.</div></div></div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">🏛</span> Government Funds</h2>
+        <p>Track FPE, FDJSE, and FDSSE receipts and expenditure separately, with vote head enforcement per the Kenya Handbook on Financial Management.</p>
+        <div class="info-box info">
+          <span class="info-icon">ℹ️</span>
+          <span>ZARODA enforces the correct vote heads per fund type. For example, FPE expenditure cannot be posted under "Assessment & Examinations" — that vote head is only valid for FDJSE and FDSSE.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ COMMUNICATION ═════════════════════════════════ -->
+    <article class="article article-hidden" id="page-communication">
+      <div class="article-hero">
+        <div class="hero-badge">📢 Module</div>
+        <h1 class="hero-title">Communication</h1>
+        <p class="hero-sub">SMS, email, push notifications, WhatsApp — reach parents, teachers, and learners with the right message at the right time.</p>
+        <div class="roles-access"><span class="role-tag">HOI</span><span class="role-tag">Teachers</span><span class="role-tag">Parents</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">📣</span> Announcements</h2>
+        <p>Post school announcements to targeted audiences: All, Admins only, Teachers only, Learners only, or Parents only.</p>
+        <div class="info-box tip">
+          <span class="info-icon">💡</span>
+          <span>Set priority to <strong>Urgent</strong> for emergency announcements — they appear at the top of every user's feed with a red highlight and trigger an immediate push notification.</span>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">💸</span> Fee Reminders</h2>
+        <p>Send bulk fee reminders to all parents with outstanding balances in one click. ZARODA automatically personalises each message with the learner's name, balance, and due date. Choose SMS, WhatsApp, or email.</p>
+
+        <h2 class="section-title"><span class="title-icon">💬</span> Parent–Teacher Messages</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Parent starts a conversation</div><div class="step-desc">From the parent portal, tap Messages → New Message. Select the learner — the class teacher is automatically linked.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Teacher receives notification</div><div class="step-desc">A push notification alerts the teacher. They reply from their dashboard. Messages are threaded by learner.</div></div></div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ PROFESSIONAL RECORDS ══════════════════════════ -->
+    <article class="article article-hidden" id="page-prorecords">
+      <div class="article-hero">
+        <div class="hero-badge">📋 Module</div>
+        <h1 class="hero-title">Professional Records</h1>
+        <p class="hero-sub">Full KICD CBC document pipeline powered by AI. Generate a complete scheme of work, lesson plans, lesson notes, and learner progress records in minutes.</p>
+        <div class="roles-access"><span class="role-tag">Teachers</span><span class="role-tag">HOI</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">🤖</span> AI Document Pipeline</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Generate Scheme of Work</div><div class="step-desc">Select subject, grade, and term. AI reads the KICD syllabus and generates all strands, sub-strands, SLOs, Key Inquiry Questions, and activities for every week.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Generate Lesson Plans</div><div class="step-desc">For each week in your scheme, generate a full CBC lesson plan: Introduction → Development → Conclusion, plus Core Competencies, Values, and PCIs.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Generate Lesson Notes</div><div class="step-desc">From each lesson plan, generate detailed teaching notes: board work, worked examples, probing questions, and expected learner responses.</div></div></div>
+          <div class="step-card"><div class="step-num">4</div><div class="step-content"><div class="step-label">Submit for HOI Approval</div><div class="step-desc">Submit your documents from the Teacher Folder. HOI reviews and approves, requests revision, or rejects with comments.</div></div></div>
+        </div>
+        <div class="info-box warn">
+          <span class="info-icon">⚠️</span>
+          <span>Suspension and expulsion actions require <strong>HOI approval</strong> before taking effect. The system blocks these actions until an HOI or Deputy reviews and approves.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ LIBRARY ════════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-library">
+      <div class="article-hero">
+        <div class="hero-badge">📖 Module · FREE</div>
+        <h1 class="hero-title">Library</h1>
+        <p class="hero-sub">Full library management — book catalogue, borrowing, returns, inventory. Completely free. No fines, no charges of any kind.</p>
+        <div class="roles-access"><span class="role-tag">Teachers</span><span class="role-tag">HOI</span><span class="role-tag">Learners</span></div>
+      </div>
+      <div class="article-body">
+        <div class="info-box tip">
+          <span class="info-icon">✅</span>
+          <span>The library module is <strong>100% free</strong> — included in every ZARODA SMS subscription at no extra cost. No overdue fines, no charges, no penalties of any kind.</span>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">📦</span> Issue a Book</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Scan the barcode</div><div class="step-desc">Scan the book's barcode using a USB scanner or type the accession number (e.g. LIB-2025-0001). Book details appear instantly.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Enter borrower</div><div class="step-desc">Search for the learner or teacher by name or admission number. Select borrower type and confirm.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Confirm issue</div><div class="step-desc">Click "Issue Book". Due date is set automatically (14 days by default). No fines if returned late — only a gentle reminder.</div></div></div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">⏰</span> Late Returns</h2>
+        <p>If a book is past its due date, the Library → Late Returns tab shows a reminder list. Use the "Send Reminder" button to notify the borrower. <strong>No fines are charged.</strong></p>
+      </div>
+    </article>
+
+    <!-- ══ SPORTS ════════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-sports">
+      <div class="article-hero">
+        <div class="hero-badge">🏆 Module</div>
+        <h1 class="hero-title">Sports Management</h1>
+        <p class="hero-sub">School-level sports — teams, inter-class competitions, athlete profiles, AI talent analytics. Push qualified teams to ZARODA Sports Base for cross-school championships.</p>
+        <div class="roles-access"><span class="role-tag">HOI</span><span class="role-tag">Games Dept</span><span class="role-tag">Teachers</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">🏟</span> School-Level Sports</h2>
+        <p>Manage internal competitions (inter-class, inter-house), team rosters, fixtures, and results. All within your school — no external connectivity needed.</p>
+
+        <h2 class="section-title"><span class="title-icon">🚀</span> Qualifying for Championships</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Create a Qualification Register</div><div class="step-desc">Go to Sports → Qualifications → New. Select the discipline, competition level (Zone/County/National), and how the team qualified.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Add qualified athletes</div><div class="step-desc">Add athletes to the register with their events and personal bests. For team sports, select squad members.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Push to ZARODA Sports Base</div><div class="step-desc">Browse open Base championships, click "Register School for this Championship". Bib numbers are assigned automatically. Free.</div></div></div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">⭐</span> AI Talent Analytics</h2>
+        <p>ZARODA AI analyses each athlete's recent performances and generates a talent score (0–10), strengths, areas to improve, and a personalised recommendation for the coach.</p>
+      </div>
+    </article>
+
+    <!-- ══ DISCIPLINE ════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-discipline">
+      <div class="article-hero">
+        <div class="hero-badge">⚖️ Module</div>
+        <h1 class="hero-title">Discipline & Guidance</h1>
+        <p class="hero-sub">Record incidents, track discipline actions, manage counselling sessions, and generate QASO-ready behaviour reports.</p>
+        <div class="roles-access"><span class="role-tag">HOI</span><span class="role-tag">Teachers</span><span class="role-tag">Counsellors</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">📋</span> Recording an Incident</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Go to Discipline → Record Incident</div><div class="step-desc">Search for the learner, select the severity (minor / moderate / major / critical), and write a factual description.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Log the action taken</div><div class="step-desc">Record what action was taken (verbal warning, detention, parent meeting, etc.). Suspensions and expulsions require HOI approval.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Notify the parent</div><div class="step-desc">Use the "Notify Parent" button to log the communication. Choose the channel (call, SMS, WhatsApp, email, in-person).</div></div></div>
+        </div>
+
+        <div class="info-box danger">
+          <span class="info-icon">🔒</span>
+          <span><strong>Counselling records are confidential.</strong> Only the counsellor who recorded the session and the HOI can view session notes. All other users see only that a session took place — not the content.</span>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">📈</span> QASO Report</h2>
+        <p>Generate a ready-to-submit QASO report from Analytics → QASO Report. The report covers the full term: incident counts by severity, suspensions, counselling sessions, and repeat offenders — formatted for the Sub-County Quality Assurance and Standards Officer.</p>
+      </div>
+    </article>
+
+    <!-- ══ TEACHER INVITE ════════════════════════════════ -->
+    <article class="article article-hidden" id="page-teacher-invite">
+      <div class="article-hero">
+        <div class="hero-badge">📨 New Feature</div>
+        <h1 class="hero-title">Share Invite Link</h1>
+        <p class="hero-sub">As a class teacher, you can onboard your class first and let the rest of the school join later. Generate a personal invite link and share it via WhatsApp or SMS.</p>
+        <div class="roles-access"><span class="role-tag">Class Teachers</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">🔗</span> How It Works</h2>
+        <div class="steps">
+          <div class="step-card"><div class="step-num">1</div><div class="step-content"><div class="step-label">Click "Share Invite" on your dashboard</div><div class="step-desc">The share button is on your class dashboard, next to your stream name. Click it to generate or retrieve your invite link.</div></div></div>
+          <div class="step-card"><div class="step-num">2</div><div class="step-content"><div class="step-label">Share via WhatsApp or SMS</div><div class="step-desc">The share modal has one-tap WhatsApp and SMS buttons. The message is pre-filled with your name, class name, and the invite link — just tap Send.</div></div></div>
+          <div class="step-card"><div class="step-num">3</div><div class="step-content"><div class="step-label">Recipient signs up</div><div class="step-desc">They click the link, fill in their school details (including county, sub-county and zone), and create their account. They start with your class stream.</div></div></div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">📋</span> The Invite Message</h2>
+        <div style="background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;font-size:12.5px;line-height:1.7;font-family:monospace;color:var(--text-mid);">
+          👋 You've been invited by <strong>[Teacher Name]</strong>, <strong>[Class Name]</strong> Class Teacher, to join ZARODA School Management System.<br/><br/>
+          Start with your class today and let the rest of the school join later.<br/><br/>
+          Sign up here: <strong>[invite link]</strong><br/><br/>
+          ZARODA Solutions – Empowering Schools with Technology
+        </div>
+
+        <div class="info-box info">
+          <span class="info-icon">🛡</span>
+          <span>Invite links expire after <strong>7 days</strong> and have a maximum of <strong>50 uses</strong>. You can deactivate your link at any time from the Share modal. Rate limiting prevents abuse.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ AI TOOLS ══════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-ai-tools">
+      <div class="article-hero">
+        <div class="hero-badge">🤖 AI-Powered</div>
+        <h1 class="hero-title">AI Tools</h1>
+        <p class="hero-sub">ZARODA uses Claude AI (by Anthropic) to generate professional documents, analyse talent, write report card comments, and more — all aligned to Kenya's CBC/CBE framework.</p>
+        <div class="roles-access"><span class="role-tag">Teachers</span><span class="role-tag">HOI</span></div>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">✨</span> What AI Does in ZARODA</h2>
+        <div class="quick-grid">
+          <div class="quick-card"><div class="quick-icon">📋</div><div class="quick-label">Schemes of Work</div><div class="quick-sub">Full KICD-aligned, 12–14 weeks</div></div>
+          <div class="quick-card"><div class="quick-icon">📝</div><div class="quick-label">Lesson Plans</div><div class="quick-sub">CBC structure, PCIs, competencies</div></div>
+          <div class="quick-card"><div class="quick-icon">📖</div><div class="quick-label">Lesson Notes</div><div class="quick-sub">Board work, examples, questions</div></div>
+          <div class="quick-card"><div class="quick-icon">📊</div><div class="quick-label">Learner Progress</div><div class="quick-sub">Per-learner EE/ME/AE/BE records</div></div>
+          <div class="quick-card"><div class="quick-icon">🎓</div><div class="quick-label">Report Comments</div><div class="quick-sub">Personalised per learner</div></div>
+          <div class="quick-card"><div class="quick-icon">⭐</div><div class="quick-label">Talent Reports</div><div class="quick-sub">Sports athlete analysis 0–10</div></div>
+        </div>
+        <div class="info-box tip">
+          <span class="info-icon">💡</span>
+          <span>AI-generated documents are saved as <strong>drafts</strong>. Always review before submitting to HOI. The AI follows KICD guidelines but you know your learners best — edit freely.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ FAQ ═══════════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-faq">
+      <div class="article-hero">
+        <div class="hero-badge">❓ Help</div>
+        <h1 class="hero-title">Frequently Asked Questions</h1>
+        <p class="hero-sub">Quick answers to the most common questions about ZARODA SMS.</p>
+      </div>
+      <div class="article-body">
+        <h2 class="section-title"><span class="title-icon">💰</span> Billing</h2>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">How much does ZARODA SMS cost? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">KES 2,400 per stream per year for primary and junior schools (Grade 1–9). KES 3,360 per stream per year for senior schools (Grade 10–12). Schools with 3 or more streams get a 30% discount. There is a 2-week free trial — no credit card required to start.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Is the library module really free? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">Yes — completely free. The library module is included in every subscription at no extra charge. There are also no overdue fines or penalties of any kind within the library system.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Is ZARODA Sports Base free? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">Yes. ZARODA Sports Base is a separate, free platform. Schools push their qualified teams and athletes to Base at no charge. Base manages the cross-school championships, assigns bib numbers, and records results — all free.</div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">🔧</span> Technical</h2>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Does ZARODA work offline? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">ZARODA is a web-based progressive web app (PWA). You need internet to load data and save changes. However, recently viewed pages are cached and can be read offline. The mobile app (coming soon) will have offline data entry that syncs when reconnected.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Can I use ZARODA on a phone? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">Yes. ZARODA SMS is fully mobile-responsive and works on any smartphone browser. All core features — fee collection, attendance, announcements — are optimised for small screens. Install it as a PWA from your browser for a native app feel.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">How is M-Pesa connected? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">ZARODA integrates with Safaricom's Daraja API (M-Pesa for Business). You need an M-Pesa for Business (Paybill) account. Your bursar enters the API credentials in Finance → Settings. STK push, C2B, and auto-reconciliation all work once configured.</div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">📚</span> CBC / Academic</h2>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Is ZARODA aligned to the new CBC curriculum? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">Yes. ZARODA is built from the ground up for Kenya's CBC/CBE framework. The timetable engine uses the official MoE CBE Timetabling Guidelines. Professional records follow KICD document formats. Report cards use CBC performance levels. The AI uses the KICD syllabus as the reference for all generated documents.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Can I generate documents for a special needs class? <span class="faq-chevron">▼</span></button>
+          <div class="faq-a">Yes. ZARODA supports all three SNE levels — Foundation, Intermediate, and Pre-Vocational — with the correct lesson allocations and period structures per the MoE SNE timetabling guidelines. Select the appropriate grade band when setting up the stream.</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ══ SUPPORT ════════════════════════════════════════ -->
+    <article class="article article-hidden" id="page-support">
+      <div class="article-hero">
+        <div class="hero-badge">💬 Support</div>
+        <h1 class="hero-title">Contact Support</h1>
+        <p class="hero-sub">We're here to help. Reach us by WhatsApp, email, or phone — we respond the same day during business hours.</p>
+      </div>
+      <div class="article-body">
+        <div class="quick-grid">
+          <div class="quick-card" onclick="window.open('https://wa.me/254781230805','_blank')">
+            <div class="quick-icon">💬</div>
+            <div class="quick-label">WhatsApp</div>
+            <div class="quick-sub">+254 781 230 805<br/>Fastest response</div>
+          </div>
+          <div class="quick-card" onclick="window.open('mailto:support@zarodasolutions.app')">
+            <div class="quick-icon">✉️</div>
+            <div class="quick-label">Email</div>
+            <div class="quick-sub">support@zarodasolutions.app<br/>Same day</div>
+          </div>
+          <div class="quick-card" onclick="window.open('https://www.zarodasolutions.app','_blank')">
+            <div class="quick-icon">🌐</div>
+            <div class="quick-label">Website</div>
+            <div class="quick-sub">www.zarodasolutions.app<br/>Resources & updates</div>
+          </div>
+        </div>
+
+        <h2 class="section-title"><span class="title-icon">⏰</span> Support Hours</h2>
+        <table class="role-table">
+          <thead><tr><th>Channel</th><th>Hours (EAT)</th><th>Response Time</th></tr></thead>
+          <tbody>
+            <tr><td>WhatsApp</td><td>7:30am – 9:00pm, Mon–Sat</td><td>Within 1 hour</td></tr>
+            <tr><td>Email</td><td>8:00am – 6:00pm, Mon–Fri</td><td>Same day</td></tr>
+            <tr><td>Emergency</td><td>24/7 for critical issues</td><td>Within 2 hours</td></tr>
+          </tbody>
+        </table>
+
+        <div class="contact-box">
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <img
+              src="zaroda-logo.png"
+              alt="ZARODA Solutions"
+              style="height:60px;width:auto;object-fit:contain;flex-shrink:0;border-radius:6px;"
+              onerror="this.style.display='none'"
+            />
+            <div class="contact-info">
+              <strong>ZARODA Solutions</strong><br/>
+              Empowering Schools with Technology<br/>
+              +254 781 230 805 · www.zarodasolutions.app
+            </div>
+          </div>
+          <div class="contact-links">
+            <a href="https://wa.me/254781230805" target="_blank" class="contact-btn primary">💬 WhatsApp Now</a>
+            <a href="mailto:support@zarodasolutions.app" class="contact-btn ghost">✉ Email Us</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Search results placeholder -->
+    <div id="search-results" class="article" style="display:none;">
+      <div class="article-hero" style="background:linear-gradient(135deg,#374151,#1f2937)">
+        <div class="hero-badge">🔍 Search Results</div>
+        <h1 class="hero-title" id="search-query-display">Results for "…"</h1>
+        <p class="hero-sub" id="search-count-display"></p>
+      </div>
+      <div id="search-results-list" class="article-body" style="margin-top:16px;"></div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── PAGE NAVIGATION ──────────────────────────────────────────
+const pages = {
+  'welcome':        { title: 'Welcome to ZARODA SMS',     breadcrumb: 'Getting Started' },
+  'roles':          { title: 'Roles & Permissions',       breadcrumb: 'Getting Started' },
+  'onboarding':     { title: 'School Onboarding',         breadcrumb: 'Getting Started' },
+  'academic':       { title: 'Academic Core & Timetable', breadcrumb: 'Modules' },
+  'finance':        { title: 'Finance & Fees',            breadcrumb: 'Modules' },
+  'communication':  { title: 'Communication',             breadcrumb: 'Modules' },
+  'prorecords':     { title: 'Professional Records',      breadcrumb: 'Modules' },
+  'library':        { title: 'Library',                   breadcrumb: 'Modules' },
+  'sports':         { title: 'Sports Management',         breadcrumb: 'Modules' },
+  'discipline':     { title: 'Discipline & Guidance',     breadcrumb: 'Modules' },
+  'teacher-invite': { title: 'Share Invite Link',         breadcrumb: 'For Teachers' },
+  'ai-tools':       { title: 'AI Tools',                  breadcrumb: 'For Teachers' },
+  'faq':            { title: 'FAQ',                       breadcrumb: 'Help' },
+  'support':        { title: 'Contact Support',           breadcrumb: 'Help' },
+};
+
+function showPage(id) {
+  // Hide all articles
+  document.querySelectorAll('.article').forEach(a => {
+    a.classList.add('article-hidden');
+  });
+  document.getElementById('search-results').style.display = 'none';
+
+  // Show target
+  const target = document.getElementById('page-' + id);
+  if (target) {
+    target.classList.remove('article-hidden');
+    document.getElementById('content').scrollTop = 0;
+  }
+
+  // Update nav
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const activeBtn = document.querySelector(`[data-page="${id}"]`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  // Update topbar
+  const meta = pages[id] || {};
+  document.getElementById('topbar-title').textContent = meta.title || id;
+  document.getElementById('topbar-breadcrumb').textContent =
+    'User Guide → ' + (meta.breadcrumb || '');
+
+  // Close sidebar on mobile
+  closeSidebar();
+
+  // Clear search
+  document.getElementById('search-input').value = '';
+}
+
+// ── SIDEBAR ──────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+}
+
+// ── FAQ ACCORDION ────────────────────────────────────────────
+function toggleFaq(btn) {
+  const item = btn.closest('.faq-item');
+  const isOpen = item.classList.contains('open');
+  // Close all
+  document.querySelectorAll('.faq-item.open').forEach(i => i.classList.remove('open'));
+  if (!isOpen) item.classList.add('open');
+}
+
+// ── ROLE FILTER ──────────────────────────────────────────────
+function setRole(role, btn) {
+  document.querySelectorAll('.role-pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  // Future: filter content by role
+}
+
+// ── SEARCH ───────────────────────────────────────────────────
+const searchIndex = [
+  { page:'welcome',       text:'Welcome overview modules dashboard',                    title:'Welcome to ZARODA SMS' },
+  { page:'roles',         text:'roles permissions HOI teacher bursar parent learner',   title:'Roles & Permissions' },
+  { page:'onboarding',    text:'onboarding setup getting started school streams trial', title:'School Onboarding' },
+  { page:'academic',      text:'timetable KICD CBC academic learners streams report card performance levels assessment', title:'Academic Core' },
+  { page:'finance',       text:'fees mpesa payment invoice receipt payroll FPE FDJSE FDSSE cashbook debtors', title:'Finance & Fees' },
+  { page:'communication', text:'SMS email announcements WhatsApp push notification parent teacher message', title:'Communication' },
+  { page:'prorecords',    text:'scheme of work lesson plan notes professional records KICD CBC submission approval', title:'Professional Records' },
+  { page:'library',       text:'library books borrow return catalogue barcode accession free no fines', title:'Library' },
+  { page:'sports',        text:'sports teams athletics inter-class talent bib championship ZARODA Sports Base', title:'Sports Management' },
+  { page:'discipline',    text:'incident discipline counselling behaviour QASO suspension expulsion report', title:'Discipline & Guidance' },
+  { page:'teacher-invite',text:'invite share link WhatsApp SMS class teacher onboard referral token', title:'Share Invite Link' },
+  { page:'ai-tools',      text:'AI artificial intelligence scheme lesson plan report card talent analytics', title:'AI Tools' },
+  { page:'faq',           text:'frequently asked questions pricing billing cost offline mobile', title:'FAQ' },
+  { page:'support',       text:'contact support WhatsApp email phone help', title:'Contact Support' },
+];
+
+function handleSearch(q) {
+  const query = q.trim().toLowerCase();
+  if (!query) {
+    // Restore previous page
+    document.getElementById('search-results').style.display = 'none';
+    const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'welcome';
+    const target = document.getElementById('page-' + activePage);
+    if (target) target.classList.remove('article-hidden');
+    return;
+  }
+
+  // Hide all pages
+  document.querySelectorAll('.article').forEach(a => a.classList.add('article-hidden'));
+
+  // Search
+  const results = searchIndex.filter(item =>
+    item.text.includes(query) || item.title.toLowerCase().includes(query)
+  );
+
+  // Display results
+  const sr = document.getElementById('search-results');
+  sr.style.display = 'block';
+  sr.classList.remove('article-hidden');
+
+  document.getElementById('search-query-display').textContent = `Results for "${q}"`;
+  document.getElementById('search-count-display').textContent =
+    results.length ? `${results.length} section${results.length !== 1 ? 's' : ''} found` : 'No results found';
+
+  const list = document.getElementById('search-results-list');
+  if (results.length === 0) {
+    list.innerHTML = `<div class="search-empty"><div class="search-empty-icon">🔍</div><p>No results for "<strong>${q}</strong>"</p><p style="font-size:12px;margin-top:4px;">Try a different keyword or browse the guide using the sidebar.</p></div>`;
+  } else {
+    list.innerHTML = results.map(r => `
+      <div class="step-card" style="cursor:pointer;margin-bottom:8px;" onclick="showPage('${r.page}')">
+        <div class="step-content">
+          <div class="step-label">${r.title}</div>
+          <div class="step-desc">Click to open this section</div>
+        </div>
+        <div style="font-size:20px;align-self:center;">→</div>
+      </div>
+    `).join('');
+  }
+
+  document.getElementById('content').scrollTop = 0;
+  document.getElementById('topbar-title').textContent = 'Search Results';
+  document.getElementById('topbar-breadcrumb').textContent = `User Guide → "${q}"`;
+}
+</script>
+</body>
+</html>

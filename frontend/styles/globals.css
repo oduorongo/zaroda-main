@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+/* ════════════════════════════════════════════════════════════
+   THEME TOKENS — light is default, .dark overrides on <html>
+   Every component class below reads these vars, so toggling
+   the .dark class re-themes the entire app at once.
+   ════════════════════════════════════════════════════════════ */
+@layer base {
+  :root {
+    /* Brand (constant in both themes) */
+    --brand-navy:   #1a2e5a;
+    --brand-gold:   #d4af37;
+    --brand-orange: #f5820a;
+    --brand-blue:   #2563eb;   /* active-nav highlight from the design */
+
+    /* Surfaces & text — LIGHT */
+    --bg:           #f4f6fb;   /* page background */
+    --surface:      #ffffff;   /* cards */
+    --surface-2:    #f4f6fb;   /* inputs, insets */
+    --border:       #e2e6f0;
+    --text:         #1a2040;   /* primary text */
+    --text-muted:   #7a82a8;   /* secondary text */
+    --text-heading: #1a2e5a;   /* headings */
+
+    /* Sidebar (dark in BOTH themes, matching the design) */
+    --sidebar:      #0f1c38;
+    --sidebar-text: rgba(255,255,255,0.65);
+
+    --shimmer-a:    #f4f6fb;
+    --shimmer-b:    #e8ecf5;
+  }
+
+  html.dark {
+    --bg:           #0a1226;   /* deep navy page bg */
+    --surface:      #131f3d;   /* card navy */
+    --surface-2:    #1c2a4d;   /* input / inset */
+    --border:       #243456;
+    --text:         #e8edf7;
+    --text-muted:   #8b97b8;
+    --text-heading: #ffffff;
+
+    --sidebar:      #0c1730;
+    --sidebar-text: rgba(255,255,255,0.70);
+
+    --shimmer-a:    #1c2a4d;
+    --shimmer-b:    #243456;
+  }
+
+  body {
+    @apply font-sans antialiased;
+    background: var(--bg);
+    color: var(--text);
+    transition: background-color .2s ease, color .2s ease;
+  }
+  * { box-sizing: border-box; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 text-white text-sm
+           font-semibold rounded-xl active:scale-95 transition-all
+           disabled:opacity-60 disabled:cursor-not-allowed;
+    background: var(--brand-blue);
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold
+           rounded-xl active:scale-95 transition-all;
+    border: 1px solid var(--border);
+    color: var(--text);
+    background: transparent;
+  }
+  .btn-ghost:hover { background: var(--surface-2); }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white text-sm
+           font-semibold rounded-xl hover:bg-red-700 active:scale-95 transition-all;
+  }
+
+  .card {
+    border-radius: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    transition: background-color .2s ease, border-color .2s ease;
+  }
+
+  .input {
+    @apply w-full px-3 py-2.5 rounded-xl text-sm
+           focus:outline-none focus:ring-2 transition-all;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus { --tw-ring-color: var(--brand-blue); border-color: transparent; }
+
+  .label {
+    @apply block text-xs font-semibold mb-1.5 uppercase tracking-wide;
+    color: var(--text-muted);
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+  .page-header {
+    @apply flex items-center justify-between mb-6 pb-5;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title {
+    @apply text-lg font-bold mb-4;
+    color: var(--text-heading);
+  }
+  .table-header {
+    background: var(--brand-navy);
+    @apply text-white text-xs font-bold uppercase tracking-wide;
+  }
+  html.dark .table-header { background: #1c2a4d; }
+
+  .table-cell {
+    @apply px-4 py-3 text-sm;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium
+           transition-all cursor-pointer;
+    color: var(--sidebar-text);
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav-item-active {
+    background: var(--brand-blue);
+    color: #fff;
+  }
+}
+
+/* Helpers that read theme vars (use in pages instead of hard-coded hexes) */
+.text-theme         { color: var(--text); }
+.text-theme-muted   { color: var(--text-muted); }
+.text-theme-heading { color: var(--text-heading); }
+.bg-surface         { background: var(--surface); }
+.bg-surface-2       { background: var(--surface-2); }
+.border-theme       { border-color: var(--border); }
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--brand-gold); }
+
+/* Shimmer */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, var(--shimmer-a) 25%, var(--shimmer-b) 50%, var(--shimmer-a) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 12px;
+}

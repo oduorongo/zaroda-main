@@ -1,0 +1,267 @@
+'use client';
+import { useState, useEffect, useMemo } from 'react';
+import { Save, Loader2, Trophy, Download, Calculator, Printer } from 'lucide-react';
+import apiClient from '@/lib/api/client';
+import { useAuth } from '@/lib/hooks/useAuth';
+import {
+  LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor,
+  learningAreasFor, levelBandLabel,
+} from '@/lib/cbc/constants';
+import toast from 'react-hot-toast';
+
+export default function MarkListPage() {
+  const { user } = useAuth();
+  const [streams,   setStreams]   = useState<any[]>([]);
+  const [streamId,  setStreamId]  = useState('');
+  const [stream,    setStream]    = useState<any>(null);
+  const [learners,  setLearners]  = useState<any[]>([]);
+  const [term,      setTerm]      = useState('term_1');
+  const [examType,  setExamType]  = useState('end_term');
+  const [maxScore,  setMaxScore]  = useState(100);
+  const [scores,    setScores]    = useState<Record<string, Record<string, number>>>({});
+  const [loading,   setLoading]   = useState(false);
+  const [saving,    setSaving]    = useState(false);
+
+  useEffect(() => {
+    apiClient.get('/academic/streams').then(r => {
+      setStreams(r.data);
+      const s = user?.streamId ? r.data.find((x: any) => x.id === user.streamId) : r.data[0];
+      if (s) { setStreamId(s.id); setStream(s); }
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!streamId) return;
+    const s = streams.find(x => x.id === streamId);
+    setStream(s);
+    setLoading(true);
+    Promise.all([
+      apiClient.get(`/academic/streams/${streamId}/learners`).catch(() => ({ data: [] })),
+      apiClient.get(`/academic/mark-list?streamId=${streamId}&term=${term}&examType=${examType}`).catch(() => ({ data: [] })),
+    ]).then(([lrn, ml]) => {
+      setLearners(lrn.data);
+      // Pre-fill scores from any marks already entered (by subject teachers or admin)
+      const filled: Record<string, Record<string, number>> = {};
+      const mlLearners = Array.isArray(ml.data) ? ml.data : (ml.data?.learners || []);
+      mlLearners.forEach((row: any) => {
+        filled[row.learnerId] = {};
+        Object.entries(row.subjects || {}).forEach(([subj, v]: any) => {
+          if (v.rawScore != null) filled[row.learnerId][subj] = v.rawScore;
+        });
+      });
+      setScores(filled);
+    }).catch(() => toast.error('Could not load class mark list'))
+      .finally(() => setLoading(false));
+  }, [streamId, term, examType]);
+
+  // Determine learning areas for this specific grade (KICD-accurate)
+  const subjects = useMemo(() => learningAreasFor(stream?.gradeLevel || 'grade_4'), [stream]);
+  const band = useMemo(() => levelBandLabel(stream?.gradeLevel || 'grade_4'), [stream]);
+
+  const setScore = (learnerId: string, subject: string, raw: string) => {
+    const val = Math.min(maxScore, Math.max(0, Number(raw) || 0));
+    setScores(s => ({ ...s, [learnerId]: { ...(s[learnerId] || {}), [subject]: val } }));
+  };
+
+  // Points apply only to grades 7-12 (8-point KNEC scale)
+  const isSenior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream?.gradeLevel || '');
+  const pctToPoints = (pct: number) => {
+    if (pct >= 90) return 8; if (pct >= 75) return 7; if (pct >= 58) return 6;
+    if (pct >= 41) return 5; if (pct >= 31) return 4; if (pct >= 21) return 3;
+    if (pct >= 11) return 2; return 1;
+  };
+
+  // Compute each learner's total %, then rank
+  const ranked = useMemo(() => {
+    const rows = learners.map(l => {
+      const subjectScores = scores[l.id] || {};
+      const entered = Object.values(subjectScores);
+      const totalRaw = entered.reduce((a, b) => a + b, 0);
+      const maxPossible = subjects.length * maxScore;
+      const percent = maxPossible > 0 && entered.length > 0
+        ? Math.round((totalRaw / (entered.length * maxScore)) * 100)
+        : 0;
+      return { learner: l, subjectScores, totalRaw, percent, hasScores: entered.length > 0 };
+    });
+    // Rank by percent desc (only those with scores)
+    const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
+    withScores.forEach((r, i) => (r as any).rank = i + 1);
+    const without = rows.filter(r => !r.hasScores);
+    return [...withScores, ...without];
+  }, [learners, scores, subjects, maxScore]);
+
+  const printMarkList = async () => {
+    const win = window.open('', '_blank');
+    try {
+      const res = await apiClient.get('/pdf/mark-list/html', {
+        params: { streamId, term, examType, academicYear: '2025/2026' },
+        responseType: 'text',
+      });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      if (win) { win.document.write(html); win.document.close(); }
+      else toast.error('Allow pop-ups to print');
+    } catch {
+      if (win) win.close();
+      toast.error('Could not open mark list');
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const records = ranked.filter(r => r.hasScores).flatMap(r =>
+        Object.entries(r.subjectScores).map(([subject, raw]) => {
+          const pct = Math.round((raw / maxScore) * 100);
+          return {
+            learnerId:    r.learner.id, subject, streamId,
+            rawScore:     raw, maxScore, percent: pct,
+            level:        percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
+            gradeLevel:   stream?.gradeLevel,
+            term, examType, academicYear: '2025/2026',
+          };
+        })
+      );
+      await apiClient.post('/academic/assessment-results/bulk', { records });
+      toast.success(`Mark list saved — ${records.length} entries`);
+    } catch { toast.error('Could not save mark list'); }
+    finally { setSaving(false); }
+  };
+
+  const scaleLabel = stream ? (isSeniorScale(stream.gradeLevel) ? '8-level (Grade 7–12)' : '4-level (ECDE–Grade 6)') : '';
+
+  return (
+    <div className="space-y-5">
+      <div className="page-header">
+        <div>
+          <h1 className="text-2xl font-black text-theme-heading">Mark List & Raw Scores</h1>
+          <p className="text-sm text-theme-muted">Enter raw scores — auto-converts to % and CBC level, then ranks the class</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {streamId && (
+            <button onClick={printMarkList} className="btn-ghost">
+              <Printer size={16}/> Print / Save PDF
+            </button>
+          )}
+          <button onClick={save} disabled={saving || learners.length === 0} className="btn-primary">
+            {saving ? <><Loader2 size={16} className="animate-spin"/> Saving…</> : <><Save size={16}/> Save Mark List</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="card p-4 flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="label">Stream</label>
+          <select value={streamId} onChange={e => setStreamId(e.target.value)} className="input w-44">
+            {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Term</label>
+          <select value={term} onChange={e => setTerm(e.target.value)} className="input w-32">
+            <option value="term_1">Term 1</option><option value="term_2">Term 2</option><option value="term_3">Term 3</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Assessment</label>
+          <select value={examType} onChange={e => setExamType(e.target.value)} className="input w-36">
+            <option value="end_term">End Term</option>
+            <option value="mid_term">Mid Term</option>
+            <option value="cat">CAT</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Out of</label>
+          <input type="number" value={maxScore} onChange={e => setMaxScore(Number(e.target.value)||100)} className="input w-24"/>
+        </div>
+        {stream && (
+          <div className="ml-auto text-xs bg-surface-2 border border-theme rounded-lg px-3 py-2 text-theme-muted">
+            <Calculator size={12} className="inline mr-1"/> Scale: <strong className="text-theme-heading">{scaleLabel}</strong> · {band}
+          </div>
+        )}
+      </div>
+
+      {loading ? <div className="h-64 shimmer rounded-2xl"/> : learners.length === 0 ? (
+        <div className="card p-10 text-center text-theme-muted">No learners in this stream</div>
+      ) : (
+        <div className="card overflow-auto">
+          <table className="w-full text-xs min-w-[760px]">
+            <thead>
+              <tr className="table-header">
+                <th className="px-3 py-3 text-left sticky left-0 bg-[#1a2e5a]">Rank</th>
+                <th className="px-3 py-3 text-left">Learner</th>
+                {subjects.map(s => (
+                  <th key={s} className="px-2 py-3 text-center" title={s}>
+                    {s.length > 12 ? s.slice(0, 10) + '…' : s}
+                  </th>
+                ))}
+                <th className="px-3 py-3 text-center">Total %</th>
+                {isSenior && <th className="px-3 py-3 text-center">Points</th>}
+                <th className="px-3 py-3 text-center">Level</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranked.map((row, i) => {
+                const lvl = row.hasScores ? percentToLevel(row.percent, stream?.gradeLevel || 'grade_4') : null;
+                return (
+                  <tr key={row.learner.id} className={`border-b border-theme ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-2'}`}>
+                    <td className="px-3 py-2 sticky left-0 bg-inherit">
+                      {row.hasScores ? (
+                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-lg text-xs font-black
+                          ${(row as any).rank === 1 ? 'bg-[#d4af37] text-[#0f1c38]' : 'bg-surface-2 text-theme-muted'}`}>
+                          {(row as any).rank}
+                        </span>
+                      ) : <span className="text-[#e2e6f0]">—</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="font-semibold text-theme-heading whitespace-nowrap">{row.learner.firstName} {row.learner.lastName}</div>
+                      <div className="text-[10px] text-theme-muted">{row.learner.admissionNumber}</div>
+                    </td>
+                    {subjects.map(subj => (
+                      <td key={subj} className="px-1 py-1.5 text-center">
+                        <input type="number" min={0} max={maxScore}
+                          value={row.subjectScores[subj] ?? ''}
+                          onChange={e => setScore(row.learner.id, subj, e.target.value)}
+                          className="w-12 text-center text-xs px-1 py-1 bg-surface-2 border border-theme rounded-lg focus:ring-1 focus:ring-[#1a2e5a] focus:outline-none"/>
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 text-center font-black text-theme-heading">
+                      {row.hasScores ? `${row.percent}%` : '—'}
+                    </td>
+                    {isSenior && (
+                      <td className="px-3 py-2 text-center font-black text-theme-heading">
+                        {row.hasScores ? pctToPoints(row.percent) : '—'}
+                      </td>
+                    )}
+                    <td className="px-3 py-2 text-center">
+                      {lvl && (
+                        <span className="badge text-white text-[10px] font-bold" style={{ backgroundColor: lvl.color }}>
+                          {lvl.code}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Level key */}
+      {stream && (
+        <div className="card p-4">
+          <p className="text-xs font-bold text-theme-muted uppercase tracking-wide mb-3">CBC Performance Levels — {scaleLabel}</p>
+          <div className="flex flex-wrap gap-2">
+            {levelsFor(stream.gradeLevel).map(l => (
+              <div key={l.code} className="flex items-center gap-1.5 text-xs">
+                <span className="badge text-white font-bold" style={{ backgroundColor: l.color }}>{l.code}</span>
+                <span className="text-theme-muted">{l.label} ({l.min}–{l.max}%)</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

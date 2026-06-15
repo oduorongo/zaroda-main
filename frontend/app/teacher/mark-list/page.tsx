@@ -1,0 +1,352 @@
+// app/teacher/mark-list/page.tsx
+// Class teacher manages the FULL class mark list (all learning areas at once).
+// Subject teachers use "Enter Marks" (one subject). This consolidated view is
+// for the class teacher / overall class teacher of the stream.
+'use client';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Save, Loader2, Trophy, ArrowLeft, Calculator, Download, Printer, Lock } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import apiClient from '@/lib/api/client';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea } from '@/lib/cbc/constants';
+import toast from 'react-hot-toast';
+
+export default function TeacherMarkListPage() {
+  const { user } = useAuth();
+  const router   = useRouter();
+  const [streams,  setStreams]  = useState<any[]>([]);
+  const [streamId, setStreamId] = useState('');
+  const [stream,   setStream]   = useState<any>(null);
+  const [learners, setLearners] = useState<any[]>([]);
+  const [term,     setTerm]     = useState('term_1');
+  const [examType, setExamType] = useState('end_term');
+  const [maxScore, setMaxScore] = useState(100);
+  const [scores,   setScores]   = useState<Record<string, Record<string, number>>>({});
+  // Cells that already exist in the database (saved). Key: `${learnerId}|${subject}`.
+  const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
+  // Authoritative learning areas for this class, from the assessment rubric
+  const [rubricAreas, setRubricAreas] = useState<string[]>([]);
+  const [loading,  setLoading]  = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const cellKey = (l: string, s: string) => `${l}|${s}`;
+
+  // Only this teacher's own class(es)
+  useEffect(() => {
+    if (!user) return;
+    apiClient.get('/academic/streams').then(r => {
+      const mine = (r.data || []).filter((x: any) => x.id === user.streamId || x.classTeacherId === user.id);
+      const list = mine.length ? mine : (r.data || []);
+      setStreams(list);
+      const s = list[0];
+      if (s) { setStreamId(s.id); setStream(s); }
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!streamId) return;
+    const s = streams.find(x => x.id === streamId);
+    setStream(s);
+    setLoading(true);
+    Promise.all([
+      apiClient.get(`/academic/streams/${streamId}/learners`).catch(() => ({ data: [] })),
+      apiClient.get('/academic/mark-list', { params: { streamId, term, examType } }).catch(() => ({ data: null })),
+      // Authoritative learning areas for this class = the assessment rubric for its grade
+      s?.gradeLevel
+        ? apiClient.get('/assessment/learning-areas', { params: { gradeLevel: s.gradeLevel } }).catch(() => ({ data: [] }))
+        : Promise.resolve({ data: [] }),
+    ]).then(([lrn, ml, ra]) => {
+      setLearners(lrn.data);
+      const rubric: string[] = Array.from(new Set((ra.data || []).map((x: any) => x.learningArea).filter(Boolean)));
+      const norm = (x: string) => x.toLowerCase().replace(/[^a-z]/g, '');
+      // Map a saved subject name onto the matching rubric column (tolerant of spelling
+      // variants, word families and extra words). Unmatched names keep their own column.
+      const toColumn = (saved: string) => matchLearningArea(saved, rubric) || saved;
+      // Pre-fill from marks already saved, and record which cells are saved (edit-only).
+      const filled: Record<string, Record<string, number>> = {};
+      const saved = new Set<string>();
+      const extraCols = new Set<string>();
+      const mlLearners = Array.isArray(ml.data) ? ml.data : (ml.data?.learners || []);
+      mlLearners.forEach((row: any) => {
+        filled[row.learnerId] = {};
+        Object.entries(row.subjects || {}).forEach(([subj, v]: any) => {
+          if (v.rawScore != null) {
+            const col = toColumn(subj);
+            filled[row.learnerId][col] = v.rawScore;
+            saved.add(cellKey(row.learnerId, col));
+            if (!rubric.some(rc => norm(rc) === norm(col))) extraCols.add(col); // saved but not in rubric
+          }
+        });
+      });
+      setScores(filled);
+      setSavedCells(saved);
+      // Rubric columns + any saved subjects that aren't in the rubric (so no marks are hidden).
+      setRubricAreas(Array.from(new Set([...rubric, ...extraCols])));
+    }).catch(() => toast.error('Could not load class mark list'))
+      .finally(() => setLoading(false));
+  }, [streamId, term, examType]);
+
+  // Learning areas come STRICTLY from this class's assessment rubric, de-duplicated.
+  // Falls back to the grade band list only if the rubric has not been set up yet.
+  const subjects = useMemo(() => {
+    if (rubricAreas.length) return rubricAreas;
+    return Array.from(new Set(learningAreasFor(stream?.gradeLevel || 'grade_4')));
+  }, [stream, rubricAreas]);
+  const band = useMemo(() => levelBandLabel(stream?.gradeLevel || 'grade_4'), [stream]);
+
+  const setScore = (learnerId: string, subject: string, raw: string) => {
+    if (raw === '') {
+      setScores(s => {
+        const next = { ...(s[learnerId] || {}) }; delete next[subject];
+        return { ...s, [learnerId]: next };
+      });
+      return;
+    }
+    const val = Math.min(maxScore, Math.max(0, Number(raw) || 0));
+    setScores(s => ({ ...s, [learnerId]: { ...(s[learnerId] || {}), [subject]: val } }));
+  };
+
+  const ranked = useMemo(() => {
+    const rows = learners.map(l => {
+      const subjectScores = scores[l.id] || {};
+      const entered = Object.values(subjectScores);
+      const totalRaw = entered.reduce((a, b) => a + b, 0);
+      const percent = entered.length ? Math.round((totalRaw / (entered.length * maxScore)) * 100) : 0;
+      return { learner: l, subjectScores, totalRaw, percent, hasScores: entered.length > 0 };
+    });
+    const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
+    withScores.forEach((r, i) => (r as any).rank = i + 1);
+    return [...withScores, ...rows.filter(r => !r.hasScores)];
+  }, [learners, scores, subjects, maxScore]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const records = ranked.filter(r => r.hasScores).flatMap(r =>
+        Object.entries(r.subjectScores).map(([subject, raw]) => {
+          const pct = Math.round((raw / maxScore) * 100);
+          return {
+            learnerId: r.learner.id, subject, streamId,
+            rawScore: raw, maxScore, percent: pct,
+            level: percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
+            gradeLevel: stream?.gradeLevel,
+            term, examType, academicYear: '2025/2026',
+          };
+        })
+      );
+      if (!records.length) { toast.error('No scores to save'); return; }
+      await apiClient.post('/academic/assessment-results/bulk', { records });
+      // Everything now persisted → mark all current cells as saved (edit-only henceforth)
+      const saved = new Set(savedCells);
+      records.forEach(rec => saved.add(cellKey(rec.learnerId, rec.subject)));
+      setSavedCells(saved);
+      toast.success(`Class mark list saved — ${records.length} entries`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not save mark list');
+    } finally { setSaving(false); }
+  };
+
+  // ── Print / Save as PDF (browser-based, no server PDF engine) ────
+  const downloadPdf = async () => {
+    const win = window.open('', '_blank');
+    try {
+      const res = await apiClient.get('/pdf/mark-list/html', {
+        params: { streamId, term, examType, academicYear: '2025/2026' },
+        responseType: 'text',
+      });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      if (win) {
+        win.document.open(); win.document.write(html); win.document.close();
+        const fire = () => { try { win.focus(); win.print(); } catch {} };
+        if (win.document.readyState === 'complete') setTimeout(fire, 500);
+        else win.onload = () => setTimeout(fire, 300);
+      }
+      else toast.error('Allow pop-ups to print');
+    } catch {
+      if (win) win.close();
+      toast.error('Could not open mark list');
+    }
+  };
+
+  // ── Download (CSV) ───────────────────────────────────────
+  const downloadCsv = () => {
+    const head = ['Rank', 'Adm No', 'Learner', ...subjects, 'Avg %'];
+    const lines = [head.join(',')];
+    ranked.forEach((r: any) => {
+      const row = [
+        r.hasScores ? r.rank : '',
+        r.learner.admissionNumber || '',
+        `"${r.learner.firstName} ${r.learner.lastName}"`,
+        ...subjects.map(s => r.subjectScores[s] ?? ''),
+        r.hasScores ? r.percent : '',
+      ];
+      lines.push(row.join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `mark-list-${stream?.name || 'class'}-${term}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Print (opens print dialog with a clean table) ────────
+  const print = () => {
+    const w = window.open('', '_blank');
+    if (!w) { toast.error('Allow pop-ups to print'); return; }
+    const rows = ranked.map((r: any) => `
+      <tr>
+        <td style="text-align:center">${r.hasScores ? r.rank : ''}</td>
+        <td>${r.learner.admissionNumber || ''}</td>
+        <td>${r.learner.firstName} ${r.learner.lastName}</td>
+        ${subjects.map(s => `<td style="text-align:center">${r.subjectScores[s] ?? ''}</td>`).join('')}
+        <td style="text-align:center;font-weight:700">${r.hasScores ? r.percent + '%' : ''}</td>
+      </tr>`).join('');
+    w.document.write(`<!doctype html><html><head><title>Mark List — ${stream?.name || ''}</title>
+      <style>
+        body{font-family:Arial,sans-serif;padding:24px;color:#1a2e5a}
+        h2{margin:0 0 2px} p{margin:0 0 14px;color:#555;font-size:12px}
+        table{width:100%;border-collapse:collapse;font-size:11px}
+        th,td{border:1px solid #ccc;padding:4px 6px}
+        th{background:#1a2e5a;color:#fff;font-size:10px}
+      </style></head><body>
+      <h2>${stream?.name || 'Class'} — Mark List</h2>
+      <p>${term.replace('_',' ')} · ${examType.replace('_',' ')} · ${academicYearLabel()} · Out of ${maxScore}</p>
+      <table><thead><tr>
+        <th>#</th><th>Adm No</th><th>Learner</th>
+        ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <script>window.onload=function(){window.print()}</script>
+      </body></html>`);
+    w.document.close();
+  };
+  const academicYearLabel = () => '2025/2026';
+
+  const scaleLabel = stream ? (isSeniorScale(stream.gradeLevel) ? '8-level (Grade 7–12)' : '4-level (ECDE–Grade 6)') : '';
+
+  return (
+    <div className="space-y-5">
+      <div className="page-header">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.back()} className="btn-ghost p-2" title="Back" aria-label="Back">
+            <ArrowLeft size={18}/>
+          </button>
+          <div>
+            <h1 className="text-2xl font-black text-theme-heading">Class Mark List</h1>
+            <p className="text-sm text-theme-muted">All learning areas for your class — auto % · CBC level · rank</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={downloadPdf} disabled={learners.length === 0} className="btn-ghost text-sm" title="Download PDF"><Download size={15}/> PDF</button>
+          <button onClick={downloadCsv} disabled={learners.length === 0} className="btn-ghost text-sm" title="Download CSV"><Download size={15}/> CSV</button>
+          <button onClick={print} disabled={learners.length === 0} className="btn-ghost text-sm" title="Print"><Printer size={15}/> Print</button>
+          <button onClick={save} disabled={saving || learners.length === 0} className="btn-primary">
+            {saving ? <><Loader2 size={16} className="animate-spin"/> Saving…</> : <><Save size={16}/> Save Mark List</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="card p-4 flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="label">Class</label>
+          <select value={streamId} onChange={e => setStreamId(e.target.value)} className="input w-40">
+            {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Term</label>
+          <select value={term} onChange={e => setTerm(e.target.value)} className="input w-28">
+            <option value="term_1">Term 1</option><option value="term_2">Term 2</option><option value="term_3">Term 3</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Assessment</label>
+          <select value={examType} onChange={e => setExamType(e.target.value)} className="input w-32">
+            <option value="end_term">End Term</option>
+            <option value="cat_1">CAT 1</option>
+            <option value="cat_2">CAT 2</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Out of</label>
+          <input type="number" value={maxScore} onChange={e => setMaxScore(Number(e.target.value) || 100)} className="input w-20"/>
+        </div>
+        {stream && (
+          <div className="ml-auto text-xs bg-surface-2 rounded-lg px-3 py-2 text-theme-muted">
+            <Calculator size={12} className="inline mr-1"/>{scaleLabel} · {band}
+          </div>
+        )}
+      </div>
+
+      <div className="text-[11px] text-theme-muted flex items-center gap-1">
+        <Lock size={11}/> Cells with a saved mark are highlighted — entering a value edits the existing mark.
+      </div>
+
+      {loading ? <div className="h-64 shimmer rounded-2xl"/> : learners.length === 0 ? (
+        <div className="card p-10 text-center text-theme-muted">No learners in this class</div>
+      ) : (
+        <div className="card overflow-auto" ref={printRef}>
+          <table className="w-full text-xs min-w-[760px]">
+            <thead>
+              <tr className="table-header">
+                <th className="px-3 py-3 text-center w-10">#</th>
+                <th className="px-4 py-3 text-left">Learner</th>
+                {subjects.map(s => <th key={s} className="px-2 py-3 text-center">{s}</th>)}
+                <th className="px-3 py-3 text-center">Avg %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranked.map((row: any, i: number) => (
+                <tr key={row.learner.id} className={`border-b border-theme ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-2'}`}>
+                  <td className="px-3 py-2 text-center">
+                    <span className={`w-6 h-6 inline-flex items-center justify-center rounded-lg text-xs font-black ${row.rank === 1 ? 'bg-[#d4af37] text-[#0f1c38]' : 'bg-surface-2 text-theme-muted'}`}>
+                      {row.hasScores ? (row.rank === 1 ? <Trophy size={12}/> : row.rank) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="font-semibold text-theme-heading text-sm">{row.learner.firstName} {row.learner.lastName}</div>
+                    <div className="text-[10px] text-theme-muted">{row.learner.admissionNumber}</div>
+                  </td>
+                  {subjects.map(subj => {
+                    const isSaved = savedCells.has(cellKey(row.learner.id, subj));
+                    return (
+                      <td key={subj} className="px-1 py-2 text-center">
+                        <input
+                          type="number" min={0} max={maxScore}
+                          value={scores[row.learner.id]?.[subj] ?? ''}
+                          placeholder="—"
+                          title={isSaved ? 'Saved mark — editing updates it' : 'New entry'}
+                          onChange={e => setScore(row.learner.id, subj, e.target.value)}
+                          className={`w-14 text-center text-sm px-1.5 py-1 rounded-lg focus:ring-1 focus:ring-[#1a2e5a] focus:outline-none ${isSaved ? 'bg-green-500/10 font-semibold text-green-700' : 'bg-surface-2'}`}
+                          style={{ border: isSaved ? '1px solid rgba(34,197,94,0.4)' : '1px solid var(--border)' }}/>
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-center font-black text-theme-heading">
+                    {row.hasScores ? `${row.percent}%` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {stream && (
+        <div className="card p-4">
+          <p className="text-xs font-bold text-theme-muted uppercase tracking-wide mb-2">CBC Levels — {scaleLabel}</p>
+          <div className="flex flex-wrap gap-2">
+            {levelsFor(stream.gradeLevel).map((l: any) => (
+              <span key={l.code} className="flex items-center gap-1 text-xs">
+                <span className="badge text-white font-bold" style={{ backgroundColor: l.color }}>{l.code}</span>
+                <span className="text-theme-muted">{l.min}–{l.max}%</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,83 @@
+name: zaroda_sms
+description: ZARODA School Management System — Mobile App
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.4.0
+  riverpod_annotation: ^2.3.0
+
+  # Navigation
+  go_router: ^12.0.0
+
+  # HTTP + Auth
+  dio: ^5.3.0
+  flutter_secure_storage: ^9.0.0
+  jwt_decoder: ^2.0.1
+
+  # Local DB / offline cache
+  isar: ^3.1.0
+  isar_flutter_libs: ^3.1.0
+  path_provider: ^2.1.0
+
+  # Notifications
+  firebase_core: ^2.24.0
+  firebase_messaging: ^14.7.0
+  flutter_local_notifications: ^16.2.0
+
+  # UI
+  google_fonts: ^6.1.0
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.0
+  shimmer: ^3.0.0
+  fl_chart: ^0.65.0
+  table_calendar: ^3.0.9
+
+  # Utils
+  intl: ^0.18.1
+  url_launcher: ^6.2.0
+  share_plus: ^7.2.0
+  image_picker: ^1.0.4
+  file_picker: ^6.1.0
+  qr_code_scanner: ^1.0.1
+  permission_handler: ^11.0.1
+
+  # PDF preview
+  flutter_pdfview: ^1.3.0
+
+  # M-Pesa deeplink
+  uni_links: ^0.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.7
+  riverpod_generator: ^2.3.0
+  isar_generator: ^3.1.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/fonts/
+  fonts:
+    - family: ZarodaDisplay
+      fonts:
+        - asset: assets/fonts/Inter-Black.ttf
+          weight: 900
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
