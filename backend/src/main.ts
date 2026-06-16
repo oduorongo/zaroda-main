@@ -24,7 +24,20 @@ async function runMigrations(app: any) {
     )`).catch(() => null);
 
     const appliedRows = await ds.query(`SELECT filename FROM _migrations`).catch(() => []);
-    const applied = new Set((appliedRows || []).map((r: any) => r.filename));
+    let applied = new Set((appliedRows || []).map((r: any) => r.filename));
+
+    // Self-heal a broken tracker: if migrations are marked applied but the core tables
+    // they create are missing (e.g. a prior deploy recorded them without actually
+    // creating the schema, or this is a fresh DB seeded from a half-applied state),
+    // clear the tracker so every migration re-runs and rebuilds the schema cleanly.
+    if (applied.size > 0) {
+      const coreExists = await ds.query(`SELECT to_regclass('public.tenants') AS t`).catch(() => [{ t: null }]);
+      if (!coreExists?.[0]?.t) {
+        console.warn('⚠️  migrations marked applied but core tables missing — resetting migration tracker to rebuild schema');
+        await ds.query(`DELETE FROM _migrations`).catch(() => null);
+        applied = new Set();
+      }
+    }
 
     // Shared trigger function used by many schema migrations (001-010).
     // Define it up-front so every migration can reference it regardless of order.

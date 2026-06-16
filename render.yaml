@@ -34,7 +34,7 @@ services:
     plan: free            # free tier: sleeps after ~15 min idle, wakes on next request
     buildCommand: npm install --legacy-peer-deps && npm run build
     startCommand: npm run start
-    healthCheckPath: /api/docs
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
