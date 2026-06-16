@@ -13,8 +13,13 @@ export default function MyClasses() {
 
   useEffect(() => {
     if (!user) return;
-    apiClient.get('/academic/streams').then(r => {
-      const mine = (r.data||[]).filter((x:any) => x.id === user.streamId || x.classTeacherId === user.id);
+    Promise.all([
+      apiClient.get('/academic/streams'),
+      apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(()=>({data:[]})),
+    ]).then(([r, ss]) => {
+      const assignedIds = new Set<string>((ss.data||[]).map((row:any)=>String(row.streamId)));
+      const mine = (r.data||[]).filter((x:any) =>
+        assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
       setClasses(mine.length ? mine : (r.data||[]));
     }).catch(()=>{}).finally(()=>setLoading(false));
   }, [user]);

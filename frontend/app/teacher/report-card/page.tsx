@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { BulkReportCardsButton, ReportCardButton } from '@/components/pdf/pdf-buttons';
 
 const STYLE: Record<string, string> = {
@@ -25,10 +25,18 @@ export default function ReportCard() {
 
   useEffect(() => {
     if (!user) return;
-    apiClient.get('/academic/streams').then(r => {
-      const mine = (r.data || []).filter((x: any) => x.id === user.streamId || x.classTeacherId === user.id);
-      const list = mine.length ? mine : (r.data || []);
-      setStreams(list); if (list[0]) setStreamId(list[0].id);
+    const seesAll = isHoi(user?.role || '') || user?.role === 'super_admin';
+    Promise.all([
+      apiClient.get('/academic/streams'),
+      seesAll ? Promise.resolve({ data: [] }) : apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(() => ({ data: [] })),
+    ]).then(([r, ss]) => {
+      const all = r.data || [];
+      const assignedIds = new Set<string>((ss.data || []).map((row: any) => String(row.streamId)));
+      const mine = all.filter((x: any) => assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
+      const list = seesAll ? all : (mine.length ? mine : all);
+      setStreams(list);
+      const s = (user.streamId && list.find((x: any) => x.id === user.streamId)) || list[0];
+      if (s) setStreamId(s.id);
     });
   }, [user]);
 
@@ -59,7 +67,7 @@ export default function ReportCard() {
 
       <div className="card p-3 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-theme-muted">Class</span>
+          <span className="text-xs text-theme-muted">Stream</span>
           <select value={streamId} onChange={e => setStreamId(e.target.value)} className="input py-1.5 text-sm w-auto">
             {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>

@@ -21,9 +21,12 @@ export default function TeacherHome() {
       apiClient.get('/academic/streams').catch(()=>({data:[]})),
       apiClient.get('/academic/teachers').catch(()=>({data:[]})),
       apiClient.get('/academic/my-timetable').catch(()=>({data:[]})),
-    ]).then(([s, t, tt]) => {
-      // Only the classes this teacher owns or teaches
-      const mine = (s.data||[]).filter((x:any) => x.id === user.streamId || x.classTeacherId === user.id);
+      apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(()=>({data:[]})),
+    ]).then(([s, t, tt, ss]) => {
+      // All streams this teacher owns OR is assigned to teach in (across learning areas).
+      const assignedIds = new Set<string>((ss.data||[]).map((row:any)=>String(row.streamId)));
+      const mine = (s.data||[]).filter((x:any) =>
+        assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
       setClasses(mine.length ? mine : (s.data||[]));
       const me = (t.data||[]).find((x:any) => x.id === user.id);
       setSubjects(me?.subjects || []);

@@ -35,6 +35,24 @@ export function usePdfDownload() {
       };
 
       const response = await apiClient.request(config);
+
+      // ── DIAGNOSTIC: inspect what the server actually returned ──
+      const ct = response.headers?.['content-type'] || '(none)';
+      const size = response.data?.size ?? 0;
+      let head = '';
+      try { head = (await response.data.slice(0, 8).text()).replace(/[^\x20-\x7E]/g, '.'); } catch {}
+      const diag = `status ${response.status} · type ${ct} · ${size} bytes · starts "${head}"`;
+      console.log('[PDF download]', diag);
+      // A valid PDF blob begins with "%PDF". Anything else (JSON error, HTML, empty)
+      // means the server didn't send a real PDF — surface it instead of saving junk.
+      if (!head.startsWith('%PDF')) {
+        let serverMsg = '';
+        try { const t = await response.data.text(); try { serverMsg = JSON.parse(t)?.message || t.slice(0,200); } catch { serverMsg = t.slice(0,200); } } catch {}
+        setError(`PDF not generated — ${diag}. Server said: ${serverMsg || '(empty)'}`);
+        setDownloading(null);
+        return;
+      }
+
       const blob     = new Blob([response.data], { type: 'application/pdf' });
       const url      = URL.createObjectURL(blob);
 
@@ -76,7 +94,18 @@ export function usePdfDownload() {
     try {
       const response = await apiClient.request({ url: endpoint, method: 'GET', responseType: 'text' });
       const html = typeof response.data === 'string' ? response.data : String(response.data);
+      // ── DIAGNOSTIC: what came back for the print HTML ──
+      const ct = response.headers?.['content-type'] || '(none)';
+      const diag = `status ${response.status} · type ${ct} · ${html.length} chars · starts "${html.slice(0, 30).replace(/\n/g,' ')}"`;
+      console.log('[PDF print]', diag);
       if (win) {
+        // If the response isn't HTML (e.g. a JSON error), show it instead of a blank tab.
+        if (!/<(!doctype|html|body|table|div)/i.test(html.slice(0, 200))) {
+          win.close();
+          setError(`Print HTML not returned — ${diag}`);
+          setDownloading(null);
+          return;
+        }
         // Same approach as the working timetable print: write the full HTML (which
         // includes its own window.onload print script) and close the document.
         win.document.write(html);
@@ -160,12 +189,13 @@ export function ReportCardButton({
   learnerName?: string;
   compact?:     boolean;
 }) {
-  const { printHtml, download, downloading } = usePdfDownload();
+  const { printHtml, download, downloading, error } = usePdfDownload();
   const key = `rc-${learnerId}`;
   const fname = `report-card-${learnerName?.replace(/\s+/g,'-') || learnerId}-${term}.pdf`;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
       <PdfButton
         loading={downloading === key}
         label={compact ? 'Print' : '🖨 Print'}
@@ -186,6 +216,8 @@ export function ReportCardButton({
           `${key}-dl`,
         )}
       />
+      </div>
+      {error && <div className="text-xs text-red-600">{error}</div>}
     </div>
   );
 }
@@ -202,12 +234,13 @@ export function BulkReportCardsButton({
   academicYear: string;
   streamName?: string;
 }) {
-  const { printHtml, download, downloading } = usePdfDownload();
+  const { printHtml, download, downloading, error } = usePdfDownload();
   const key = `bulk-rc-${streamId}`;
   const fname = `report-cards-${streamName?.replace(/\s+/g,'-') || streamId}-${term}.pdf`;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
       <PdfButton
         loading={downloading === key}
         label="🖨 Print All"
@@ -226,6 +259,8 @@ export function BulkReportCardsButton({
           `${key}-dl`,
         )}
       />
+      </div>
+      {error && <div className="text-xs text-red-600">{error}</div>}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Calculator } from 'lucide-react';
 import apiClient from '@/lib/api/client';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS, LEARNING_AREAS, percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, learningAreaMatches } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
@@ -29,18 +29,22 @@ export default function TeacherMarks() {
     Promise.all([
       apiClient.get('/academic/streams').catch(()=>({data:[]})),
       apiClient.get('/academic/teachers').catch(()=>({data:[]})),
-    ]).then(([s, t]) => {
-      const mine = (s.data||[]).filter((x:any) => x.id === user.streamId || x.classTeacherId === user.id);
-      const list = mine.length ? mine : (s.data||[]);
+      apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(()=>({data:[]})),
+    ]).then(([s, t, ss]) => {
+      const all = s.data || [];
+      const seesAll = isHoi(user?.role || '') || user?.role === 'super_admin';
+      const me = (t.data||[]).find((x:any)=>x.id===user.id);
+      const streamSubs = ss.data || [];
+      setStreamSubjects(streamSubs);
+      const assignedIds = new Set<string>(streamSubs.map((row:any)=>String(row.streamId)));
+      const mine = all.filter((x:any) => assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
+      const list = seesAll ? all : (mine.length ? mine : all);
       setStreams(list);
       const url = new URLSearchParams(window.location.search);
-      const sid = url.get('streamId') || list[0]?.id || '';
+      const sid = url.get('streamId') || (user.streamId && list.find((x:any)=>x.id===user.streamId)?.id) || list[0]?.id || '';
       setStreamId(sid); setStream(list.find((x:any)=>x.id===sid));
-      const me = (t.data||[]).find((x:any)=>x.id===user.id);
       const subs = me?.subjects || [];
       setMySubjects(subs);
-      apiClient.get(`/academic/teachers/${user.id}/stream-subjects`)
-        .then(r => setStreamSubjects(r.data || [])).catch(()=>{});
     });
   }, [user]);
 
@@ -154,7 +158,7 @@ export default function TeacherMarks() {
       </div>
 
       <div className="card p-4 flex flex-wrap gap-3 items-end">
-        <div><label className="label">Class</label>
+        <div><label className="label">Stream</label>
           <select value={streamId} onChange={e=>setStreamId(e.target.value)} className="input w-40">
             {streams.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>

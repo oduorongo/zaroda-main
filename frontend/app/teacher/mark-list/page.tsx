@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Save, Loader2, Trophy, ArrowLeft, Calculator, Download, Printer, Lock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api/client';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
@@ -35,11 +35,17 @@ export default function TeacherMarkListPage() {
   // Only this teacher's own class(es)
   useEffect(() => {
     if (!user) return;
-    apiClient.get('/academic/streams').then(r => {
-      const mine = (r.data || []).filter((x: any) => x.id === user.streamId || x.classTeacherId === user.id);
-      const list = mine.length ? mine : (r.data || []);
+    const seesAll = isHoi(user?.role || '') || user?.role === 'super_admin';
+    Promise.all([
+      apiClient.get('/academic/streams'),
+      seesAll ? Promise.resolve({ data: [] }) : apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(() => ({ data: [] })),
+    ]).then(([r, ss]) => {
+      const all = r.data || [];
+      const assignedIds = new Set<string>((ss.data || []).map((row: any) => String(row.streamId)));
+      const mine = all.filter((x: any) => assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
+      const list = seesAll ? all : (mine.length ? mine : all);
       setStreams(list);
-      const s = list[0];
+      const s = (user.streamId && list.find((x: any) => x.id === user.streamId)) || list[0];
       if (s) { setStreamId(s.id); setStream(s); }
     });
   }, [user]);
@@ -250,7 +256,7 @@ export default function TeacherMarkListPage() {
       {/* Controls */}
       <div className="card p-4 flex flex-wrap gap-3 items-end">
         <div>
-          <label className="label">Class</label>
+          <label className="label">Stream</label>
           <select value={streamId} onChange={e => setStreamId(e.target.value)} className="input w-40">
             {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>

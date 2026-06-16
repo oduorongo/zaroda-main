@@ -1,0 +1,92 @@
+# ============================================================================
+# render.yaml — ZARODA School Management System
+# Deploys: PostgreSQL database + NestJS backend (API) + Next.js frontend (web).
+#
+# How to use:
+#   1. Push this repo (with this file at the repo root) to GitHub/GitLab.
+#   2. In Render: New → Blueprint → pick this repo. Render reads render.yaml.
+#   3. Fill in the env vars marked "sync: false" (secrets) when prompted.
+#   4. Deploy. The backend runs its SQL migrations automatically on first boot.
+#
+# Notes:
+#   - rootDir tells Render which sub-folder each service lives in.
+#   - The backend reads DATABASE_URL (provided automatically from the database
+#     below) and runs on the PORT Render assigns.
+#   - The frontend talks to the backend via NEXT_PUBLIC_API_URL.
+#   - Adjust plan/region as needed (starter is the smallest paid tier; the free
+#     tier sleeps on inactivity which is fine for testing).
+# ============================================================================
+
+databases:
+  - name: zaroda-db
+    databaseName: zaroda_sms
+    user: zaroda_app
+    plan: free            # upgrade to "starter" or higher for production
+    region: frankfurt     # closest Render region to Kenya; change if you prefer
+
+services:
+  # ── Backend API (NestJS) ────────────────────────────────────────────────
+  - type: web
+    name: zaroda-api
+    runtime: node
+    rootDir: backend
+    region: frankfurt
+    plan: free            # free tier: sleeps after ~15 min idle, wakes on next request
+    buildCommand: npm install --legacy-peer-deps && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/docs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render injects the assigned port; main.ts already reads process.env.PORT.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zaroda-db
+          property: connectionString
+      # JWT signing secret — generated once by Render and kept stable.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # Public URLs. Render's fromService gives the bare host (no scheme), and the
+      # app needs full https:// URLs, so set these in the dashboard after the first
+      # deploy (copy each service's URL). They're left as sync:false on purpose.
+      - key: FRONTEND_URL
+        sync: false        # e.g. https://zaroda-web.onrender.com
+      - key: APP_URL
+        sync: false        # e.g. https://zaroda-api.onrender.com
+      # Chromium for server-side PDF (Render images include it at this path).
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      # Integrations — fill these in the Render dashboard (kept secret).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MPESA_CONSUMER_KEY
+        sync: false
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_PASSKEY
+        sync: false
+      - key: MPESA_SHORTCODE
+        sync: false
+
+  # ── Frontend (Next.js) ──────────────────────────────────────────────────
+  - type: web
+    name: zaroda-web
+    runtime: node
+    rootDir: frontend
+    region: frankfurt
+    plan: free
+    buildCommand: npm install --legacy-peer-deps && npm run build
+    # Render assigns $PORT; bind Next to it instead of the local 3001.
+    startCommand: npx next start -p $PORT
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Point the browser/app at the deployed API. NEXT_PUBLIC_ vars are baked in
+      # at BUILD time, so set this in the dashboard to the API's full https URL
+      # (e.g. https://zaroda-api.onrender.com) BEFORE the first build, then redeploy.
+      - key: NEXT_PUBLIC_API_URL
+        sync: false        # e.g. https://zaroda-api.onrender.com

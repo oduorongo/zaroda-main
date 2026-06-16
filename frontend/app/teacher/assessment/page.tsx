@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Youtube, X } from 'lucide-react';
 import apiClient from '@/lib/api/client';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { learningAreaMatches } from '@/lib/cbc/constants';
 
 const gradeLabelFor = (g: string): string => {
@@ -51,14 +51,22 @@ export default function TeacherAssessment() {
 
   useEffect(() => {
     if (!user) return;
-    apiClient.get('/academic/streams').then(r => {
+    const seesAll = isHoi(user?.role || '') || user?.role === 'super_admin';
+    Promise.all([
+      apiClient.get('/academic/streams'),
+      seesAll ? Promise.resolve({ data: [] }) : apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(() => ({ data: [] })),
+    ]).then(([r, ss]) => {
       const all = r.data || [];
-      // Only the owner and admins see every stream; everyone else sees their own.
-      const seesAll = ['school_admin','tenant_owner','super_admin'].includes(user?.role || '');
-      const mine = all.filter((x: any) => x.id === user.streamId || x.classTeacherId === user.id);
+      // Admins/HOI see every stream. A subject/class teacher sees every stream they are
+      // assigned to teach in (from their learning-area assignments) plus any stream they
+      // are class teacher of — so teaching across 3 streams shows all 3.
+      const assignedIds = new Set<string>((ss.data || []).map((row: any) => String(row.streamId)));
+      const mine = all.filter((x: any) =>
+        assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
       const list = seesAll ? all : (mine.length ? mine : all);
       setStreams(list);
-      if (list[0]) { setStreamId(list[0].id); setStream(list[0]); }
+      const s = (user?.streamId && list.find((x: any) => x.id === user.streamId)) || list[0];
+      if (s) { setStreamId(s.id); setStream(s); }
     });
   }, [user]);
 
@@ -156,7 +164,7 @@ export default function TeacherAssessment() {
         <div className="flex items-center gap-2">
           <span className="text-xs text-theme-muted">Stream</span>
           <select value={streamId} onChange={e => setStreamId(e.target.value)} className="input py-1.5 text-sm w-auto">
-            {streams.map(s => <option key={s.id} value={s.id}>{gradeLabelFor(s.gradeLevel)}{s.name ? ` — ${s.name}` : ''}</option>)}
+            {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-2">
