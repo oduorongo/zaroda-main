@@ -16,6 +16,10 @@ async function runMigrations(app: any) {
     const dir = path.join(process.cwd(), 'database', 'migrations');
     if (!fs.existsSync(dir)) { console.log('ℹ️  No migrations folder found, skipping auto-migrate'); return; }
 
+    // Cap any single migration statement so a lock wait can't hang boot forever.
+    await ds.query(`SET statement_timeout = '60s'`).catch(() => null);
+    await ds.query(`SET lock_timeout = '10s'`).catch(() => null);
+
     // Track which migrations have run, so each applies exactly once.
     // (Most early migrations use plain CREATE TABLE and would error on re-run.)
     await ds.query(`CREATE TABLE IF NOT EXISTS _migrations (
@@ -113,22 +117,8 @@ async function bootstrap() {
     },
   }));
 
-  // ── Auto-run database migrations (idempotent) ─────────────
-  await runMigrations(app);
-
-  // ── Diagnostic: confirm the assessment book seeded ────────
-  try {
-    const ds = app.get(DataSource);
-    const r = await ds.query(`SELECT COUNT(*)::int AS n FROM assessment_templates WHERE tenant_id IS NULL`);
-    const n = r?.[0]?.n ?? 0;
-    if (n > 0) {
-      console.log(`✅ assessment book ready: ${n} learning-area templates seeded`);
-    } else {
-      console.warn('⚠️  assessment book EMPTY: 0 templates. The learning-area dropdown will be blank. Migration 014 did not seed — check the log above for "014_assessment_book.sql".');
-    }
-  } catch (e: any) {
-    console.warn(`⚠️  could not check assessment templates: ${e.message} (the assessment_templates table may not exist — migration 014 failed)`);
-  }
+  // ── Migrations now run AFTER app.listen() (see end of bootstrap) so a slow
+  //    migration pass can't block the port from binding. ──
 
   // ── CORS — allow the Next.js frontend ────────────────────
   // Allowed browser origins: the configured frontend URL, any extra origins from
@@ -239,6 +229,22 @@ async function bootstrap() {
   console.log(`\n🚀 ZARODA SMS API running on http://localhost:${port}/api/v1`);
   console.log(`📚 Health check:  http://localhost:${port}/health`);
   console.log(`✅ CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:3001'}\n`);
+
+  // Run migrations AFTER the port is bound, so Render's port scan succeeds even if
+  // the migration pass is slow. The schema is already built; this is a safety check.
+  // Runs in the background — a slow or failing migration never blocks startup.
+  runMigrations(app)
+    .then(async () => {
+      try {
+        const ds = app.get(DataSource);
+        const r = await ds.query(`SELECT COUNT(*)::int AS n FROM assessment_templates WHERE tenant_id IS NULL`);
+        const n = r?.[0]?.n ?? 0;
+        console.log(n > 0
+          ? `✅ assessment book ready: ${n} learning-area templates seeded`
+          : '⚠️  assessment book EMPTY: 0 templates.');
+      } catch { /* ignore */ }
+    })
+    .catch((e: any) => console.warn(`⚠️  background migrate failed: ${e.message}`));
 }
 
 bootstrap();
