@@ -183,6 +183,42 @@ async function bootstrap() {
     res.json({ status: 'ok', service: 'zaroda-sms-api', timestamp: new Date().toISOString() });
   });
 
+  // One-time manual migration trigger you can hit from a browser (no shell needed).
+  // Visit:  /run-migrations?key=YOUR_SECRET   where the secret is the MIGRATE_KEY env
+  // var (defaults to 'zaroda-migrate-now'). It drops the _migrations tracker and runs
+  // every (idempotent) .sql file, returning a per-file OK/FAIL report as plain text.
+  // Remove or rotate MIGRATE_KEY after you're done.
+  httpAdapter.get('/run-migrations', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) {
+      res.status(403).send('Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.');
+      return;
+    }
+    const lines: string[] = [];
+    try {
+      const ds = app.get(DataSource);
+      const dir = path.join(process.cwd(), 'database', 'migrations');
+      await ds.query(`CREATE TABLE IF NOT EXISTS _migrations (filename VARCHAR(200) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => null);
+      await ds.query(`DELETE FROM _migrations`).catch(() => null);
+      await ds.query(`CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $fn$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $fn$ LANGUAGE plpgsql;`).catch(() => null);
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
+      let ok = 0, fail = 0;
+      for (const file of files) {
+        try {
+          await ds.query(fs.readFileSync(path.join(dir, file), 'utf8'));
+          await ds.query(`INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, [file]).catch(() => null);
+          lines.push(`OK    ${file}`); ok++;
+        } catch (e: any) {
+          lines.push(`FAIL  ${file} — ${String(e.message || '').slice(0, 200)}`); fail++;
+        }
+      }
+      lines.push(`\nDONE — ${ok} ok, ${fail} failed`);
+      res.type('text/plain').send(lines.join('\n'));
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}\n${lines.join('\n')}`);
+    }
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
 
