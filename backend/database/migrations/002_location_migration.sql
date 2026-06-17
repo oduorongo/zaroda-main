@@ -57,20 +57,30 @@ ALTER TABLE schools
 -- (geo-tags every lead at the moment of capture)
 -- ============================================================
 
-ALTER TABLE invite_signups
-  ADD COLUMN IF NOT EXISTS county             VARCHAR(100),
-  ADD COLUMN IF NOT EXISTS sub_county         VARCHAR(100),
-  ADD COLUMN IF NOT EXISTS zone               VARCHAR(150),
-  ADD COLUMN IF NOT EXISTS ke_county_id       SMALLINT REFERENCES ke_counties(id),
-  ADD COLUMN IF NOT EXISTS ke_sub_county_id   SMALLINT REFERENCES ke_sub_counties(id),
-  ADD COLUMN IF NOT EXISTS ke_zone_id         SMALLINT REFERENCES ke_zones(id);
+-- invite_signups is created later (migration 010). Only add columns if it exists;
+-- otherwise skip (the columns aren't needed until that table is present).
+DO $$
+BEGIN
+  IF to_regclass('public.invite_signups') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE invite_signups
+      ADD COLUMN IF NOT EXISTS county VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS sub_county VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS zone VARCHAR(150),
+      ADD COLUMN IF NOT EXISTS ke_county_id SMALLINT REFERENCES ke_counties(id),
+      ADD COLUMN IF NOT EXISTS ke_sub_county_id SMALLINT REFERENCES ke_sub_counties(id),
+      ADD COLUMN IF NOT EXISTS ke_zone_id SMALLINT REFERENCES ke_zones(id)';
+  END IF;
+END $$;
 
 -- ============================================================
 -- 5. MARKETING PIPELINE VIEW (super admin only)
 -- Aggregates signup funnel by location
 -- ============================================================
 
-CREATE MATERIALIZED VIEW mv_signup_pipeline AS
+DO $$
+BEGIN
+  IF to_regclass('public.invite_signups') IS NOT NULL THEN
+    EXECUTE $mv$CREATE MATERIALIZED VIEW mv_signup_pipeline AS
 SELECT
   COALESCE(s.county,     t.county,     'Unknown') AS county,
   COALESCE(s.sub_county, t.sub_county, 'Unknown') AS sub_county,
@@ -95,10 +105,10 @@ GROUP BY
   COALESCE(s.county,     t.county,     'Unknown'),
   COALESCE(s.sub_county, t.sub_county, 'Unknown'),
   COALESCE(s.zone,                     'Unknown'),
-  c.name, sc.name, z.name;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_signup_pipeline
-  ON mv_signup_pipeline(county, sub_county, zone);
+  c.name, sc.name, z.name$mv$;
+    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_signup_pipeline ON mv_signup_pipeline(county, sub_county, zone)';
+  END IF;
+END $$;
 
 -- Refresh after each signup:
 -- REFRESH MATERIALIZED VIEW CONCURRENTLY mv_signup_pipeline;
@@ -113,9 +123,9 @@ CREATE INDEX IF NOT EXISTS idx_tenants_zone         ON tenants(ke_zone_id);
 CREATE INDEX IF NOT EXISTS idx_schools_county       ON schools(ke_county_id);
 CREATE INDEX IF NOT EXISTS idx_schools_subcounty    ON schools(ke_sub_county_id);
 CREATE INDEX IF NOT EXISTS idx_schools_zone         ON schools(ke_zone_id);
-CREATE INDEX IF NOT EXISTS idx_signups_county       ON invite_signups(ke_county_id);
-CREATE INDEX IF NOT EXISTS idx_signups_subcounty    ON invite_signups(ke_sub_county_id);
-CREATE INDEX IF NOT EXISTS idx_signups_zone         ON invite_signups(ke_zone_id);
+DO $$ BEGIN IF to_regclass('public.invite_signups') IS NOT NULL THEN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_signups_county ON invite_signups(ke_county_id)'; END IF; END $$;
+DO $$ BEGIN IF to_regclass('public.invite_signups') IS NOT NULL THEN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_signups_subcounty ON invite_signups(ke_sub_county_id)'; END IF; END $$;
+DO $$ BEGIN IF to_regclass('public.invite_signups') IS NOT NULL THEN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_signups_zone ON invite_signups(ke_zone_id)'; END IF; END $$;
 
 -- ============================================================
 -- 7. SEED: All 47 Kenya Counties
