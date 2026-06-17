@@ -12,7 +12,7 @@
 -- ============================================================
 -- 1. FINANCIAL YEARS & TERMS
 -- ============================================================
-CREATE TABLE IF NOT EXISTS financial_years (
+CREATE TABLE financial_years (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   year_label    VARCHAR(9)  NOT NULL,           -- "2025/2026"
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS financial_years (
   UNIQUE(tenant_id, year_label)
 );
 
-CREATE TABLE IF NOT EXISTS school_terms (
+CREATE TABLE school_terms (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   financial_year_id UUID NOT NULL REFERENCES financial_years(id),
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS school_terms (
 -- ============================================================
 -- 2. FEE STRUCTURES
 -- ============================================================
-CREATE TABLE IF NOT EXISTS fee_structures (
+CREATE TABLE fee_structures (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS fee_structures (
   deleted_at      TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS fee_items (
+CREATE TABLE fee_items (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   fee_structure_id  UUID NOT NULL REFERENCES fee_structures(id) ON DELETE CASCADE,
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS fee_items (
 -- ============================================================
 -- 3. LEARNER FEE ACCOUNTS (one per learner per term)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS learner_fee_accounts (
+CREATE TABLE learner_fee_accounts (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id        UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS learner_fee_accounts (
 -- ============================================================
 -- 4. SCHOOL INVOICES (per learner per term)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS school_invoices (
+CREATE TABLE school_invoices (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS school_invoices (
 -- ============================================================
 -- 5. PAYMENTS (fee receipts)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS fee_payments (
+CREATE TABLE fee_payments (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS fee_payments (
 -- ============================================================
 -- 6. MPESA DARAJA TRANSACTIONS (STK Push / C2B callbacks)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS mpesa_transactions (
+CREATE TABLE mpesa_transactions (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   checkout_request_id VARCHAR(100) UNIQUE,        -- from STK push
@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS mpesa_transactions (
 -- ============================================================
 -- 7. SCHOLARSHIPS & SPONSORSHIPS
 -- ============================================================
-CREATE TABLE IF NOT EXISTS scholarships (
+CREATE TABLE scholarships (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name            VARCHAR(255) NOT NULL,
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS scholarships (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS learner_scholarships (
+CREATE TABLE learner_scholarships (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id     UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS learner_scholarships (
 -- ============================================================
 -- 8. EXPENSES (school expenditure)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS expense_categories (
+CREATE TABLE expense_categories (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name        VARCHAR(150) NOT NULL,
@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS expense_categories (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS expenses (
+CREATE TABLE expenses (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -280,7 +280,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- Kenya: Free Primary Education / Free Day JSE / Free Day SSE
 -- As per Handbook on Financial Management for Public Schools
 -- ============================================================
-CREATE TABLE IF NOT EXISTS government_fund_receipts (
+CREATE TABLE government_fund_receipts (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -301,7 +301,7 @@ CREATE TABLE IF NOT EXISTS government_fund_receipts (
 );
 
 -- FPE/FDJSE/FDSSE expenditure (tracked separately per fund)
-CREATE TABLE IF NOT EXISTS government_fund_expenditures (
+CREATE TABLE government_fund_expenditures (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -349,7 +349,7 @@ CREATE TABLE IF NOT EXISTS government_fund_expenditures (
 -- ============================================================
 -- 10. PAYROLL
 -- ============================================================
-CREATE TABLE IF NOT EXISTS payroll_periods (
+CREATE TABLE payroll_periods (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   period_label  VARCHAR(20) NOT NULL,              -- "January 2025"
@@ -363,7 +363,7 @@ CREATE TABLE IF NOT EXISTS payroll_periods (
   UNIQUE(tenant_id, month, year)
 );
 
-CREATE TABLE IF NOT EXISTS staff_payroll (
+CREATE TABLE staff_payroll (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   payroll_period_id UUID NOT NULL REFERENCES payroll_periods(id),
@@ -406,7 +406,7 @@ CREATE TABLE IF NOT EXISTS staff_payroll (
 -- ============================================================
 -- 11. BUDGETS
 -- ============================================================
-CREATE TABLE IF NOT EXISTS budgets (
+CREATE TABLE budgets (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id     UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -426,7 +426,7 @@ CREATE TABLE IF NOT EXISTS budgets (
 -- ============================================================
 -- 12. CASHBOOK (double-entry ledger foundation)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS cashbook_entries (
+CREATE TABLE cashbook_entries (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -459,7 +459,7 @@ CREATE TABLE IF NOT EXISTS cashbook_entries (
 -- ============================================================
 -- 13. NOTIFICATION REMINDERS (fee SMS)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS fee_reminder_logs (
+CREATE TABLE fee_reminder_logs (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id  UUID NOT NULL REFERENCES learners(id),
@@ -474,29 +474,29 @@ CREATE TABLE IF NOT EXISTS fee_reminder_logs (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX IF NOT EXISTS idx_fee_struct_school     ON fee_structures(school_id, academic_year);
-CREATE INDEX IF NOT EXISTS idx_fee_account_learner   ON learner_fee_accounts(learner_id);
-CREATE INDEX IF NOT EXISTS idx_fee_account_year_term ON learner_fee_accounts(academic_year, term);
-CREATE INDEX IF NOT EXISTS idx_fee_account_status    ON learner_fee_accounts(status);
-CREATE INDEX IF NOT EXISTS idx_invoice_learner       ON school_invoices(learner_id);
-CREATE INDEX IF NOT EXISTS idx_invoice_status        ON school_invoices(status);
-CREATE INDEX IF NOT EXISTS idx_invoice_due_date      ON school_invoices(due_date);
-CREATE INDEX IF NOT EXISTS idx_payment_learner       ON fee_payments(learner_id);
-CREATE INDEX IF NOT EXISTS idx_payment_method        ON fee_payments(payment_method);
-CREATE INDEX IF NOT EXISTS idx_payment_date          ON fee_payments(payment_date DESC);
-CREATE INDEX IF NOT EXISTS idx_mpesa_receipt         ON mpesa_transactions(mpesa_receipt_number);
-CREATE INDEX IF NOT EXISTS idx_mpesa_checkout        ON mpesa_transactions(checkout_request_id);
-CREATE INDEX IF NOT EXISTS idx_mpesa_phone           ON mpesa_transactions(phone_number);
-CREATE INDEX IF NOT EXISTS idx_expense_date          ON expenses(expense_date DESC);
-CREATE INDEX IF NOT EXISTS idx_expense_fund          ON expenses(fund_source);
-CREATE INDEX IF NOT EXISTS idx_expense_status        ON expenses(status);
-CREATE INDEX IF NOT EXISTS idx_gov_fund_type_year    ON government_fund_receipts(fund_type, academic_year);
-CREATE INDEX IF NOT EXISTS idx_gov_exp_fund_year     ON government_fund_expenditures(fund_type, academic_year, term);
-CREATE INDEX IF NOT EXISTS idx_payroll_period        ON staff_payroll(payroll_period_id);
-CREATE INDEX IF NOT EXISTS idx_payroll_staff         ON staff_payroll(staff_id);
-CREATE INDEX IF NOT EXISTS idx_cashbook_date         ON cashbook_entries(entry_date DESC);
-CREATE INDEX IF NOT EXISTS idx_cashbook_fund         ON cashbook_entries(fund_source);
-CREATE INDEX IF NOT EXISTS idx_budget_year_term      ON budgets(academic_year, term);
+CREATE INDEX idx_fee_struct_school     ON fee_structures(school_id, academic_year);
+CREATE INDEX idx_fee_account_learner   ON learner_fee_accounts(learner_id);
+CREATE INDEX idx_fee_account_year_term ON learner_fee_accounts(academic_year, term);
+CREATE INDEX idx_fee_account_status    ON learner_fee_accounts(status);
+CREATE INDEX idx_invoice_learner       ON school_invoices(learner_id);
+CREATE INDEX idx_invoice_status        ON school_invoices(status);
+CREATE INDEX idx_invoice_due_date      ON school_invoices(due_date);
+CREATE INDEX idx_payment_learner       ON fee_payments(learner_id);
+CREATE INDEX idx_payment_method        ON fee_payments(payment_method);
+CREATE INDEX idx_payment_date          ON fee_payments(payment_date DESC);
+CREATE INDEX idx_mpesa_receipt         ON mpesa_transactions(mpesa_receipt_number);
+CREATE INDEX idx_mpesa_checkout        ON mpesa_transactions(checkout_request_id);
+CREATE INDEX idx_mpesa_phone           ON mpesa_transactions(phone_number);
+CREATE INDEX idx_expense_date          ON expenses(expense_date DESC);
+CREATE INDEX idx_expense_fund          ON expenses(fund_source);
+CREATE INDEX idx_expense_status        ON expenses(status);
+CREATE INDEX idx_gov_fund_type_year    ON government_fund_receipts(fund_type, academic_year);
+CREATE INDEX idx_gov_exp_fund_year     ON government_fund_expenditures(fund_type, academic_year, term);
+CREATE INDEX idx_payroll_period        ON staff_payroll(payroll_period_id);
+CREATE INDEX idx_payroll_staff         ON staff_payroll(staff_id);
+CREATE INDEX idx_cashbook_date         ON cashbook_entries(entry_date DESC);
+CREATE INDEX idx_cashbook_fund         ON cashbook_entries(fund_source);
+CREATE INDEX idx_budget_year_term      ON budgets(academic_year, term);
 
 -- ============================================================
 -- RLS — Tenant Isolation
@@ -510,11 +510,17 @@ BEGIN
     'government_fund_receipts','government_fund_expenditures',
     'payroll_periods','staff_payroll','budgets','cashbook_entries','fee_reminder_logs'
   ]) LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
-    EXECUTE format(
+    BEGIN
+      EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format(
       'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'')::UUID)',
       tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 
@@ -526,10 +532,13 @@ BEGIN
     'mpesa_transactions','scholarships','expenses',
     'government_fund_receipts','budgets'
   ]) LOOP
-    EXECUTE format(
+    BEGIN
+      EXECUTE format(
       'CREATE TRIGGER trg_%s_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()',
       replace(tbl,'-','_'), tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 

@@ -290,32 +290,48 @@ ALTER TABLE notification_queue   ENABLE ROW LEVEL SECURITY;
 
 -- App role: zaroda_app (used by NestJS connection pool)
 -- Super admin role: zaroda_super (bypasses RLS)
-
-CREATE ROLE zaroda_app;
-CREATE ROLE zaroda_super BYPASSRLS;
+-- Postgres has no CREATE ROLE IF NOT EXISTS, so guard with a DO block. On managed
+-- hosts (e.g. Render) these roles may already exist — skip silently if so.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zaroda_app') THEN
+    CREATE ROLE zaroda_app;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zaroda_super') THEN
+    CREATE ROLE zaroda_super BYPASSRLS;
+  END IF;
+END $$;
 
 -- RLS policies — app sets current_setting('app.tenant_id') at session level
+DROP POLICY IF EXISTS tenant_isolation ON schools;
 CREATE POLICY tenant_isolation ON schools
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON streams;
 CREATE POLICY tenant_isolation ON streams
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON users;
 CREATE POLICY tenant_isolation ON users
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON refresh_tokens;
 CREATE POLICY tenant_isolation ON refresh_tokens
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON subscriptions;
 CREATE POLICY tenant_isolation ON subscriptions
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON invoices;
 CREATE POLICY tenant_isolation ON invoices
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON payments;
 CREATE POLICY tenant_isolation ON payments
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
+DROP POLICY IF EXISTS tenant_isolation ON notification_queue;
 CREATE POLICY tenant_isolation ON notification_queue
   USING (tenant_id = current_setting('app.tenant_id')::UUID);
 
@@ -330,16 +346,22 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_tenants_updated_at ON set_updated_at;
 CREATE TRIGGER trg_tenants_updated_at
   BEFORE UPDATE ON tenants FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_schools_updated_at ON set_updated_at;
 CREATE TRIGGER trg_schools_updated_at
   BEFORE UPDATE ON schools FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_streams_updated_at ON set_updated_at;
 CREATE TRIGGER trg_streams_updated_at
   BEFORE UPDATE ON streams FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_users_updated_at ON set_updated_at;
 CREATE TRIGGER trg_users_updated_at
   BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_subscriptions_updated_at ON set_updated_at;
 CREATE TRIGGER trg_subscriptions_updated_at
   BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_invoices_updated_at ON set_updated_at;
 CREATE TRIGGER trg_invoices_updated_at
   BEFORE UPDATE ON invoices FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -354,4 +376,5 @@ VALUES (
   'admin',
   'active',
   'free'
-);
+)
+ON CONFLICT (id) DO NOTHING;

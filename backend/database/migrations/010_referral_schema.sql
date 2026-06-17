@@ -6,7 +6,7 @@
 --           Rate limiting · Abuse protection
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS class_teacher_invites (
+CREATE TABLE class_teacher_invites (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id        UUID REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS class_teacher_invites (
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS invite_clicks (
+CREATE TABLE invite_clicks (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   invite_id        UUID NOT NULL REFERENCES class_teacher_invites(id) ON DELETE CASCADE,
   ip_hash          VARCHAR(64),
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS invite_clicks (
   clicked_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS invite_signups (
+CREATE TABLE invite_signups (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   invite_id        UUID NOT NULL REFERENCES class_teacher_invites(id) ON DELETE CASCADE,
   click_id         UUID REFERENCES invite_clicks(id),
@@ -58,7 +58,7 @@ ALTER TABLE invite_clicks
   ADD CONSTRAINT fk_click_signup
   FOREIGN KEY (signup_id) REFERENCES invite_signups(id) ON DELETE SET NULL;
 
-CREATE TABLE IF NOT EXISTS invite_rate_limits (
+CREATE TABLE invite_rate_limits (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   ip_hash          VARCHAR(64) NOT NULL,
   action           VARCHAR(30) NOT NULL,
@@ -69,13 +69,13 @@ CREATE TABLE IF NOT EXISTS invite_rate_limits (
   UNIQUE(ip_hash, action, window_start)
 );
 
-CREATE INDEX IF NOT EXISTS idx_invites_teacher    ON class_teacher_invites(teacher_id, is_active);
-CREATE INDEX IF NOT EXISTS idx_invites_stream     ON class_teacher_invites(stream_id, is_active);
-CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON class_teacher_invites(token_hash);
-CREATE INDEX IF NOT EXISTS idx_invites_expires    ON class_teacher_invites(expires_at) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_clicks_invite      ON invite_clicks(invite_id);
-CREATE INDEX IF NOT EXISTS idx_signups_invite     ON invite_signups(invite_id);
-CREATE INDEX IF NOT EXISTS idx_rate_limits_ip     ON invite_rate_limits(ip_hash, action, window_start);
+CREATE INDEX idx_invites_teacher    ON class_teacher_invites(teacher_id, is_active);
+CREATE INDEX idx_invites_stream     ON class_teacher_invites(stream_id, is_active);
+CREATE INDEX idx_invites_token_hash ON class_teacher_invites(token_hash);
+CREATE INDEX idx_invites_expires    ON class_teacher_invites(expires_at) WHERE is_active = true;
+CREATE INDEX idx_clicks_invite      ON invite_clicks(invite_id);
+CREATE INDEX idx_signups_invite     ON invite_signups(invite_id);
+CREATE INDEX idx_rate_limits_ip     ON invite_rate_limits(ip_hash, action, window_start);
 
 CREATE TRIGGER trg_class_teacher_invites_updated_at
   BEFORE UPDATE ON class_teacher_invites

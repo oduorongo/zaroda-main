@@ -12,7 +12,7 @@
 -- ============================================================
 -- 1. COMMUNICATION CHANNELS CONFIG (per tenant)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS communication_settings (
+CREATE TABLE communication_settings (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   -- Africa's Talking SMS
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS communication_settings (
 -- ============================================================
 -- 2. MESSAGE TEMPLATES
 -- ============================================================
-CREATE TABLE IF NOT EXISTS message_templates (
+CREATE TABLE message_templates (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID REFERENCES tenants(id) ON DELETE CASCADE,  -- NULL = system template
   name            VARCHAR(150) NOT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS message_templates (
 -- ============================================================
 -- 3. OUTBOX — All outgoing messages queued here
 -- ============================================================
-CREATE TABLE IF NOT EXISTS message_outbox (
+CREATE TABLE message_outbox (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   -- Sender context
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS message_outbox (
 -- ============================================================
 -- 4. BULK CAMPAIGNS (fee reminders, announcements, retooling)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS message_campaigns (
+CREATE TABLE message_campaigns (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name            VARCHAR(255) NOT NULL,
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS message_campaigns (
 -- ============================================================
 -- 5. ANNOUNCEMENTS (school notice board)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS announcements (
+CREATE TABLE announcements (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS announcements (
   deleted_at      TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS announcement_reads (
+CREATE TABLE announcement_reads (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   announcement_id UUID NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
 -- ============================================================
 -- 6. PARENT-TEACHER MESSAGES (direct messaging)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS message_threads (
+CREATE TABLE message_threads (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS message_threads (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS thread_messages (
+CREATE TABLE thread_messages (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   thread_id       UUID NOT NULL REFERENCES message_threads(id) ON DELETE CASCADE,
@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS thread_messages (
 -- ============================================================
 -- 7. PUSH SUBSCRIPTIONS (Web Push / PWA)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS push_subscriptions (
+CREATE TABLE push_subscriptions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 -- ============================================================
 -- 8. DELIVERY WEBHOOKS (Africa's Talking callbacks)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS sms_delivery_reports (
+CREATE TABLE sms_delivery_reports (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID REFERENCES tenants(id),
   message_id      VARCHAR(100) NOT NULL,            -- AT message ID
@@ -244,21 +244,21 @@ CREATE TABLE IF NOT EXISTS sms_delivery_reports (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX IF NOT EXISTS idx_outbox_tenant_status    ON message_outbox(tenant_id, status);
-CREATE INDEX IF NOT EXISTS idx_outbox_scheduled        ON message_outbox(scheduled_at) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_outbox_recipient        ON message_outbox(recipient_id);
-CREATE INDEX IF NOT EXISTS idx_outbox_campaign         ON message_outbox(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_campaigns_tenant        ON message_campaigns(tenant_id, status);
-CREATE INDEX IF NOT EXISTS idx_campaigns_type          ON message_campaigns(campaign_type);
-CREATE INDEX IF NOT EXISTS idx_announcements_tenant    ON announcements(tenant_id, is_published);
-CREATE INDEX IF NOT EXISTS idx_announcements_audience  ON announcements(audience, tenant_id);
-CREATE INDEX IF NOT EXISTS idx_announcements_expires   ON announcements(expires_at) WHERE expires_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_threads_learner         ON message_threads(learner_id);
-CREATE INDEX IF NOT EXISTS idx_threads_parent          ON message_threads(parent_id);
-CREATE INDEX IF NOT EXISTS idx_threads_teacher         ON message_threads(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_thread_msgs_thread      ON thread_messages(thread_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_thread_msgs_unread      ON thread_messages(thread_id) WHERE is_read = false;
-CREATE INDEX IF NOT EXISTS idx_push_subs_user          ON push_subscriptions(user_id) WHERE is_active = true;
+CREATE INDEX idx_outbox_tenant_status    ON message_outbox(tenant_id, status);
+CREATE INDEX idx_outbox_scheduled        ON message_outbox(scheduled_at) WHERE status = 'pending';
+CREATE INDEX idx_outbox_recipient        ON message_outbox(recipient_id);
+CREATE INDEX idx_outbox_campaign         ON message_outbox(campaign_id);
+CREATE INDEX idx_campaigns_tenant        ON message_campaigns(tenant_id, status);
+CREATE INDEX idx_campaigns_type          ON message_campaigns(campaign_type);
+CREATE INDEX idx_announcements_tenant    ON announcements(tenant_id, is_published);
+CREATE INDEX idx_announcements_audience  ON announcements(audience, tenant_id);
+CREATE INDEX idx_announcements_expires   ON announcements(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX idx_threads_learner         ON message_threads(learner_id);
+CREATE INDEX idx_threads_parent          ON message_threads(parent_id);
+CREATE INDEX idx_threads_teacher         ON message_threads(teacher_id);
+CREATE INDEX idx_thread_msgs_thread      ON thread_messages(thread_id, created_at DESC);
+CREATE INDEX idx_thread_msgs_unread      ON thread_messages(thread_id) WHERE is_read = false;
+CREATE INDEX idx_push_subs_user          ON push_subscriptions(user_id) WHERE is_active = true;
 
 -- ============================================================
 -- RLS
@@ -270,11 +270,17 @@ BEGIN
     'message_campaigns','announcements','announcement_reads',
     'message_threads','thread_messages','push_subscriptions'
   ]) LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
-    EXECUTE format(
+    BEGIN
+      EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format(
       'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'')::UUID)',
       tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 
@@ -285,10 +291,13 @@ BEGIN
     'communication_settings','message_templates','message_campaigns',
     'announcements'
   ]) LOOP
-    EXECUTE format(
+    BEGIN
+      EXECUTE format(
       'CREATE TRIGGER trg_%s_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()',
       replace(tbl,'-','_'), tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 

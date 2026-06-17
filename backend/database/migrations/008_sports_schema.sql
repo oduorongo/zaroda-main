@@ -6,7 +6,7 @@
 -- ============================================================
 
 -- Disciplines (shared reference, no tenant)
-CREATE TABLE IF NOT EXISTS sports_disciplines (
+CREATE TABLE sports_disciplines (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name          VARCHAR(100) NOT NULL,
   category      VARCHAR(20)  NOT NULL CHECK (category IN ('team','individual','athletics','aquatics','combat','racket','other')),
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS sports_disciplines (
 
 -- TIER 1 ---------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS school_teams (
+CREATE TABLE school_teams (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS school_teams (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS school_team_members (
+CREATE TABLE school_team_members (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   team_id       UUID NOT NULL REFERENCES school_teams(id) ON DELETE CASCADE,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS school_team_members (
   UNIQUE(team_id, learner_id)
 );
 
-CREATE TABLE IF NOT EXISTS athlete_profiles (
+CREATE TABLE athlete_profiles (
   id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id               UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id              UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS athlete_profiles (
   UNIQUE(tenant_id, learner_id)
 );
 
-CREATE TABLE IF NOT EXISTS internal_competitions (
+CREATE TABLE internal_competitions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS internal_competitions (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS internal_fixtures (
+CREATE TABLE internal_fixtures (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   competition_id  UUID REFERENCES internal_competitions(id),
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS internal_fixtures (
 );
 
 -- QUALIFICATION REGISTER: School nominates qualified teams/athletes for Base
-CREATE TABLE IF NOT EXISTS qualification_registers (
+CREATE TABLE qualification_registers (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id         UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS qualification_registers (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS qualified_athletes (
+CREATE TABLE qualified_athletes (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   qualification_id UUID NOT NULL REFERENCES qualification_registers(id) ON DELETE CASCADE,
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS qualified_athletes (
   UNIQUE(qualification_id, learner_id)
 );
 
-CREATE TABLE IF NOT EXISTS talent_reports (
+CREATE TABLE talent_reports (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS talent_reports (
 
 -- TIER 2 — ZARODA SPORTS BASE ------------------------------------
 
-CREATE TABLE IF NOT EXISTS base_championships (
+CREATE TABLE base_championships (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name              VARCHAR(255) NOT NULL,
   level             VARCHAR(20)  NOT NULL
@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS base_championships (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS base_championship_registrations (
+CREATE TABLE base_championship_registrations (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   championship_id   UUID NOT NULL REFERENCES base_championships(id) ON DELETE CASCADE,
   tenant_id         UUID NOT NULL REFERENCES tenants(id),
@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS base_championship_registrations (
   UNIQUE(championship_id, school_id)
 );
 
-CREATE TABLE IF NOT EXISTS base_athletes (
+CREATE TABLE base_athletes (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   championship_id   UUID NOT NULL REFERENCES base_championships(id) ON DELETE CASCADE,
   registration_id   UUID NOT NULL REFERENCES base_championship_registrations(id),
@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS base_athletes (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS base_fixtures (
+CREATE TABLE base_fixtures (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   championship_id   UUID NOT NULL REFERENCES base_championships(id) ON DELETE CASCADE,
   discipline_id     UUID NOT NULL REFERENCES sports_disciplines(id),
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS base_fixtures (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS base_fixture_results (
+CREATE TABLE base_fixture_results (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   fixture_id        UUID NOT NULL REFERENCES base_fixtures(id) ON DELETE CASCADE,
   home_score        NUMERIC(5,1),
@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS base_fixture_results (
   UNIQUE(fixture_id)
 );
 
-CREATE TABLE IF NOT EXISTS base_athletics_results (
+CREATE TABLE base_athletics_results (
   id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   championship_id           UUID NOT NULL REFERENCES base_championships(id) ON DELETE CASCADE,
   fixture_id                UUID REFERENCES base_fixtures(id),
@@ -311,7 +311,7 @@ CREATE TABLE IF NOT EXISTS base_athletics_results (
   created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS base_standings (
+CREATE TABLE base_standings (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   championship_id   UUID NOT NULL REFERENCES base_championships(id) ON DELETE CASCADE,
   registration_id   UUID NOT NULL REFERENCES base_championship_registrations(id),
@@ -331,24 +331,24 @@ CREATE TABLE IF NOT EXISTS base_standings (
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_school_teams_tenant    ON school_teams(tenant_id, is_active);
-CREATE INDEX IF NOT EXISTS idx_team_members_team      ON school_team_members(team_id);
-CREATE INDEX IF NOT EXISTS idx_team_members_learner   ON school_team_members(learner_id);
-CREATE INDEX IF NOT EXISTS idx_athlete_learner        ON athlete_profiles(learner_id);
-CREATE INDEX IF NOT EXISTS idx_athlete_talent         ON athlete_profiles(tenant_id, talent_score DESC);
-CREATE INDEX IF NOT EXISTS idx_internal_comps_tenant  ON internal_competitions(tenant_id, academic_year, term);
-CREATE INDEX IF NOT EXISTS idx_internal_fixtures      ON internal_fixtures(competition_id);
-CREATE INDEX IF NOT EXISTS idx_qual_reg_tenant        ON qualification_registers(tenant_id, academic_year);
-CREATE INDEX IF NOT EXISTS idx_qual_reg_status        ON qualification_registers(status);
-CREATE INDEX IF NOT EXISTS idx_qual_athletes          ON qualified_athletes(qualification_id);
-CREATE INDEX IF NOT EXISTS idx_base_champ_level       ON base_championships(level, academic_year, status);
-CREATE INDEX IF NOT EXISTS idx_base_regs_champ        ON base_championship_registrations(championship_id);
-CREATE INDEX IF NOT EXISTS idx_base_regs_tenant       ON base_championship_registrations(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_base_athletes_champ    ON base_athletes(championship_id);
-CREATE INDEX IF NOT EXISTS idx_base_athletes_bib      ON base_athletes(bib_number);
-CREATE INDEX IF NOT EXISTS idx_base_fixtures_champ    ON base_fixtures(championship_id, status);
-CREATE INDEX IF NOT EXISTS idx_base_athletics_champ   ON base_athletics_results(championship_id, event_name);
-CREATE INDEX IF NOT EXISTS idx_base_standings         ON base_standings(championship_id);
+CREATE INDEX idx_school_teams_tenant    ON school_teams(tenant_id, is_active);
+CREATE INDEX idx_team_members_team      ON school_team_members(team_id);
+CREATE INDEX idx_team_members_learner   ON school_team_members(learner_id);
+CREATE INDEX idx_athlete_learner        ON athlete_profiles(learner_id);
+CREATE INDEX idx_athlete_talent         ON athlete_profiles(tenant_id, talent_score DESC);
+CREATE INDEX idx_internal_comps_tenant  ON internal_competitions(tenant_id, academic_year, term);
+CREATE INDEX idx_internal_fixtures      ON internal_fixtures(competition_id);
+CREATE INDEX idx_qual_reg_tenant        ON qualification_registers(tenant_id, academic_year);
+CREATE INDEX idx_qual_reg_status        ON qualification_registers(status);
+CREATE INDEX idx_qual_athletes          ON qualified_athletes(qualification_id);
+CREATE INDEX idx_base_champ_level       ON base_championships(level, academic_year, status);
+CREATE INDEX idx_base_regs_champ        ON base_championship_registrations(championship_id);
+CREATE INDEX idx_base_regs_tenant       ON base_championship_registrations(tenant_id);
+CREATE INDEX idx_base_athletes_champ    ON base_athletes(championship_id);
+CREATE INDEX idx_base_athletes_bib      ON base_athletes(bib_number);
+CREATE INDEX idx_base_fixtures_champ    ON base_fixtures(championship_id, status);
+CREATE INDEX idx_base_athletics_champ   ON base_athletics_results(championship_id, event_name);
+CREATE INDEX idx_base_standings         ON base_standings(championship_id);
 
 -- RLS (Tier 1 only — tenant-scoped)
 DO $$ DECLARE tbl TEXT;
@@ -358,10 +358,16 @@ BEGIN
     'internal_competitions','internal_fixtures',
     'qualification_registers','qualified_athletes','talent_reports'
   ]) LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
-    EXECUTE format(
+    BEGIN
+      EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format(
       'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'')::UUID)', tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 
@@ -371,10 +377,13 @@ BEGIN
     'school_teams','athlete_profiles','internal_competitions','internal_fixtures',
     'qualification_registers','base_championships','base_fixtures','base_standings'
   ]) LOOP
-    EXECUTE format(
+    BEGIN
+      EXECUTE format(
       'CREATE TRIGGER trg_%s_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()',
       replace(tbl,'-','_'), tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 

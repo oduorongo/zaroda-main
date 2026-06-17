@@ -15,7 +15,7 @@
 -- Strands → Sub-Strands → Specific Learning Outcomes (SLOs)
 -- Seeded from KICD syllabus data per learning area
 -- ============================================================
-CREATE TABLE IF NOT EXISTS curriculum_strands (
+CREATE TABLE curriculum_strands (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   subject_code    VARCHAR(20)  NOT NULL,           -- "ENG", "MAT", "ISC" etc.
   grade_level     VARCHAR(20)  NOT NULL,           -- "grade_4", "grade_7" etc.
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS curriculum_strands (
   UNIQUE(subject_code, grade_level, strand_number)
 );
 
-CREATE TABLE IF NOT EXISTS curriculum_sub_strands (
+CREATE TABLE curriculum_sub_strands (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   strand_id       UUID NOT NULL REFERENCES curriculum_strands(id) ON DELETE CASCADE,
   sub_strand_number VARCHAR(10) NOT NULL,          -- "1.1", "1.2"
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS curriculum_sub_strands (
   UNIQUE(strand_id, sub_strand_number)
 );
 
-CREATE TABLE IF NOT EXISTS curriculum_slos (
+CREATE TABLE curriculum_slos (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   sub_strand_id   UUID NOT NULL REFERENCES curriculum_sub_strands(id) ON DELETE CASCADE,
   slo_code        VARCHAR(20),                     -- "ENG.4.1.1.1"
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS curriculum_slos (
 -- 2. SCHEMES OF WORK
 -- One per teacher per learning area per term
 -- ============================================================
-CREATE TABLE IF NOT EXISTS schemes_of_work (
+CREATE TABLE schemes_of_work (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS schemes_of_work (
 -- ============================================================
 -- 3. SCHEME OF WORK WEEKS (rows of the scheme)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS scheme_weeks (
+CREATE TABLE scheme_weeks (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   scheme_id       UUID NOT NULL REFERENCES schemes_of_work(id) ON DELETE CASCADE,
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS scheme_weeks (
 -- 4. LESSON PLANS
 -- One per week per scheme (generated from scheme week)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS lesson_plans (
+CREATE TABLE lesson_plans (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
 -- 5. LESSON NOTES
 -- Teacher's actual delivery notes (generated from lesson plan)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS lesson_notes (
+CREATE TABLE lesson_notes (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS lesson_notes (
 -- 6. RECORDS OF WORK COVERED
 -- Running log of actual topics covered per class
 -- ============================================================
-CREATE TABLE IF NOT EXISTS records_of_work (
+CREATE TABLE records_of_work (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -253,7 +253,7 @@ CREATE TABLE IF NOT EXISTS records_of_work (
 -- 7. LEARNER PROGRESS RECORDS (AI-generated per learner)
 -- Formative assessment record per strand per term
 -- ============================================================
-CREATE TABLE IF NOT EXISTS learner_progress_entries (
+CREATE TABLE learner_progress_entries (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -287,7 +287,7 @@ CREATE TABLE IF NOT EXISTS learner_progress_entries (
 -- 8. TEACHER FOLDER (download tracking)
 -- Virtual folder of all generated documents per teacher
 -- ============================================================
-CREATE TABLE IF NOT EXISTS teacher_documents (
+CREATE TABLE teacher_documents (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -311,7 +311,7 @@ CREATE TABLE IF NOT EXISTS teacher_documents (
 -- 9. PROFESSIONAL RECORDS AUDIT
 -- Track all submissions and approvals
 -- ============================================================
-CREATE TABLE IF NOT EXISTS professional_records_audit (
+CREATE TABLE professional_records_audit (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   record_type     VARCHAR(30)  NOT NULL,           -- scheme_of_work | lesson_plan | lesson_notes
@@ -326,41 +326,41 @@ CREATE TABLE IF NOT EXISTS professional_records_audit (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX IF NOT EXISTS idx_sow_teacher_id       ON schemes_of_work(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_sow_stream_id        ON schemes_of_work(stream_id);
-CREATE INDEX IF NOT EXISTS idx_sow_subject_id       ON schemes_of_work(subject_id);
-CREATE INDEX IF NOT EXISTS idx_sow_status           ON schemes_of_work(status);
-CREATE INDEX IF NOT EXISTS idx_sow_year_term        ON schemes_of_work(academic_year, term);
+CREATE INDEX idx_sow_teacher_id       ON schemes_of_work(teacher_id);
+CREATE INDEX idx_sow_stream_id        ON schemes_of_work(stream_id);
+CREATE INDEX idx_sow_subject_id       ON schemes_of_work(subject_id);
+CREATE INDEX idx_sow_status           ON schemes_of_work(status);
+CREATE INDEX idx_sow_year_term        ON schemes_of_work(academic_year, term);
 
-CREATE INDEX IF NOT EXISTS idx_scheme_weeks_scheme  ON scheme_weeks(scheme_id);
+CREATE INDEX idx_scheme_weeks_scheme  ON scheme_weeks(scheme_id);
 
-CREATE INDEX IF NOT EXISTS idx_lesson_plans_teacher ON lesson_plans(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_lesson_plans_scheme  ON lesson_plans(scheme_id);
-CREATE INDEX IF NOT EXISTS idx_lesson_plans_date    ON lesson_plans(lesson_date DESC);
-CREATE INDEX IF NOT EXISTS idx_lesson_plans_status  ON lesson_plans(status);
+CREATE INDEX idx_lesson_plans_teacher ON lesson_plans(teacher_id);
+CREATE INDEX idx_lesson_plans_scheme  ON lesson_plans(scheme_id);
+CREATE INDEX idx_lesson_plans_date    ON lesson_plans(lesson_date DESC);
+CREATE INDEX idx_lesson_plans_status  ON lesson_plans(status);
 
-CREATE INDEX IF NOT EXISTS idx_lesson_notes_teacher ON lesson_notes(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_lesson_notes_plan    ON lesson_notes(lesson_plan_id);
-CREATE INDEX IF NOT EXISTS idx_lesson_notes_date    ON lesson_notes(lesson_date DESC);
+CREATE INDEX idx_lesson_notes_teacher ON lesson_notes(teacher_id);
+CREATE INDEX idx_lesson_notes_plan    ON lesson_notes(lesson_plan_id);
+CREATE INDEX idx_lesson_notes_date    ON lesson_notes(lesson_date DESC);
 
-CREATE INDEX IF NOT EXISTS idx_row_teacher_stream   ON records_of_work(teacher_id, stream_id);
-CREATE INDEX IF NOT EXISTS idx_row_year_term        ON records_of_work(academic_year, term);
-CREATE INDEX IF NOT EXISTS idx_row_date             ON records_of_work(lesson_date DESC);
+CREATE INDEX idx_row_teacher_stream   ON records_of_work(teacher_id, stream_id);
+CREATE INDEX idx_row_year_term        ON records_of_work(academic_year, term);
+CREATE INDEX idx_row_date             ON records_of_work(lesson_date DESC);
 
-CREATE INDEX IF NOT EXISTS idx_lpe_learner          ON learner_progress_entries(learner_id);
-CREATE INDEX IF NOT EXISTS idx_lpe_stream_subject   ON learner_progress_entries(stream_id, subject_id);
-CREATE INDEX IF NOT EXISTS idx_lpe_year_term        ON learner_progress_entries(academic_year, term);
+CREATE INDEX idx_lpe_learner          ON learner_progress_entries(learner_id);
+CREATE INDEX idx_lpe_stream_subject   ON learner_progress_entries(stream_id, subject_id);
+CREATE INDEX idx_lpe_year_term        ON learner_progress_entries(academic_year, term);
 
-CREATE INDEX IF NOT EXISTS idx_teacher_docs_teacher ON teacher_documents(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_teacher_docs_type    ON teacher_documents(document_type);
+CREATE INDEX idx_teacher_docs_teacher ON teacher_documents(teacher_id);
+CREATE INDEX idx_teacher_docs_type    ON teacher_documents(document_type);
 
-CREATE INDEX IF NOT EXISTS idx_pr_audit_record      ON professional_records_audit(record_type, record_id);
-CREATE INDEX IF NOT EXISTS idx_pr_audit_actor       ON professional_records_audit(actor_id);
+CREATE INDEX idx_pr_audit_record      ON professional_records_audit(record_type, record_id);
+CREATE INDEX idx_pr_audit_actor       ON professional_records_audit(actor_id);
 
 -- Curriculum indexes
-CREATE INDEX IF NOT EXISTS idx_strands_subject      ON curriculum_strands(subject_code, grade_level);
-CREATE INDEX IF NOT EXISTS idx_sub_strands_strand   ON curriculum_sub_strands(strand_id);
-CREATE INDEX IF NOT EXISTS idx_slos_sub_strand      ON curriculum_slos(sub_strand_id);
+CREATE INDEX idx_strands_subject      ON curriculum_strands(subject_code, grade_level);
+CREATE INDEX idx_sub_strands_strand   ON curriculum_sub_strands(strand_id);
+CREATE INDEX idx_slos_sub_strand      ON curriculum_slos(sub_strand_id);
 
 -- ============================================================
 -- RLS
@@ -372,11 +372,17 @@ BEGIN
     'records_of_work','learner_progress_entries',
     'teacher_documents','professional_records_audit'
   ]) LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
-    EXECUTE format(
+    BEGIN
+      EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format(
       'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'')::UUID)',
       tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 
@@ -387,9 +393,12 @@ BEGIN
     'schemes_of_work','lesson_plans','lesson_notes',
     'records_of_work','learner_progress_entries'
   ]) LOOP
-    EXECUTE format(
+    BEGIN
+      EXECUTE format(
       'CREATE TRIGGER trg_%s_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()',
       replace(tbl,'-','_'), tbl
     );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
