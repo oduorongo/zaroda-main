@@ -46,3 +46,8 @@ ALTER TABLE streams ADD COLUMN IF NOT EXISTS class_teacher_name VARCHAR(150);
 ALTER TABLE streams ADD COLUMN IF NOT EXISTS learners_count     INTEGER NOT NULL DEFAULT 0;
 -- The app does not set term on insert; keep its default but ensure no insert is blocked.
 ALTER TABLE streams ALTER COLUMN term DROP NOT NULL;
+
+-- The learners insert identifies a learner by tenant_id + stream_id and does not send
+-- school_id or academic_year, but migration 003 marked both NOT NULL. Relax them.
+ALTER TABLE learners ALTER COLUMN school_id     DROP NOT NULL;
+ALTER TABLE learners ALTER COLUMN academic_year DROP NOT NULL;
