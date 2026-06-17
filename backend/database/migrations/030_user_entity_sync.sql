@@ -22,3 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_users_stream_id ON users(stream_id);
 -- tenants.subdomain NOT NULL. Drop that constraint so signup can create a tenant.
 -- (Backfill any existing nulls first in case the column already has the constraint.)
 ALTER TABLE tenants ALTER COLUMN subdomain DROP NOT NULL;
+
+-- The app sets subscription_tier='trial', but migration 001's CHECK only allowed
+-- ('free','primary','senior'). Drop the restrictive check so app values are accepted.
+ALTER TABLE tenants DROP CONSTRAINT IF EXISTS tenants_subscription_tier_check;
