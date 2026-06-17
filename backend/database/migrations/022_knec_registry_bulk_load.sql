@@ -26,6 +26,22 @@ CREATE TABLE IF NOT EXISTS knec_school_registry (
 CREATE INDEX IF NOT EXISTS idx_knec_registry_code ON knec_school_registry(knec_code);
 ALTER TABLE knec_school_registry ALTER COLUMN name DROP NOT NULL;
 
+-- Ensure knec_code has a UNIQUE constraint before the ON CONFLICT (knec_code) inserts
+-- below. (If the table was created by an older migration without it, the inserts would
+-- otherwise fail with "no unique or exclusion constraint matching the ON CONFLICT".)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'knec_school_registry' AND indexdef ILIKE '%UNIQUE%knec_code%'
+  ) THEN
+    BEGIN
+      ALTER TABLE knec_school_registry ADD CONSTRAINT knec_school_registry_knec_code_key UNIQUE (knec_code);
+    EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+    END;
+  END IF;
+END $$;
+
 INSERT INTO knec_school_registry (knec_code, name) VALUES
   ('01101302', 'KITUMBI'),
   ('01114120', 'MWATATE JUNIOR PREPARATORY'),

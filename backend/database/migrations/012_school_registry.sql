@@ -24,6 +24,21 @@ CREATE INDEX IF NOT EXISTS idx_knec_registry_name ON knec_school_registry(name);
 ALTER TABLE tenants  ADD COLUMN IF NOT EXISTS knec_code VARCHAR(20);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tenants_knec ON tenants(knec_code) WHERE knec_code IS NOT NULL;
 
+-- Ensure knec_code has a UNIQUE constraint before the ON CONFLICT (knec_code) insert
+-- below (the table may have been created by an older migration without it).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'knec_school_registry' AND indexdef ILIKE '%UNIQUE%knec_code%'
+  ) THEN
+    BEGIN
+      ALTER TABLE knec_school_registry ADD CONSTRAINT knec_school_registry_knec_code_key UNIQUE (knec_code);
+    EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+    END;
+  END IF;
+END $$;
+
 -- ── Sample registry rows (replace with the official KNEC list) ──
 INSERT INTO knec_school_registry (knec_code, name, level, county, sub_county, zone, category) VALUES
   ('44736226', 'Manyonge Comprehensive School',     'Comprehensive', 'Migori',  'Suna East',  'Central',   'Public'),

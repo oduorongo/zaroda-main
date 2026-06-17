@@ -12,7 +12,7 @@
 -- ============================================================
 -- 1. INCIDENT CATEGORIES
 -- ============================================================
-CREATE TABLE incident_categories (
+CREATE TABLE IF NOT EXISTS incident_categories (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id     UUID REFERENCES tenants(id) ON DELETE CASCADE,  -- NULL = system default
   name          VARCHAR(150) NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE incident_categories (
 -- ============================================================
 -- 2. INCIDENTS
 -- ============================================================
-CREATE TABLE incidents (
+CREATE TABLE IF NOT EXISTS incidents (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id         UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -76,7 +76,7 @@ CREATE TABLE incidents (
 -- ============================================================
 -- 3. DISCIPLINE ACTIONS (outcome of an incident)
 -- ============================================================
-CREATE TABLE discipline_actions (
+CREATE TABLE IF NOT EXISTS discipline_actions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   incident_id     UUID NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
@@ -120,7 +120,7 @@ CREATE TABLE discipline_actions (
 -- ============================================================
 -- 4. DISCIPLINE APPEALS
 -- ============================================================
-CREATE TABLE discipline_appeals (
+CREATE TABLE IF NOT EXISTS discipline_appeals (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   action_id       UUID NOT NULL REFERENCES discipline_actions(id) ON DELETE CASCADE,
@@ -138,7 +138,7 @@ CREATE TABLE discipline_appeals (
 -- ============================================================
 -- 5. COUNSELLING RECORDS
 -- ============================================================
-CREATE TABLE counselling_sessions (
+CREATE TABLE IF NOT EXISTS counselling_sessions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -188,7 +188,7 @@ CREATE TABLE counselling_sessions (
 -- ============================================================
 -- 6. BEHAVIOUR TRACKING (periodic assessments)
 -- ============================================================
-CREATE TABLE behaviour_records (
+CREATE TABLE IF NOT EXISTS behaviour_records (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -216,7 +216,7 @@ CREATE TABLE behaviour_records (
 -- ============================================================
 -- 7. GUIDANCE PROGRAMMES
 -- ============================================================
-CREATE TABLE guidance_programmes (
+CREATE TABLE IF NOT EXISTS guidance_programmes (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -245,7 +245,7 @@ CREATE TABLE guidance_programmes (
 -- ============================================================
 -- 8. PARENT COMMUNICATION LOG (discipline-related)
 -- ============================================================
-CREATE TABLE discipline_communications (
+CREATE TABLE IF NOT EXISTS discipline_communications (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   incident_id     UUID REFERENCES incidents(id),
@@ -267,23 +267,23 @@ CREATE TABLE discipline_communications (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX idx_incidents_tenant          ON incidents(tenant_id, school_id);
-CREATE INDEX idx_incidents_learner         ON incidents(learner_id);
-CREATE INDEX idx_incidents_date            ON incidents(incident_date DESC);
-CREATE INDEX idx_incidents_status          ON incidents(status);
-CREATE INDEX idx_incidents_severity        ON incidents(severity);
-CREATE INDEX idx_disc_actions_incident     ON discipline_actions(incident_id);
-CREATE INDEX idx_disc_actions_learner      ON discipline_actions(learner_id);
-CREATE INDEX idx_disc_actions_type         ON discipline_actions(action_type);
-CREATE INDEX idx_counselling_learner       ON counselling_sessions(learner_id);
-CREATE INDEX idx_counselling_date          ON counselling_sessions(session_date DESC);
-CREATE INDEX idx_counselling_counsellor    ON counselling_sessions(counsellor_id);
-CREATE INDEX idx_counselling_risk          ON counselling_sessions(risk_level) WHERE risk_level IN ('high','critical');
-CREATE INDEX idx_behaviour_learner         ON behaviour_records(learner_id);
-CREATE INDEX idx_behaviour_year_term       ON behaviour_records(academic_year, term);
-CREATE INDEX idx_guidance_tenant           ON guidance_programmes(tenant_id, status);
-CREATE INDEX idx_disc_comms_incident       ON discipline_communications(incident_id);
-CREATE INDEX idx_disc_comms_learner        ON discipline_communications(learner_id);
+CREATE INDEX IF NOT EXISTS idx_incidents_tenant          ON incidents(tenant_id, school_id);
+CREATE INDEX IF NOT EXISTS idx_incidents_learner         ON incidents(learner_id);
+CREATE INDEX IF NOT EXISTS idx_incidents_date            ON incidents(incident_date DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_status          ON incidents(status);
+CREATE INDEX IF NOT EXISTS idx_incidents_severity        ON incidents(severity);
+CREATE INDEX IF NOT EXISTS idx_disc_actions_incident     ON discipline_actions(incident_id);
+CREATE INDEX IF NOT EXISTS idx_disc_actions_learner      ON discipline_actions(learner_id);
+CREATE INDEX IF NOT EXISTS idx_disc_actions_type         ON discipline_actions(action_type);
+CREATE INDEX IF NOT EXISTS idx_counselling_learner       ON counselling_sessions(learner_id);
+CREATE INDEX IF NOT EXISTS idx_counselling_date          ON counselling_sessions(session_date DESC);
+CREATE INDEX IF NOT EXISTS idx_counselling_counsellor    ON counselling_sessions(counsellor_id);
+CREATE INDEX IF NOT EXISTS idx_counselling_risk          ON counselling_sessions(risk_level) WHERE risk_level IN ('high','critical');
+CREATE INDEX IF NOT EXISTS idx_behaviour_learner         ON behaviour_records(learner_id);
+CREATE INDEX IF NOT EXISTS idx_behaviour_year_term       ON behaviour_records(academic_year, term);
+CREATE INDEX IF NOT EXISTS idx_guidance_tenant           ON guidance_programmes(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_disc_comms_incident       ON discipline_communications(incident_id);
+CREATE INDEX IF NOT EXISTS idx_disc_comms_learner        ON discipline_communications(learner_id);
 
 -- ============================================================
 -- RLS

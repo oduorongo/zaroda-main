@@ -10,21 +10,21 @@
 -- 1. KENYA LOCATION REFERENCE TABLES
 -- ============================================================
 
-CREATE TABLE ke_counties (
+CREATE TABLE IF NOT EXISTS ke_counties (
   id        SMALLSERIAL PRIMARY KEY,
   code      VARCHAR(5)   NOT NULL UNIQUE,
   name      VARCHAR(100) NOT NULL UNIQUE,
   region    VARCHAR(30)  NOT NULL
 );
 
-CREATE TABLE ke_sub_counties (
+CREATE TABLE IF NOT EXISTS ke_sub_counties (
   id         SMALLSERIAL PRIMARY KEY,
   county_id  SMALLINT    NOT NULL REFERENCES ke_counties(id),
   name       VARCHAR(150) NOT NULL,
   UNIQUE(county_id, name)
 );
 
-CREATE TABLE ke_zones (
+CREATE TABLE IF NOT EXISTS ke_zones (
   id             SMALLSERIAL PRIMARY KEY,
   sub_county_id  SMALLINT    NOT NULL REFERENCES ke_sub_counties(id),
   name           VARCHAR(150) NOT NULL,
@@ -97,7 +97,7 @@ GROUP BY
   COALESCE(s.zone,                     'Unknown'),
   c.name, sc.name, z.name;
 
-CREATE UNIQUE INDEX idx_mv_signup_pipeline
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_signup_pipeline
   ON mv_signup_pipeline(county, sub_county, zone);
 
 -- Refresh after each signup:
@@ -107,15 +107,15 @@ CREATE UNIQUE INDEX idx_mv_signup_pipeline
 -- 6. INDEXES
 -- ============================================================
 
-CREATE INDEX idx_tenants_county       ON tenants(ke_county_id);
-CREATE INDEX idx_tenants_subcounty    ON tenants(ke_sub_county_id);
-CREATE INDEX idx_tenants_zone         ON tenants(ke_zone_id);
-CREATE INDEX idx_schools_county       ON schools(ke_county_id);
-CREATE INDEX idx_schools_subcounty    ON schools(ke_sub_county_id);
-CREATE INDEX idx_schools_zone         ON schools(ke_zone_id);
-CREATE INDEX idx_signups_county       ON invite_signups(ke_county_id);
-CREATE INDEX idx_signups_subcounty    ON invite_signups(ke_sub_county_id);
-CREATE INDEX idx_signups_zone         ON invite_signups(ke_zone_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_county       ON tenants(ke_county_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_subcounty    ON tenants(ke_sub_county_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_zone         ON tenants(ke_zone_id);
+CREATE INDEX IF NOT EXISTS idx_schools_county       ON schools(ke_county_id);
+CREATE INDEX IF NOT EXISTS idx_schools_subcounty    ON schools(ke_sub_county_id);
+CREATE INDEX IF NOT EXISTS idx_schools_zone         ON schools(ke_zone_id);
+CREATE INDEX IF NOT EXISTS idx_signups_county       ON invite_signups(ke_county_id);
+CREATE INDEX IF NOT EXISTS idx_signups_subcounty    ON invite_signups(ke_sub_county_id);
+CREATE INDEX IF NOT EXISTS idx_signups_zone         ON invite_signups(ke_zone_id);
 
 -- ============================================================
 -- 7. SEED: All 47 Kenya Counties

@@ -10,7 +10,7 @@
 -- ============================================================
 -- 1. LEARNERS
 -- ============================================================
-CREATE TABLE learners (
+CREATE TABLE IF NOT EXISTS learners (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id           UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -65,7 +65,7 @@ CREATE TABLE learners (
 -- ============================================================
 -- 2. SUBJECT CATALOGUE (school-specific subject library)
 -- ============================================================
-CREATE TABLE subject_catalogue (
+CREATE TABLE IF NOT EXISTS subject_catalogue (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -94,7 +94,7 @@ CREATE TABLE subject_catalogue (
 -- ============================================================
 -- 3. STREAM SUBJECTS (subjects offered per stream per term)
 -- ============================================================
-CREATE TABLE stream_subjects (
+CREATE TABLE IF NOT EXISTS stream_subjects (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   stream_id       UUID NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -110,7 +110,7 @@ CREATE TABLE stream_subjects (
 -- ============================================================
 -- 4. LEARNER SUBJECTS (individual subject selections — Senior)
 -- ============================================================
-CREATE TABLE learner_subjects (
+CREATE TABLE IF NOT EXISTS learner_subjects (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -126,7 +126,7 @@ CREATE TABLE learner_subjects (
 -- ============================================================
 -- 5. TEACHER ALLOCATIONS
 -- ============================================================
-CREATE TABLE teacher_allocations (
+CREATE TABLE IF NOT EXISTS teacher_allocations (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   teacher_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -146,7 +146,7 @@ CREATE TABLE teacher_allocations (
 -- ============================================================
 -- 6. TIMETABLE SLOTS
 -- ============================================================
-CREATE TABLE timetable_slots (
+CREATE TABLE IF NOT EXISTS timetable_slots (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -189,7 +189,7 @@ HAVING COUNT(*) > 1;
 -- ============================================================
 -- 7. ATTENDANCE
 -- ============================================================
-CREATE TABLE attendance_sessions (
+CREATE TABLE IF NOT EXISTS attendance_sessions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   stream_id       UUID NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -206,7 +206,7 @@ CREATE TABLE attendance_sessions (
   UNIQUE(stream_id, session_date, session_type, period_number)
 );
 
-CREATE TABLE attendance_records (
+CREATE TABLE IF NOT EXISTS attendance_records (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   session_id      UUID NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
@@ -239,13 +239,13 @@ FROM attendance_records ar
 JOIN attendance_sessions s ON s.id = ar.session_id
 GROUP BY ar.tenant_id, ar.learner_id, s.stream_id, s.academic_year, s.term;
 
-CREATE UNIQUE INDEX idx_attendance_summary
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_summary
   ON attendance_summary(tenant_id, learner_id, stream_id, academic_year, term);
 
 -- ============================================================
 -- 8. CONTINUOUS ASSESSMENT TESTS (CATs)
 -- ============================================================
-CREATE TABLE cats (
+CREATE TABLE IF NOT EXISTS cats (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   stream_id       UUID NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -264,7 +264,7 @@ CREATE TABLE cats (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE cat_results (
+CREATE TABLE IF NOT EXISTS cat_results (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   cat_id          UUID NOT NULL REFERENCES cats(id) ON DELETE CASCADE,
@@ -280,7 +280,7 @@ CREATE TABLE cat_results (
 -- ============================================================
 -- 9. EXAMS
 -- ============================================================
-CREATE TABLE exams (
+CREATE TABLE IF NOT EXISTS exams (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -299,7 +299,7 @@ CREATE TABLE exams (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE exam_papers (
+CREATE TABLE IF NOT EXISTS exam_papers (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   exam_id         UUID NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
@@ -314,7 +314,7 @@ CREATE TABLE exam_papers (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE exam_results (
+CREATE TABLE IF NOT EXISTS exam_results (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   exam_paper_id   UUID NOT NULL REFERENCES exam_papers(id) ON DELETE CASCADE,
@@ -333,7 +333,7 @@ CREATE TABLE exam_results (
 -- ============================================================
 -- 10. CBC COMPETENCY TRACKING
 -- ============================================================
-CREATE TABLE competency_assessments (
+CREATE TABLE IF NOT EXISTS competency_assessments (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -360,7 +360,7 @@ CREATE TABLE competency_assessments (
 -- ============================================================
 -- 11. REPORT CARDS
 -- ============================================================
-CREATE TABLE report_cards (
+CREATE TABLE IF NOT EXISTS report_cards (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -397,7 +397,7 @@ CREATE TABLE report_cards (
   UNIQUE(learner_id, academic_year, term)
 );
 
-CREATE TABLE report_card_subjects (
+CREATE TABLE IF NOT EXISTS report_card_subjects (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   report_card_id  UUID NOT NULL REFERENCES report_cards(id) ON DELETE CASCADE,
@@ -427,7 +427,7 @@ CREATE TABLE report_card_subjects (
 -- ============================================================
 -- 12. LEARNER PROGRESS RECORDS (CBC formative)
 -- ============================================================
-CREATE TABLE learner_progress_records (
+CREATE TABLE IF NOT EXISTS learner_progress_records (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   learner_id      UUID NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
@@ -453,45 +453,45 @@ CREATE TABLE learner_progress_records (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX idx_learners_tenant_id     ON learners(tenant_id);
-CREATE INDEX idx_learners_school_id     ON learners(school_id);
-CREATE INDEX idx_learners_stream_id     ON learners(stream_id);
-CREATE INDEX idx_learners_admission_no  ON learners(admission_number);
-CREATE INDEX idx_learners_nemis         ON learners(nemis_number) WHERE nemis_number IS NOT NULL;
-CREATE INDEX idx_learners_grade_year    ON learners(grade_level, academic_year);
-CREATE INDEX idx_learners_status        ON learners(status);
+CREATE INDEX IF NOT EXISTS idx_learners_tenant_id     ON learners(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_learners_school_id     ON learners(school_id);
+CREATE INDEX IF NOT EXISTS idx_learners_stream_id     ON learners(stream_id);
+CREATE INDEX IF NOT EXISTS idx_learners_admission_no  ON learners(admission_number);
+CREATE INDEX IF NOT EXISTS idx_learners_nemis         ON learners(nemis_number) WHERE nemis_number IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_learners_grade_year    ON learners(grade_level, academic_year);
+CREATE INDEX IF NOT EXISTS idx_learners_status        ON learners(status);
 
-CREATE INDEX idx_subjects_school_id     ON subject_catalogue(school_id);
-CREATE INDEX idx_subjects_grade_band    ON subject_catalogue(grade_band);
+CREATE INDEX IF NOT EXISTS idx_subjects_school_id     ON subject_catalogue(school_id);
+CREATE INDEX IF NOT EXISTS idx_subjects_grade_band    ON subject_catalogue(grade_band);
 
-CREATE INDEX idx_stream_subj_stream_id  ON stream_subjects(stream_id);
-CREATE INDEX idx_teacher_alloc_teacher  ON teacher_allocations(teacher_id);
-CREATE INDEX idx_teacher_alloc_stream   ON teacher_allocations(stream_id);
+CREATE INDEX IF NOT EXISTS idx_stream_subj_stream_id  ON stream_subjects(stream_id);
+CREATE INDEX IF NOT EXISTS idx_teacher_alloc_teacher  ON teacher_allocations(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_teacher_alloc_stream   ON teacher_allocations(stream_id);
 
-CREATE INDEX idx_timetable_stream_id    ON timetable_slots(stream_id);
-CREATE INDEX idx_timetable_teacher_id   ON timetable_slots(teacher_id);
-CREATE INDEX idx_timetable_day_period   ON timetable_slots(day_of_week, period_number);
+CREATE INDEX IF NOT EXISTS idx_timetable_stream_id    ON timetable_slots(stream_id);
+CREATE INDEX IF NOT EXISTS idx_timetable_teacher_id   ON timetable_slots(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_timetable_day_period   ON timetable_slots(day_of_week, period_number);
 
-CREATE INDEX idx_attend_session_date    ON attendance_sessions(session_date);
-CREATE INDEX idx_attend_session_stream  ON attendance_sessions(stream_id);
-CREATE INDEX idx_attend_records_learner ON attendance_records(learner_id);
-CREATE INDEX idx_attend_records_session ON attendance_records(session_id);
-CREATE INDEX idx_attend_records_status  ON attendance_records(status);
+CREATE INDEX IF NOT EXISTS idx_attend_session_date    ON attendance_sessions(session_date);
+CREATE INDEX IF NOT EXISTS idx_attend_session_stream  ON attendance_sessions(stream_id);
+CREATE INDEX IF NOT EXISTS idx_attend_records_learner ON attendance_records(learner_id);
+CREATE INDEX IF NOT EXISTS idx_attend_records_session ON attendance_records(session_id);
+CREATE INDEX IF NOT EXISTS idx_attend_records_status  ON attendance_records(status);
 
-CREATE INDEX idx_cats_stream_subject    ON cats(stream_id, subject_id);
-CREATE INDEX idx_cat_results_learner    ON cat_results(learner_id);
-CREATE INDEX idx_cat_results_cat_id     ON cat_results(cat_id);
+CREATE INDEX IF NOT EXISTS idx_cats_stream_subject    ON cats(stream_id, subject_id);
+CREATE INDEX IF NOT EXISTS idx_cat_results_learner    ON cat_results(learner_id);
+CREATE INDEX IF NOT EXISTS idx_cat_results_cat_id     ON cat_results(cat_id);
 
-CREATE INDEX idx_exam_results_learner   ON exam_results(learner_id);
-CREATE INDEX idx_exam_results_paper     ON exam_results(exam_paper_id);
+CREATE INDEX IF NOT EXISTS idx_exam_results_learner   ON exam_results(learner_id);
+CREATE INDEX IF NOT EXISTS idx_exam_results_paper     ON exam_results(exam_paper_id);
 
-CREATE INDEX idx_report_cards_learner   ON report_cards(learner_id);
-CREATE INDEX idx_report_cards_year_term ON report_cards(academic_year, term);
-CREATE INDEX idx_report_cards_status    ON report_cards(status);
+CREATE INDEX IF NOT EXISTS idx_report_cards_learner   ON report_cards(learner_id);
+CREATE INDEX IF NOT EXISTS idx_report_cards_year_term ON report_cards(academic_year, term);
+CREATE INDEX IF NOT EXISTS idx_report_cards_status    ON report_cards(status);
 
-CREATE INDEX idx_competency_learner     ON competency_assessments(learner_id);
-CREATE INDEX idx_competency_type        ON competency_assessments(competency);
-CREATE INDEX idx_progress_records_learn ON learner_progress_records(learner_id, subject_id);
+CREATE INDEX IF NOT EXISTS idx_competency_learner     ON competency_assessments(learner_id);
+CREATE INDEX IF NOT EXISTS idx_competency_type        ON competency_assessments(competency);
+CREATE INDEX IF NOT EXISTS idx_progress_records_learn ON learner_progress_records(learner_id, subject_id);
 
 -- ============================================================
 -- RLS — Tenant Isolation (same pattern as Module 01)

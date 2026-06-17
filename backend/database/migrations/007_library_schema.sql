@@ -6,7 +6,7 @@
 --         Reservations · Inventory · Search
 -- ============================================================
 
-CREATE TABLE library_categories (
+CREATE TABLE IF NOT EXISTS library_categories (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name        VARCHAR(150) NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE library_categories (
   UNIQUE(tenant_id, name)
 );
 
-CREATE TABLE library_books (
+CREATE TABLE IF NOT EXISTS library_books (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id        UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -69,7 +69,7 @@ CREATE TABLE library_books (
 );
 
 -- Individual physical copy tracking
-CREATE TABLE library_copies (
+CREATE TABLE IF NOT EXISTS library_copies (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   book_id      UUID NOT NULL REFERENCES library_books(id) ON DELETE CASCADE,
@@ -88,7 +88,7 @@ CREATE TABLE library_copies (
 -- The library is a completely free service.
 -- Late returns are tracked only for librarian awareness (reminders only).
 -- No money is collected. No penalties are applied.
-CREATE TABLE library_loans (
+CREATE TABLE IF NOT EXISTS library_loans (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   book_id       UUID NOT NULL REFERENCES library_books(id),
@@ -120,7 +120,7 @@ ALTER TABLE library_copies ADD CONSTRAINT fk_copy_current_loan
   FOREIGN KEY (current_loan_id) REFERENCES library_loans(id) ON DELETE SET NULL;
 
 -- ── RESERVATIONS ──────────────────────────────────────────────
-CREATE TABLE library_reservations (
+CREATE TABLE IF NOT EXISTS library_reservations (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   book_id      UUID NOT NULL REFERENCES library_books(id),
@@ -134,7 +134,7 @@ CREATE TABLE library_reservations (
 );
 
 -- ── LIBRARY SETTINGS — NO FINE FIELDS ─────────────────────────
-CREATE TABLE library_settings (
+CREATE TABLE IF NOT EXISTS library_settings (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id         UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id         UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -154,23 +154,23 @@ CREATE TABLE library_settings (
 );
 
 -- ── INDEXES ───────────────────────────────────────────────────
-CREATE INDEX idx_books_tenant        ON library_books(tenant_id, is_active);
-CREATE INDEX idx_books_barcode       ON library_books(barcode);
-CREATE INDEX idx_books_accession     ON library_books(accession_number);
-CREATE INDEX idx_books_isbn          ON library_books(isbn);
-CREATE INDEX idx_books_title         ON library_books USING gin(to_tsvector('english', title));
-CREATE INDEX idx_books_author        ON library_books USING gin(to_tsvector('english', author));
-CREATE INDEX idx_books_subject       ON library_books(subject);
-CREATE INDEX idx_books_grade         ON library_books(grade_level);
-CREATE INDEX idx_books_status        ON library_books(status);
-CREATE INDEX idx_copies_book         ON library_copies(book_id);
-CREATE INDEX idx_copies_barcode      ON library_copies(barcode);
-CREATE INDEX idx_loans_borrower      ON library_loans(borrower_id);
-CREATE INDEX idx_loans_book          ON library_loans(book_id);
-CREATE INDEX idx_loans_status        ON library_loans(status);
-CREATE INDEX idx_loans_due_date      ON library_loans(due_date) WHERE status = 'active';
-CREATE INDEX idx_reservations_book   ON library_reservations(book_id, status);
-CREATE INDEX idx_reservations_user   ON library_reservations(borrower_id);
+CREATE INDEX IF NOT EXISTS idx_books_tenant        ON library_books(tenant_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_books_barcode       ON library_books(barcode);
+CREATE INDEX IF NOT EXISTS idx_books_accession     ON library_books(accession_number);
+CREATE INDEX IF NOT EXISTS idx_books_isbn          ON library_books(isbn);
+CREATE INDEX IF NOT EXISTS idx_books_title         ON library_books USING gin(to_tsvector('english', title));
+CREATE INDEX IF NOT EXISTS idx_books_author        ON library_books USING gin(to_tsvector('english', author));
+CREATE INDEX IF NOT EXISTS idx_books_subject       ON library_books(subject);
+CREATE INDEX IF NOT EXISTS idx_books_grade         ON library_books(grade_level);
+CREATE INDEX IF NOT EXISTS idx_books_status        ON library_books(status);
+CREATE INDEX IF NOT EXISTS idx_copies_book         ON library_copies(book_id);
+CREATE INDEX IF NOT EXISTS idx_copies_barcode      ON library_copies(barcode);
+CREATE INDEX IF NOT EXISTS idx_loans_borrower      ON library_loans(borrower_id);
+CREATE INDEX IF NOT EXISTS idx_loans_book          ON library_loans(book_id);
+CREATE INDEX IF NOT EXISTS idx_loans_status        ON library_loans(status);
+CREATE INDEX IF NOT EXISTS idx_loans_due_date      ON library_loans(due_date) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_reservations_book   ON library_reservations(book_id, status);
+CREATE INDEX IF NOT EXISTS idx_reservations_user   ON library_reservations(borrower_id);
 
 -- ── RLS ───────────────────────────────────────────────────────
 DO $$ DECLARE tbl TEXT;
