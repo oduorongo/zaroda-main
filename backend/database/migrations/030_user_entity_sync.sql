@@ -38,3 +38,11 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS ke_zone_id       SMALLINT;
 ALTER TABLE schools ALTER COLUMN school_type DROP NOT NULL;
 ALTER TABLE schools ALTER COLUMN category    DROP NOT NULL;
 ALTER TABLE schools ALTER COLUMN gender_type DROP NOT NULL;
+
+-- Sync the streams table with the Stream entity. Migration 001 was missing the
+-- class-teacher and learners-count columns the app reads/writes when creating a class.
+ALTER TABLE streams ADD COLUMN IF NOT EXISTS class_teacher_id   UUID;
+ALTER TABLE streams ADD COLUMN IF NOT EXISTS class_teacher_name VARCHAR(150);
+ALTER TABLE streams ADD COLUMN IF NOT EXISTS learners_count     INTEGER NOT NULL DEFAULT 0;
+-- The app does not set term on insert; keep its default but ensure no insert is blocked.
+ALTER TABLE streams ALTER COLUMN term DROP NOT NULL;
