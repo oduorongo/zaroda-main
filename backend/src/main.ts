@@ -198,6 +198,20 @@ async function bootstrap() {
     try {
       const ds = app.get(DataSource);
       const dir = path.join(process.cwd(), 'database', 'migrations');
+
+      // Optional clean rebuild: add &reset=true to DROP the entire public schema first.
+      // This wipes ALL data and objects, giving a guaranteed-clean slate so migrations
+      // run start-to-finish without tripping over leftovers from earlier partial runs.
+      // Use this once to fix a broken/half-built database, then migrate fresh.
+      if (String(req.query?.reset || '') === 'true') {
+        await ds.query(`DROP SCHEMA public CASCADE`).catch((e: any) => lines.push(`(reset note: ${e.message})`));
+        await ds.query(`CREATE SCHEMA public`).catch(() => null);
+        await ds.query(`GRANT ALL ON SCHEMA public TO CURRENT_USER`).catch(() => null);
+        await ds.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`).catch(() => null);
+        await ds.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`).catch(() => null);
+        lines.push('🧹 public schema reset (clean slate)');
+      }
+
       await ds.query(`CREATE TABLE IF NOT EXISTS _migrations (filename VARCHAR(200) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => null);
       await ds.query(`DELETE FROM _migrations`).catch(() => null);
       await ds.query(`CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $fn$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $fn$ LANGUAGE plpgsql;`).catch(() => null);
