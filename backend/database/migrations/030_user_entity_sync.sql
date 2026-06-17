@@ -26,3 +26,15 @@ ALTER TABLE tenants ALTER COLUMN subdomain DROP NOT NULL;
 -- The app sets subscription_tier='trial', but migration 001's CHECK only allowed
 -- ('free','primary','senior'). Drop the restrictive check so app values are accepted.
 ALTER TABLE tenants DROP CONSTRAINT IF EXISTS tenants_subscription_tier_check;
+
+-- Sync the schools table with the School entity. Migration 001 was missing several
+-- columns the app writes (mpesa_paybill, zone, location ids) and marked school_type/
+-- category/gender_type NOT NULL even though signup doesn't set them.
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS mpesa_paybill    VARCHAR(20);
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS zone             VARCHAR(150);
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS ke_county_id     SMALLINT;
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS ke_sub_county_id SMALLINT;
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS ke_zone_id       SMALLINT;
+ALTER TABLE schools ALTER COLUMN school_type DROP NOT NULL;
+ALTER TABLE schools ALTER COLUMN category    DROP NOT NULL;
+ALTER TABLE schools ALTER COLUMN gender_type DROP NOT NULL;
