@@ -26,16 +26,27 @@ async function runMigrations(app: any) {
     const appliedRows = await ds.query(`SELECT filename FROM _migrations`).catch(() => []);
     let applied = new Set((appliedRows || []).map((r: any) => r.filename));
 
+    // Manual override: set FORCE_MIGRATE=true in the environment to re-run EVERY
+    // migration on the next boot (then remove the variable). Safe because all
+    // migrations are idempotent (IF NOT EXISTS). Use this to rebuild a broken schema
+    // without shell access — set the var, redeploy, watch the logs, then unset it.
+    const forceMigrate = String(process.env.FORCE_MIGRATE || '').toLowerCase() === 'true';
+    if (forceMigrate) {
+      console.warn('⚠️  FORCE_MIGRATE=true — re-running ALL migrations regardless of tracker');
+      await ds.query(`DELETE FROM _migrations`).catch(() => null);
+      applied = new Set();
+    }
+
     // Self-heal a broken tracker: if migrations are marked applied but the core tables
     // they create are missing (e.g. migration 001 failed partway and was wrongly
     // recorded as applied, or the DB was recreated), clear the tracker so every
-    // migration re-runs. With 001 now idempotent (IF NOT EXISTS), re-running is safe.
-    if (applied.size > 0) {
+    // migration re-runs. With migrations now idempotent (IF NOT EXISTS), re-running is safe.
+    if (!forceMigrate && applied.size > 0) {
       const core = await ds.query(
-        `SELECT to_regclass('public.tenants') AS tenants, to_regclass('public.users') AS users`
-      ).catch(() => [{ tenants: null, users: null }]);
-      if (!core?.[0]?.tenants || !core?.[0]?.users) {
-        console.warn('⚠️  migrations marked applied but core tables (tenants/users) missing — resetting migration tracker to rebuild schema');
+        `SELECT to_regclass('public.tenants') AS tenants, to_regclass('public.users') AS users, to_regclass('public.learners') AS learners`
+      ).catch(() => [{ tenants: null, users: null, learners: null }]);
+      if (!core?.[0]?.tenants || !core?.[0]?.users || !core?.[0]?.learners) {
+        console.warn('⚠️  migrations marked applied but core tables (tenants/users/learners) missing — resetting migration tracker to rebuild schema');
         await ds.query(`DELETE FROM _migrations`).catch(() => null);
         applied = new Set();
       }
