@@ -17,3 +17,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at        TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_users_stream_id ON users(stream_id);
+
+-- Signup is KNEC-code based and does not set a subdomain, but migration 001 made
+-- tenants.subdomain NOT NULL. Drop that constraint so signup can create a tenant.
+-- (Backfill any existing nulls first in case the column already has the constraint.)
+ALTER TABLE tenants ALTER COLUMN subdomain DROP NOT NULL;
