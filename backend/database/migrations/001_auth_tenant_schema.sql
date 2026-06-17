@@ -290,16 +290,18 @@ ALTER TABLE notification_queue   ENABLE ROW LEVEL SECURITY;
 
 -- App role: zaroda_app (used by NestJS connection pool)
 -- Super admin role: zaroda_super (bypasses RLS)
--- Postgres has no CREATE ROLE IF NOT EXISTS, so guard with a DO block. On managed
--- hosts (e.g. Render) these roles may already exist — skip silently if so.
+-- On managed hosts (e.g. Render) the app's DB user can't create roles, and the roles
+-- already exist anyway. Create them only if missing AND we have permission; otherwise
+-- skip silently so this migration never aborts.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zaroda_app') THEN
-    CREATE ROLE zaroda_app;
+    BEGIN CREATE ROLE zaroda_app; EXCEPTION WHEN insufficient_privilege OR duplicate_object THEN NULL; END;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zaroda_super') THEN
-    CREATE ROLE zaroda_super BYPASSRLS;
+    BEGIN CREATE ROLE zaroda_super BYPASSRLS; EXCEPTION WHEN insufficient_privilege OR duplicate_object THEN NULL; END;
   END IF;
+EXCEPTION WHEN insufficient_privilege THEN NULL;
 END $$;
 
 -- RLS policies — app sets current_setting('app.tenant_id') at session level
