@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ============================================================
 -- 1. TENANTS (one per school group / director)
 -- ============================================================
-CREATE TABLE tenants (
+CREATE TABLE IF NOT EXISTS tenants (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name              VARCHAR(255) NOT NULL,                        -- school / group name
   knec_code         VARCHAR(20)  UNIQUE,                          -- Kenya KNEC school code
@@ -40,7 +40,7 @@ CREATE TABLE tenants (
 -- ============================================================
 -- 2. SCHOOLS (one tenant can have multiple campuses)
 -- ============================================================
-CREATE TABLE schools (
+CREATE TABLE IF NOT EXISTS schools (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   knec_code       VARCHAR(20) UNIQUE,                             -- individual school KNEC code
@@ -69,7 +69,7 @@ CREATE TABLE schools (
 -- ============================================================
 -- 3. STREAMS (e.g. Grade 4 North, Grade 4 South)
 -- ============================================================
-CREATE TABLE streams (
+CREATE TABLE IF NOT EXISTS streams (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id       UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -88,7 +88,7 @@ CREATE TABLE streams (
 -- ============================================================
 -- 4. USERS (all roles — isolated by tenant_id)
 -- ============================================================
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id           UUID         NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   school_id           UUID         REFERENCES schools(id) ON DELETE SET NULL,
@@ -130,7 +130,7 @@ CREATE TABLE users (
 -- ============================================================
 -- 5. REFRESH TOKENS (JWT refresh token rotation)
 -- ============================================================
-CREATE TABLE refresh_tokens (
+CREATE TABLE IF NOT EXISTS refresh_tokens (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -144,7 +144,7 @@ CREATE TABLE refresh_tokens (
 -- ============================================================
 -- 6. SUBSCRIPTIONS
 -- ============================================================
-CREATE TABLE subscriptions (
+CREATE TABLE IF NOT EXISTS subscriptions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   stream_id       UUID REFERENCES streams(id) ON DELETE SET NULL,
@@ -164,7 +164,7 @@ CREATE TABLE subscriptions (
 -- ============================================================
 -- 7. INVOICES (generated on onboarding and renewals)
 -- ============================================================
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   invoice_number  VARCHAR(30) UNIQUE NOT NULL,                    -- ZAR-2025-00001
@@ -185,7 +185,7 @@ CREATE TABLE invoices (
 -- ============================================================
 -- 8. PAYMENTS
 -- ============================================================
-CREATE TABLE payments (
+CREATE TABLE IF NOT EXISTS payments (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   invoice_id      UUID NOT NULL REFERENCES invoices(id),
@@ -202,7 +202,7 @@ CREATE TABLE payments (
 -- ============================================================
 -- 9. AUDIT LOGS (immutable — no updates, no deletes)
 -- ============================================================
-CREATE TABLE audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id   UUID REFERENCES tenants(id) ON DELETE SET NULL,
   user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -219,7 +219,7 @@ CREATE TABLE audit_logs (
 -- ============================================================
 -- 10. NOTIFICATION QUEUE (SMS / Email / Push)
 -- ============================================================
-CREATE TABLE notification_queue (
+CREATE TABLE IF NOT EXISTS notification_queue (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   recipient   UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -239,42 +239,42 @@ CREATE TABLE notification_queue (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX idx_tenants_knec_code       ON tenants(knec_code);
-CREATE INDEX idx_tenants_subdomain       ON tenants(subdomain);
-CREATE INDEX idx_tenants_status          ON tenants(status);
+CREATE INDEX IF NOT EXISTS idx_tenants_knec_code       ON tenants(knec_code);
+CREATE INDEX IF NOT EXISTS idx_tenants_subdomain       ON tenants(subdomain);
+CREATE INDEX IF NOT EXISTS idx_tenants_status          ON tenants(status);
 
-CREATE INDEX idx_schools_tenant_id       ON schools(tenant_id);
-CREATE INDEX idx_schools_knec_code       ON schools(knec_code);
+CREATE INDEX IF NOT EXISTS idx_schools_tenant_id       ON schools(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_schools_knec_code       ON schools(knec_code);
 
-CREATE INDEX idx_streams_school_id       ON streams(school_id);
-CREATE INDEX idx_streams_tenant_id       ON streams(tenant_id);
-CREATE INDEX idx_streams_grade_level     ON streams(grade_level);
+CREATE INDEX IF NOT EXISTS idx_streams_school_id       ON streams(school_id);
+CREATE INDEX IF NOT EXISTS idx_streams_tenant_id       ON streams(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_streams_grade_level     ON streams(grade_level);
 
-CREATE INDEX idx_users_tenant_id         ON users(tenant_id);
-CREATE INDEX idx_users_email             ON users(email);
-CREATE INDEX idx_users_role              ON users(role);
-CREATE INDEX idx_users_school_id         ON users(school_id);
-CREATE INDEX idx_users_reg_token         ON users(registration_token) WHERE registration_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id         ON users(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_users_email             ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role              ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_school_id         ON users(school_id);
+CREATE INDEX IF NOT EXISTS idx_users_reg_token         ON users(registration_token) WHERE registration_token IS NOT NULL;
 
-CREATE INDEX idx_refresh_tokens_user_id  ON refresh_tokens(user_id);
-CREATE INDEX idx_refresh_tokens_hash     ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id  ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash     ON refresh_tokens(token_hash);
 
-CREATE INDEX idx_subscriptions_tenant_id ON subscriptions(tenant_id);
-CREATE INDEX idx_subscriptions_status    ON subscriptions(status);
-CREATE INDEX idx_subscriptions_ends_at   ON subscriptions(ends_at);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_tenant_id ON subscriptions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status    ON subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_ends_at   ON subscriptions(ends_at);
 
-CREATE INDEX idx_invoices_tenant_id      ON invoices(tenant_id);
-CREATE INDEX idx_invoices_status         ON invoices(status);
+CREATE INDEX IF NOT EXISTS idx_invoices_tenant_id      ON invoices(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_status         ON invoices(status);
 
-CREATE INDEX idx_payments_tenant_id      ON payments(tenant_id);
-CREATE INDEX idx_payments_invoice_id     ON payments(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_payments_tenant_id      ON payments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_payments_invoice_id     ON payments(invoice_id);
 
-CREATE INDEX idx_audit_logs_tenant_id    ON audit_logs(tenant_id);
-CREATE INDEX idx_audit_logs_user_id      ON audit_logs(user_id);
-CREATE INDEX idx_audit_logs_entity       ON audit_logs(entity_type, entity_id);
-CREATE INDEX idx_audit_logs_created_at   ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id    ON audit_logs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id      ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity       ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at   ON audit_logs(created_at DESC);
 
-CREATE INDEX idx_notif_tenant_status     ON notification_queue(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_notif_tenant_status     ON notification_queue(tenant_id, status);
 
 -- ============================================================
 -- ROW LEVEL SECURITY (tenant isolation)

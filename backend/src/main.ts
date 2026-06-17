@@ -27,13 +27,15 @@ async function runMigrations(app: any) {
     let applied = new Set((appliedRows || []).map((r: any) => r.filename));
 
     // Self-heal a broken tracker: if migrations are marked applied but the core tables
-    // they create are missing (e.g. a prior deploy recorded them without actually
-    // creating the schema, or this is a fresh DB seeded from a half-applied state),
-    // clear the tracker so every migration re-runs and rebuilds the schema cleanly.
+    // they create are missing (e.g. migration 001 failed partway and was wrongly
+    // recorded as applied, or the DB was recreated), clear the tracker so every
+    // migration re-runs. With 001 now idempotent (IF NOT EXISTS), re-running is safe.
     if (applied.size > 0) {
-      const coreExists = await ds.query(`SELECT to_regclass('public.tenants') AS t`).catch(() => [{ t: null }]);
-      if (!coreExists?.[0]?.t) {
-        console.warn('⚠️  migrations marked applied but core tables missing — resetting migration tracker to rebuild schema');
+      const core = await ds.query(
+        `SELECT to_regclass('public.tenants') AS tenants, to_regclass('public.users') AS users`
+      ).catch(() => [{ tenants: null, users: null }]);
+      if (!core?.[0]?.tenants || !core?.[0]?.users) {
+        console.warn('⚠️  migrations marked applied but core tables (tenants/users) missing — resetting migration tracker to rebuild schema');
         await ds.query(`DELETE FROM _migrations`).catch(() => null);
         applied = new Set();
       }
@@ -118,13 +120,24 @@ async function bootstrap() {
   }
 
   // ── CORS — allow the Next.js frontend ────────────────────
+  // Allowed browser origins: the configured frontend URL, any extra origins from
+  // ALLOWED_ORIGINS (comma-separated, e.g. a custom domain), localhost for dev, and
+  // any *.onrender.com host so the deployed frontend works out of the box.
+  const staticOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:3001',
+    ...(process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean),
+    'http://localhost:3001',
+    'http://localhost:3000',
+    'http://127.0.0.1:3001',
+  ];
   app.enableCors({
-    origin: [
-      process.env.FRONTEND_URL     || 'http://localhost:3001',
-      'http://localhost:3001',
-      'http://localhost:3000',
-      'http://127.0.0.1:3001',
-    ],
+    origin: (origin, cb) => {
+      // Allow same-origin/non-browser requests (no origin) and any listed/onrender origin.
+      if (!origin || staticOrigins.includes(origin) || /\.onrender\.com$/.test(new URL(origin).hostname)) {
+        return cb(null, true);
+      }
+      return cb(null, false);
+    },
     methods:     ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type','Authorization','X-Requested-With'],
