@@ -12,6 +12,14 @@ import { Tenant }   from './entities/tenant.entity';
 import { School }   from './entities/school.entity';
 import { SignupDto } from './dto';
 
+/** Parse a value to an integer, returning null for missing/blank/non-numeric input
+ *  (so a stray "NaN" or undefined never reaches a smallint/integer DB column). */
+function toIntOrNull(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseInt(String(v), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -82,9 +90,12 @@ export class AuthService {
         county:        dto.county,
         subCounty:     dto.subCounty,
         zone:          dto.zone,
-        keCountyId:    dto.countyId    ? parseInt(dto.countyId)    : undefined,
-        keSubCountyId: dto.subCountyId ? parseInt(dto.subCountyId) : undefined,
-        keZoneId:      dto.zoneId      ? parseInt(dto.zoneId)      : undefined,
+        // Parse location ids defensively: a missing or non-numeric value (e.g. the
+        // frontend sending "NaN" or an empty pick) must become null, not NaN, or the
+        // smallint insert fails with "invalid input syntax for type smallint: NaN".
+        keCountyId:    toIntOrNull(dto.countyId),
+        keSubCountyId: toIntOrNull(dto.subCountyId),
+        keZoneId:      toIntOrNull(dto.zoneId),
         status:        'trial',
         trialEndsAt:   new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         subscriptionTier: 'trial',

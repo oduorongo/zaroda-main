@@ -51,3 +51,7 @@ ALTER TABLE streams ALTER COLUMN term DROP NOT NULL;
 -- school_id or academic_year, but migration 003 marked both NOT NULL. Relax them.
 ALTER TABLE learners ALTER COLUMN school_id     DROP NOT NULL;
 ALTER TABLE learners ALTER COLUMN academic_year DROP NOT NULL;
+
+-- The academic dashboard reads SUM(amount_paid) FROM invoices, but migration 001's
+-- invoices table has no amount_paid column. Add it (read-only stat; defaults to 0).
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(10,2) NOT NULL DEFAULT 0;
