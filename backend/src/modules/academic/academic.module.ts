@@ -179,21 +179,33 @@ export class AcademicService {
     }
     const subjMatch = (area: string, subj: string) =>
       area.toLowerCase().includes(subj.toLowerCase()) || subj.toLowerCase().includes(area.toLowerCase());
+    const hasPerStreamData = Object.keys(streamSubjectMap).length > 0;
     const teaches = (area: string, streamId?: string | null) => {
       if (admin) return true;
       const sid = streamId ? String(streamId) : null;
       // Class teacher of THIS stream → may save any subject for it.
       if (sid && classTeacherStreams.includes(sid)) return true;
-      // Otherwise the teacher must be assigned this subject IN THIS stream.
-      if (sid && streamSubjectMap[sid]) {
-        return streamSubjectMap[sid].some(s => subjMatch(area, s));
+      // Preferred path: the teacher has explicit per-stream assignments. They may only
+      // save a learning area in a stream they're assigned to teach it.
+      if (hasPerStreamData) {
+        if (sid && streamSubjectMap[sid]) {
+          return streamSubjectMap[sid].some(s => subjMatch(area, s));
+        }
+        return false;  // has assignments, but not for this stream → blocked (no cross-stream)
       }
-      // No per-stream assignment for this stream → not allowed (even if they teach
-      // the subject in some other stream). This prevents cross-stream mark entry.
-      return false;
+      // Fallback for teachers with no per-stream rows yet (legacy / flat assignment only):
+      // allow if the learning area is in their general subject list. This keeps older
+      // accounts working until they're re-assigned per stream.
+      if (mySubjects.length) {
+        return mySubjects.some(s => subjMatch(area, s));
+      }
+      // No assignments of any kind recorded → allow (school hasn't scoped this teacher;
+      // better to let them save than to hard-block legitimate mark entry).
+      return true;
     };
 
     let saved = 0;
+    let lastError = '';
     for (const r of records) {
       // Resolve the record's stream FIRST (from the learner if not supplied), so the
       // per-stream permission check below always has the correct stream to test against.
@@ -233,11 +245,12 @@ export class AcademicService {
           r.term || null, r.academicYear || null,
         ],
       ).then(() => { saved++; }).catch((e: any) => {
-        console.error(`mark save failed for learner ${r.learnerId}/${r.subject}: ${e.message}`);
+        lastError = e.message || String(e);
+        console.error(`mark save failed for learner ${r.learnerId}/${r.subject}: ${lastError}`);
       });
     }
     if (saved === 0 && records.length > 0) {
-      throw new BadRequestException('Marks could not be saved. Check the server log for the column/constraint error.');
+      throw new BadRequestException(`Marks could not be saved: ${lastError || 'unknown error'}`);
     }
     return { message: 'Marks saved', saved };
   }
@@ -347,6 +360,48 @@ export class AcademicService {
     }
     const stream = this.streamRepo.create({ ...dto, tenantId, schoolId });
     return this.streamRepo.save(stream);
+  }
+
+  /**
+   * Rename a stream and/or set its class teacher. Lets schools fix streams that were
+   * created with only a grade name (e.g. "Grade 7" → "Grade 7 Blue") without losing
+   * the learners already registered under that stream.
+   */
+  async updateStream(tenantId: string, streamId: string, dto: any) {
+    const sets: string[] = []; const vals: any[] = []; let i = 1;
+    if (dto.name !== undefined && String(dto.name).trim()) {
+      sets.push(`name = $${i++}`); vals.push(String(dto.name).trim());
+    }
+    if (dto.classTeacherId !== undefined) {
+      // A stream has one class teacher; clear that teacher from any other stream first.
+      const tid = dto.classTeacherId || null;
+      if (tid) {
+        let tname = dto.classTeacherName || null;
+        if (!tname) {
+          const tr = await this.dataSource.query(
+            `SELECT first_name, last_name FROM users WHERE id::text = $1 LIMIT 1`, [tid],
+          ).catch(() => []);
+          if (tr.length) tname = `${tr[0].first_name || ''} ${tr[0].last_name || ''}`.trim();
+        }
+        await this.dataSource.query(
+          `UPDATE streams SET class_teacher_id = NULL, class_teacher_name = NULL
+            WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
+          [tenantId, tid],
+        ).catch(() => null);
+        sets.push(`class_teacher_id = $${i++}`);   vals.push(tid);
+        sets.push(`class_teacher_name = $${i++}`); vals.push(tname);
+      } else {
+        sets.push(`class_teacher_id = NULL`);
+        sets.push(`class_teacher_name = NULL`);
+      }
+    }
+    if (!sets.length) return { message: 'Nothing to update' };
+    vals.push(streamId, tenantId);
+    await this.dataSource.query(
+      `UPDATE streams SET ${sets.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    return { message: 'Stream updated', id: streamId };
   }
 
   /**
@@ -1124,6 +1179,11 @@ export class AcademicController {
   @Post('classes')
   createClassWithStreams(@Request() req: any, @Body() dto: any) {
     return this.academicService.createClassWithStreams(req.user.tenantId, req.user.schoolId, dto);
+  }
+
+  @Patch('streams/:id')
+  updateStream(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    return this.academicService.updateStream(req.user.tenantId, id, dto);
   }
 
   // Learners

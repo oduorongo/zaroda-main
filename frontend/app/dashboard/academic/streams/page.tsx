@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight } from 'lucide-react';
+import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight, Pencil } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS, EDUCATION_BANDS } from '@/lib/cbc/constants';
@@ -34,6 +34,25 @@ export default function StreamsPage() {
   const resetForm = () => {
     setGradeLevel(''); setAcademicYear('2025/2026');
     setStreamRows([{ name: '', classTeacherId: '' }]);
+  };
+
+  // Edit an existing stream (rename + class teacher), e.g. fix "Grade 7" → "Grade 7 Blue".
+  const [editStream, setEditStream] = useState<any>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const saveStreamEdit = async () => {
+    if (!editStream?.name?.trim()) { toast.error('Enter a stream name'); return; }
+    setSavingEdit(true);
+    try {
+      await apiClient.patch(`/academic/streams/${editStream.id}`, {
+        name: editStream.name.trim(),
+        classTeacherId: editStream.classTeacherId || null,
+      });
+      toast.success('Stream updated');
+      setEditStream(null);
+      load();
+    } catch (e:any) {
+      toast.error(e?.response?.data?.message || 'Could not update stream');
+    } finally { setSavingEdit(false); }
   };
   const addStreamRow    = () => setStreamRows(r => [...r, { name: '', classTeacherId: '' }]);
   const removeStreamRow = (i: number) => setStreamRows(r => r.length > 1 ? r.filter((_, idx) => idx !== i) : r);
@@ -95,7 +114,15 @@ export default function StreamsPage() {
                 <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center text-[#d4af37] font-black text-xs">
                   {s.gradeLevel?.replace('grade_','G').replace('_','').toUpperCase().slice(0,3) || '—'}
                 </div>
-                <span className="badge bg-surface-2 text-theme-muted">{s.academicYear || '2025/2026'}</span>
+                <div className="flex items-center gap-2">
+                  <span className="badge bg-surface-2 text-theme-muted">{s.academicYear || '2025/2026'}</span>
+                  {isHoi(user?.role || '') && (
+                    <button
+                      onClick={() => setEditStream({ id: s.id, name: s.name, classTeacherId: s.classTeacherId || '' })}
+                      className="btn-ghost p-1.5" title="Rename / set class teacher"
+                    ><Pencil size={14}/></button>
+                  )}
+                </div>
               </div>
               <div className="font-bold text-theme-heading">{s.name}</div>
               <div className="text-xs text-theme-muted mt-1 flex items-center gap-1">
@@ -188,6 +215,39 @@ export default function StreamsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {editStream && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md border-theme" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="text-lg font-bold text-theme-heading">Edit Stream</h3>
+              <button onClick={() => setEditStream(null)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="label">Stream Name</label>
+                <input value={editStream.name} onChange={e=>setEditStream({...editStream, name:e.target.value})}
+                  className="input" placeholder="e.g. Grade 7 Blue"/>
+                <p className="text-xs text-theme-muted mt-1">Tip: give each stream a distinct name like "Grade 7 Blue" or "Grade 7 Red".</p>
+              </div>
+              <div>
+                <label className="label">Class Teacher</label>
+                <select value={editStream.classTeacherId} onChange={e=>setEditStream({...editStream, classTeacherId:e.target.value})} className="input">
+                  <option value="">No class teacher</option>
+                  {teachers.map((t:any)=>(
+                    <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setEditStream(null)} className="btn-ghost flex-1">Cancel</button>
+                <button type="button" onClick={saveStreamEdit} disabled={savingEdit} className="btn-primary flex-1">
+                  {savingEdit ? <><Loader2 size={14} className="animate-spin"/> Saving…</> : 'Save'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
