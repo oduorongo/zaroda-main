@@ -375,12 +375,12 @@ export default function TeachersPage() {
       {/* Edit teacher modal */}
       {editTeacher && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" style={{ border: '1px solid var(--border)' }}>
-            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[90vh] flex flex-col" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
               <h3 className="font-bold text-theme-heading">Edit Teacher</h3>
               <button onClick={()=>setEditTeacher(null)}><X size={20} className="text-theme-muted"/></button>
             </div>
-            <div className="p-5 space-y-3">
+            <div className="p-5 space-y-3 overflow-y-auto flex-1">
               <div><label className="label">Full Name</label><input value={editTeacher.fullName} onChange={e=>setEditTeacher({...editTeacher, fullName:e.target.value})} className="input"/></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Email</label><input value={editTeacher.email} onChange={e=>setEditTeacher({...editTeacher, email:e.target.value})} className="input"/></div>
@@ -438,10 +438,10 @@ export default function TeachersPage() {
                   <button type="button" onClick={editAddRow} className="btn-ghost text-sm w-full">+ Add another class</button>
                 </div>
               </div>
-              <div className="flex gap-3 pt-1">
-                <button onClick={()=>setEditTeacher(null)} className="btn-ghost flex-1">Cancel</button>
-                <button onClick={saveEdit} className="btn-primary flex-1">Save</button>
-              </div>
+            </div>
+            <div className="flex gap-3 p-5 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
+              <button onClick={()=>setEditTeacher(null)} className="btn-ghost flex-1">Cancel</button>
+              <button onClick={saveEdit} className="btn-primary flex-1">Save</button>
             </div>
           </div>
         </div>
