@@ -22,7 +22,7 @@ export default function ExamsPage() {
   const [saving,  setSaving]  = useState(false);
   const [form, setForm] = useState({
     name: '', examType: 'end_term', term: 'term_1',
-    academicYear: '2025/2026', startDate: '', endDate: '', maxScore: 100,
+    academicYear: '2025/2026', startDate: '', endDate: '',
   });
 
   const load = () => {
@@ -43,7 +43,7 @@ export default function ExamsPage() {
       await apiClient.post('/academic/exams', form);
       toast.success('Exam created — teachers can now enter scores');
       setShowNew(false);
-      setForm({ name:'', examType:'end_term', term:'term_1', academicYear:'2025/2026', startDate:'', endDate:'', maxScore:100 });
+      setForm({ name:'', examType:'end_term', term:'term_1', academicYear:'2025/2026', startDate:'', endDate:'' });
       load();
     } catch { toast.error('Could not create exam'); }
     finally { setSaving(false); }
@@ -96,7 +96,7 @@ export default function ExamsPage() {
                     {statusBadge(ex.status)}
                   </div>
                   <div className="text-xs text-theme-muted mt-0.5">
-                    {EXAM_TYPES.find(t => t.value === ex.examType)?.label} · {ex.term?.replace('_',' ')} · {ex.academicYear} · out of {ex.maxScore}
+                    {EXAM_TYPES.find(t => t.value === ex.examType)?.label} · {ex.term?.replace('_',' ')} · {ex.academicYear}
                     {ex.startDate && <> · {new Date(ex.startDate).toLocaleDateString('en-KE')}</>}
                   </div>
                 </div>
@@ -140,10 +140,9 @@ export default function ExamsPage() {
                 <div><label className="label">Start Date</label><input type="date" value={form.startDate} onChange={set('startDate')} className="input"/></div>
                 <div><label className="label">End Date</label><input type="date" value={form.endDate} onChange={set('endDate')} className="input"/></div>
               </div>
-              <div>
-                <label className="label">Maximum Score</label>
-                <input type="number" value={form.maxScore} onChange={set('maxScore')} className="input" placeholder="100"/>
-              </div>
+              <p className="text-xs text-theme-muted">
+                Maximum score isn't set here — each grade and learning area is marked out of a different total, so teachers set the score limit per learning area when entering marks.
+              </p>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">

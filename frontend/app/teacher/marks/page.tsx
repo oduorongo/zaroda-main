@@ -16,8 +16,17 @@ export default function TeacherMarks() {
   const [rubricAreas, setRubricAreas] = useState<string[]>([]);    // DB rubric (same source as mark-list)
   const [subject, setSubject]   = useState('');
   const [learners, setLearners] = useState<any[]>([]);
-  const [term, setTerm]         = useState('term_1');
-  const [examType, setExamType] = useState('end_term');
+  // Teachers no longer pick a free term/exam-type. They choose one of the exams the
+  // HOI created; term, exam type and max score all come from that exam, so marks
+  // always line up with the exam the school actually scheduled.
+  const [exams, setExams]           = useState<any[]>([]);
+  const [selectedExamId, setSelectedExamId] = useState('');
+  const selectedExam = useMemo(
+    () => exams.find((e:any) => e.id === selectedExamId),
+    [exams, selectedExamId],
+  );
+  const term     = selectedExam?.term || '';
+  const examType = selectedExam?.examType || '';
   const [maxScore, setMaxScore] = useState(100);
   const [scores, setScores]     = useState<Record<string, number>>({});
   const [savedSubjects, setSavedSubjects] = useState<string[]>([]);
@@ -30,7 +39,8 @@ export default function TeacherMarks() {
       apiClient.get('/academic/streams').catch(()=>({data:[]})),
       apiClient.get('/academic/teachers').catch(()=>({data:[]})),
       apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(()=>({data:[]})),
-    ]).then(([s, t, ss]) => {
+      apiClient.get('/academic/exams').catch(()=>({data:[]})),
+    ]).then(([s, t, ss, ex]) => {
       const all = s.data || [];
       const seesAll = isHoi(user?.role || '') || user?.role === 'super_admin';
       const me = (t.data||[]).find((x:any)=>x.id===user.id);
@@ -40,6 +50,10 @@ export default function TeacherMarks() {
       const mine = all.filter((x:any) => assignedIds.has(String(x.id)) || x.id === user.streamId || x.classTeacherId === user.id);
       const list = seesAll ? all : (mine.length ? mine : all);
       setStreams(list);
+      // Only exams the HOI created are available to enter marks against.
+      const examList = ex.data || [];
+      setExams(examList);
+      if (examList.length) setSelectedExamId(examList[0].id);
       const url = new URLSearchParams(window.location.search);
       const sid = url.get('streamId') || (user.streamId && list.find((x:any)=>x.id===user.streamId)?.id) || list[0]?.id || '';
       setStreamId(sid); setStream(list.find((x:any)=>x.id===sid));
@@ -115,6 +129,10 @@ export default function TeacherMarks() {
   }, [learners, scores, maxScore]);
 
   const save = async () => {
+    if (!selectedExamId || !selectedExam) {
+      toast.error('Select an exam first. Ask your HOI to create one if the list is empty.');
+      return;
+    }
     setSaving(true);
     try {
       const records = ranked.filter(r=>r.has).map(r => ({
@@ -122,7 +140,7 @@ export default function TeacherMarks() {
         rawScore: r.raw, maxScore, percent: r.percent,
         level: percentToLevel(r.percent, stream?.gradeLevel||'grade_4').code,
         gradeLevel: stream?.gradeLevel,
-        term, examType, academicYear: '2025/2026',
+        term, examType, examId: selectedExamId, academicYear: selectedExam?.academicYear || '2025/2026',
       }));
       if (!records.length) { toast.error('Enter at least one score'); setSaving(false); return; }
       await apiClient.post('/academic/assessment-results/bulk', { records });
@@ -168,9 +186,14 @@ export default function TeacherMarks() {
             {subjectOptions.map(s=><option key={s} value={s}>{savedSubjects.includes(s) ? `✓ ${s}` : s}</option>)}
           </select>
         </div>
-        <div><label className="label">Term</label>
-          <select value={term} onChange={e=>setTerm(e.target.value)} className="input w-28">
-            <option value="term_1">Term 1</option><option value="term_2">Term 2</option><option value="term_3">Term 3</option>
+        <div><label className="label">Exam</label>
+          <select value={selectedExamId} onChange={e=>setSelectedExamId(e.target.value)} className="input w-56">
+            {exams.length === 0 && <option value="">No exams created yet</option>}
+            {exams.map((ex:any)=>(
+              <option key={ex.id} value={ex.id}>
+                {ex.name}{ex.term ? ` · ${String(ex.term).replace('term_','Term ')}` : ''}
+              </option>
+            ))}
           </select>
         </div>
         <div><label className="label">Out of</label>
