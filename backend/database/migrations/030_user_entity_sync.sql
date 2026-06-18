@@ -55,3 +55,21 @@ ALTER TABLE learners ALTER COLUMN academic_year DROP NOT NULL;
 -- The academic dashboard reads SUM(amount_paid) FROM invoices, but migration 001's
 -- invoices table has no amount_paid column. Add it (read-only stat; defaults to 0).
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(10,2) NOT NULL DEFAULT 0;
+
+-- The exams feature: migration 003 created `exams` first (so 013's richer version was
+-- skipped by IF NOT EXISTS). The app needs max_score, doesn't send school_id/academic_year,
+-- and uses status='scheduled' + free-form exam_type/term that 003's CHECKs reject. Sync it.
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_score INT DEFAULT 100;
+ALTER TABLE exams ALTER COLUMN school_id     DROP NOT NULL;
+ALTER TABLE exams ALTER COLUMN academic_year DROP NOT NULL;
+ALTER TABLE exams DROP CONSTRAINT IF EXISTS exams_exam_type_check;
+ALTER TABLE exams DROP CONSTRAINT IF EXISTS exams_term_check;
+ALTER TABLE exams DROP CONSTRAINT IF EXISTS exams_status_check;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='exams' AND column_name='term' AND is_nullable='NO') THEN
+    ALTER TABLE exams ALTER COLUMN term DROP NOT NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='exams' AND column_name='exam_type' AND is_nullable='NO') THEN
+    ALTER TABLE exams ALTER COLUMN exam_type DROP NOT NULL;
+  END IF;
+END $$;

@@ -145,6 +145,9 @@ export class AcademicService {
     const admin = this.isHoiRole(user.role);
     let mySubjects: string[] = [];
     let classTeacherStreams: string[] = [];
+    // Per-stream assignments: { streamId -> Set(subject) }. A subject teacher may only
+    // save marks for a learning area IN A STREAM they're actually assigned to teach it.
+    const streamSubjectMap: Record<string, string[]> = {};
     if (!admin) {
       if (!this.isTeacherRole(user.role)) {
         throw new BadRequestException('You do not have permission to enter marks.');
@@ -153,6 +156,16 @@ export class AcademicService {
         `SELECT subjects FROM users WHERE id::text = $1 LIMIT 1`, [user.id],
       ).catch(() => []);
       mySubjects = (urows[0]?.subjects || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+
+      // Load the teacher's exact (stream, subject) assignments.
+      const ssRows = await this.dataSource.query(
+        `SELECT stream_id::text AS "streamId", subject FROM teacher_stream_subjects
+          WHERE tenant_id::text = $1 AND teacher_id::text = $2`,
+        [tenantId, user.id],
+      ).catch(() => []);
+      for (const r of ssRows) {
+        (streamSubjectMap[r.streamId] = streamSubjectMap[r.streamId] || []).push(String(r.subject));
+      }
 
       // Streams where this user is the (overall) class teacher — full mark-list rights
       if (['class_teacher', 'overall_class_teacher'].includes(user.role)) {
@@ -164,20 +177,26 @@ export class AcademicService {
         classTeacherStreams = crows.map((r: any) => r.id);
       }
     }
-    const teaches = (area: string, streamId?: string | null) =>
-      admin
-      || (streamId && classTeacherStreams.includes(String(streamId)))  // own class → any subject
-      || mySubjects.some(s => area.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(area.toLowerCase()));
+    const subjMatch = (area: string, subj: string) =>
+      area.toLowerCase().includes(subj.toLowerCase()) || subj.toLowerCase().includes(area.toLowerCase());
+    const teaches = (area: string, streamId?: string | null) => {
+      if (admin) return true;
+      const sid = streamId ? String(streamId) : null;
+      // Class teacher of THIS stream → may save any subject for it.
+      if (sid && classTeacherStreams.includes(sid)) return true;
+      // Otherwise the teacher must be assigned this subject IN THIS stream.
+      if (sid && streamSubjectMap[sid]) {
+        return streamSubjectMap[sid].some(s => subjMatch(area, s));
+      }
+      // No per-stream assignment for this stream → not allowed (even if they teach
+      // the subject in some other stream). This prevents cross-stream mark entry.
+      return false;
+    };
 
     let saved = 0;
     for (const r of records) {
-      // Enforce per-record: a teacher may only save marks for areas they teach,
-      // unless they are the class teacher of that record's stream.
-      if (!teaches(r.subject || '', r.streamId)) {
-        throw new BadRequestException(`You can only enter marks for learning areas you teach (blocked: ${r.subject}).`);
-      }
-      // Safety net: if no streamId was sent, look it up from the learner record,
-      // so marks are always stored against the correct class.
+      // Resolve the record's stream FIRST (from the learner if not supplied), so the
+      // per-stream permission check below always has the correct stream to test against.
       let streamId = r.streamId || null;
       let gradeLevel = r.gradeLevel || null;
       if (!streamId && r.learnerId) {
@@ -186,6 +205,12 @@ export class AcademicService {
           [r.learnerId],
         ).catch(() => []);
         if (lr.length) { streamId = lr[0].stream_id; gradeLevel = gradeLevel || lr[0].grade_level; }
+      }
+
+      // Enforce per-record: a teacher may only save marks for a learning area in a
+      // stream they're assigned to teach it (or their own class as class teacher).
+      if (!teaches(r.subject || '', streamId)) {
+        throw new BadRequestException(`You can only enter marks for learning areas you teach in your assigned classes (blocked: ${r.subject}).`);
       }
 
       // Replace any existing result for the same learner/subject/term/exam, then insert
