@@ -349,6 +349,39 @@ export class AcademicService {
     return this.streamRepo.save(stream);
   }
 
+  /**
+   * Create a class (grade level) with one or more streams in a single action.
+   * A grade like "Grade 7" is split into streams (Blue, Red, …) because one class
+   * of 500 learners can't sit in a single room.
+   * dto = { gradeLevel, academicYear, streams: [{ name, classTeacherId? }] }
+   */
+  async createClassWithStreams(tenantId: string, schoolId: string, dto: any) {
+    if (!schoolId) {
+      throw new BadRequestException('No school is linked to your account. Please log out and log in again.');
+    }
+    if (!dto?.gradeLevel) throw new BadRequestException('Select a grade level.');
+    const streams = Array.isArray(dto.streams) ? dto.streams.filter((s: any) => s?.name?.trim()) : [];
+    if (!streams.length) throw new BadRequestException('Add at least one stream (e.g. Blue, Red).');
+
+    const gradeLabel = String(dto.gradeLevel).replace('grade_', 'Grade ').replace('pp', 'PP');
+    const created: any[] = [];
+    for (const s of streams) {
+      // Stream name like "Grade 7 Blue"; if the user typed a full name keep it,
+      // otherwise prefix the grade so streams read naturally in lists.
+      const raw = String(s.name).trim();
+      const name = /grade|pp|^g\d/i.test(raw) ? raw : `${gradeLabel} ${raw}`;
+      const row = this.streamRepo.create({
+        tenantId, schoolId,
+        gradeLevel:     dto.gradeLevel,
+        name,
+        classTeacherId: s.classTeacherId || null,
+        academicYear:   dto.academicYear || null,
+      });
+      created.push(await this.streamRepo.save(row));
+    }
+    return { message: `${created.length} stream(s) created under ${gradeLabel}`, streams: created };
+  }
+
   // ── Learners ─────────────────────────────────────────────
   async getLearners(tenantId: string, filters: any) {
     const qb = this.learnerRepo.createQueryBuilder('l')
@@ -1063,6 +1096,11 @@ export class AcademicController {
   @Post('streams')
   createStream(@Request() req: any, @Body() dto: any) {
     return this.academicService.createStream(req.user.tenantId, req.user.schoolId, dto);
+  }
+
+  @Post('classes')
+  createClassWithStreams(@Request() req: any, @Body() dto: any) {
+    return this.academicService.createClassWithStreams(req.user.tenantId, req.user.schoolId, dto);
   }
 
   // Learners

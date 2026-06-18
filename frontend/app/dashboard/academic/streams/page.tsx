@@ -14,9 +14,12 @@ export default function StreamsPage() {
   const [loading,  setLoading]  = useState(true);
   const [showNew,  setShowNew]  = useState(false);
   const [saving,   setSaving]   = useState(false);
-  const [form, setForm] = useState({
-    name: '', gradeLevel: '', classTeacherId: '', academicYear: '2025/2026',
-  });
+  // A class = one grade level split into one or more streams (Blue, Red, …).
+  const [gradeLevel, setGradeLevel]   = useState('');
+  const [academicYear, setAcademicYear] = useState('2025/2026');
+  const [streamRows, setStreamRows]   = useState<{ name: string; classTeacherId: string }[]>([
+    { name: '', classTeacherId: '' },
+  ]);
 
   const load = () => {
     setLoading(true);
@@ -28,29 +31,35 @@ export default function StreamsPage() {
   };
   useEffect(() => { load(); }, []);
 
-  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const resetForm = () => {
+    setGradeLevel(''); setAcademicYear('2025/2026');
+    setStreamRows([{ name: '', classTeacherId: '' }]);
+  };
+  const addStreamRow    = () => setStreamRows(r => [...r, { name: '', classTeacherId: '' }]);
+  const removeStreamRow = (i: number) => setStreamRows(r => r.length > 1 ? r.filter((_, idx) => idx !== i) : r);
+  const setStreamRow    = (i: number, k: string, v: string) =>
+    setStreamRows(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row));
 
-  // Auto-suggest a stream name from grade if name left blank
+  // Create the grade with all its streams in one action.
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.gradeLevel) { toast.error('Select a grade level'); return; }
+    if (!gradeLevel) { toast.error('Select a grade level'); return; }
+    const streamsPayload = streamRows
+      .filter(r => r.name.trim())
+      .map(r => ({ name: r.name.trim(), classTeacherId: r.classTeacherId || null }));
+    if (!streamsPayload.length) { toast.error('Add at least one stream (e.g. Blue, Red)'); return; }
     setSaving(true);
     try {
-      const teacher = teachers.find(t => t.id === form.classTeacherId);
-      const gradeLabel = GRADE_LEVELS.find(g => g.value === form.gradeLevel)?.label || '';
-      await apiClient.post('/academic/streams', {
-        name:             form.name || gradeLabel,
-        gradeLevel:       form.gradeLevel,
-        classTeacherId:   form.classTeacherId || null,
-        classTeacherName: teacher ? `${teacher.firstName} ${teacher.lastName}` : null,
-        academicYear:     form.academicYear,
+      const res = await apiClient.post('/academic/classes', {
+        gradeLevel, academicYear, streams: streamsPayload,
       });
-      toast.success('Stream created');
+      toast.success(res.data?.message || `${streamsPayload.length} stream(s) created`);
       setShowNew(false);
-      setForm({ name: '', gradeLevel: '', classTeacherId: '', academicYear: '2025/2026' });
+      resetForm();
       load();
-    } catch { toast.error('Could not create stream'); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not create class');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -104,15 +113,18 @@ export default function StreamsPage() {
 
       {showNew && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md border-theme" style={{ border: '1px solid var(--border)' }}>
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg border-theme" style={{ border: '1px solid var(--border)' }}>
             <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h3 className="text-lg font-bold text-theme-heading">New Stream / Class</h3>
-              <button onClick={() => setShowNew(false)}><X size={20} className="text-theme-muted"/></button>
+              <h3 className="text-lg font-bold text-theme-heading">New Class & Streams</h3>
+              <button onClick={() => { setShowNew(false); resetForm(); }}><X size={20} className="text-theme-muted"/></button>
             </div>
-            <form onSubmit={submit} className="p-5 space-y-4">
+            <form onSubmit={submit} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              <p className="text-xs text-theme-muted">
+                A class (grade) is split into streams (e.g. Blue, Red, Green) when one room can't hold all learners. Pick the grade, then add each stream below.
+              </p>
               <div>
                 <label className="label">Grade Level *</label>
-                <select value={form.gradeLevel} onChange={set('gradeLevel')} className="input">
+                <select value={gradeLevel} onChange={e => setGradeLevel(e.target.value)} className="input">
                   <option value="">Select grade</option>
                   {EDUCATION_BANDS.map(band => (
                     <optgroup key={band} label={band}>
@@ -123,33 +135,56 @@ export default function StreamsPage() {
                   ))}
                 </select>
               </div>
+
               <div>
-                <label className="label">Stream Name</label>
-                <input value={form.name} onChange={set('name')} className="input"
-                  placeholder="e.g. Grade 4 North (blank = grade name)"/>
-              </div>
-              <div>
-                <label className="label">Class Teacher</label>
-                <select value={form.classTeacherId} onChange={set('classTeacherId')} className="input">
-                  <option value="">Assign later</option>
-                  {teachers.map((t: any) => (
-                    <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>
+                <label className="label">Streams *</label>
+                <div className="space-y-2">
+                  {streamRows.map((row, i) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <input
+                        value={row.name}
+                        onChange={e => setStreamRow(i, 'name', e.target.value)}
+                        className="input flex-1"
+                        placeholder="Stream name e.g. Blue"
+                      />
+                      <select
+                        value={row.classTeacherId}
+                        onChange={e => setStreamRow(i, 'classTeacherId', e.target.value)}
+                        className="input flex-1"
+                      >
+                        <option value="">Class teacher (optional)</option>
+                        {teachers.map((t: any) => (
+                          <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removeStreamRow(i)}
+                        disabled={streamRows.length === 1}
+                        className="btn-ghost px-2 disabled:opacity-30"
+                        title="Remove stream"
+                      ><X size={16}/></button>
+                    </div>
                   ))}
-                </select>
+                </div>
+                <button type="button" onClick={addStreamRow} className="btn-ghost mt-2 text-sm">
+                  <Plus size={14}/> Add another stream
+                </button>
                 {teachers.length === 0 && (
-                  <p className="text-xs text-amber-500 mt-1">
-                    No teachers yet — onboard them under <Link href="/dashboard/academic/teachers" className="underline font-semibold">Teachers</Link> to assign a class teacher.
+                  <p className="text-xs text-amber-500 mt-2">
+                    No teachers yet — onboard them under <Link href="/dashboard/academic/teachers" className="underline font-semibold">Teachers</Link> to assign class teachers (you can also assign later).
                   </p>
                 )}
               </div>
+
               <div>
                 <label className="label">Academic Year</label>
-                <input value={form.academicYear} onChange={set('academicYear')} className="input"/>
+                <input value={academicYear} onChange={e => setAcademicYear(e.target.value)} className="input"/>
               </div>
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="button" onClick={() => { setShowNew(false); resetForm(); }} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">
-                  {saving ? <><Loader2 size={14} className="animate-spin"/> Creating…</> : 'Create Stream'}
+                  {saving ? <><Loader2 size={14} className="animate-spin"/> Creating…</> : 'Create Class'}
                 </button>
               </div>
             </form>
