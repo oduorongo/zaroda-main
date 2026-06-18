@@ -223,6 +223,50 @@ async function bootstrap() {
     }
   });
 
+  // One-time platform-owner creation (free tier has no shell). Visit:
+  //   /create-owner?key=SECRET&email=you@example.com&password=YourPass&name=Your+Name
+  // The key is OWNER_KEY env (defaults to 'zaroda-owner-setup'). Creates a super_admin
+  // with no tenant. Safe to call once; if the email already exists it upgrades that
+  // account to super_admin. Rotate/remove OWNER_KEY afterwards.
+  httpAdapter.get('/create-owner', async (req: any, res: any) => {
+    const expected = process.env.OWNER_KEY || 'zaroda-owner-setup';
+    if ((req.query?.key || '') !== expected) {
+      res.status(403).send('Forbidden: add ?key=YOUR_OWNER_KEY to the URL.');
+      return;
+    }
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    const password = String(req.query?.password || '');
+    const name = String(req.query?.name || 'Platform Owner').trim();
+    if (!email || password.length < 6) {
+      res.status(400).type('text/plain').send('Need ?email= and ?password= (min 6 chars).');
+      return;
+    }
+    try {
+      const ds = app.get(DataSource);
+      const bcryptLib = require('bcryptjs');
+      const hash = await bcryptLib.hash(password, 12);
+      const [firstName, ...rest] = name.split(/\s+/);
+      const lastName = rest.join(' ') || 'Owner';
+      const existing = await ds.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]).catch(() => []);
+      if (existing.length) {
+        await ds.query(
+          `UPDATE users SET role='super_admin', password_hash=$2, is_active=true, must_change_password=false WHERE email=$1`,
+          [email, hash],
+        );
+        res.type('text/plain').send(`Existing account ${email} upgraded to platform owner (super_admin). You can now log in.`);
+        return;
+      }
+      await ds.query(
+        `INSERT INTO users (email, password_hash, first_name, last_name, role, tenant_id, is_active, email_verified, must_change_password, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,'super_admin',NULL,true,true,false,NOW(),NOW())`,
+        [email, hash, firstName, lastName],
+      );
+      res.type('text/plain').send(`Platform owner created: ${email}. Log in and you'll land on the Owner Console.`);
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
 

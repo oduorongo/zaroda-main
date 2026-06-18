@@ -499,27 +499,70 @@ export class PdfModule {}
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
 class AdminController {
+  constructor(private readonly ds: DataSource) {}
+
+  // Only the platform owner (super_admin) may cross tenant boundaries. Every method
+  // guards on this; a normal school user gets an empty/forbidden response.
+  private isOwner(req: any): boolean {
+    return req?.user?.role === 'super_admin';
+  }
+
+  // Platform-wide list of every school (tenant). Read-only.
   @Get('tenants')
-  getTenants(@Request() req: any) {
-    // TODO: super_admin only — list all schools across the platform
-    return [];
+  async getTenants(@Request() req: any, @Query() q: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
+    const search = q.search ? `%${q.search}%` : null;
+    const rows = await this.ds.query(
+      `SELECT t.id, t.name, t.status, t.subscription_tier AS "subscriptionTier",
+              t.county, t.sub_county AS "subCounty", t.phone, t.email,
+              t.knec_code AS "knecCode", t.trial_ends_at AS "trialEndsAt", t.created_at AS "createdAt",
+              (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
+              (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
+              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount"
+         FROM tenants t
+        WHERE ($1::text IS NULL OR t.name ILIKE $1)
+        ORDER BY t.created_at DESC`,
+      [search],
+    ).catch(() => []);
+    return { data: rows };
   }
 
+  // One school's detail (read-only) — owner drilling into a specific tenant.
+  @Get('tenants/:id')
+  async getTenant(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const rows = await this.ds.query(
+      `SELECT t.*,
+              (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
+              (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
+              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount"
+         FROM tenants t WHERE t.id = $1 LIMIT 1`,
+      [id],
+    ).catch(() => []);
+    if (!rows.length) return { error: 'not found' };
+    // The school's users (no password hashes)
+    const users = await this.ds.query(
+      `SELECT id, first_name AS "firstName", last_name AS "lastName", email, role, is_active AS "isActive"
+         FROM users WHERE tenant_id = $1 ORDER BY role, first_name`,
+      [id],
+    ).catch(() => []);
+    return { tenant: rows[0], users };
+  }
+
+  // Platform-wide stats across ALL tenants. Read-only.
   @Get('stats')
-  getStats(@Request() req: any) {
-    return { totalTenants: 0, activeTenants: 0, trialTenants: 0, mrr: 0 };
-  }
-
-  @Post('broadcast')
-  broadcast(@Request() req: any, @Body() dto: { audience: string; title: string; message: string }) {
-    // Retooling — professional broadcast to a user segment across all schools
-    return { message: `Broadcast queued for audience: ${dto.audience}`, ...dto };
-  }
-
-  @Get('pipeline')
-  getPipeline(@Request() req: any) {
-    // Marketing pipeline by county / sub-county / zone
-    return [];
+  async getStats(@Request() req: any) {
+    if (!this.isOwner(req)) return { totalTenants: 0, activeTenants: 0, trialTenants: 0, suspendedTenants: 0, totalLearners: 0, totalUsers: 0 };
+    const r = await this.ds.query(
+      `SELECT
+         (SELECT COUNT(*) FROM tenants)                                   AS "totalTenants",
+         (SELECT COUNT(*) FROM tenants WHERE status = 'active')           AS "activeTenants",
+         (SELECT COUNT(*) FROM tenants WHERE status = 'trial')            AS "trialTenants",
+         (SELECT COUNT(*) FROM tenants WHERE status = 'suspended')        AS "suspendedTenants",
+         (SELECT COUNT(*) FROM learners WHERE is_active = true)           AS "totalLearners",
+         (SELECT COUNT(*) FROM users)                                     AS "totalUsers"`,
+    ).catch(() => [{}]);
+    return r[0] || {};
   }
 }
 

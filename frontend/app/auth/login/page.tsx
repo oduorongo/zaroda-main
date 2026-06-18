@@ -22,7 +22,9 @@ export default function LoginPage() {
       toast.success('Welcome back!');
       // Route by role — teachers get their own independent portal
       const role = useAuth.getState().user?.role || '';
-      if (['class_teacher','subject_teacher','overall_class_teacher'].includes(role)) {
+      if (role === 'super_admin') {
+        router.push('/owner');
+      } else if (['class_teacher','subject_teacher','overall_class_teacher'].includes(role)) {
         router.push('/teacher');
       } else if (role === 'parent') {
         router.push('/dashboard/parent');

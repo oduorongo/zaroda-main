@@ -703,8 +703,16 @@ export class AcademicService {
       throw new BadRequestException('Only a school administrator can edit teachers.');
     }
     const fields: string[] = []; const vals: any[] = []; let i = 1;
+    // users has no full_name column — split into first_name / last_name.
+    if (dto.fullName !== undefined) {
+      const parts = String(dto.fullName).trim().split(/\s+/);
+      const firstName = parts.shift() || '';
+      const lastName  = parts.join(' ') || '';
+      fields.push(`first_name = $${i++}`); vals.push(firstName);
+      fields.push(`last_name = $${i++}`);  vals.push(lastName);
+    }
     const map: Record<string, string> = {
-      fullName: 'full_name', email: 'email', phone: 'phone', subjects: 'subjects', role: 'role',
+      email: 'email', phone: 'phone', subjects: 'subjects', role: 'role',
       streamId: 'stream_id',
     };
     for (const [k, col] of Object.entries(map)) {

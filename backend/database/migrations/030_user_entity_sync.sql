@@ -91,3 +91,7 @@ CREATE TABLE IF NOT EXISTS fee_items (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_fee_items_tenant ON fee_items(tenant_id);
+
+-- The platform owner (super_admin) belongs to no single school, so users.tenant_id
+-- must allow NULL for that one account. School users still always have a tenant.
+ALTER TABLE users ALTER COLUMN tenant_id DROP NOT NULL;
