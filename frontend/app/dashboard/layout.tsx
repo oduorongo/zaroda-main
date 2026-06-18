@@ -23,7 +23,8 @@ const NAV_ITEMS = [
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'all' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
-  { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all',   badge: 'FREE' },
+  // Library module deactivated — to be rebuilt afresh (does not match the envisioned design).
+  // { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all',   badge: 'FREE' },
   { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'all' },
   { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'all' },
 ];

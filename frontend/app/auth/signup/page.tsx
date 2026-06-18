@@ -254,7 +254,7 @@ export default function SignupPage() {
               <label className="label">School Name *</label>
               <input required value={form.schoolName} onChange={set('schoolName')}
                 placeholder="Starlight Primary School"
-                className={`input ${schoolAutoFilled ? 'bg-green-50 border-green-200' : ''}`}/>
+                className={`input ${schoolAutoFilled ? 'bg-green-50 border-green-200 text-[#1a2e5a]' : ''}`}/>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

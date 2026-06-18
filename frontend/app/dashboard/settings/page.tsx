@@ -2,7 +2,7 @@
 // app/dashboard/settings/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
-import { School, Bell, Key, Palette, Save, Loader2 } from 'lucide-react';
+import { School, Bell, Key, Palette, Save, Loader2, Share2, Copy } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -10,6 +10,22 @@ import toast from 'react-hot-toast';
 function SettingsPage() {
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
+  // Referral: a sharable link to refer other schools/teachers to ZARODA SMS.
+  const [referralUrl, setReferralUrl] = useState('');
+  const [genReferral, setGenReferral] = useState(false);
+  const makeReferralLink = async () => {
+    setGenReferral(true);
+    try {
+      const res = await apiClient.post('/referral/invite/generate');
+      setReferralUrl(res.data?.inviteUrl || '');
+    } catch { toast.error('Could not generate a referral link'); }
+    finally { setGenReferral(false); }
+  };
+  const copyReferral = () => {
+    if (!referralUrl) return;
+    navigator.clipboard?.writeText(referralUrl);
+    toast.success('Referral link copied');
+  };
   const [form, setForm] = useState({
     schoolName: '', phone: '', email: '', address: '', knecCode: '',
     principalName: '', motto: '',
@@ -210,6 +226,34 @@ function SettingsPage() {
           </button>
         </div>
       </form>
+
+      {/* Refer ZARODA SMS — share link for other schools/teachers */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Share2 size={18} className="text-theme-muted"/>
+          <h3 className="font-bold text-theme-heading">Refer ZARODA SMS</h3>
+        </div>
+        <p className="text-sm text-theme-muted mb-4">
+          Share ZARODA with other schools and teachers. Generate a referral link and send it via WhatsApp, SMS, or email.
+        </p>
+        {referralUrl ? (
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch">
+            <input readOnly value={referralUrl} className="input flex-1 font-mono text-xs"/>
+            <button type="button" onClick={copyReferral} className="btn-ghost whitespace-nowrap">
+              <Copy size={14}/> Copy link
+            </button>
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent('Check out ZARODA School Management System: ' + referralUrl)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="btn-primary whitespace-nowrap text-center"
+            >Share on WhatsApp</a>
+          </div>
+        ) : (
+          <button type="button" onClick={makeReferralLink} disabled={genReferral} className="btn-primary">
+            {genReferral ? <><Loader2 size={14} className="animate-spin"/> Generating…</> : <><Share2 size={14}/> Generate referral link</>}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
