@@ -15,7 +15,7 @@ export default function OnboardPage({ params }: { params: { token: string } }) {
   const [status, setStatus]   = useState<'loading'|'valid'|'invalid'>('loading');
   const [schoolName, setSchoolName] = useState('');
   const [reason, setReason]   = useState('');
-  const [form, setForm] = useState({ fullName:'', email:'', phone:'', role:'subject_teacher', subjects:[] as string[] });
+  const [form, setForm] = useState({ fullName:'', email:'', phone:'', role:'subject_teacher', subjects:[] as string[], password:'', confirmPassword:'' });
   const [saving, setSaving]   = useState(false);
   const [done, setDone]       = useState<any>(null);
   const [copied, setCopied]   = useState(false);
@@ -36,6 +36,8 @@ export default function OnboardPage({ params }: { params: { token: string } }) {
     if (form.fullName.trim().split(/\s+/).length < 2) return alert('Enter your first and last name');
     if (!/^\S+@\S+\.\S+$/.test(form.email)) return alert('Enter a valid email');
     if (form.subjects.length === 0) return alert('Select at least one learning area you teach');
+    if (!form.password || form.password.length < 6) return alert('Choose a password of at least 6 characters');
+    if (form.password !== form.confirmPassword) return alert('Passwords do not match');
     setSaving(true);
     try {
       const res = await apiClient.post('/teacher-onboard/accept', { token: params.token, ...form });
@@ -123,6 +125,16 @@ export default function OnboardPage({ params }: { params: { token: string } }) {
                   {s}
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Choose a Password *</label>
+              <input type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} className={inp} placeholder="At least 6 characters"/>
+            </div>
+            <div>
+              <label className="label">Confirm Password *</label>
+              <input type="password" value={form.confirmPassword} onChange={e=>setForm(f=>({...f,confirmPassword:e.target.value}))} className={inp} placeholder="Re-type your password"/>
             </div>
           </div>
         </div>

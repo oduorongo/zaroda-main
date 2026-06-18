@@ -73,3 +73,21 @@ DO $$ BEGIN
     ALTER TABLE exams ALTER COLUMN exam_type DROP NOT NULL;
   END IF;
 END $$;
+
+-- Simple fee structure storage matching the finance UI (HOI/bursar set these).
+-- The richer fee_structures table from 004 stays for future use; this backs the
+-- current Fee Structures page directly.
+CREATE TABLE IF NOT EXISTS fee_items (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     UUID NOT NULL,
+  school_id     UUID,
+  name          VARCHAR(200) NOT NULL,
+  grade_level   VARCHAR(40),
+  term          VARCHAR(20),
+  academic_year VARCHAR(20),
+  category      VARCHAR(40)  DEFAULT 'tuition',
+  amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  is_mandatory  BOOLEAN NOT NULL DEFAULT true,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fee_items_tenant ON fee_items(tenant_id);

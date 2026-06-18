@@ -60,6 +60,8 @@ export default function TeachersPage() {
       id: t.id, fullName: `${t.firstName||''} ${t.lastName||''}`.trim(),
       email: t.email||'', phone: t.phone||'', role: t.role,
       streamSubjects: [{ streamId:'', subjects:[] }],
+      // Streams this teacher is already the class teacher of.
+      classTeacherStreamIds: streams.filter((s:any)=>s.classTeacherId===t.id).map((s:any)=>String(s.id)),
     });
     try {
       const r = await apiClient.get(`/academic/teachers/${t.id}/stream-subjects`);
@@ -68,6 +70,11 @@ export default function TeachersPage() {
         ? { ...prev, streamSubjects: ss.length ? ss : [{ streamId:'', subjects:[] }] } : prev);
     } catch {}
   };
+  const editToggleClassTeacher = (streamId:string) => setEditTeacher((f:any)=>{
+    const cur = new Set<string>(f.classTeacherStreamIds||[]);
+    if (cur.has(streamId)) cur.delete(streamId); else cur.add(streamId);
+    return { ...f, classTeacherStreamIds: Array.from(cur) };
+  });
   const editAddRow = () => setEditTeacher((f:any)=>({ ...f, streamSubjects:[...(f.streamSubjects||[]), {streamId:'',subjects:[]}] }));
   const editRemoveRow = (i:number) => setEditTeacher((f:any)=>({ ...f, streamSubjects: f.streamSubjects.filter((_:any,x:number)=>x!==i) }));
   const editUpdateRow = (i:number,k:string,v:any) => setEditTeacher((f:any)=>({ ...f, streamSubjects: f.streamSubjects.map((r:any,x:number)=> x===i ? {...r,[k]:v,...(k==='streamId'?{subjects:[]}:{})} : r) }));
@@ -78,6 +85,7 @@ export default function TeachersPage() {
       await apiClient.patch(`/academic/teachers/${editTeacher.id}`, {
         fullName: editTeacher.fullName, email: editTeacher.email, phone: editTeacher.phone,
         role: editTeacher.role, streamSubjects: cleanSS,
+        classTeacherStreamIds: editTeacher.classTeacherStreamIds || [],
       });
       toast.success('Teacher updated'); setEditTeacher(null); load();
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not update'); }
@@ -406,6 +414,7 @@ export default function TeachersPage() {
                           <button type="button" onClick={()=>editRemoveRow(idx)} className="btn-ghost p-1.5"><Trash2 size={14}/></button>
                         </div>
                         {row.streamId && (
+                          <>
                           <div className="flex flex-wrap gap-1">
                             {areasForGrade(grade).map((s:string)=>(
                               <button type="button" key={s} onClick={()=>editToggleSubj(idx,s)}
@@ -415,6 +424,13 @@ export default function TeachersPage() {
                               </button>
                             ))}
                           </div>
+                          <label className="flex items-center gap-2 mt-2 text-xs text-theme cursor-pointer">
+                            <input type="checkbox"
+                              checked={(editTeacher.classTeacherStreamIds||[]).includes(String(row.streamId))}
+                              onChange={()=>editToggleClassTeacher(String(row.streamId))}/>
+                            Class teacher of this stream (full mark-list rights for this class)
+                          </label>
+                          </>
                         )}
                       </div>
                     );

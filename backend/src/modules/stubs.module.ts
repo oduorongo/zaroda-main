@@ -7,7 +7,7 @@
 
 import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 // ═══════════════════════════════════════════════════════════
@@ -32,6 +32,50 @@ class Invoice {
 @Controller('finance')
 @UseGuards(JwtAuthGuard)
 class FinanceController {
+  constructor(private readonly ds: DataSource) {}
+
+  // ── FEE STRUCTURES (set by HOI / bursar / admin) ──────────
+  @Get('fee-structures')
+  async getFeeStructures(@Request() req: any) {
+    return this.ds.query(
+      `SELECT id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
+              category, amount, is_mandatory AS "isMandatory", created_at AS "createdAt"
+         FROM fee_items WHERE tenant_id = $1 ORDER BY created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('fee-structures')
+  async createFeeStructure(@Request() req: any, @Body() dto: any) {
+    const role = req.user.role;
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+      return { error: 'Only the HOI, bursar or administrator can set fee structures.' };
+    }
+    if (!dto?.name || !String(dto.name).trim()) {
+      return { error: 'Fee name is required.' };
+    }
+    const rows = await this.ds.query(
+      `INSERT INTO fee_items
+         (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+       RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
+                 category, amount, is_mandatory AS "isMandatory"`,
+      [
+        req.user.tenantId, req.user.schoolId || null,
+        String(dto.name).trim(), dto.gradeLevel || null, dto.term || null,
+        dto.academicYear || null, dto.category || 'tuition',
+        Number(dto.amount) || 0, dto.isMandatory !== false,
+      ],
+    );
+    return rows[0];
+  }
+
+  @Delete('fee-structures/:id')
+  async deleteFeeStructure(@Request() req: any, @Param('id') id: string) {
+    await this.ds.query(`DELETE FROM fee_items WHERE id = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
   @Get('invoices')
   getInvoices(@Request() req: any, @Query() q: any) {
     // TODO: implement invoice query with learner join

@@ -670,6 +670,29 @@ export class AcademicService {
     if (dto.streamSubjects !== undefined) {
       await this.saveStreamSubjects(tenantId, teacherId, dto.streamSubjects);
     }
+
+    // Class-teacher-of-stream assignments. classTeacherStreamIds = the streams this
+    // teacher is the class teacher of. Each stream has exactly one class teacher, so
+    // assigning here first clears this teacher from any stream they previously owned,
+    // then claims the chosen streams (removing whoever held them before).
+    if (dto.classTeacherStreamIds !== undefined) {
+      const ids: string[] = Array.isArray(dto.classTeacherStreamIds) ? dto.classTeacherStreamIds.filter(Boolean) : [];
+      const teacherName = (dto.fullName || '').trim() || null;
+      // Release any streams this teacher currently owns but is no longer assigned to.
+      await this.dataSource.query(
+        `UPDATE streams SET class_teacher_id = NULL, class_teacher_name = NULL
+          WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
+        [tenantId, teacherId],
+      ).catch(() => null);
+      // Claim the selected streams (taking ownership from any previous holder).
+      for (const sid of ids) {
+        await this.dataSource.query(
+          `UPDATE streams SET class_teacher_id = $1, class_teacher_name = $2
+            WHERE id::text = $3 AND tenant_id::text = $4`,
+          [teacherId, teacherName, sid, tenantId],
+        ).catch(() => null);
+      }
+    }
     return { message: 'Teacher updated', id: teacherId };
   }
 

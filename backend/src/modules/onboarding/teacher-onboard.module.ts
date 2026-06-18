@@ -127,6 +127,7 @@ export class TeacherOnboardService {
   async accept(token: string, body: {
     fullName: string; email: string; phone?: string;
     role?: string; streamId?: string; subjects?: string[];
+    password?: string;
   }) {
     const hash = crypto.createHash('sha256').update(token || '').digest('hex');
     const link = await this.linkRepo.findOne({ where: { tokenHash: hash, isActive: true } });
@@ -150,14 +151,21 @@ export class TeacherOnboardService {
     const firstName = parts.shift() as string;
     const lastName  = parts.join(' ');
 
-    // Generate one-time credentials
+    // The teacher chooses their own password during self-onboarding (copy-pasting a
+    // system password that bundles username+password was error-prone). Fall back to a
+    // generated one only if none was provided.
     const gen = () => {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
       const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
       return `${block()}-${block()}-${block()}`;
     };
-    const plain = gen();
+    const chosen = (body.password || '').trim();
+    if (chosen && chosen.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters.');
+    }
+    const plain = chosen || gen();
     const passwordHash = await bcrypt.hash(plain, 12);
+    const teacherSetOwnPassword = !!chosen;
     const subjects = Array.isArray(body.subjects) ? body.subjects.join(',') : '';
 
     const inserted = await this.dataSource.query(
@@ -165,13 +173,14 @@ export class TeacherOnboardService {
          (email, password_hash, first_name, last_name, phone, role,
           tenant_id, school_id, stream_id, subjects,
           is_active, email_verified, must_change_password, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,false,true,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,false,$11,NOW(),NOW())
        RETURNING id`,
       [
         email, passwordHash, firstName, lastName, body.phone || null, role,
         link.tenantId, link.schoolId,
         body.streamId && body.streamId.length ? body.streamId : null,
         subjects,
+        !teacherSetOwnPassword,   // only force a change if we generated the password
       ],
     );
     const userId = inserted[0]?.id;
@@ -187,8 +196,11 @@ export class TeacherOnboardService {
     return {
       success: true,
       schoolName: link.schoolName,
-      credentials: { username: email, password: plain },
-      message: 'Account created. Use these credentials to log in. You will be asked to set a new password.',
+      teacherSetOwnPassword,
+      credentials: { username: email, password: teacherSetOwnPassword ? '(the password you chose)' : plain },
+      message: teacherSetOwnPassword
+        ? 'Account created. Log in with your email and the password you chose.'
+        : 'Account created. Use these credentials to log in. You will be asked to set a new password.',
     };
   }
 

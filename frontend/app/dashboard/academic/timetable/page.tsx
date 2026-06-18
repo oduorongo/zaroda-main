@@ -46,14 +46,22 @@ export default function TimetablePage() {
 
   // Auto-generate timetables
   const [showGen, setShowGen]   = useState(false);
-  const [genScope, setGenScope] = useState<'all'|'one'>('all');
+  const [genScope, setGenScope] = useState<'all'|'one'|'selected'>('all');
+  const [genStreamIds, setGenStreamIds] = useState<string[]>([]);
+  const toggleGenStream = (id:string) => setGenStreamIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
   const [genLoading, setGenLoading] = useState(false);
   const [genResults, setGenResults] = useState<any[]|null>(null);
 
   const runGenerate = async () => {
+    if (genScope === 'selected' && genStreamIds.length === 0) {
+      toast.error('Pick at least one stream, or choose All streams'); return;
+    }
     setGenLoading(true); setGenResults(null);
     try {
-      const body = genScope === 'one' && streamId ? { streamIds: [streamId] } : {};
+      const body =
+        genScope === 'one' && streamId ? { streamIds: [streamId] } :
+        genScope === 'selected'        ? { streamIds: genStreamIds } :
+        {};
       const r = await apiClient.post('/academic/timetable/auto-generate', body);
       setGenResults(r.data?.results || []);
       toast.success('Timetable generated');
@@ -604,6 +612,20 @@ export default function TimetablePage() {
                 <input type="radio" checked={genScope==='one'} onChange={()=>setGenScope('one')}/>
                 <span className="text-sm">Just this class ({streams.find(s=>s.id===streamId)?.name || '—'})</span>
               </label>
+              <label className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer ${genScope==='selected'?'border-[#1a2e5a] bg-surface-2':'border-theme'}`}>
+                <input type="radio" checked={genScope==='selected'} onChange={()=>setGenScope('selected')}/>
+                <span className="text-sm">Selected streams…</span>
+              </label>
+              {genScope==='selected' && (
+                <div className="ml-6 max-h-40 overflow-auto grid grid-cols-2 gap-1.5 p-1">
+                  {streams.map(s=>(
+                    <label key={s.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked={genStreamIds.includes(s.id)} onChange={()=>toggleGenStream(s.id)}/>
+                      {s.name}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
 
             {genResults && (
