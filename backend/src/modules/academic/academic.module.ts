@@ -359,7 +359,7 @@ export class AcademicService {
   }
 
   // Class mark list: every learner × every subject for a stream/term, with totals & rank
-  async getMarkList(tenantId: string, streamId: string, term?: string, examType?: string) {
+  async getMarkList(tenantId: string, streamId: string, term?: string, examType?: string, examId?: string) {
     // Grade of the stream — decides whether points apply
     const sgrade = await this.dataSource.query(
       `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
@@ -378,8 +378,9 @@ export class AcademicService {
        WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
          AND ($3::text IS NULL OR ar.term = $3)
          AND ($4::text IS NULL OR ar.exam_type = $4)
+         AND ($5::text IS NULL OR ar.exam_id::text = $5)
        ORDER BY l.first_name`,
-      [tenantId, streamId, term || null, examType || null],
+      [tenantId, streamId, term || null, examType || null, examId || null],
     ).catch(() => []);
 
     // Group by learner → subjects, compute average % and (for senior) total points
@@ -436,6 +437,32 @@ export class AcademicService {
       ],
     ).catch((e: any) => { throw e; });
     return { message: 'Exam created', exam: rows[0] };
+  }
+
+  // HOI/admin deletes a created exam. Refuses if marks already exist for it unless
+  // ?force=true, so an exam with entered marks isn't wiped by accident.
+  async deleteExam(tenantId: string, actorRole: string, examId: string, force?: boolean) {
+    if (!this.isHoiRole(actorRole)) {
+      throw new BadRequestException('Only the school administrator can delete exams.');
+    }
+    const cnt = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS n FROM assessment_results WHERE tenant_id::text = $1 AND exam_id::text = $2`,
+      [tenantId, examId],
+    ).catch(() => [{ n: 0 }]);
+    const markCount = cnt[0]?.n || 0;
+    if (markCount > 0 && !force) {
+      return { needsConfirm: true, markCount, message: `This assessment has ${markCount} marks entered. Delete anyway?` };
+    }
+    if (markCount > 0 && force) {
+      await this.dataSource.query(
+        `DELETE FROM assessment_results WHERE tenant_id::text = $1 AND exam_id::text = $2`,
+        [tenantId, examId],
+      ).catch(() => null);
+    }
+    await this.dataSource.query(
+      `DELETE FROM exams WHERE id::text = $1 AND tenant_id::text = $2`, [examId, tenantId],
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    return { deleted: true, removedMarks: force ? markCount : 0 };
   }
 
   getStream(tenantId: string, id: string) {
@@ -1349,7 +1376,7 @@ export class AcademicController {
 
   @Get('mark-list')
   getMarkList(@Request() req: any, @Query() q: any) {
-    return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType);
+    return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType, q.examId);
   }
 
   @Get('term-mark-sheet')
@@ -1365,6 +1392,11 @@ export class AcademicController {
   @Post('exams')
   createExam(@Request() req: any, @Body() dto: any) {
     return this.academicService.createExam(req.user.tenantId, req.user.role, dto);
+  }
+
+  @Delete('exams/:id')
+  deleteExam(@Request() req: any, @Param('id') id: string, @Query() q: any) {
+    return this.academicService.deleteExam(req.user.tenantId, req.user.role, id, q.force === 'true');
   }
 
   // Timetable

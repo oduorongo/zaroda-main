@@ -16,7 +16,11 @@ export default function MarkListPage() {
   const [stream,    setStream]    = useState<any>(null);
   const [learners,  setLearners]  = useState<any[]>([]);
   const [term,      setTerm]      = useState('term_1');
-  const [examType,  setExamType]  = useState('end_term');
+  // The mark list fetches the exams the HOI actually created (not hardcoded labels).
+  const [exams,     setExams]     = useState<any[]>([]);
+  const [examId,    setExamId]    = useState('');
+  const selectedExam = exams.find(e => e.id === examId);
+  const examType = selectedExam?.examType || '';
   const [maxScore,  setMaxScore]  = useState(100);
   const [scores,    setScores]    = useState<Record<string, Record<string, number>>>({});
   const [loading,   setLoading]   = useState(false);
@@ -28,7 +32,18 @@ export default function MarkListPage() {
       const s = user?.streamId ? r.data.find((x: any) => x.id === user.streamId) : r.data[0];
       if (s) { setStreamId(s.id); setStream(s); }
     });
+    apiClient.get('/academic/exams').then(r => {
+      setExams(r.data || []);
+      if (r.data?.[0]) setExamId(r.data[0].id);
+    }).catch(() => {});
   }, [user]);
+
+  // Exams filtered to the chosen term, so the dropdown only offers this term's assessments.
+  const termExams = exams.filter(e => !term || e.term === term);
+  useEffect(() => {
+    // When term changes, default to the first exam of that term.
+    if (termExams.length && !termExams.find(e => e.id === examId)) setExamId(termExams[0].id);
+  }, [term, exams]);
 
   useEffect(() => {
     if (!streamId) return;
@@ -37,7 +52,7 @@ export default function MarkListPage() {
     setLoading(true);
     Promise.all([
       apiClient.get(`/academic/streams/${streamId}/learners`).catch(() => ({ data: [] })),
-      apiClient.get(`/academic/mark-list?streamId=${streamId}&term=${term}&examType=${examType}`).catch(() => ({ data: [] })),
+      apiClient.get('/academic/mark-list', { params: { streamId, term, examId } }).catch(() => ({ data: [] })),
     ]).then(([lrn, ml]) => {
       setLearners(lrn.data);
       // Pre-fill scores from any marks already entered (by subject teachers or admin)
@@ -52,7 +67,7 @@ export default function MarkListPage() {
       setScores(filled);
     }).catch(() => toast.error('Could not load class mark list'))
       .finally(() => setLoading(false));
-  }, [streamId, term, examType]);
+  }, [streamId, term, examId]);
 
   // Determine learning areas for this specific grade (KICD-accurate)
   const subjects = useMemo(() => learningAreasFor(stream?.gradeLevel || 'grade_4'), [stream]);
@@ -94,7 +109,7 @@ export default function MarkListPage() {
     const win = window.open('', '_blank');
     try {
       const res = await apiClient.get('/pdf/mark-list/html', {
-        params: { streamId, term, examType, academicYear: '2025/2026' },
+        params: { streamId, term, examType, examId, academicYear: '2025/2026' },
         responseType: 'text',
       });
       const html = typeof res.data === 'string' ? res.data : String(res.data);
@@ -117,7 +132,7 @@ export default function MarkListPage() {
             rawScore:     raw, maxScore, percent: pct,
             level:        percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
             gradeLevel:   stream?.gradeLevel,
-            term, examType, academicYear: '2025/2026',
+            term, examType, examId, academicYear: '2025/2026',
           };
         })
       );
@@ -164,10 +179,11 @@ export default function MarkListPage() {
         </div>
         <div>
           <label className="label">Assessment</label>
-          <select value={examType} onChange={e => setExamType(e.target.value)} className="input w-36">
-            <option value="end_term">End Term</option>
-            <option value="mid_term">Mid Term</option>
-            <option value="cat">CAT</option>
+          <select value={examId} onChange={e => setExamId(e.target.value)} className="input w-44">
+            {termExams.length === 0 && <option value="">No assessments this term</option>}
+            {termExams.map(ex => (
+              <option key={ex.id} value={ex.id}>{ex.name}</option>
+            ))}
           </select>
         </div>
         <div>

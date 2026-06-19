@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { ClipboardList, Plus, Calendar, FileText, Loader2, X, ChevronRight, Pencil } from 'lucide-react';
+import { ClipboardList, Plus, Calendar, FileText, Loader2, X, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
@@ -33,6 +33,19 @@ export default function ExamsPage() {
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+
+  const deleteExam = async (ex: any) => {
+    if (!confirm(`Delete the assessment "${ex.name}"?`)) return;
+    try {
+      const res = await apiClient.delete(`/academic/exams/${ex.id}`);
+      if (res.data?.needsConfirm) {
+        if (!confirm(res.data.message + '\n\nThis will also delete the entered marks for this assessment.')) return;
+        await apiClient.delete(`/academic/exams/${ex.id}`, { params: { force: 'true' } });
+      }
+      toast.success('Assessment deleted');
+      load();
+    } catch { toast.error('Could not delete assessment'); }
+  };
 
   const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -104,6 +117,11 @@ export default function ExamsPage() {
                   className="btn-ghost text-xs py-1.5 px-3">
                   <Pencil size={12}/> Enter Scores
                 </a>
+                {isHoi(user?.role || '') && (
+                  <button onClick={() => deleteExam(ex)} className="btn-ghost text-xs py-1.5 px-2 text-red-500" title="Delete assessment">
+                    <Trash2 size={14}/>
+                  </button>
+                )}
               </div>
             </div>
           ))}
