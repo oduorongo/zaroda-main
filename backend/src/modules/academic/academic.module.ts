@@ -281,6 +281,19 @@ export class AcademicService {
     return ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(gradeLevel || '');
   }
 
+  /** Returns true if `actor` (a non-HOI teacher) may manage a learner in `streamId` —
+   *  i.e. they are the class teacher of that stream, or it's their primary stream. */
+  private async actorOwnsStream(tenantId: string, actor: any, streamId: any): Promise<boolean> {
+    if (this.isHoiRole(actor.role)) return true;
+    const owned = await this.dataSource.query(
+      `SELECT id::text AS id FROM streams WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
+      [tenantId, actor.id],
+    ).catch(() => []);
+    const ids = new Set<string>(owned.map((r: any) => String(r.id)));
+    if (actor.streamId) ids.add(String(actor.streamId));
+    return ids.has(String(streamId));
+  }
+
   /**
    * Per-assessment term mark sheet. For one stream + term, returns every assessment
    * (exam) created in that term, and for each learner their performance level + points
@@ -755,31 +768,32 @@ export class AcademicService {
     if (!this.isHoiRole(actor.role) && !this.isTeacherRole(actor.role)) {
       throw new BadRequestException('You do not have permission to edit learners.');
     }
-    // A class teacher may only edit learners in the class they manage.
+    // A class teacher may only edit learners in a class they manage — any stream where
+    // they are class teacher, not just their primary stream (matches the teacher UI).
     if (!this.isHoiRole(actor.role)) {
       const lr = await this.dataSource.query(
         `SELECT stream_id FROM learners WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
         [learnerId, tenantId],
       ).catch(() => []);
       if (!lr.length) throw new BadRequestException('Learner not found.');
-      if (String(lr[0].stream_id) !== String(actor.streamId)) {
+      if (!(await this.actorOwnsStream(tenantId, actor, lr[0].stream_id))) {
         throw new BadRequestException('You can only edit learners in your own class.');
       }
     }
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     const map: Record<string, string> = {
-      fullName: 'full', firstName: 'first_name', lastName: 'last_name', gender: 'gender',
+      firstName: 'first_name', lastName: 'last_name', gender: 'gender',
       gradeLevel: 'grade_level', streamId: 'stream_id', admissionNumber: 'admission_number',
       guardianPhone: 'guardian_phone', residence: 'residence',
     };
-    // fullName splits into first/last
+    // fullName splits into first/last (handled here, not in the column map)
     if (dto.fullName) {
       const parts = String(dto.fullName).trim().split(/\s+/);
       fields.push(`first_name = $${i++}`); vals.push(parts.shift() || dto.fullName);
       fields.push(`last_name = $${i++}`); vals.push(parts.join(' ') || '');
     }
     for (const [k, col] of Object.entries(map)) {
-      if (k === 'fullName' || k === 'firstName' || k === 'lastName') continue;
+      if (k === 'firstName' || k === 'lastName') continue;  // already covered via fullName when sent
       if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(dto[k]); }
     }
     if (!fields.length) return { message: 'Nothing to update' };
@@ -795,14 +809,14 @@ export class AcademicService {
     if (!this.isHoiRole(actor.role) && !this.isTeacherRole(actor.role)) {
       throw new BadRequestException('You do not have permission to deactivate learners.');
     }
-    // A class teacher may only deactivate learners in the class they manage.
+    // A class teacher may only deactivate learners in a class they manage.
     if (!this.isHoiRole(actor.role)) {
       const lr = await this.dataSource.query(
         `SELECT stream_id FROM learners WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
         [learnerId, tenantId],
       ).catch(() => []);
       if (!lr.length) throw new BadRequestException('Learner not found.');
-      if (String(lr[0].stream_id) !== String(actor.streamId)) {
+      if (!(await this.actorOwnsStream(tenantId, actor, lr[0].stream_id))) {
         throw new BadRequestException('You can only manage learners in your own class.');
       }
     }
