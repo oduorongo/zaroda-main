@@ -93,26 +93,27 @@ export const CORE_COMPETENCIES = [
 // ─────────────────────────────────────────────────────────────
 // PERFORMANCE LEVELS with EXACT percentage ranges (from spec)
 // ─────────────────────────────────────────────────────────────
-export interface PerfLevel { code: string; label: string; min: number; max: number; color: string; }
+export interface PerfLevel { code: string; label: string; min: number; max: number; color: string; points?: number; }
 
-// ECDE → Grade 6 : 4 levels
+// ECDE → Grade 6 : 4 levels (best = 4 per learning area)
 export const LEVELS_4: PerfLevel[] = [
-  { code: 'EE', label: 'Exceeding Expectation',  min: 76, max: 100, color: '#16a34a' },
-  { code: 'ME', label: 'Meeting Expectation',    min: 51, max: 75,  color: '#2563eb' },
-  { code: 'AE', label: 'Approaching Expectation',min: 26, max: 50,  color: '#f59e0b' },
-  { code: 'BE', label: 'Below Expectation',      min: 0,  max: 25,  color: '#dc2626' },
+  { code: 'EE', label: 'Exceeding Expectation',  min: 76, max: 100, color: '#16a34a', points: 4 },
+  { code: 'ME', label: 'Meeting Expectation',    min: 51, max: 75,  color: '#2563eb', points: 3 },
+  { code: 'AE', label: 'Approaching Expectation',min: 26, max: 50,  color: '#f59e0b', points: 2 },
+  { code: 'BE', label: 'Below Expectation',      min: 0,  max: 25,  color: '#dc2626', points: 1 },
 ];
 
-// Grades 7 → 12 : 8 levels
+// Grades 7 → 12 : 8 levels. `points` drive the performance-level total
+// (best = 8 per learning area; 9 areas → 72). Range runs BE2 (1) … EE1 (8).
 export const LEVELS_8: PerfLevel[] = [
-  { code: 'EE1', label: 'Exceeding Expectation 1',   min: 90, max: 100, color: '#15803d' },
-  { code: 'EE2', label: 'Exceeding Expectation 2',   min: 75, max: 89,  color: '#16a34a' },
-  { code: 'ME1', label: 'Meeting Expectation 1',     min: 58, max: 74,  color: '#2563eb' },
-  { code: 'ME2', label: 'Meeting Expectation 2',     min: 41, max: 57,  color: '#3b82f6' },
-  { code: 'AE1', label: 'Approaching Expectation 1', min: 31, max: 40,  color: '#f59e0b' },
-  { code: 'AE2', label: 'Approaching Expectation 2', min: 21, max: 30,  color: '#fb923c' },
-  { code: 'BE1', label: 'Below Expectation 1',       min: 11, max: 20,  color: '#dc2626' },
-  { code: 'BE2', label: 'Below Expectation 2',       min: 0,  max: 10,  color: '#b91c1c' },
+  { code: 'EE1', label: 'Exceeding Expectation 1',   min: 90, max: 100, color: '#15803d', points: 8 },
+  { code: 'EE2', label: 'Exceeding Expectation 2',   min: 75, max: 89,  color: '#16a34a', points: 7 },
+  { code: 'ME1', label: 'Meeting Expectation 1',     min: 58, max: 74,  color: '#2563eb', points: 6 },
+  { code: 'ME2', label: 'Meeting Expectation 2',     min: 41, max: 57,  color: '#3b82f6', points: 5 },
+  { code: 'AE1', label: 'Approaching Expectation 1', min: 31, max: 40,  color: '#f59e0b', points: 4 },
+  { code: 'AE2', label: 'Approaching Expectation 2', min: 21, max: 30,  color: '#fb923c', points: 3 },
+  { code: 'BE1', label: 'Below Expectation 1',       min: 11, max: 20,  color: '#dc2626', points: 2 },
+  { code: 'BE2', label: 'Below Expectation 2',       min: 0,  max: 10,  color: '#b91c1c', points: 1 },
 ];
 
 // Which scale applies to a grade?
@@ -128,6 +129,28 @@ export function levelsFor(gradeLevel: string): PerfLevel[] {
 export function percentToLevel(percent: number, gradeLevel: string): PerfLevel {
   const scale = levelsFor(gradeLevel);
   return scale.find(l => percent >= l.min && percent <= l.max) || scale[scale.length - 1];
+}
+
+// Points for a level code on a grade's scale (EE1=8 … BE2=1; EE=4 … BE=1).
+export function pointsForLevel(code: string, gradeLevel: string): number {
+  const scale = levelsFor(gradeLevel);
+  return scale.find(l => l.code === code)?.points ?? 0;
+}
+
+// Max points achievable per learning area for this grade (8 for senior, 4 for lower).
+export function maxPointsPerArea(gradeLevel: string): number {
+  return isSeniorScale(gradeLevel) ? 8 : 4;
+}
+
+// Performance-level total for a learner: sum of points across learning areas, plus the
+// maximum (areaCount × maxPerArea, e.g. 9 × 8 = 72) and the average percentage.
+export function performanceTotal(
+  levelCodes: string[],
+  gradeLevel: string,
+): { points: number; max: number; areas: number } {
+  const per = maxPointsPerArea(gradeLevel);
+  const points = levelCodes.reduce((sum, c) => sum + pointsForLevel(c, gradeLevel), 0);
+  return { points, max: levelCodes.length * per, areas: levelCodes.length };
 }
 
 // ─────────────────────────────────────────────────────────────

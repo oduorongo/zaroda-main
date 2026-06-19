@@ -266,8 +266,96 @@ export class AcademicService {
     if (pct >= 11) return 2;
     return 1;
   }
+  // Senior (8-level) code for a percentage. Lower grades use the 4-level codes.
+  private percentToLevelCode(pct: number, senior: boolean): string {
+    if (senior) {
+      if (pct >= 90) return 'EE1'; if (pct >= 75) return 'EE2';
+      if (pct >= 58) return 'ME1'; if (pct >= 41) return 'ME2';
+      if (pct >= 31) return 'AE1'; if (pct >= 21) return 'AE2';
+      if (pct >= 11) return 'BE1'; return 'BE2';
+    }
+    if (pct >= 76) return 'EE'; if (pct >= 51) return 'ME';
+    if (pct >= 26) return 'AE'; return 'BE';
+  }
   private isSenior(gradeLevel: string): boolean {
     return ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(gradeLevel || '');
+  }
+
+  /**
+   * Per-assessment term mark sheet. For one stream + term, returns every assessment
+   * (exam) created in that term, and for each learner their performance level + points
+   * in each learning area per assessment, the per-assessment total (e.g. /72 for 9
+   * areas at 8 pts), and a term average across the assessments. This drives both the
+   * per-assessment mark lists and the multi-column report card.
+   */
+  async getTermMarkSheet(tenantId: string, streamId: string, term: string) {
+    const sgrade = await this.dataSource.query(
+      `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
+    ).catch(() => []);
+    const gradeLevel = sgrade[0]?.grade_level || '';
+    const senior = this.isSenior(gradeLevel);
+    const maxPer = senior ? 8 : 4;
+
+    // Assessments (exams) that have marks in this stream+term, in creation order.
+    const assessments = await this.dataSource.query(
+      `SELECT DISTINCT e.id, e.name, e.exam_type AS "examType", e.created_at
+         FROM exams e
+        WHERE e.tenant_id::text = $1 AND ($2::text IS NULL OR e.term = $2)
+        ORDER BY e.created_at ASC`,
+      [tenantId, term || null],
+    ).catch(() => []);
+
+    // All results for this stream+term (optionally scoped to those assessments).
+    const rows = await this.dataSource.query(
+      `SELECT ar.learner_id AS "learnerId", ar.exam_id AS "examId",
+              l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber",
+              ar.subject, ar.percent
+         FROM assessment_results ar
+         LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+        WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
+          AND ($3::text IS NULL OR ar.term = $3)
+        ORDER BY l.first_name`,
+      [tenantId, streamId, term || null],
+    ).catch(() => []);
+
+    // learner → { exam_id → { area → {percent, level, points} }, totals }
+    const learners: Record<string, any> = {};
+    for (const r of rows) {
+      const L = (learners[r.learnerId] = learners[r.learnerId] || {
+        learnerId: r.learnerId, firstName: r.firstName, lastName: r.lastName,
+        admissionNumber: r.admissionNumber, byAssessment: {},
+      });
+      const examKey = r.examId || 'unlinked';
+      const blk = (L.byAssessment[examKey] = L.byAssessment[examKey] || { areas: {}, points: 0, max: 0, count: 0, percentSum: 0 });
+      if (r.percent != null) {
+        const pct = Number(r.percent);
+        const level = this.percentToLevelCode(pct, senior);
+        const pts = senior ? this.percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
+        blk.areas[r.subject] = { percent: pct, level, points: pts };
+        blk.points += pts; blk.max += maxPer; blk.count++; blk.percentSum += pct;
+      }
+    }
+
+    const list = Object.values(learners).map((L: any) => {
+      let termPoints = 0, termMax = 0, termPctSum = 0, termCount = 0;
+      for (const a of assessments) {
+        const blk = L.byAssessment[a.id];
+        if (blk) { termPoints += blk.points; termMax += blk.max; termPctSum += blk.percentSum; termCount += blk.count; }
+      }
+      return {
+        ...L,
+        termTotalPoints: senior ? termPoints : null,
+        termAveragePercent: termCount ? Math.round(termPctSum / termCount) : 0,
+      };
+    }).sort((a: any, b: any) =>
+      senior ? (b.termTotalPoints - a.termTotalPoints) : (b.termAveragePercent - a.termAveragePercent));
+
+    return {
+      gradeLevel, senior, maxPointsPerArea: maxPer,
+      assessments,    // [{ id, name, examType }]
+      learners: list, // each with byAssessment[examId] = { areas, points, max }
+    };
   }
 
   // Class mark list: every learner × every subject for a stream/term, with totals & rank
@@ -1262,6 +1350,11 @@ export class AcademicController {
   @Get('mark-list')
   getMarkList(@Request() req: any, @Query() q: any) {
     return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType);
+  }
+
+  @Get('term-mark-sheet')
+  getTermMarkSheet(@Request() req: any, @Query() q: any) {
+    return this.academicService.getTermMarkSheet(req.user.tenantId, q.streamId, q.term);
   }
 
   @Get('exams')
