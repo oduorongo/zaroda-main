@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea } from '@/lib/cbc/constants';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import toast from 'react-hot-toast';
 
 export default function TeacherMarkListPage() {
@@ -28,6 +29,7 @@ export default function TeacherMarkListPage() {
   const [rubricAreas, setRubricAreas] = useState<string[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [saving,   setSaving]   = useState(false);
+  const [search,   setSearch]   = useState('');
   const printRef = useRef<HTMLDivElement>(null);
 
   const cellKey = (l: string, s: string) => `${l}|${s}`;
@@ -294,6 +296,9 @@ export default function TeacherMarkListPage() {
         <div className="card p-10 text-center text-theme-muted">No learners in this class</div>
       ) : (
         <div className="card overflow-auto" ref={printRef}>
+          <div className="p-3 no-print" style={{ borderBottom: '1px solid var(--border)' }}>
+            <LearnerSearch value={search} onChange={setSearch} className="max-w-sm" />
+          </div>
           <table className="w-full text-xs min-w-[760px]">
             <thead>
               <tr className="table-header">
@@ -304,7 +309,7 @@ export default function TeacherMarkListPage() {
               </tr>
             </thead>
             <tbody>
-              {ranked.map((row: any, i: number) => (
+              {ranked.filter((row:any)=>matchesLearner(row.learner, search)).map((row: any, i: number) => (
                 <tr key={row.learner.id} className={`border-b border-theme ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-2'}`}>
                   <td className="px-3 py-2 text-center">
                     <span className={`w-6 h-6 inline-flex items-center justify-center rounded-lg text-xs font-black ${row.rank === 1 ? 'bg-[#d4af37] text-[#0f1c38]' : 'bg-surface-2 text-theme-muted'}`}>

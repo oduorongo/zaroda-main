@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Trophy, Download, Calculator, Printer } from 'lucide-react';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import {
@@ -25,6 +26,7 @@ export default function MarkListPage() {
   const [scores,    setScores]    = useState<Record<string, Record<string, number>>>({});
   const [loading,   setLoading]   = useState(false);
   const [saving,    setSaving]    = useState(false);
+  const [search,    setSearch]    = useState('');
 
   useEffect(() => {
     apiClient.get('/academic/streams').then(r => {
@@ -201,6 +203,9 @@ export default function MarkListPage() {
         <div className="card p-10 text-center text-theme-muted">No learners in this stream</div>
       ) : (
         <div className="card overflow-auto">
+          <div className="p-3 sticky left-0" style={{ borderBottom: '1px solid var(--border)' }}>
+            <LearnerSearch value={search} onChange={setSearch} className="max-w-sm" />
+          </div>
           <table className="w-full text-xs min-w-[760px]">
             <thead>
               <tr className="table-header">
@@ -217,7 +222,7 @@ export default function MarkListPage() {
               </tr>
             </thead>
             <tbody>
-              {ranked.map((row, i) => {
+              {ranked.filter((row:any)=>matchesLearner(row.learner, search)).map((row, i) => {
                 const lvl = row.hasScores ? percentToLevel(row.percent, stream?.gradeLevel || 'grade_4') : null;
                 return (
                   <tr key={row.learner.id} className={`border-b border-theme ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-2'}`}>

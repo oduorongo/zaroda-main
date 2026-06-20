@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Clock, AlertCircle, Save, Loader2, ChevronDown, TrendingUp } from 'lucide-react';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -21,6 +22,7 @@ export default function AttendancePage() {
   const [attendance, setAttendance]= useState<Record<string, Status>>({});
   const [loading,    setLoading]   = useState(false);
   const [saving,     setSaving]    = useState(false);
+  const [search,     setSearch]    = useState('');
   const [date,       setDate]      = useState(new Date().toISOString().split('T')[0]);
   const [existing,   setExisting]  = useState(false);
 
@@ -163,6 +165,9 @@ export default function AttendancePage() {
         </div>
       ) : (
         <div className="card overflow-hidden">
+          <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <LearnerSearch value={search} onChange={setSearch} />
+          </div>
           <table className="w-full">
             <thead>
               <tr className="table-header">
@@ -173,7 +178,7 @@ export default function AttendancePage() {
               </tr>
             </thead>
             <tbody>
-              {learners.map((l: any, idx: number) => {
+              {learners.filter((l:any)=>matchesLearner(l, search)).map((l: any, idx: number) => {
                 const status = attendance[l.id] || 'present';
                 const cfg    = STATUS_CONFIG[status];
                 return (

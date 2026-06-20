@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Calculator } from 'lucide-react';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS, LEARNING_AREAS, percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, learningAreaMatches } from '@/lib/cbc/constants';
@@ -32,6 +33,7 @@ export default function TeacherMarks() {
   const [savedSubjects, setSavedSubjects] = useState<string[]>([]);
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [search, setSearch]     = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -226,7 +228,10 @@ export default function TeacherMarks() {
         <div className="card p-10 text-center text-theme-muted">No learners in this class</div>
       ) : (
         <div className="card overflow-hidden">
-          {ranked.map((row, i) => {
+          <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <LearnerSearch value={search} onChange={setSearch} />
+          </div>
+          {ranked.filter((row:any)=>matchesLearner(row.learner, search)).map((row, i) => {
             const lvl = row.has ? percentToLevel(row.percent, stream?.gradeLevel||'grade_4') : null;
             return (
               <div key={row.learner.id} className="flex items-center gap-3 p-3" style={{ borderTop: i ? '1px solid var(--border)' : 'none' }}>

@@ -4,6 +4,7 @@ import { FileText, Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { BulkReportCardsButton, ReportCardButton } from '@/components/pdf/pdf-buttons';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 
 const STYLE: Record<string, string> = {
   EE: 'bg-[#E1F5EE] text-[#085041]', EE1: 'bg-[#E1F5EE] text-[#085041]', EE2: 'bg-[#E1F5EE] text-[#085041]',
@@ -18,6 +19,7 @@ export default function ReportCard() {
   const [streamId, setStreamId] = useState('');
   const [learners, setLearners] = useState<any[]>([]);
   const [learnerId, setLearnerId] = useState('');
+  const [search, setSearch] = useState('');
   const [term, setTerm] = useState('Term One');
   const [card, setCard] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -74,8 +76,9 @@ export default function ReportCard() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-theme-muted">Learner</span>
+          <LearnerSearch value={search} onChange={setSearch} placeholder="Search…" className="w-40 inline-block" />
           <select value={learnerId} onChange={e => setLearnerId(e.target.value)} className="input py-1.5 text-sm w-auto">
-            {learners.map(l => <option key={l.id} value={l.id}>{l.firstName} {l.lastName}</option>)}
+            {learners.filter(l=>matchesLearner(l, search)).map(l => <option key={l.id} value={l.id}>{l.firstName} {l.lastName}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-2">

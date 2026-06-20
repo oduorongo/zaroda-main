@@ -7,6 +7,7 @@ import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { matchLearningArea } from '@/lib/cbc/constants';
 import { ReportCardButton, BulkReportCardsButton } from '@/components/pdf/pdf-buttons';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import toast from 'react-hot-toast';
 
 const LEVELS_JUNIOR = ['EE','ME','AE','BE'];
@@ -40,6 +41,7 @@ export default function ReportCardsPage() {
   const [subjects, setSubjects]= useState<string[]>([]);
   const [loading,  setLoading] = useState(false);
   const [saving,   setSaving]  = useState(false);
+  const [search,   setSearch]  = useState('');
   const [stream,   setStreamObj]= useState<any>(null);
   const [marksFound, setMarksFound] = useState<boolean | null>(null);
 
@@ -190,6 +192,9 @@ export default function ReportCardsPage() {
         <div className="card p-10 text-center text-theme-muted">No learners in this stream</div>
       ) : (
         <div className="card overflow-auto">
+          <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <LearnerSearch value={search} onChange={setSearch} className="max-w-sm" />
+          </div>
           <table className="w-full text-xs min-w-[700px]">
             <thead>
               <tr className="table-header">
@@ -199,7 +204,7 @@ export default function ReportCardsPage() {
               </tr>
             </thead>
             <tbody>
-              {learners.map((l: any, i: number) => (
+              {learners.filter((l:any)=>matchesLearner(l, search)).map((l: any, i: number) => (
                 <tr key={l.id} className={`border-b border-theme ${i%2===0?'bg-surface':'bg-surface-2'}`}>
                   <td className="px-4 py-2.5">
                     <div className="font-semibold text-theme-heading text-sm">{l.firstName} {l.lastName}</div>

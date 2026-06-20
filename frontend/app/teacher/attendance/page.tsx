@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Clock, AlertCircle, Save, Loader2, TrendingUp } from 'lucide-react';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -16,6 +17,7 @@ export default function TeacherAttendance() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving]   = useState(false);
+  const [search, setSearch]   = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -101,7 +103,10 @@ export default function TeacherAttendance() {
         <div className="card p-10 text-center text-theme-muted">No learners in this class</div>
       ) : (
         <div className="card overflow-hidden">
-          {learners.map((l:any, i:number) => (
+          <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <LearnerSearch value={search} onChange={setSearch} />
+          </div>
+          {learners.filter((l:any)=>matchesLearner(l, search)).map((l:any, i:number) => (
             <div key={l.id} className="flex items-center gap-3 p-3" style={{ borderTop: i ? '1px solid var(--border)' : 'none' }}>
               <div className="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center text-xs font-bold text-theme-heading flex-shrink-0">
                 {l.firstName?.[0]}{l.lastName?.[0]}

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Youtube, X } from 'lucide-react';
+import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { learningAreaMatches } from '@/lib/cbc/constants';
@@ -41,6 +42,8 @@ export default function TeacherAssessment() {
   const [term, setTerm]         = useState('Term One');
   const [learners, setLearners] = useState<any[]>([]);
   const [learnerId, setLearnerId] = useState('');
+  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState('');
   const [strands, setStrands]   = useState<any[]>([]);
   const [scores, setScores]     = useState<Record<string, string>>({});
   const [comment, setComment]   = useState('');
@@ -179,10 +182,11 @@ export default function TeacherAssessment() {
             <option>Term One</option><option>Term Two</option><option>Term Three</option>
           </select>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <LearnerSearch value={search} onChange={setSearch} placeholder="Search…" className="w-36" />
           <select value={learnerId} onChange={e => setLearnerId(e.target.value)}
             className="bg-[#E6F1FB] text-[#0C447C] font-semibold rounded-lg px-3 py-1.5 text-sm border-0">
-            {learners.map(l => <option key={l.id} value={l.id}>{l.firstName} {l.lastName}</option>)}
+            {learners.filter(l=>matchesLearner(l, search)).map(l => <option key={l.id} value={l.id}>{l.firstName} {l.lastName}</option>)}
           </select>
         </div>
       </div>
