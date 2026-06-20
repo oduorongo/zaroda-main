@@ -45,6 +45,17 @@ export class AuthService {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid email or password');
 
+    // Block users whose school has been suspended by the platform owner. The owner
+    // (super_admin) has no tenant and is never blocked.
+    if (user.role !== 'super_admin' && user.tenantId) {
+      const t = await this.dataSource.query(
+        `SELECT status FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
+      ).catch(() => []);
+      if (t.length && t[0].status === 'suspended') {
+        throw new UnauthorizedException('This school account has been suspended. Please contact ZARODA support.');
+      }
+    }
+
     await this.userRepo.update(user.id, { lastLoginAt: new Date() });
 
     const tokens = await this.generateTokens(user);

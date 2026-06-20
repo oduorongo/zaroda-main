@@ -16,6 +16,38 @@ export default function OwnerDashboard() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail]   = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [acting, setActing]   = useState(false);
+
+  // Refresh the open school's detail + the list after a control action.
+  const refreshAfterAction = async (id: string) => {
+    try { const r = await apiClient.get(`/admin/tenants/${id}`); setDetail(r.data); } catch {}
+    load();
+  };
+  const setStatus = async (id: string, status: string) => {
+    const verb = status === 'suspended' ? 'Suspend' : 'Reactivate';
+    if (!confirm(`${verb} this school? ${status === 'suspended' ? 'Its users will be blocked from logging in.' : 'Its users will regain access.'}`)) return;
+    setActing(true);
+    try { await apiClient.patch(`/admin/tenants/${id}/status`, { status }); await refreshAfterAction(id); }
+    catch { alert('Could not update status'); }
+    finally { setActing(false); }
+  };
+  const setTier = async (id: string, tier: string) => {
+    setActing(true);
+    try { await apiClient.patch(`/admin/tenants/${id}/subscription`, { tier }); await refreshAfterAction(id); }
+    catch { alert('Could not change subscription'); }
+    finally { setActing(false); }
+  };
+  const resetPassword = async (userId: string, name: string) => {
+    if (!confirm(`Reset the password for ${name}? A new temporary password will be generated.`)) return;
+    setActing(true);
+    try {
+      const r = await apiClient.post(`/admin/users/${userId}/reset-password`);
+      if (r.data?.tempPassword) {
+        alert(`New temporary password for ${r.data.email}:\n\n${r.data.tempPassword}\n\nShare it securely. They'll be asked to change it on next login.`);
+      } else { alert('Could not reset password'); }
+    } catch { alert('Could not reset password'); }
+    finally { setActing(false); }
+  };
 
   // Guard: only the platform owner may view this page.
   useEffect(() => {
@@ -62,7 +94,7 @@ export default function OwnerDashboard() {
           </div>
           <div>
             <h1 className="text-xl font-black text-theme-heading">ZARODA Platform — Owner Console</h1>
-            <p className="text-sm text-theme-muted">Oversight across all schools. Read-only.</p>
+            <p className="text-sm text-theme-muted">Oversight and management across all schools.</p>
           </div>
         </div>
 
@@ -166,16 +198,55 @@ export default function OwnerDashboard() {
                     <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">Staff ({detail.users?.length || 0})</div>
                     <div className="space-y-1 max-h-52 overflow-y-auto">
                       {(detail.users || []).map((u: any) => (
-                        <div key={u.id} className="flex items-center justify-between text-sm py-1">
-                          <span>{u.firstName} {u.lastName}</span>
-                          <span className="text-theme-muted text-xs capitalize">{u.role?.replace('_',' ')}</span>
+                        <div key={u.id} className="flex items-center justify-between text-sm py-1 gap-2">
+                          <span className="truncate">{u.firstName} {u.lastName}</span>
+                          <span className="text-theme-muted text-xs capitalize ml-auto">{u.role?.replace('_',' ')}</span>
+                          <button
+                            disabled={acting}
+                            onClick={() => resetPassword(u.id, `${u.firstName} ${u.lastName}`)}
+                            className="text-[11px] text-[#1a2e5a] hover:underline whitespace-nowrap"
+                            title="Reset this user's password"
+                          >Reset password</button>
                         </div>
                       ))}
                     </div>
                   </div>
-                  <p className="text-[11px] text-theme-muted pt-2" style={{ borderTop: '1px solid var(--border)' }}>
-                    Read-only view. Control actions (suspend, subscription, edit) are coming in the next phase.
-                  </p>
+                  <div className="pt-3 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
+                    <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide">Manage</div>
+
+                    {/* Suspend / reactivate */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-theme-muted">School access</span>
+                      {detail.tenant.status === 'suspended' ? (
+                        <button disabled={acting} onClick={() => setStatus(detail.tenant.id, 'active')} className="btn-primary text-xs py-1.5 px-3">
+                          Reactivate school
+                        </button>
+                      ) : (
+                        <button disabled={acting} onClick={() => setStatus(detail.tenant.id, 'suspended')} className="btn-ghost text-xs py-1.5 px-3 text-red-500">
+                          Suspend school
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Subscription tier */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-theme-muted">Subscription</span>
+                      <select
+                        value={detail.tenant.subscription_tier || 'free'}
+                        disabled={acting}
+                        onChange={e => setTier(detail.tenant.id, e.target.value)}
+                        className="input py-1 text-sm w-36"
+                      >
+                        <option value="free">Free / Trial</option>
+                        <option value="primary">Primary</option>
+                        <option value="senior">Senior</option>
+                      </select>
+                    </div>
+
+                    <p className="text-[11px] text-theme-muted">
+                      Suspending blocks all of this school's users from logging in until reactivated. Changing the tier updates their plan immediately.
+                    </p>
+                  </div>
                 </>
               ) : (
                 <p className="text-theme-muted text-center py-10">Could not load this school.</p>

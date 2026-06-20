@@ -564,6 +564,72 @@ class AdminController {
     ).catch(() => [{}]);
     return r[0] || {};
   }
+
+  // ── PHASE 2: CONTROL ACTIONS (super_admin only, cross-tenant on purpose) ──────
+
+  // Suspend or reactivate a school. Suspended schools' users are blocked at login
+  // (enforced in auth). status: 'suspended' | 'active'.
+  @Patch('tenants/:id/status')
+  async setTenantStatus(@Request() req: any, @Param('id') id: string, @Body() dto: { status: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const status = dto?.status;
+    if (!['active', 'suspended', 'trial', 'cancelled'].includes(status)) {
+      return { error: 'Invalid status. Use active, suspended, trial or cancelled.' };
+    }
+    await this.ds.query(`UPDATE tenants SET status = $1, updated_at = NOW() WHERE id = $2`, [status, id])
+      .catch((e: any) => { throw e; });
+    return { id, status };
+  }
+
+  // Change a school's subscription tier (free | primary | senior, or custom).
+  @Patch('tenants/:id/subscription')
+  async setTenantSubscription(@Request() req: any, @Param('id') id: string, @Body() dto: { tier: string; trialEndsAt?: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    if (!dto?.tier) return { error: 'Tier is required.' };
+    const sets = ['subscription_tier = $2', 'updated_at = NOW()'];
+    const vals: any[] = [id, dto.tier];
+    if (dto.trialEndsAt) { sets.push(`trial_ends_at = $${vals.length + 1}`); vals.push(dto.trialEndsAt); }
+    await this.ds.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $1`, vals)
+      .catch((e: any) => { throw e; });
+    return { id, tier: dto.tier };
+  }
+
+  // Edit a school's core details.
+  @Patch('tenants/:id')
+  async updateTenant(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const map: Record<string, string> = {
+      name: 'name', phone: 'phone', email: 'email',
+      county: 'county', subCounty: 'sub_county', knecCode: 'knec_code',
+    };
+    const sets: string[] = []; const vals: any[] = [id]; let i = 2;
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) { sets.push(`${col} = $${i++}`); vals.push(dto[k]); }
+    }
+    if (!sets.length) return { error: 'Nothing to update.' };
+    sets.push('updated_at = NOW()');
+    await this.ds.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $1`, vals)
+      .catch((e: any) => { throw e; });
+    return { id, updated: true };
+  }
+
+  // Reset a school user's password (e.g. an HOI who is locked out). Returns the new
+  // temporary password once; the user is asked to change it on next login.
+  @Post('users/:id/reset-password')
+  async resetUserPassword(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const bcryptLib = require('bcryptjs');
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const temp = `${block()}-${block()}`;
+    const hash = await bcryptLib.hash(temp, 12);
+    const rows = await this.ds.query(
+      `UPDATE users SET password_hash = $2, must_change_password = true, is_active = true
+        WHERE id = $1 RETURNING email`, [id, hash],
+    ).catch(() => []);
+    if (!rows.length) return { error: 'User not found.' };
+    return { email: rows[0].email, tempPassword: temp };
+  }
 }
 
 @Module({ controllers: [AdminController] })
