@@ -14,6 +14,7 @@ export default function TeacherLearners() {
   const [showNew, setShowNew]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const [search, setSearch]     = useState('');
+  const [view, setView]         = useState<'active'|'inactive'>('active');
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({ firstName:'', lastName:'', admissionNumber:'', gender:'', guardianName:'', guardianPhone:'' });
@@ -47,6 +48,11 @@ export default function TeacherLearners() {
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not update'); }
   };
   const toggleActive = async (l:any) => {
+    const name = `${l.firstName||''} ${l.lastName||''}`.trim() || 'this learner';
+    // Confirm before deactivating (reactivating needs no confirmation).
+    if (l.isActive !== false) {
+      if (!confirm(`Deactivate ${name}?\n\nThey will be moved to the Inactive list and hidden from registers, mark lists and reports. You can reactivate them anytime.`)) return;
+    }
     try {
       await apiClient.patch(`/academic/learners/${l.id}/active`, { active: l.isActive === false });
       toast.success(l.isActive === false ? 'Learner reactivated' : 'Learner deactivated'); load();
@@ -82,8 +88,13 @@ export default function TeacherLearners() {
     } finally { setDeleting(false); }
   };
 
-  const filtered = learners.filter(l =>
-    !search || `${l.firstName} ${l.lastName} ${l.admissionNumber}`.toLowerCase().includes(search.toLowerCase()));
+  const filtered = learners.filter(l => {
+    const isInactive = l.isActive === false;
+    if (view === 'active' && isInactive) return false;
+    if (view === 'inactive' && !isInactive) return false;
+    return !search || `${l.firstName} ${l.lastName} ${l.admissionNumber}`.toLowerCase().includes(search.toLowerCase());
+  });
+  const inactiveCount = learners.filter(l => l.isActive === false).length;
 
   return (
     <div className="space-y-5">
@@ -120,8 +131,18 @@ export default function TeacherLearners() {
             <div className="text-xs text-theme-muted bg-surface-2 rounded-lg px-3 py-2"><Users size={12} className="inline mr-1"/>{learners.length} learners</div>
           </div>
 
+          {/* Active / Inactive tabs — inactive shows deactivated learners to reactivate */}
+          <div className="flex gap-1 mb-3">
+            {([['active','Active'],['inactive',`Inactive${inactiveCount?` (${inactiveCount})`:''}`]] as const).map(([v,label]) => (
+              <button key={v} onClick={()=>setView(v as any)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${view===v ? 'bg-[#1a2e5a] text-white' : 'bg-surface-2 text-theme-muted'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
           {loading ? <div className="h-64 shimmer rounded-2xl"/> : filtered.length === 0 ? (
-            <div className="card p-10 text-center text-theme-muted">No learners in this class yet</div>
+            <div className="card p-10 text-center text-theme-muted">{view==='inactive' ? 'No deactivated learners' : 'No learners in this class yet'}</div>
           ) : (
             <div className="card overflow-hidden">
               {filtered.map((l:any, i:number) => (

@@ -568,8 +568,13 @@ export class AcademicService {
   // ── Learners ─────────────────────────────────────────────
   async getLearners(tenantId: string, filters: any) {
     const qb = this.learnerRepo.createQueryBuilder('l')
-      .where('l.tenant_id = :tenantId', { tenantId })
-      .andWhere('l.is_active = true');
+      .where('l.tenant_id = :tenantId', { tenantId });
+
+    // status: 'active' (default) | 'inactive' | 'all'
+    const status = filters.status || 'active';
+    if (status === 'active')        qb.andWhere('l.is_active = true');
+    else if (status === 'inactive') qb.andWhere('l.is_active = false');
+    // 'all' → no is_active filter
 
     if (filters.search) {
       qb.andWhere(

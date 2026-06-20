@@ -10,6 +10,7 @@ export default function LearnersPage() {
   const { user }  = useAuth();
   const [learners, setLearners] = useState<any[]>([]);
   const [search,   setSearch]   = useState('');
+  const [statusTab, setStatusTab] = useState<'active'|'inactive'>('active');
   const [stream,   setStream]   = useState('');
   const [streams,  setStreams]   = useState<any[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -31,6 +32,7 @@ export default function LearnersPage() {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (stream) params.set('streamId', stream);
+    params.set('status', statusTab);
     apiClient.get(`/academic/learners?${params}`)
       .then(r => setLearners(r.data))
       .catch(() => toast.error('Could not load learners'))
@@ -41,7 +43,7 @@ export default function LearnersPage() {
     apiClient.get('/academic/streams').then(r => setStreams(r.data));
   }, []);
 
-  useEffect(() => { load(); }, [search, stream]);
+  useEffect(() => { load(); }, [search, stream, statusTab]);
 
   // ── Bulk upload from the KNEC/CBA class list ─────────────────────
   // Each row is like: "A001531118 OLIMA WILLIAM M None KIS CRE"
@@ -157,6 +159,11 @@ export default function LearnersPage() {
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not update'); }
   };
   const toggleActive = async (l:any) => {
+    const deactivating = l.isActive !== false;
+    if (deactivating) {
+      const name = `${l.firstName||''} ${l.lastName||''}`.trim();
+      if (!confirm(`Deactivate ${name}?\n\nThey will be moved to the Inactive list and hidden from class registers, mark lists and reports. You can reactivate them anytime.`)) return;
+    }
     try {
       await apiClient.patch(`/academic/learners/${l.id}/active`, { active: l.isActive === false });
       toast.success(l.isActive === false ? 'Learner reactivated' : 'Learner deactivated'); load();
@@ -221,14 +228,27 @@ export default function LearnersPage() {
         </div>
       </div>
 
+      {/* Active / Inactive tabs */}
+      <div className="flex gap-1 mb-2">
+        {([['active','Active'],['inactive','Inactive']] as const).map(([v,label]) => (
+          <button key={v} onClick={() => setStatusTab(v)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+              statusTab===v ? 'bg-[#1a2e5a] text-white' : 'bg-surface-2 text-theme-muted hover:text-theme-heading'}`}>
+            {label}{v==='inactive' ? ' learners' : ''}
+          </button>
+        ))}
+      </div>
+
       {/* Table */}
       {loading ? (
         <div className="space-y-2">{[1,2,3,4,5].map(i => <div key={i} className="h-16 shimmer rounded-xl"/>)}</div>
       ) : learners.length === 0 ? (
         <div className="card p-12 text-center">
           <User size={40} className="mx-auto text-[#e2e6f0] mb-3"/>
-          <p className="text-theme-muted font-medium">No learners found</p>
-          {isHoi(user?.role || '') && (
+          <p className="text-theme-muted font-medium">
+            {statusTab==='inactive' ? 'No inactive learners' : 'No learners found'}
+          </p>
+          {statusTab==='active' && isHoi(user?.role || '') && (
             <button onClick={() => setShowForm(true)} className="btn-primary mt-4">
               <Plus size={16}/> Register First Learner
             </button>
@@ -269,9 +289,17 @@ export default function LearnersPage() {
                   <td className="px-4 py-3 text-sm text-theme-muted hidden lg:table-cell">{l.guardianName || '—'}</td>
                   <td className="px-4 py-3 text-sm text-theme-muted hidden lg:table-cell">{l.guardianPhone || '—'}</td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => openEdit(l)} title="Edit" className="text-theme-muted hover:text-[#2563eb] p-1"><Pencil size={14}/></button>
-                    <button onClick={() => toggleActive(l)} title={l.isActive===false?'Reactivate':'Deactivate'}
-                      className="text-theme-muted hover:text-amber-600 p-1 ml-1">{l.isActive===false ? <UserCheck size={14}/> : <UserX size={14}/>}</button>
+                    {statusTab === 'inactive' ? (
+                      <button onClick={() => toggleActive(l)} className="btn-primary text-xs py-1 px-3">
+                        <UserCheck size={13}/> Reactivate
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={() => openEdit(l)} title="Edit" className="text-theme-muted hover:text-[#2563eb] p-1"><Pencil size={14}/></button>
+                        <button onClick={() => toggleActive(l)} title="Deactivate"
+                          className="text-theme-muted hover:text-amber-600 p-1 ml-1"><UserX size={14}/></button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
