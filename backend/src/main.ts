@@ -7,6 +7,7 @@ import * as path          from 'path';
 import compression from 'compression';
 import helmet             from 'helmet';
 import { AppModule }      from './app.module';
+import { AuthService }    from './modules/auth/auth.service';
 
 // Run every .sql file in database/migrations on startup.
 // All migrations use IF NOT EXISTS, so this is safe to run on every boot.
@@ -299,6 +300,22 @@ async function bootstrap() {
       res.type('text/plain').send(lines.join('\n'));
     } catch (e: any) {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
+  // Diagnostic: runs the REAL login flow and reports success/failure + reason.
+  //   /owner-login-test?key=SECRET&email=...&password=...
+  httpAdapter.get('/owner-login-test', async (req: any, res: any) => {
+    const expected = process.env.OWNER_KEY || 'zaroda-owner-setup';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    const password = String(req.query?.password || '');
+    try {
+      const authService = app.get(AuthService);
+      const result = await authService.login(email, password);
+      res.type('text/plain').send(`LOGIN OK\nrole=${result.user.role}\ntenantId=${result.user.tenantId}\ngot accessToken=${!!result.accessToken}`);
+    } catch (e: any) {
+      res.type('text/plain').send(`LOGIN FAILED: ${e?.message || e}\n(name: ${e?.name})`);
     }
   });
 
