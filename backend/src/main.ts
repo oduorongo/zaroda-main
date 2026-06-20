@@ -134,11 +134,17 @@ async function bootstrap() {
   ];
   app.enableCors({
     origin: (origin, cb) => {
-      // Allow same-origin/non-browser requests (no origin) and any listed/onrender origin.
-      if (!origin || staticOrigins.includes(origin) || /\.onrender\.com$/.test(new URL(origin).hostname)) {
-        return cb(null, true);
-      }
-      return cb(null, false);
+      // Allow same-origin/non-browser requests (no origin), any listed origin, any
+      // *.onrender.com host, and the zarodasolutions.app custom domain + subdomains.
+      if (!origin) return cb(null, true);
+      let host = '';
+      try { host = new URL(origin).hostname; } catch { return cb(null, false); }
+      const ok =
+        staticOrigins.includes(origin) ||
+        /\.onrender\.com$/.test(host) ||
+        host === 'zarodasolutions.app' ||
+        host.endsWith('.zarodasolutions.app');
+      return cb(null, ok);
     },
     methods:     ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
     credentials: true,
