@@ -43,7 +43,6 @@ export default function TeacherAssessment() {
   const [learners, setLearners] = useState<any[]>([]);
   const [learnerId, setLearnerId] = useState('');
   const [search, setSearch] = useState('');
-  const [search, setSearch] = useState('');
   const [strands, setStrands]   = useState<any[]>([]);
   const [scores, setScores]     = useState<Record<string, string>>({});
   const [comment, setComment]   = useState('');
