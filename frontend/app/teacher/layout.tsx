@@ -4,9 +4,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
-  Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft,
+  Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2,
 } from 'lucide-react';
 import { useAuth, isTeacher } from '@/lib/hooks/useAuth';
+import { ShareZaroda } from '@/components/ShareZaroda';
 import { useTheme } from '@/lib/hooks/useTheme';
 
 // Teacher-only navigation — nothing admin here
@@ -25,6 +26,7 @@ const TEACHER_NAV = [
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const [showShare, setShowShare] = useState(false);
   const { theme, toggle } = useTheme();
   const router   = useRouter();
   const pathname = usePathname();
@@ -80,6 +82,10 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
             <div className="text-[10px] text-white/40">{user?.streamName || 'Teacher'}</div>
           </div>
         </div>
+        <button onClick={() => setShowShare(true)}
+          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-[#d4af37] hover:bg-white/10 w-full">
+          <Share2 size={18}/> Refer a School
+        </button>
         <button onClick={() => { logout(); router.replace('/auth/login'); }}
           className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-white/65 hover:bg-white/10 hover:text-white w-full">
           <LogOut size={18}/> Sign out
@@ -133,6 +139,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           <div className="p-4 sm:p-6 max-w-6xl mx-auto">{children}</div>
         </main>
       </div>
+      {showShare && <ShareZaroda onClose={() => setShowShare(false)} />}
     </div>
   );
 }

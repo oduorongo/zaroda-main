@@ -4,13 +4,14 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, BookOpen, DollarSign, MessageSquare, FileText,
-  Library, Trophy, Scale, Settings, HelpCircle, LogOut,
+  Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
   Bell, Menu, X, ChevronRight, Users, BarChart2,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 import { useTheme } from '@/lib/hooks/useTheme';
+import { ShareZaroda } from '@/components/ShareZaroda';
 import clsx from 'clsx';
 
 // ── Navigation definition ──────────────────────────────────
@@ -45,6 +46,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router   = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [schoolName, setSchoolName] = useState('');
 
   // Load the school name for the sidebar (from school settings).
@@ -119,6 +121,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Link href="/dashboard/settings" onClick={() => setSidebarOpen(false)} className="nav-item">
           <Settings size={18}/> <span>Settings</span>
         </Link>
+        <button onClick={() => { setShowShare(true); setSidebarOpen(false); }} className="nav-item w-full text-[#d4af37] hover:bg-white/10">
+          <Share2 size={18}/> <span>Refer a School</span>
+        </button>
         <button onClick={logout} className="nav-item w-full text-red-400/80 hover:text-red-400 hover:bg-red-500/10">
           <LogOut size={18}/> <span>Sign Out</span>
         </button>
@@ -210,6 +215,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </main>
       </div>
+      {showShare && <ShareZaroda onClose={() => setShowShare(false)} />}
     </div>
   );
 }
