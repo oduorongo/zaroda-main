@@ -23,10 +23,16 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const url = original?.url || '';
+    // Never run the refresh/redirect dance for the auth endpoints themselves — a failed
+    // login should surface its error to the form, not trigger a refresh + page redirect
+    // (which causes a confusing "flash back to login" instead of showing the message).
+    const isAuthCall = url.includes('/auth/login') || url.includes('/auth/refresh');
+    if (error.response?.status === 401 && !original._retry && !isAuthCall) {
       original._retry = true;
       try {
         const refreshToken = localStorage.getItem('zaroda_refresh');
+        if (!refreshToken) throw new Error('no refresh token');
         const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken });
         localStorage.setItem('zaroda_token',   data.accessToken);
         localStorage.setItem('zaroda_refresh', data.refreshToken);
