@@ -5,7 +5,7 @@
 // Replace each stub with the full service as you build out.
 // ============================================================
 
-import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, UseGuards } from '@nestjs/common';
+import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -458,6 +458,92 @@ export class ReferralModule {}
 @Controller('pdf')
 @UseGuards(JwtAuthGuard)
 class PdfController {
+  constructor(private readonly ds: DataSource) {}
+
+  // Printable mark list (HTML the browser prints / saves as PDF). Self-contained:
+  // builds straight from assessment_results for the chosen stream/term/exam, so it
+  // doesn't depend on the heavier PDF subsystem.
+  @Get('mark-list/html')
+  async markListHtml(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const tenantId = req.user.tenantId;
+    const { streamId, term, examId, examType, academicYear } = q;
+    try {
+      const stream = (await this.ds.query(
+        `SELECT s.name, s.grade_level AS "gradeLevel",
+                (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName"
+           FROM streams s WHERE s.id::text = $1 AND s.tenant_id::text = $2 LIMIT 1`,
+        [streamId, tenantId],
+      ).catch(() => []))[0] || {};
+
+      const examName = examId
+        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
+        : (examType || '');
+
+      const rows = await this.ds.query(
+        `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+                l.admission_number AS "adm", ar.subject, ar.percent, ar.raw_score AS "raw"
+           FROM assessment_results ar
+           LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+          WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
+            AND ($3::text IS NULL OR ar.term = $3)
+            AND ($4::text IS NULL OR ar.exam_id::text = $4)
+          ORDER BY l.first_name`,
+        [tenantId, streamId, term || null, examId || null],
+      ).catch(() => []);
+
+      const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
+      const lvl = (p: number) => senior
+        ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+        : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      const pts = (p: number) => senior
+        ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
+        : (p>=76?4:p>=51?3:p>=26?2:1);
+
+      // Pivot: learner → subject → {percent, level}
+      const subjects = Array.from(new Set(rows.map((r: any) => r.subject))).sort();
+      const byLearner: Record<string, any> = {};
+      for (const r of rows) {
+        const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0 });
+        if (r.percent != null) { L.marks[r.subject] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); }
+      }
+      const learners = Object.values(byLearner).sort((a: any, b: any) => b.points - a.points);
+      const maxPoints = subjects.length * (senior ? 8 : 4);
+
+      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+      const head = subjects.map(s => `<th>${esc(s)}</th>`).join('');
+      const body = learners.map((L: any, i: number) => `
+        <tr>
+          <td>${i+1}</td><td style="text-align:left">${esc(L.name)}</td><td>${esc(L.adm||'')}</td>
+          ${subjects.map(s => { const m = L.marks[s]; return `<td>${m ? `${m.pct}% <b>${m.level}</b>` : '-'}</td>`; }).join('')}
+          <td><b>${L.points}/${maxPoints}</b></td>
+        </tr>`).join('');
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+        <title>Mark List — ${esc(stream.name||'')}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
+          h1{font-size:18px;margin:0}h2{font-size:13px;font-weight:normal;color:#555;margin:2px 0 16px}
+          table{width:100%;border-collapse:collapse;font-size:11px}
+          th,td{border:1px solid #cfd6e4;padding:5px 6px;text-align:center}
+          th{background:#1a2e5a;color:#fff}td{text-align:center}
+          tr:nth-child(even) td{background:#f5f7fb}
+          .no-print{text-align:center;margin:18px 0}
+          @media print{.no-print{display:none}}
+        </style></head><body>
+        <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
+        <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${subjects.length+4}">No marks found for this assessment.</td></tr>`}</tbody></table>
+        <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+        <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
+        </body></html>`;
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build mark list: ${e?.message || 'error'}</p>`);
+    }
+  }
+
   @Get('report-card/:learnerId')
   getReportCard(@Param('learnerId') id: string) {
     return { message: 'PDF generation — requires Puppeteer. Run: npm install puppeteer' };
