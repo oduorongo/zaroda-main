@@ -5,6 +5,7 @@ import { DataSource }     from 'typeorm';
 import * as fs            from 'fs';
 import * as path          from 'path';
 import compression from 'compression';
+import { json, urlencoded } from 'express';
 import helmet             from 'helmet';
 import { AppModule }      from './app.module';
 import { AuthService }    from './modules/auth/auth.service';
@@ -103,6 +104,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
+
+  // Allow larger request bodies (e.g. base64 school logo uploads). The default ~100KB
+  // limit causes 413 Content Too Large when saving settings with an image.
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ limit: '5mb', extended: true }));
 
   // ── Security ──────────────────────────────────────────────
   app.use(helmet({ contentSecurityPolicy: false }));
