@@ -12,22 +12,23 @@ function buildMessages(schoolName: string, signupUrl: string) {
   const link = signupUrl;
 
   const short =
-`Still compiling mark lists and report cards by hand? 📚
+`Dear colleague teacher, 📚
 
-We use ZARODA School Management System at ${school} — teachers enter marks online, CBC report cards generate automatically, and fees are tracked per learner.
+Still adding and ranking marks on paper and writing report cards by hand? I use *ZARODA School Management System* at ${school} — teachers enter marks online, mark lists and CBC report cards (both the 4 and 8 performance levels) generate automatically, and fees are tracked per learner.
 
-Built in Kenya for the CBC/CBE curriculum. Take a look 👉 ${link}`;
+A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}`;
 
   const detailed =
-`Tired of chasing marks on paper and recalculating report cards by hand? 📚
+`Dear colleague teacher,
+
+Tired of adding and ranking marks manually on paper and writing report cards by hand? 📚
 
 I'm using *ZARODA School Management System* at ${school} and it has changed how we run the school.
 
 If your school still struggles with:
 • Teachers submitting marks late, on loose sheets
 • Hours spent compiling mark lists and ranking learners by hand
-• Report cards that don't follow CBC performance levels (EE, ME, AE, BE)
-• Fee balances tracked in books that never quite add up
+• Report cards that don't follow both the 4 and 8 CBC performance levels
 • No quick way for parents to see how their child is doing
 
 …ZARODA fixes all of it:
@@ -37,7 +38,7 @@ If your school still struggles with:
 ✅ Class teachers, HOI and parents each get the right access
 ✅ Built in Kenya, for the Kenyan CBC/CBE curriculum
 
-Sign up or take a tour 👉 ${link}`;
+A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}`;
 
   return { short, detailed };
 }
