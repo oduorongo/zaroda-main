@@ -500,7 +500,8 @@ class PdfController {
         : (p>=76?4:p>=51?3:p>=26?2:1);
 
       // Pivot: learner → subject → {percent, level}
-      const subjects: string[] = Array.from(new Set(rows.map((r: any) => String(r.subject)))).sort();
+      const subjectList: string[] = rows.map((r: any) => String(r.subject));
+      const subjects: string[] = Array.from(new Set<string>(subjectList)).sort();
       const byLearner: Record<string, any> = {};
       for (const r of rows) {
         const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0 });
