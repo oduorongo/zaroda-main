@@ -470,7 +470,8 @@ class PdfController {
     try {
       const stream = (await this.ds.query(
         `SELECT s.name, s.grade_level AS "gradeLevel",
-                (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName"
+                (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName",
+                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo"
            FROM streams s WHERE s.id::text = $1 AND s.tenant_id::text = $2 LIMIT 1`,
         [streamId, tenantId],
       ).catch(() => []))[0] || {};
@@ -519,22 +520,29 @@ class PdfController {
           <td><b>${L.points}/${maxPoints}</b></td>
         </tr>`).join('');
 
+      const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
         <title>Mark List — ${esc(stream.name||'')}</title>
         <style>
           body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
-          h1{font-size:18px;margin:0}h2{font-size:13px;font-weight:normal;color:#555;margin:2px 0 16px}
+          .ml-head{text-align:center;margin-bottom:14px}
+          h1{font-size:18px;margin:0}h2{font-size:13px;font-weight:normal;color:#555;margin:2px 0 0}
           table{width:100%;border-collapse:collapse;font-size:11px}
           th,td{border:1px solid #cfd6e4;padding:5px 6px;text-align:center}
           th{background:#1a2e5a;color:#fff}td{text-align:center}
           tr:nth-child(even) td{background:#f5f7fb}
+          .ml-foot{text-align:center;margin-top:14px;font-size:10px;color:#888;font-style:italic}
           .no-print{text-align:center;margin:18px 0}
           @media print{.no-print{display:none}}
         </style></head><body>
-        <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
-        <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
+        <div class="ml-head">
+          ${logoTag}
+          <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
+          <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
+        </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total</th></tr></thead>
         <tbody>${body || `<tr><td colspan="${subjects.length+4}">No marks found for this assessment.</td></tr>`}</tbody></table>
+        <div class="ml-foot">Powered by ZARODA SOLUTIONS</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
         </body></html>`;
@@ -577,7 +585,7 @@ class PdfController {
       const pages: string[] = [];
       for (const l of learners) {
         const card = await this.buildReportCardHtml(tenantId, l.id, term, academicYear || '2025/2026', false).catch(() => '');
-        if (card) pages.push(`<div style="page-break-after:always">${card}</div>`);
+        if (card) pages.push(card);
       }
       const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Report Cards</title>
         ${this.reportCardStyles()}
@@ -594,10 +602,13 @@ class PdfController {
 
   private reportCardStyles(): string {
     return `<style>
-      body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
-      .rc{max-width:760px;margin:0 auto 20px}
+      body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:0;margin:0}
+      .rc{max-width:760px;margin:0 auto;padding:28px 24px;box-sizing:border-box;
+          min-height:100vh;display:flex;flex-direction:column;page-break-after:always;break-after:page}
+      .rc:last-child{page-break-after:auto;break-after:auto}
       .rc-head{text-align:center;border-bottom:3px solid #d4af37;padding-bottom:8px;margin-bottom:12px}
       .rc-head h1{font-size:20px;margin:0}.rc-head p{margin:2px 0;font-size:12px;color:#555}
+      .rc-head img{height:60px;width:auto;margin:0 auto 6px;display:block}
       .rc-meta{display:flex;justify-content:space-between;font-size:12px;margin:10px 0}
       table{width:100%;border-collapse:collapse;font-size:12px}
       th,td{border:1px solid #cfd6e4;padding:6px 8px}th{background:#1a2e5a;color:#fff;text-align:left}
@@ -605,7 +616,12 @@ class PdfController {
       tr:nth-child(even) td{background:#f5f7fb}
       .rc-total{margin-top:10px;font-size:13px;font-weight:bold}
       .rc-foot{margin-top:18px;font-size:12px;display:flex;justify-content:space-between}
-      @media print{.no-print{display:none}}
+      .rc-powered{margin-top:auto;padding-top:16px;text-align:center;font-size:10px;color:#999;font-style:italic}
+      @media print{
+        .no-print{display:none}
+        .rc{min-height:auto;height:100vh}
+      }
+      @page{size:A4;margin:12mm}
     </style>`;
   }
 
@@ -616,7 +632,8 @@ class PdfController {
       `SELECT l.first_name AS "firstName", l.last_name AS "lastName", l.admission_number AS "adm",
               l.grade_level AS "gradeLevel",
               s.name AS "streamName",
-              (SELECT name FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolName"
+              (SELECT name FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolName",
+              (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "logo"
          FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
         WHERE l.id::text = $1 AND l.tenant_id::text = $2 LIMIT 1`,
       [learnerId, tenantId],
@@ -650,9 +667,11 @@ class PdfController {
     }).join('');
 
     const termLabel = (term || '').replace('term_', 'Term ');
+    const logoTag = lr.logo ? `<img src="${lr.logo}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
     const card = `
       <div class="rc">
         <div class="rc-head">
+          ${logoTag}
           <h1>${esc(lr.schoolName || 'ZARODA School')}</h1>
           <p>Learner Report Card · ${esc(termLabel)} · ${esc(academicYear)}</p>
         </div>
@@ -670,6 +689,7 @@ class PdfController {
           <span>Class Teacher: __________________</span>
           <span>Checked by D.H.O.I. _______________</span>
         </div>
+        <div class="rc-powered">Powered by ZARODA SOLUTIONS</div>
       </div>`;
 
     if (!standalone) return card;
