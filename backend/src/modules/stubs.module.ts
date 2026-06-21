@@ -550,6 +550,136 @@ class PdfController {
     return { message: 'PDF generation — requires Puppeteer. Run: npm install puppeteer' };
   }
 
+  // Printable single report card (HTML → browser print / save as PDF). Self-contained:
+  // builds from assessment_results for the learner across the term, averaging each
+  // learning area's percentage across that term's assessments to a CBC level + points.
+  @Get('report-card/:learnerId/html')
+  async reportCardHtml(@Param('learnerId') learnerId: string, @Request() req: any, @Query() q: any, @Res() res: any) {
+    try {
+      const html = await this.buildReportCardHtml(req.user.tenantId, learnerId, q.term, q.academicYear || '2025/2026', true);
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build report card: ${e?.message || 'error'}</p>`);
+    }
+  }
+
+  // Printable report cards for a whole stream, one per page.
+  @Get('report-cards/bulk/html')
+  async bulkReportCardsHtml(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const tenantId = req.user.tenantId;
+    const { streamId, term, academicYear } = q;
+    try {
+      const learners = await this.ds.query(
+        `SELECT id FROM learners WHERE tenant_id::text = $1 AND stream_id::text = $2 AND COALESCE(is_active, true) = true ORDER BY first_name`,
+        [tenantId, streamId],
+      ).catch(() => []);
+      const pages: string[] = [];
+      for (const l of learners) {
+        const card = await this.buildReportCardHtml(tenantId, l.id, term, academicYear || '2025/2026', false).catch(() => '');
+        if (card) pages.push(`<div style="page-break-after:always">${card}</div>`);
+      }
+      const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Report Cards</title>
+        ${this.reportCardStyles()}
+        </head><body>${pages.join('') || '<p style="font-family:sans-serif;padding:24px">No learners with marks in this class.</p>'}
+        <div class="no-print" style="text-align:center;margin:18px 0"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+        <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},500);});</script>
+        </body></html>`;
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build report cards: ${e?.message || 'error'}</p>`);
+    }
+  }
+
+  private reportCardStyles(): string {
+    return `<style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
+      .rc{max-width:760px;margin:0 auto 20px}
+      .rc-head{text-align:center;border-bottom:3px solid #d4af37;padding-bottom:8px;margin-bottom:12px}
+      .rc-head h1{font-size:20px;margin:0}.rc-head p{margin:2px 0;font-size:12px;color:#555}
+      .rc-meta{display:flex;justify-content:space-between;font-size:12px;margin:10px 0}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th,td{border:1px solid #cfd6e4;padding:6px 8px}th{background:#1a2e5a;color:#fff;text-align:left}
+      td.c,th.c{text-align:center}
+      tr:nth-child(even) td{background:#f5f7fb}
+      .rc-total{margin-top:10px;font-size:13px;font-weight:bold}
+      .rc-foot{margin-top:18px;font-size:12px;display:flex;justify-content:space-between}
+      @media print{.no-print{display:none}}
+    </style>`;
+  }
+
+  // Builds one learner's report-card HTML. `standalone` wraps it as a full printable
+  // document; otherwise returns just the card block (for bulk).
+  private async buildReportCardHtml(tenantId: string, learnerId: string, term: string, academicYear: string, standalone: boolean): Promise<string> {
+    const lr = (await this.ds.query(
+      `SELECT l.first_name AS "firstName", l.last_name AS "lastName", l.admission_number AS "adm",
+              l.grade_level AS "gradeLevel",
+              s.name AS "streamName",
+              (SELECT name FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolName"
+         FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.id::text = $1 AND l.tenant_id::text = $2 LIMIT 1`,
+      [learnerId, tenantId],
+    ).catch(() => []))[0];
+    if (!lr) throw new Error('Learner not found');
+
+    const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(lr.gradeLevel || '');
+    const lvl = (p: number) => senior
+      ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+      : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+    const pts = (p: number) => senior
+      ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
+      : (p>=76?4:p>=51?3:p>=26?2:1);
+
+    // Average each learning area across the term's assessments → one level per area.
+    const rows = await this.ds.query(
+      `SELECT subject, AVG(percent)::numeric AS "avgPct"
+         FROM assessment_results
+        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)
+          AND percent IS NOT NULL
+        GROUP BY subject ORDER BY subject`,
+      [tenantId, learnerId, term || null],
+    ).catch(() => []);
+
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+    let totalPoints = 0; const maxPoints = rows.length * (senior ? 8 : 4);
+    const body = rows.map((r: any) => {
+      const p = Math.round(Number(r.avgPct));
+      totalPoints += pts(p);
+      return `<tr><td>${esc(r.subject)}</td><td class="c">${p}%</td><td class="c"><b>${lvl(p)}</b></td></tr>`;
+    }).join('');
+
+    const termLabel = (term || '').replace('term_', 'Term ');
+    const card = `
+      <div class="rc">
+        <div class="rc-head">
+          <h1>${esc(lr.schoolName || 'ZARODA School')}</h1>
+          <p>Learner Report Card · ${esc(termLabel)} · ${esc(academicYear)}</p>
+        </div>
+        <div class="rc-meta">
+          <span><b>Name:</b> ${esc(`${lr.firstName||''} ${lr.lastName||''}`.trim())}</span>
+          <span><b>Adm:</b> ${esc(lr.adm || '')}</span>
+          <span><b>Class:</b> ${esc(lr.streamName || lr.gradeLevel || '')}</span>
+        </div>
+        <table>
+          <thead><tr><th>Learning Area</th><th class="c">Average</th><th class="c">Performance Level</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="3" class="c">No marks recorded this term.</td></tr>`}</tbody>
+        </table>
+        ${rows.length ? `<p class="rc-total">Performance-level total: ${totalPoints} / ${maxPoints} (${rows.length} learning areas)</p>` : ''}
+        <div class="rc-foot">
+          <span>Class Teacher: __________________</span>
+          <span>Checked by D.H.O.I. _______________</span>
+        </div>
+      </div>`;
+
+    if (!standalone) return card;
+    return `<!doctype html><html><head><meta charset="utf-8"/><title>Report Card — ${esc(`${lr.firstName} ${lr.lastName}`)}</title>
+      ${this.reportCardStyles()}</head><body>${card}
+      <div class="no-print" style="text-align:center;margin:18px 0"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+      <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
+      </body></html>`;
+  }
+
   @Get('invoice/:invoiceId')
   getInvoice(@Param('invoiceId') id: string) {
     return { message: 'Invoice PDF — implement PdfService.generateInvoice()' };
