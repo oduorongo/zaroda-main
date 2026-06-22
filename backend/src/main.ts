@@ -186,6 +186,42 @@ async function bootstrap() {
     res.json({ status: 'ok', service: 'zaroda-sms-api', timestamp: new Date().toISOString() });
   });
 
+  // Read-only data census — confirms whether data exists, viewable from a browser.
+  // Visit: /data-check?key=zaroda-migrate-now   (uses the same MIGRATE_KEY). Returns
+  // row counts for the core tables + the database name it's actually connected to, so
+  // we can tell if anything was wiped or if the backend is pointed at a fresh DB.
+  httpAdapter.get('/data-check', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const tables = ['users', 'schools', 'tenants', 'learners', 'streams', 'exams',
+        'assessment_results', 'assessment_scores', 'retooling_articles'];
+      const out: any = {};
+      for (const t of tables) {
+        try {
+          const r = await ds.query(`SELECT COUNT(*)::int AS c FROM ${t}`);
+          out[t] = r[0]?.c ?? 0;
+        } catch (e: any) { out[t] = `n/a (${e.message?.split('\n')[0]})`; }
+      }
+      const dbinfo = await ds.query(`SELECT current_database() AS db, current_user AS usr`).catch(() => [{}]);
+      const owners = await ds.query(
+        `SELECT email, role, created_at FROM users WHERE role = 'super_admin' ORDER BY created_at`,
+      ).catch(() => []);
+      const recentUsers = await ds.query(
+        `SELECT email, role, created_at FROM users ORDER BY created_at DESC LIMIT 5`,
+      ).catch(() => []);
+      res.type('text/plain').send(
+        `DATABASE: ${dbinfo[0]?.db} (user ${dbinfo[0]?.usr})\n\n` +
+        `ROW COUNTS:\n` + Object.entries(out).map(([k, v]) => `  ${k.padEnd(22)} ${v}`).join('\n') +
+        `\n\nSUPER ADMINS (${owners.length}):\n` + owners.map((o: any) => `  ${o.email}  [${o.role}]  ${o.created_at}`).join('\n') +
+        `\n\n5 MOST RECENT USERS:\n` + recentUsers.map((u: any) => `  ${u.email}  [${u.role}]  ${u.created_at}`).join('\n'),
+      );
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
   // One-time manual migration trigger you can hit from a browser (no shell needed).
   // Visit:  /run-migrations?key=YOUR_SECRET   where the secret is the MIGRATE_KEY env
   // var (defaults to 'zaroda-migrate-now'). It drops the _migrations tracker and runs
