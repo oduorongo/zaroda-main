@@ -460,6 +460,87 @@ export class ReferralModule {}
 class PdfController {
   constructor(private readonly ds: DataSource) {}
 
+  // Printable RANKING for a single learning area: every learner in the stream ranked
+  // high→low for one subject, showing raw score, percentage and CBC performance level.
+  // For subject teachers who want a per-area ranked list.
+  @Get('area-ranking/html')
+  async areaRankingHtml(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const tenantId = req.user.tenantId;
+    const { streamId, term, examId, subject, academicYear } = q;
+    try {
+      const stream = (await this.ds.query(
+        `SELECT s.name, s.grade_level AS "gradeLevel",
+                (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName",
+                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo"
+           FROM streams s WHERE s.id::text = $1 AND s.tenant_id::text = $2 LIMIT 1`,
+        [streamId, tenantId],
+      ).catch(() => []))[0] || {};
+      const examName = examId
+        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
+        : '';
+      const rows = await this.ds.query(
+        `SELECT l.first_name AS "firstName", l.last_name AS "lastName", l.admission_number AS "adm",
+                ar.raw_score AS "raw", ar.max_score AS "max", ar.percent
+           FROM assessment_results ar
+           LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+          WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2 AND ar.subject = $3
+            AND ($4::text IS NULL OR ar.term = $4)
+            AND ($5::text IS NULL OR ar.exam_id::text = $5)`,
+        [tenantId, streamId, subject, term || null, examId || null],
+      ).catch(() => []);
+
+      const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
+      const lvl = (p: number) => senior
+        ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+        : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+
+      const ranked = rows
+        .filter((r: any) => r.percent != null)
+        .map((r: any) => ({ ...r, pct: Math.round(Number(r.percent)) }))
+        .sort((a: any, b: any) => b.pct - a.pct);
+
+      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+      const body = ranked.map((r: any, i: number) => `
+        <tr>
+          <td>${i+1}</td>
+          <td style="text-align:left">${esc(`${r.firstName||''} ${r.lastName||''}`.trim())}</td>
+          <td>${esc(r.adm||'')}</td>
+          <td>${r.raw ?? ''}${r.max ? ` / ${r.max}` : ''}</td>
+          <td>${r.pct}%</td>
+          <td><b>${lvl(r.pct)}</b></td>
+        </tr>`).join('');
+      const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+        <title>${esc(subject)} ranking — ${esc(stream.name||'')}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
+          .h{text-align:center;margin-bottom:14px}
+          h1{font-size:18px;margin:0}h2{font-size:13px;font-weight:normal;color:#555;margin:2px 0 0}
+          table{width:100%;border-collapse:collapse;font-size:12px}
+          th,td{border:1px solid #cfd6e4;padding:6px 8px;text-align:center}
+          th{background:#1a2e5a;color:#fff}
+          tr:nth-child(even) td{background:#f5f7fb}
+          .f{text-align:center;margin-top:14px;font-size:10px;color:#999;font-style:italic}
+          .no-print{text-align:center;margin:18px 0}@media print{.no-print{display:none}}
+        </style></head><body>
+        <div class="h">${logoTag}
+          <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
+          <h2>${esc(subject)} — Ranking · ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
+        </div>
+        <table><thead><tr><th>Rank</th><th>Learner</th><th>Adm</th><th>Score</th><th>%</th><th>Level</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="6">No marks for ${esc(subject)} in this assessment.</td></tr>`}</tbody></table>
+        <div class="f">Powered by ZARODA SOLUTIONS</div>
+        <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+        <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
+        </body></html>`;
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build ranking: ${e?.message || 'error'}</p>`);
+    }
+  }
+
   // Printable mark list (HTML the browser prints / saves as PDF). Self-contained:
   // builds straight from assessment_results for the chosen stream/term/exam, so it
   // doesn't depend on the heavier PDF subsystem.

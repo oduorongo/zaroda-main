@@ -6,7 +6,7 @@
 // marks when a teacher can't — without the unusable wide grid on a phone.
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Save, Loader2, Calculator, User, BookOpen } from 'lucide-react';
+import { Save, Loader2, Calculator, User, BookOpen, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { percentToLevel, learningAreasFor, levelsFor, isSeniorScale } from '@/lib/cbc/constants';
@@ -78,6 +78,46 @@ export default function AdminEnterMarksPage() {
       .finally(() => setLoading(false));
   }, [streamId]);
 
+  // Load already-saved marks for the current stream/term/assessment so they appear in
+  // the boxes (and don't "disappear" after saving). Returns a {learnerId: {subject: raw}}
+  // map built from saved rawScore values.
+  const [savedMap, setSavedMap] = useState<Record<string, Record<string, string>>>({});
+  const loadExisting = async () => {
+    if (!streamId || !examId) { setSavedMap({}); return; }
+    try {
+      const r = await apiClient.get('/academic/mark-list', { params: { streamId, term, examId } });
+      const rows = r.data?.learners || [];
+      const map: Record<string, Record<string, string>> = {};
+      for (const lr of rows) {
+        const lid = lr.learnerId || lr.id;
+        const subs = lr.subjects || {};
+        map[lid] = {};
+        for (const [subj, val] of Object.entries(subs)) {
+          const raw = (val as any)?.rawScore;
+          if (raw != null) map[lid][subj] = String(raw);
+        }
+      }
+      setSavedMap(map);
+    } catch { setSavedMap({}); }
+  };
+  useEffect(() => { loadExisting(); /* eslint-disable-next-line */ }, [streamId, term, examId]);
+
+  // When the saved map, chosen area, or chosen learner changes, pre-fill the boxes.
+  useEffect(() => {
+    if (mode !== 'area' || !area) return;
+    const next: Record<string, string> = {};
+    for (const [lid, subs] of Object.entries(savedMap)) {
+      const hit = Object.entries(subs).find(([s]) => s.toLowerCase() === area.toLowerCase());
+      if (hit) next[lid] = hit[1];
+    }
+    setAreaScores(next);
+  }, [savedMap, area, mode]);
+
+  useEffect(() => {
+    if (mode !== 'learner' || !learnerId) return;
+    setLearnerScores(savedMap[learnerId] ? { ...savedMap[learnerId] } : {});
+  }, [savedMap, learnerId, mode]);
+
   const senior = stream ? isSeniorScale(stream.gradeLevel) : false;
 
   const buildRecord = (lid: string, subject: string, raw: string) => {
@@ -102,7 +142,7 @@ export default function AdminEnterMarksPage() {
     try {
       await apiClient.post('/academic/assessment-results/bulk', { records });
       toast.success(`Saved ${records.length} marks for ${area}`);
-      setAreaScores({});
+      await loadExisting();   // reload so the saved values stay visible
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
   };
@@ -117,7 +157,7 @@ export default function AdminEnterMarksPage() {
       await apiClient.post('/academic/assessment-results/bulk', { records });
       const who = learners.find(l => l.id === learnerId);
       toast.success(`Saved ${records.length} marks for ${who?.firstName || 'learner'}`);
-      setLearnerScores({});
+      await loadExisting();   // reload so the saved values stay visible
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
   };
@@ -219,6 +259,21 @@ export default function AdminEnterMarksPage() {
           </div>
           <button onClick={saveArea} disabled={saving} className="btn-primary w-full justify-center">
             {saving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>} Save {area} marks
+          </button>
+          <button
+            onClick={() => {
+              if (!examId) { toast.error('Pick an assessment first'); return; }
+              const base = (typeof window !== 'undefined' ? window.location.origin : '');
+              const token = localStorage.getItem('zaroda_token');
+              const url = `${(process.env.NEXT_PUBLIC_API_URL || base)}/api/v1/pdf/area-ranking/html?streamId=${streamId}&term=${term}&examId=${examId}&subject=${encodeURIComponent(area)}&academicYear=2025/2026`;
+              // open with auth via fetch → blob (the print routes require the bearer token)
+              fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+                .then(r => r.text())
+                .then(html => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } })
+                .catch(() => toast.error('Could not open ranking'));
+            }}
+            className="btn-ghost w-full justify-center">
+            <Printer size={16}/> Print {area} ranking (score + level)
           </button>
         </div>
       ) : (
