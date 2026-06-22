@@ -871,3 +871,83 @@ class AdminController {
 
 @Module({ controllers: [AdminController] })
 export class AdminModule {}
+
+// ── RETOOLING: platform-wide professional-development articles ───────────────
+// Owner (super_admin) posts/edits; everyone authenticated can read published ones.
+@Controller('retooling')
+@UseGuards(JwtAuthGuard)
+class RetoolingController {
+  constructor(private readonly ds: DataSource) {}
+
+  private isOwner(req: any): boolean { return req.user?.role === 'super_admin'; }
+
+  // List articles. Owner sees all (incl. drafts); everyone else sees published only.
+  @Get('articles')
+  async list(@Request() req: any) {
+    const owner = this.isOwner(req);
+    const rows = await this.ds.query(
+      `SELECT id, title, summary, category, cover_image AS "coverImage", video_url AS "videoUrl",
+              is_published AS "isPublished", author_name AS "authorName", created_at AS "createdAt"
+         FROM retooling_articles
+        ${owner ? '' : 'WHERE is_published = true'}
+        ORDER BY created_at DESC`,
+    ).catch(() => []);
+    return rows;
+  }
+
+  // Full single article (body included).
+  @Get('articles/:id')
+  async get(@Request() req: any, @Param('id') id: string) {
+    const owner = this.isOwner(req);
+    const rows = await this.ds.query(
+      `SELECT id, title, summary, body, category, cover_image AS "coverImage", video_url AS "videoUrl",
+              is_published AS "isPublished", author_name AS "authorName", created_at AS "createdAt"
+         FROM retooling_articles WHERE id::text = $1 ${owner ? '' : 'AND is_published = true'} LIMIT 1`,
+      [id],
+    ).catch(() => []);
+    if (!rows.length) return { error: 'not found' };
+    return rows[0];
+  }
+
+  @Post('articles')
+  async create(@Request() req: any, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    if (!dto?.title || !dto?.body) return { error: 'Title and body are required.' };
+    const rows = await this.ds.query(
+      `INSERT INTO retooling_articles
+         (title, summary, body, category, cover_image, video_url, is_published, author_name, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW()) RETURNING id`,
+      [dto.title, dto.summary || null, dto.body, dto.category || null, dto.coverImage || null,
+       dto.videoUrl || null, dto.isPublished !== false, dto.authorName || 'ZARODA', req.user.id],
+    ).catch((e: any) => { throw e; });
+    return { id: rows[0]?.id, message: 'Article posted' };
+  }
+
+  @Patch('articles/:id')
+  async update(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const map: Record<string, string> = {
+      title: 'title', summary: 'summary', body: 'body', category: 'category',
+      coverImage: 'cover_image', videoUrl: 'video_url', isPublished: 'is_published', authorName: 'author_name',
+    };
+    const sets: string[] = []; const vals: any[] = [id]; let i = 2;
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) { sets.push(`${col} = $${i++}`); vals.push(dto[k]); }
+    }
+    if (!sets.length) return { error: 'Nothing to update.' };
+    sets.push('updated_at = NOW()');
+    await this.ds.query(`UPDATE retooling_articles SET ${sets.join(', ')} WHERE id::text = $1`, vals)
+      .catch((e: any) => { throw e; });
+    return { id, updated: true };
+  }
+
+  @Delete('articles/:id')
+  async remove(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    await this.ds.query(`DELETE FROM retooling_articles WHERE id::text = $1`, [id]).catch(() => null);
+    return { deleted: true };
+  }
+}
+
+@Module({ controllers: [RetoolingController] })
+export class RetoolingModule {}
