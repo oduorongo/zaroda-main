@@ -40,7 +40,7 @@ export default function TeacherHome() {
 
   const QUICK = [
     { icon: CheckSquare, label: 'Take Attendance', sub: 'Mark today\u2019s roll call', href: '/teacher/attendance', color: 'bg-green-600' },
-    { icon: BarChart3,   label: 'Enter Marks',     sub: 'Record assessment scores', href: '/teacher/marks',      color: 'bg-rose-600' },
+    { icon: BarChart3,   label: 'Enter Marks',     sub: 'Record assessment scores', href: '/teacher/enter-marks',      color: 'bg-rose-600' },
     { icon: Sparkles,    label: 'AI Schemes',      sub: 'Generate KICD records',  href: '/teacher/records',     color: 'bg-purple-600' },
     { icon: Calendar,    label: 'My Timetable',    sub: 'Weekly schedule',        href: '/teacher/timetable',   color: 'bg-blue-600' },
   ];

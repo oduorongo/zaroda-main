@@ -6,7 +6,7 @@
 // marks when a teacher can't — without the unusable wide grid on a phone.
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Save, Loader2, Calculator, User, BookOpen, Printer } from 'lucide-react';
+import { Save, Loader2, Calculator, User, BookOpen, Printer, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { percentToLevel, learningAreasFor, levelsFor, isSeniorScale } from '@/lib/cbc/constants';
@@ -266,7 +266,6 @@ export default function AdminEnterMarksPage() {
               const base = (typeof window !== 'undefined' ? window.location.origin : '');
               const token = localStorage.getItem('zaroda_token');
               const url = `${(process.env.NEXT_PUBLIC_API_URL || base)}/api/v1/pdf/area-ranking/html?streamId=${streamId}&term=${term}&examId=${examId}&subject=${encodeURIComponent(area)}&academicYear=2025/2026`;
-              // open with auth via fetch → blob (the print routes require the bearer token)
               fetch(url, { headers: { Authorization: `Bearer ${token}` } })
                 .then(r => r.text())
                 .then(html => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } })
@@ -274,6 +273,25 @@ export default function AdminEnterMarksPage() {
             }}
             className="btn-ghost w-full justify-center">
             <Printer size={16}/> Print {area} ranking (score + level)
+          </button>
+          <button
+            onClick={() => {
+              const rows = [['Learner','Admission','Score','Out of','Percent','Level']];
+              filteredLearners.forEach(l => {
+                const raw = areaScores[l.id] ?? '';
+                const lvl = levelFor(raw);
+                const pct = raw !== '' && !isNaN(Number(raw)) ? Math.round((Number(raw)/maxScore)*100) : '';
+                rows.push([`${l.firstName||''} ${l.lastName||''}`.trim(), l.admissionNumber||'', String(raw), String(maxScore), pct === '' ? '' : `${pct}%`, lvl?.code || '']);
+              });
+              const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = `${area}-${stream?.name||'class'}-${term}.csv`.replace(/\s+/g,'_');
+              a.click();
+            }}
+            className="btn-ghost w-full justify-center">
+            <Download size={16}/> Download {area} list (CSV)
           </button>
         </div>
       ) : (
