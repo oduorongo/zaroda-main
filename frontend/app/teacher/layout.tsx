@@ -16,7 +16,7 @@ const TEACHER_NAV = [
   { href: '/teacher/classes',    icon: Users,       label: 'My Classes' },
   { href: '/teacher/learners',   icon: UserPlus,    label: 'My Learners' },
   { href: '/teacher/attendance', icon: CheckSquare, label: 'Attendance' },
-  { href: '/teacher/marks',      icon: BarChart3,   label: 'Enter Marks' },
+  { href: '/teacher/enter-marks', icon: BarChart3,   label: 'Enter Marks' },
   { href: '/teacher/mark-list',  icon: ListChecks,  label: 'Class Mark List' },
   { href: '/teacher/assessment', icon: ClipboardCheck, label: 'Assessment Rubric' },
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },

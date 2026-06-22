@@ -167,15 +167,14 @@ export class AcademicService {
         (streamSubjectMap[r.streamId] = streamSubjectMap[r.streamId] || []).push(String(r.subject));
       }
 
-      // Streams where this user is the (overall) class teacher — full mark-list rights
-      if (['class_teacher', 'overall_class_teacher'].includes(user.role)) {
-        const crows = await this.dataSource.query(
-          `SELECT id::text AS id FROM streams
-           WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
-          [tenantId, user.id],
-        ).catch(() => []);
-        classTeacherStreams = crows.map((r: any) => r.id);
-      }
+      // Streams where this user is the class teacher (via streams.class_teacher_id) —
+      // full mark-list rights for that stream, regardless of their exact role string.
+      const crows = await this.dataSource.query(
+        `SELECT id::text AS id FROM streams
+         WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
+        [tenantId, user.id],
+      ).catch(() => []);
+      classTeacherStreams = crows.map((r: any) => r.id);
     }
     const subjMatch = (area: string, subj: string) =>
       area.toLowerCase().includes(subj.toLowerCase()) || subj.toLowerCase().includes(area.toLowerCase());
