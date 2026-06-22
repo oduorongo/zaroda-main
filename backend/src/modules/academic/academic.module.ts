@@ -595,10 +595,10 @@ export class AcademicService {
   }
 
   async createLearner(tenantId: string, schoolId: string, dto: any, actor?: any) {
-    // Teachers may only add learners to a class they own
+    // Teachers may only add learners to a class they own — any stream where they are
+    // class teacher, not just their single primary stream.
     if (actor && this.isTeacherRole(actor.role) && !this.isHoiRole(actor.role)) {
-      const ownStream = actor.streamId;
-      if (!dto.streamId || dto.streamId !== ownStream) {
+      if (!dto.streamId || !(await this.actorOwnsStream(tenantId, actor, dto.streamId))) {
         throw new BadRequestException('You can only add learners to your own class.');
       }
     }
@@ -713,9 +713,10 @@ export class AcademicService {
     const learner = await this.learnerRepo.findOne({ where: { id: learnerId, tenantId } });
     if (!learner) throw new BadRequestException('Learner not found');
 
-    // Teachers may only remove learners from their own class
+    // Teachers may only remove learners from a class they own (any stream they are
+    // class teacher of, not just their single primary stream).
     if (this.isTeacherRole(actor.role) && !this.isHoiRole(actor.role)) {
-      if (learner.streamId !== actor.streamId) {
+      if (!(await this.actorOwnsStream(tenantId, actor, learner.streamId))) {
         throw new BadRequestException('You can only remove learners from your own class.');
       }
     }

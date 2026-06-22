@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Trophy, Users, Star, Send, Plus, ExternalLink, Loader2, Swords } from 'lucide-react';
+import { Trophy, Users, Star, Send, Plus, ExternalLink, Loader2, Swords, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { BibSheetButton } from '@/components/pdf/pdf-buttons';
@@ -25,6 +25,15 @@ export default function SportsPage() {
       .catch(() => toast.error('Could not load'))
       .finally(() => setLoading(false));
   }, [tab]);
+
+  const deleteTeam = async (t: any) => {
+    if (!confirm(`Delete the team "${t.name}"? This also removes its squad members.`)) return;
+    try {
+      await apiClient.delete(`/sports/teams/${t.id}`);
+      toast.success('Team deleted');
+      setTeams(prev => prev.filter(x => x.id !== t.id));
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not delete team'); }
+  };
 
   const pushToBase = async (qualId: string, champId: string) => {
     setPushing(qualId);
@@ -91,6 +100,8 @@ export default function SportsPage() {
                     <div className="font-bold text-theme-heading text-sm">{t.name}</div>
                     <div className="text-xs text-theme-muted">{t.discipline}</div>
                   </div>
+                  <button onClick={() => deleteTeam(t)} title="Delete team"
+                    className="ml-auto text-theme-muted hover:text-red-600 p-1"><Trash2 size={15}/></button>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-theme-muted">
                   <Users size={12}/> {t.athletesCount || 0} athletes

@@ -34,6 +34,15 @@ export class SchoolSportsService {
     return this.teamRepo.save(this.teamRepo.create({ tenantId, schoolId, ...dto }));
   }
 
+  async deleteTeam(tenantId: string, teamId: string) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId, tenantId } });
+    if (!team) throw new NotFoundException('Team not found');
+    // Remove squad members first, then the team.
+    await this.memberRepo.delete({ teamId, tenantId }).catch(() => null);
+    await this.teamRepo.delete({ id: teamId, tenantId });
+    return { message: 'Team deleted', id: teamId };
+  }
+
   async addSquadMember(tenantId: string, teamId: string, learnerId: string, position?: string, jersey?: string) {
     const exists = await this.memberRepo.findOne({ where: { teamId, learnerId } });
     if (exists) throw new ConflictException('Learner already in squad');
@@ -548,7 +557,7 @@ export class BaseSportsService {
 // ─────────────────────────────────────────────────────────────
 // src/modules/sports/sports.controller.ts — all endpoints
 // ─────────────────────────────────────────────────────────────
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 
 @Controller('api/v1/sports')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -570,6 +579,12 @@ export class SportsController {
   @Roles('tenant_owner','school_admin','hoi','games_dept')
   createTeam(@CurrentUser() u: User, @Body() dto: any) {
     return this.schoolSports.createTeam(u.tenantId, u.schoolId, dto);
+  }
+
+  @Delete('teams/:id')
+  @Roles('tenant_owner','school_admin','hoi','games_dept')
+  deleteTeam(@CurrentUser() u: User, @Param('id') id: string) {
+    return this.schoolSports.deleteTeam(u.tenantId, id);
   }
 
   @Post('teams/:id/members')

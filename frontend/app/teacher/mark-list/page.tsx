@@ -20,7 +20,11 @@ export default function TeacherMarkListPage() {
   const [stream,   setStream]   = useState<any>(null);
   const [learners, setLearners] = useState<any[]>([]);
   const [term,     setTerm]     = useState('term_1');
-  const [examType, setExamType] = useState('end_term');
+  // Fetch the exams the HOI actually created (not hardcoded labels), filter by term.
+  const [exams,    setExams]    = useState<any[]>([]);
+  const [examId,   setExamId]   = useState('');
+  const selectedExam = exams.find(e => e.id === examId);
+  const examType = selectedExam?.examType || '';
   const [maxScore, setMaxScore] = useState(100);
   const [scores,   setScores]   = useState<Record<string, Record<string, number>>>({});
   // Cells that already exist in the database (saved). Key: `${learnerId}|${subject}`.
@@ -50,7 +54,14 @@ export default function TeacherMarkListPage() {
       const s = (user.streamId && list.find((x: any) => x.id === user.streamId)) || list[0];
       if (s) { setStreamId(s.id); setStream(s); }
     });
+    apiClient.get('/academic/exams').then(r => setExams(r.data || [])).catch(() => {});
   }, [user]);
+
+  // Default the selected exam to the first one in the chosen term.
+  const termExams = exams.filter(e => !term || e.term === term);
+  useEffect(() => {
+    if (termExams.length && !termExams.find(e => e.id === examId)) setExamId(termExams[0].id);
+  }, [term, exams]);
 
   useEffect(() => {
     if (!streamId) return;
@@ -59,7 +70,7 @@ export default function TeacherMarkListPage() {
     setLoading(true);
     Promise.all([
       apiClient.get(`/academic/streams/${streamId}/learners`).catch(() => ({ data: [] })),
-      apiClient.get('/academic/mark-list', { params: { streamId, term, examType } }).catch(() => ({ data: null })),
+      apiClient.get('/academic/mark-list', { params: { streamId, term, examId } }).catch(() => ({ data: null })),
       // Authoritative learning areas for this class = the assessment rubric for its grade
       s?.gradeLevel
         ? apiClient.get('/assessment/learning-areas', { params: { gradeLevel: s.gradeLevel } }).catch(() => ({ data: [] }))
@@ -93,7 +104,7 @@ export default function TeacherMarkListPage() {
       setRubricAreas(Array.from(new Set([...rubric, ...extraCols])));
     }).catch(() => toast.error('Could not load class mark list'))
       .finally(() => setLoading(false));
-  }, [streamId, term, examType]);
+  }, [streamId, term, examId]);
 
   // Learning areas come STRICTLY from this class's assessment rubric, de-duplicated.
   // Falls back to the grade band list only if the rubric has not been set up yet.
@@ -139,7 +150,7 @@ export default function TeacherMarkListPage() {
             rawScore: raw, maxScore, percent: pct,
             level: percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
             gradeLevel: stream?.gradeLevel,
-            term, examType, academicYear: '2025/2026',
+            term, examType, examId, academicYear: '2025/2026',
           };
         })
       );
@@ -160,7 +171,7 @@ export default function TeacherMarkListPage() {
     const win = window.open('', '_blank');
     try {
       const res = await apiClient.get('/pdf/mark-list/html', {
-        params: { streamId, term, examType, academicYear: '2025/2026' },
+        params: { streamId, term, examType, examId, academicYear: '2025/2026' },
         responseType: 'text',
       });
       const html = typeof res.data === 'string' ? res.data : String(res.data);
@@ -271,10 +282,9 @@ export default function TeacherMarkListPage() {
         </div>
         <div>
           <label className="label">Assessment</label>
-          <select value={examType} onChange={e => setExamType(e.target.value)} className="input w-32">
-            <option value="end_term">End Term</option>
-            <option value="cat_1">CAT 1</option>
-            <option value="cat_2">CAT 2</option>
+          <select value={examId} onChange={e => setExamId(e.target.value)} className="input w-40">
+            {termExams.length === 0 && <option value="">No assessments this term</option>}
+            {termExams.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
           </select>
         </div>
         <div>

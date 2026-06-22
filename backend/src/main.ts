@@ -280,57 +280,6 @@ async function bootstrap() {
     }
   });
 
-  // Diagnostic: checks exactly why an owner login might fail, without exposing secrets.
-  //   /owner-check?key=SECRET&email=...&password=...
-  // Reports whether the row exists, its role, whether tenant is null, and whether the
-  // password actually matches the stored hash. Remove after debugging.
-  httpAdapter.get('/owner-check', async (req: any, res: any) => {
-    const expected = process.env.OWNER_KEY || 'zaroda-owner-setup';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
-    const email = String(req.query?.email || '').trim().toLowerCase();
-    const password = String(req.query?.password || '');
-    try {
-      const ds = app.get(DataSource);
-      const bcryptLib = require('bcryptjs');
-      const rows = await ds.query(
-        `SELECT id, email, role, tenant_id, is_active, must_change_password,
-                (password_hash IS NOT NULL) AS has_hash, length(password_hash) AS hash_len, password_hash
-           FROM users WHERE email = $1`, [email],
-      ).catch((e: any) => { throw e; });
-      if (!rows.length) { res.type('text/plain').send(`NO ROW for "${email}". The account does not exist on THIS database.`); return; }
-      const lines = [`Found ${rows.length} row(s) for ${email}:`];
-      for (const r of rows) {
-        let match = 'n/a';
-        if (password && r.password_hash) {
-          try { match = (await bcryptLib.compare(password, r.password_hash)) ? 'YES — password matches' : 'NO — password does NOT match this hash'; }
-          catch (e: any) { match = `compare error: ${e.message}`; }
-        }
-        lines.push(
-          `\n  id=${r.id}\n  role=${r.role}\n  tenant_id=${r.tenant_id === null ? 'NULL' : r.tenant_id}\n  is_active=${r.is_active}\n  must_change_password=${r.must_change_password}\n  has_hash=${r.has_hash} (len ${r.hash_len})\n  password match: ${match}`,
-        );
-      }
-      res.type('text/plain').send(lines.join('\n'));
-    } catch (e: any) {
-      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
-    }
-  });
-
-  // Diagnostic: runs the REAL login flow and reports success/failure + reason.
-  //   /owner-login-test?key=SECRET&email=...&password=...
-  httpAdapter.get('/owner-login-test', async (req: any, res: any) => {
-    const expected = process.env.OWNER_KEY || 'zaroda-owner-setup';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
-    const email = String(req.query?.email || '').trim().toLowerCase();
-    const password = String(req.query?.password || '');
-    try {
-      const authService = app.get(AuthService);
-      const result = await authService.login(email, password);
-      res.type('text/plain').send(`LOGIN OK\nrole=${result.user.role}\ntenantId=${result.user.tenantId}\ngot accessToken=${!!result.accessToken}`);
-    } catch (e: any) {
-      res.type('text/plain').send(`LOGIN FAILED: ${e?.message || e}\n(name: ${e?.name})`);
-    }
-  });
-
   const port = process.env.PORT || 3000;
   await app.listen(port);
 
