@@ -802,8 +802,36 @@ class AdminController {
     return r[0] || {};
   }
 
-  // ── PHASE 2: CONTROL ACTIONS (super_admin only, cross-tenant on purpose) ──────
+  // Gather broadcast recipients across ALL schools for an owner message. audience:
+  // 'admins' (HOI/admin/owner roles) or 'all' (every active user). Returns names with
+  // phones + emails so the owner can message via WhatsApp / email / SMS. This works
+  // with no external credentials (WhatsApp links, mailto); SMS sending where configured.
+  @Get('broadcast/recipients')
+  async broadcastRecipients(@Request() req: any, @Query() q: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', recipients: [] };
+    const audience = q.audience === 'all' ? 'all' : 'admins';
+    const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
+    const where = audience === 'all'
+      ? `COALESCE(is_active, true) = true AND role <> 'super_admin'`
+      : `COALESCE(is_active, true) = true AND role = ANY($1)`;
+    const params = audience === 'all' ? [] : [adminRoles];
+    const rows = await this.ds.query(
+      `SELECT u.first_name AS "firstName", u.last_name AS "lastName", u.email, u.phone, u.role,
+              (SELECT name FROM schools s WHERE s.tenant_id = u.tenant_id LIMIT 1) AS "schoolName"
+         FROM users u WHERE ${where}
+        ORDER BY "schoolName", u.first_name`,
+      params,
+    ).catch(() => []);
+    return {
+      audience,
+      count: rows.length,
+      withPhone: rows.filter((r: any) => r.phone).length,
+      withEmail: rows.filter((r: any) => r.email).length,
+      recipients: rows,
+    };
+  }
 
+  // ── PHASE 2: CONTROL ACTIONS (super_admin only, cross-tenant on purpose) ──────
   // Suspend or reactivate a school. Suspended schools' users are blocked at login
   // (enforced in auth). status: 'suspended' | 'active'.
   @Patch('tenants/:id/status')
