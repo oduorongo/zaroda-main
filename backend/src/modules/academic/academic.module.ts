@@ -609,6 +609,21 @@ export class AcademicService {
       (learner as any).firstName = parts.shift() || dto.fullName;
       (learner as any).lastName = parts.join(' ') || '';
     }
+    // grade_level is NOT NULL in the DB but the teacher form doesn't send it — derive it
+    // from the stream the learner is being added to.
+    if ((!dto.gradeLevel || !String(dto.gradeLevel).trim()) && dto.streamId) {
+      const srow = await this.dataSource.query(
+        `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [dto.streamId],
+      ).catch(() => []);
+      (learner as any).gradeLevel = srow[0]?.grade_level || 'grade_1';
+    }
+    if (!(learner as any).gradeLevel) (learner as any).gradeLevel = 'grade_1';
+    // gender has a strict CHECK (male|female); an empty string violates it. Normalise,
+    // defaulting to 'male' only to satisfy the constraint when unspecified.
+    const g = String((dto.gender || '')).toLowerCase().trim();
+    (learner as any).gender = (g === 'female' || g === 'f') ? 'female' : (g === 'male' || g === 'm') ? 'male' : 'male';
+    // academic_year was relaxed but set a sensible default if absent.
+    if (!(learner as any).academicYear) (learner as any).academicYear = '2025/2026';
     // Admission number is optional — auto-generate if left blank.
     if (!dto.admissionNumber || !String(dto.admissionNumber).trim()) {
       (learner as any).admissionNumber = 'ADM-' + Date.now().toString().slice(-7);
