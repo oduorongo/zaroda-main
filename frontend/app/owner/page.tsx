@@ -120,6 +120,62 @@ export default function OwnerDashboard() {
               ))}
             </div>
 
+            {/* Charts: school status + subscription tier breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="card p-4">
+                <div className="text-xs text-theme-muted font-medium uppercase tracking-wide mb-3">Schools by status</div>
+                {(() => {
+                  const total = stats?.totalTenants || 0;
+                  const bars = [
+                    { label: 'Active',    value: stats?.activeTenants ?? 0,    color: '#16a34a' },
+                    { label: 'Trial',     value: stats?.trialTenants ?? 0,     color: '#f59e0b' },
+                    { label: 'Suspended', value: stats?.suspendedTenants ?? 0, color: '#dc2626' },
+                  ];
+                  return (
+                    <div className="space-y-2">
+                      {bars.map(b => (
+                        <div key={b.label}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className="text-theme">{b.label}</span>
+                            <span className="text-theme-muted font-semibold">{b.value}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${total ? (b.value/total)*100 : 0}%`, background: b.color }}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="card p-4">
+                <div className="text-xs text-theme-muted font-medium uppercase tracking-wide mb-3">Subscription tiers</div>
+                {(() => {
+                  const counts: Record<string, number> = {};
+                  for (const s of schools) { const t = (s.subscriptionTier || 'free'); counts[t] = (counts[t]||0)+1; }
+                  const palette: Record<string,string> = { free:'#94a3b8', primary:'#2563eb', senior:'#7c3aed' };
+                  const total = schools.length || 1;
+                  const entries = Object.entries(counts);
+                  return entries.length ? (
+                    <div className="space-y-2">
+                      {entries.map(([tier, n]) => (
+                        <div key={tier}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className="text-theme capitalize">{tier}</span>
+                            <span className="text-theme-muted font-semibold">{n}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${(n/total)*100}%`, background: palette[tier] || '#94a3b8' }}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="text-xs text-theme-muted">No schools yet</div>;
+                })()}
+              </div>
+            </div>
+
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <div className="relative flex-1">

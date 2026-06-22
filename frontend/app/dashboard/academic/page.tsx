@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Users, Grid, CheckSquare, FileText, Calendar, Search, Plus, ChevronRight, BarChart3, ClipboardList, UserPlus, UserCheck, GraduationCap } from 'lucide-react';
+import { Users, Grid, CheckSquare, FileText, Calendar, Search, Plus, ChevronRight, BarChart3, ClipboardList, UserPlus, UserCheck, GraduationCap, Calculator } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -26,6 +26,7 @@ export default function AcademicPage() {
     { icon: Calendar,   label: 'Timetable',     sub: 'KICD CBC schedule',  href: '/dashboard/academic/timetable',    color: 'bg-purple-600'},
     { icon: FileText,   label: 'Report Cards',  sub: 'CBC assessments',    href: '/dashboard/academic/report-cards', color: 'bg-[#f5820a]' },
     { icon: BarChart3,  label: 'Mark List',     sub: 'Raw scores → ranking',href: '/dashboard/academic/mark-list',   color: 'bg-rose-600'  },
+    { icon: Calculator, label: 'Enter Marks',   sub: 'Add marks for a teacher', href: '/dashboard/academic/enter-marks', color: 'bg-pink-600' },
     { icon: FileText,   label: 'Term Report',   sub: 'Per-assessment levels', href: '/dashboard/academic/term-report', color: 'bg-[#1a2e5a]' },
     { icon: ClipboardList, label: 'Assessment Book', sub: 'KICD rubric per learner', href: '/dashboard/academic/assessment-book', color: 'bg-amber-600' },
     { icon: ClipboardList, label: 'Exams & CATs',sub: 'Assessments setup',  href: '/dashboard/academic/exams',       color: 'bg-indigo-600'},
