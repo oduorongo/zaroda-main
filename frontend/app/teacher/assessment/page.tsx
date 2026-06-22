@@ -106,7 +106,7 @@ export default function TeacherAssessment() {
     if (!stream?.gradeLevel || !area || !learnerId) return;
     setLoading(true);
     Promise.all([
-      apiClient.get(`/assessment/book?gradeLevel=${stream.gradeLevel}&learningArea=${encodeURIComponent(area)}`).catch(() => ({ data: { strands: [] } })),
+      apiClient.get(`/assessment/book?gradeLevel=${stream.gradeLevel}&learningArea=${encodeURIComponent(area)}&term=${encodeURIComponent(term)}`).catch(() => ({ data: { strands: [] } })),
       apiClient.get(`/assessment/scores?learnerId=${learnerId}&term=${encodeURIComponent(term)}&learningArea=${encodeURIComponent(area)}`).catch(() => ({ data: { scores: {}, comment: '' } })),
     ]).then(([book, sc]) => {
       setStrands(book.data.strands || []);

@@ -119,7 +119,7 @@ export class AssessmentService {
   }
 
   // Full book for a grade + learning area: strands -> sub-strands (+ resource link)
-  async getBook(tenantId: string, gradeLevel: string, learningArea: string) {
+  async getBook(tenantId: string, gradeLevel: string, learningArea: string, term?: string) {
     const tpl = await this.dataSource.query(
       `SELECT id FROM assessment_templates
        WHERE grade_level = $1 AND learning_area = $2
@@ -129,21 +129,34 @@ export class AssessmentService {
     ).catch(() => []);
     if (!tpl.length) return { templateId: null, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), strands: [] };
     const templateId = tpl[0].id;
+    // Normalise term to the stored form (term_1|term_2|term_3). Accepts 'Term One' etc.
+    const termKey = this.normaliseTerm(term);
     const rows = await this.dataSource.query(
-      `SELECT st.id AS "strandId", st.position AS "strandPos", st.name AS "strandName",
+      `SELECT st.id AS "strandId", st.position AS "strandPos", st.name AS "strandName", st.term AS "strandTerm",
               ss.id AS "substrandId", ss.position AS "subPos", ss.name AS "subName", ss.youtube_url AS "youtubeUrl"
        FROM assessment_strands st
        JOIN assessment_substrands ss ON ss.strand_id = st.id
        WHERE st.template_id::text = $1
+         AND ($2::text IS NULL OR st.term = $2)
        ORDER BY st.position, ss.position`,
-      [templateId],
+      [templateId, termKey],
     ).catch(() => []);
     const byStrand: Record<string, any> = {};
     for (const r of rows) {
-      if (!byStrand[r.strandId]) byStrand[r.strandId] = { id: r.strandId, name: r.strandName, position: r.strandPos, substrands: [] };
+      if (!byStrand[r.strandId]) byStrand[r.strandId] = { id: r.strandId, name: r.strandName, position: r.strandPos, term: r.strandTerm, substrands: [] };
       byStrand[r.strandId].substrands.push({ id: r.substrandId, name: r.subName, position: r.subPos, youtubeUrl: r.youtubeUrl });
     }
-    return { templateId, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), strands: Object.values(byStrand) };
+    return { templateId, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), term: termKey, strands: Object.values(byStrand) };
+  }
+
+  // Accepts 'Term One'/'term_1'/'1' etc → 'term_1'. Returns null if unrecognised (no filter).
+  private normaliseTerm(term?: string): string | null {
+    if (!term) return null;
+    const t = String(term).toLowerCase().trim();
+    if (t.includes('1') || t.includes('one'))   return 'term_1';
+    if (t.includes('2') || t.includes('two'))   return 'term_2';
+    if (t.includes('3') || t.includes('three')) return 'term_3';
+    return null;
   }
 
   // A learner's saved formative levels for a learning area + term
@@ -346,7 +359,7 @@ export class AssessmentController {
 
   @Get('book')
   getBook(@Request() req: any, @Query() q: any) {
-    return this.svc.getBook(req.user.tenantId, q.gradeLevel, q.learningArea);
+    return this.svc.getBook(req.user.tenantId, q.gradeLevel, q.learningArea, q.term);
   }
 
   @Get('scores')

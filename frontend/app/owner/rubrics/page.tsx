@@ -17,6 +17,7 @@ const GRADES = [
 
 export default function OwnerRubricsPage() {
   const [grade, setGrade]   = useState('grade_7');
+  const [term, setTerm]     = useState('term_1');
   const [areas, setAreas]   = useState<string[]>([]);
   const [area, setArea]     = useState('');
   const [strands, setStrands] = useState<any[]>([]);
@@ -34,11 +35,11 @@ export default function OwnerRubricsPage() {
   useEffect(() => {
     if (!grade || !area) return;
     setLoading(true);
-    apiClient.get(`/assessment/book?gradeLevel=${grade}&learningArea=${encodeURIComponent(area)}`)
+    apiClient.get(`/assessment/book?gradeLevel=${grade}&learningArea=${encodeURIComponent(area)}&term=${term}`)
       .then(r => setStrands(r.data?.strands || []))
       .catch(() => setStrands([]))
       .finally(() => setLoading(false));
-  }, [grade, area]);
+  }, [grade, area, term]);
 
   const saveLink = async () => {
     setSaving(true);
@@ -72,6 +73,14 @@ export default function OwnerRubricsPage() {
             <select value={area} onChange={e => setArea(e.target.value)} className="input w-56">
               {areas.length === 0 && <option value="">No areas</option>}
               {areas.map((a: any) => { const name = typeof a === 'string' ? a : a.name; return <option key={name} value={name}>{name}</option>; })}
+            </select>
+          </div>
+          <div>
+            <label className="label">Term</label>
+            <select value={term} onChange={e => setTerm(e.target.value)} className="input w-32">
+              <option value="term_1">Term 1</option>
+              <option value="term_2">Term 2</option>
+              <option value="term_3">Term 3</option>
             </select>
           </div>
         </div>
