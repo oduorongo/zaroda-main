@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Save, Loader2, Youtube, X } from 'lucide-react';
+import { Save, Loader2, Youtube, X, Pencil } from 'lucide-react';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
@@ -230,9 +230,17 @@ export default function TeacherAssessment() {
                   <tr key={ss.id} style={{ borderTop: '0.5px solid var(--border)' }}>
                     <td className="py-1.5 pr-2 text-theme align-middle">
                       <div className="flex items-center gap-1.5">
-                        {ss.youtubeUrl
-                          ? <a href={ss.youtubeUrl} target="_blank" rel="noreferrer" title="Watch resource" className="text-red-600 shrink-0"><Youtube size={14}/></a>
-                          : <button onClick={() => { setResourceFor(ss); setResourceUrl(''); }} title="Add YouTube resource" className="text-theme-muted hover:text-red-600 shrink-0"><Youtube size={14}/></button>}
+                        {ss.youtubeUrl && (
+                          <a href={ss.youtubeUrl} target="_blank" rel="noreferrer" title="Watch resource" className="text-red-600 shrink-0"><Youtube size={14}/></a>
+                        )}
+                        {user?.role === 'super_admin' && (
+                          <button
+                            onClick={() => { setResourceFor(ss); setResourceUrl(ss.youtubeUrl || ''); }}
+                            title={ss.youtubeUrl ? 'Edit YouTube resource' : 'Add YouTube resource'}
+                            className="text-theme-muted hover:text-red-600 shrink-0">
+                            {ss.youtubeUrl ? <Pencil size={12}/> : <Youtube size={14}/>}
+                          </button>
+                        )}
                         <span>{ss.name}</span>
                       </div>
                     </td>

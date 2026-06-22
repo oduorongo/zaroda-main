@@ -222,8 +222,10 @@ export class AssessmentService {
 
   // Set/replace the YouTube resource link on a sub-strand (teacher/admin only)
   async setResource(user: any, substrandId: string, youtubeUrl: string) {
-    if (!this.isTeacher(user.role)) {
-      throw new BadRequestException('You do not have permission to edit resources.');
+    // Only the platform owner curates the learning resource (YouTube) links. All other
+    // users can watch the videos but cannot edit them.
+    if (user.role !== 'super_admin') {
+      throw new BadRequestException('Only the platform owner can edit learning resource links.');
     }
     await this.dataSource.query(
       `UPDATE assessment_substrands SET youtube_url = $1 WHERE id::text = $2`,

@@ -810,6 +810,102 @@ export class AcademicService {
     return { message: 'Learner updated', id: learnerId };
   }
 
+  // View the parent-login status for a learner: whether a parent account exists, and
+  // the email/phone it uses. (Never returns the password — that's only shown once at
+  // create/reset time.)
+  async getParentAccess(tenantId: string, learnerId: string) {
+    const lr = (await this.dataSource.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName",
+              guardian_name AS "guardianName", guardian_phone AS "guardianPhone",
+              guardian_email AS "guardianEmail"
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+      [learnerId, tenantId],
+    ).catch(() => []))[0];
+    if (!lr) throw new BadRequestException('Learner not found.');
+    let parent: any = null;
+    if (lr.guardianEmail) {
+      const u = (await this.dataSource.query(
+        `SELECT id, email, first_name AS "firstName", last_name AS "lastName", is_active AS "isActive"
+           FROM users WHERE email = $1 AND role = 'parent' LIMIT 1`,
+        [String(lr.guardianEmail).toLowerCase().trim()],
+      ).catch(() => []))[0];
+      if (u) parent = u;
+    }
+    return {
+      learnerName: `${lr.firstName || ''} ${lr.lastName || ''}`.trim(),
+      guardianName: lr.guardianName, guardianPhone: lr.guardianPhone, guardianEmail: lr.guardianEmail,
+      hasAccount: !!parent,
+      parentEmail: parent?.email || null,
+    };
+  }
+
+  // Create a parent login for an existing learner, or reset the existing parent's
+  // password. Returns the login email + a fresh one-time password to share. If a
+  // guardian email isn't on file yet, accepts one in the body to set it.
+  async parentAccess(tenantId: string, schoolId: string, learnerId: string, actor: any, dto: any) {
+    if (!this.isHoiRole(actor.role) && !this.isTeacherRole(actor.role)) {
+      throw new BadRequestException('You do not have permission to manage parent access.');
+    }
+    const lr = (await this.dataSource.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName",
+              guardian_name AS "guardianName", guardian_phone AS "guardianPhone",
+              guardian_email AS "guardianEmail", school_id AS "schoolId"
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+      [learnerId, tenantId],
+    ).catch(() => []))[0];
+    if (!lr) throw new BadRequestException('Learner not found.');
+
+    // Allow setting/updating the guardian email + details in the same action.
+    const email = String(dto?.guardianEmail || lr.guardianEmail || '').toLowerCase().trim();
+    if (!email) throw new BadRequestException('A parent email is required to create their login.');
+    const gName = String(dto?.guardianName || lr.guardianName || 'Parent').trim().split(/\s+/);
+    const phone = dto?.guardianPhone || lr.guardianPhone || null;
+
+    // Persist guardian details on the learner if newly provided.
+    if (dto?.guardianEmail || dto?.guardianName || dto?.guardianPhone) {
+      await this.dataSource.query(
+        `UPDATE learners SET guardian_email = COALESCE($1, guardian_email),
+                guardian_name = COALESCE($2, guardian_name),
+                guardian_phone = COALESCE($3, guardian_phone)
+           WHERE id::text = $4 AND tenant_id::text = $5`,
+        [email, dto?.guardianName || null, phone, learnerId, tenantId],
+      ).catch(() => null);
+    }
+
+    const gen = () => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      return `${block()}-${block()}`;
+    };
+    const plain = gen();
+    const hash = await bcrypt.hash(plain, 12);
+
+    const existing = (await this.dataSource.query(
+      `SELECT id FROM users WHERE email = $1 LIMIT 1`, [email],
+    ).catch(() => []))[0];
+
+    if (existing) {
+      await this.dataSource.query(
+        `UPDATE users SET password_hash = $2, role = 'parent', is_active = true,
+                must_change_password = true WHERE id = $1`,
+        [existing.id, hash],
+      ).catch((e: any) => { throw new BadRequestException(e.message); });
+    } else {
+      await this.dataSource.query(
+        `INSERT INTO users
+           (email, password_hash, first_name, last_name, phone, role,
+            tenant_id, school_id, is_active, email_verified, must_change_password, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,'parent',$6,$7,true,false,true,NOW(),NOW())`,
+        [email, hash, gName.shift() || 'Parent', gName.join(' ') || (lr.lastName || ''),
+         phone, tenantId, lr.schoolId || schoolId],
+      ).catch((e: any) => { throw new BadRequestException(e.message); });
+    }
+    return {
+      message: existing ? 'Parent password reset' : 'Parent account created',
+      learnerName: `${lr.firstName || ''} ${lr.lastName || ''}`.trim(),
+      credentials: { email, password: plain },
+    };
+  }
   async setLearnerActive(tenantId: string, learnerId: string, actor: any, active: boolean) {
     if (!this.isHoiRole(actor.role) && !this.isTeacherRole(actor.role)) {
       throw new BadRequestException('You do not have permission to deactivate learners.');
@@ -1357,6 +1453,16 @@ export class AcademicController {
   @Patch('learners/:id')
   updateLearner(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
     return this.academicService.updateLearner(req.user.tenantId, id, req.user, dto);
+  }
+
+  @Get('learners/:id/parent-access')
+  getParentAccess(@Request() req: any, @Param('id') id: string) {
+    return this.academicService.getParentAccess(req.user.tenantId, id);
+  }
+
+  @Post('learners/:id/parent-access')
+  parentAccess(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    return this.academicService.parentAccess(req.user.tenantId, req.user.schoolId, id, req.user, dto);
   }
 
   @Patch('learners/:id/active')

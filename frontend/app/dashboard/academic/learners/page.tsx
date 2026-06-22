@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Search, Plus, User, Phone, BookOpen, X, Loader2, Pencil, UserX, UserCheck } from 'lucide-react';
+import { Search, Plus, User, Phone, BookOpen, X, Loader2, Pencil, UserX, UserCheck, KeyRound } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { SENIOR_ELECTIVES } from '@/lib/cbc/constants';
@@ -145,6 +145,40 @@ export default function LearnersPage() {
 
 
   const [editLearner, setEditLearner] = useState<any>(null);
+
+  // Parent access dialog
+  const [parentFor, setParentFor]   = useState<any>(null);  // learner
+  const [parentInfo, setParentInfo] = useState<any>(null);  // status from server
+  const [parentEmail, setParentEmail] = useState('');
+  const [parentName, setParentName]   = useState('');
+  const [parentPhone, setParentPhone] = useState('');
+  const [parentCreds, setParentCreds] = useState<any>(null); // one-time {email,password}
+  const [parentBusy, setParentBusy]   = useState(false);
+
+  const openParent = async (l: any) => {
+    setParentFor(l); setParentInfo(null); setParentCreds(null);
+    setParentEmail(''); setParentName(''); setParentPhone('');
+    try {
+      const r = await apiClient.get(`/academic/learners/${l.id}/parent-access`);
+      setParentInfo(r.data);
+      setParentEmail(r.data?.guardianEmail || '');
+      setParentName(r.data?.guardianName || '');
+      setParentPhone(r.data?.guardianPhone || '');
+    } catch { setParentInfo({ hasAccount: false }); }
+  };
+
+  const submitParent = async () => {
+    if (!parentEmail.trim()) { toast.error('Enter a parent email'); return; }
+    setParentBusy(true);
+    try {
+      const r = await apiClient.post(`/academic/learners/${parentFor.id}/parent-access`, {
+        guardianEmail: parentEmail.trim(), guardianName: parentName.trim(), guardianPhone: parentPhone.trim(),
+      });
+      setParentCreds(r.data?.credentials);
+      toast.success(r.data?.message || 'Parent access updated');
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not update parent access'); }
+    finally { setParentBusy(false); }
+  };
   const openEdit = (l:any) => setEditLearner({
     id: l.id, fullName: l.fullName || `${l.firstName||''} ${l.lastName||''}`.trim(),
     admissionNumber: l.admissionNumber || '', guardianPhone: l.guardianPhone || '',
@@ -296,6 +330,7 @@ export default function LearnersPage() {
                     ) : (
                       <>
                         <button onClick={() => openEdit(l)} title="Edit" className="text-theme-muted hover:text-[#2563eb] p-1"><Pencil size={14}/></button>
+                        <button onClick={() => openParent(l)} title="Parent access" className="text-theme-muted hover:text-[#16a34a] p-1 ml-1"><KeyRound size={14}/></button>
                         <button onClick={() => toggleActive(l)} title="Deactivate"
                           className="text-theme-muted hover:text-amber-600 p-1 ml-1"><UserX size={14}/></button>
                       </>
@@ -516,6 +551,57 @@ export default function LearnersPage() {
                 <button onClick={()=>setEditLearner(null)} className="btn-ghost flex-1">Cancel</button>
                 <button onClick={saveEdit} className="btn-primary flex-1">Save</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {parentFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setParentFor(null)}>
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" onClick={e => e.stopPropagation()} style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="flex items-center gap-2">
+                <KeyRound size={18} className="text-[#16a34a]"/>
+                <h3 className="font-bold text-theme-heading">Parent access</h3>
+              </div>
+              <button onClick={() => setParentFor(null)} className="text-theme-muted"><X size={20}/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-theme-muted">
+                {parentInfo?.hasAccount
+                  ? `A parent login already exists for ${parentFor.firstName}. You can reset it below to get fresh credentials.`
+                  : `Give ${parentFor.firstName}'s parent a login so they can see attendance, marks and fees.`}
+              </p>
+
+              {parentCreds ? (
+                <div className="rounded-xl bg-green-50 border border-green-200 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-green-800">Share these with the parent:</p>
+                  <div className="text-sm"><b>Login email:</b> {parentCreds.email}</div>
+                  <div className="text-sm"><b>Password:</b> <span className="font-mono">{parentCreds.password}</span></div>
+                  <p className="text-[11px] text-green-700">They'll be asked to change the password on first login. This password is shown only once.</p>
+                  <button onClick={() => { navigator.clipboard?.writeText(`Email: ${parentCreds.email}\nPassword: ${parentCreds.password}`); toast.success('Copied'); }}
+                    className="btn-ghost text-xs">Copy credentials</button>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="label">Parent email <span className="text-red-500">*</span></label>
+                    <input value={parentEmail} onChange={e => setParentEmail(e.target.value)} className="input w-full" placeholder="parent@example.com"/>
+                  </div>
+                  <div>
+                    <label className="label">Parent name</label>
+                    <input value={parentName} onChange={e => setParentName(e.target.value)} className="input w-full" placeholder="Full name"/>
+                  </div>
+                  <div>
+                    <label className="label">Parent phone</label>
+                    <input value={parentPhone} onChange={e => setParentPhone(e.target.value)} className="input w-full" placeholder="07XXXXXXXX"/>
+                  </div>
+                  <button onClick={submitParent} disabled={parentBusy} className="btn-primary w-full justify-center">
+                    {parentBusy ? <Loader2 className="animate-spin" size={16}/> : <KeyRound size={16}/>}
+                    {parentInfo?.hasAccount ? 'Reset parent password' : 'Create parent login'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
