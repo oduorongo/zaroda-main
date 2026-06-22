@@ -4,8 +4,9 @@
 import { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Building2, Megaphone, GraduationCap, ShieldCheck, LogOut, BookOpen, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Building2, Megaphone, GraduationCap, ShieldCheck, LogOut, BookOpen, Menu, X, Sun, Moon } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { useTheme } from '@/lib/hooks/useTheme';
 
 const NAV = [
   { href: '/owner',               label: 'Overview',      icon: LayoutDashboard, exact: true },
@@ -17,6 +18,7 @@ const NAV = [
 
 export default function OwnerLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const { theme, toggle } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);  // mobile drawer
@@ -68,7 +70,17 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
         </nav>
 
         <div className="p-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <button onClick={toggle}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white">
+            {theme === 'dark' ? <Sun size={17}/> : <Moon size={17}/>}
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
           <div className="px-3 py-2 text-xs text-white/60 truncate">{user?.email}</div>
+          <button onClick={toggle}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white">
+            {theme === 'dark' ? <Sun size={17}/> : <Moon size={17}/>}
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
           <button onClick={logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white">
             <LogOut size={17}/> Sign out

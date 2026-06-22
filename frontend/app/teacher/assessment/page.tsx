@@ -157,8 +157,8 @@ export default function TeacherAssessment() {
     <div className="space-y-4">
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-black text-theme-heading">Assessment Rubric</h1>
-          <p className="text-sm text-theme-muted">Daily formative assessment — performance level per sub-strand</p>
+          <h1 className="text-2xl font-black text-theme-heading">Assessment Rubric <span className="text-[#d4af37]">· {term}</span></h1>
+          <p className="text-sm text-theme-muted">Daily formative assessment — performance level per sub-strand. The sub-strands are the same each term; you record this term's level for each. Switching the Term loads that term's saved levels.</p>
         </div>
       </div>
 
@@ -207,6 +207,20 @@ export default function TeacherAssessment() {
           <div className="h-full bg-[#1D9E75] transition-all" style={{ width: `${pct}%` }}/>
         </div>
       </div>
+
+      {/* Active-term banner — makes switching terms visibly register, and shows when a
+          term has no scores yet (so it doesn't look "stuck" on a previous term). */}
+      {!loading && strands.length > 0 && (
+        <div className="rounded-xl px-4 py-2.5 text-sm flex items-center justify-between"
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+          <span className="font-semibold text-theme-heading">Viewing: {term}</span>
+          <span className="text-theme-muted text-xs">
+            {Object.keys(scores).length === 0
+              ? `No levels recorded for ${term} yet — select levels below to begin.`
+              : `${Object.keys(scores).length} sub-strand level(s) recorded this term.`}
+          </span>
+        </div>
+      )}
 
       {loading ? <div className="h-64 shimmer rounded-2xl"/> : strands.length === 0 ? (
         <div className="card p-10 text-center text-theme-muted">No rubric template for this grade &amp; learning area yet.</div>

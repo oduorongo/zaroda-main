@@ -23,6 +23,18 @@ export default function OwnerDashboard() {
     try { const r = await apiClient.get(`/admin/tenants/${id}`); setDetail(r.data); } catch {}
     load();
   };
+  const deleteSchool = async (id: string, name: string) => {
+    const typed = prompt(`This permanently deletes "${name}" and ALL its data (learners, marks, users, fees). This cannot be undone.\n\nType the school name exactly to confirm:`);
+    if (typed == null) return;
+    if (typed !== name) { alert('Name did not match. Deletion cancelled.'); return; }
+    setActing(true);
+    try {
+      const r = await apiClient.delete(`/admin/tenants/${id}`, { params: { confirm: name } });
+      if (r.data?.deleted) { alert(`"${name}" was deleted.`); setDetail(null); load(); }
+      else alert(r.data?.message || 'Could not delete school');
+    } catch { alert('Could not delete school'); }
+    finally { setActing(false); }
+  };
   const setStatus = async (id: string, status: string) => {
     const verb = status === 'suspended' ? 'Suspend' : 'Reactivate';
     if (!confirm(`${verb} this school? ${status === 'suspended' ? 'Its users will be blocked from logging in.' : 'Its users will regain access.'}`)) return;
@@ -297,6 +309,17 @@ export default function OwnerDashboard() {
                     <p className="text-[11px] text-theme-muted">
                       Suspending blocks all of this school's users from logging in until reactivated. Changing the tier updates their plan immediately.
                     </p>
+
+                    {/* Danger zone: permanent delete */}
+                    <div className="mt-4 pt-4 rounded-xl border border-red-200 bg-red-50 p-3" style={{ borderTopWidth: 1 }}>
+                      <div className="text-xs font-bold text-red-700 uppercase tracking-wide mb-1">Danger zone</div>
+                      <p className="text-[11px] text-red-700 mb-2">Permanently delete this school and all its data. This cannot be undone.</p>
+                      <button disabled={acting}
+                        onClick={() => deleteSchool(detail.tenant.id, detail.tenant.name)}
+                        className="text-xs py-1.5 px-3 rounded-lg bg-red-600 text-white font-medium disabled:opacity-50">
+                        Delete school permanently
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : (

@@ -117,8 +117,8 @@ export default function TermReportPage() {
                     return (
                       <td key={area + a.id} className="p-1 text-center" style={{ borderLeft: '1px solid var(--border)' }}>
                         {cell ? (
-                          <span className="font-bold" style={{ color: LEVEL_COLOR[cell.level] || 'inherit' }} title={`${cell.percent}%`}>
-                            {cell.level}
+                          <span className="font-bold" style={{ color: LEVEL_COLOR[cell.level] || 'inherit' }}>
+                            {cell.percent}% <span className="text-[10px]">{cell.level}</span>
                           </span>
                         ) : <span className="text-theme-muted">·</span>}
                       </td>

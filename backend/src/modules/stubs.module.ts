@@ -729,23 +729,49 @@ class PdfController {
       ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
       : (p>=76?4:p>=51?3:p>=26?2:1);
 
-    // Average each learning area across the term's assessments → one level per area.
+    // Assessments in this term (each becomes a column, e.g. Mid Term | End Term).
+    const assessments = await this.ds.query(
+      `SELECT DISTINCT e.id, e.name, e.created_at
+         FROM exams e
+        WHERE e.tenant_id::text = $1 AND ($2::text IS NULL OR e.term = $2)
+        ORDER BY e.created_at ASC`,
+      [tenantId, term || null],
+    ).catch(() => []);
+
+    // Per learning area, the percent for each assessment + overall average.
     const rows = await this.ds.query(
-      `SELECT subject, AVG(percent)::numeric AS "avgPct"
+      `SELECT subject, exam_id AS "examId", percent
          FROM assessment_results
         WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)
-          AND percent IS NOT NULL
-        GROUP BY subject ORDER BY subject`,
+          AND percent IS NOT NULL`,
       [tenantId, learnerId, term || null],
     ).catch(() => []);
 
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
-    let totalPoints = 0; const maxPoints = rows.length * (senior ? 8 : 4);
-    const body = rows.map((r: any) => {
-      const p = Math.round(Number(r.avgPct));
-      totalPoints += pts(p);
-      return `<tr><td>${esc(r.subject)}</td><td class="c">${p}%</td><td class="c"><b>${lvl(p)}</b></td></tr>`;
+
+    // area -> { examId -> percent }, plus the set of areas.
+    const byArea: Record<string, Record<string, number>> = {};
+    for (const r of rows) {
+      (byArea[r.subject] = byArea[r.subject] || {})[r.examId || 'x'] = Math.round(Number(r.percent));
+    }
+    const areaNames = Object.keys(byArea).sort();
+    // Only show assessment columns that actually have marks.
+    const usedExams = assessments.filter((a: any) => rows.some((r: any) => r.examId === a.id));
+    const cols = usedExams.length ? usedExams : [{ id: 'x', name: 'Score' }];
+
+    let totalPoints = 0; const maxPoints = areaNames.length * (senior ? 8 : 4);
+    const body = areaNames.map((area: string) => {
+      const cells = cols.map((c: any) => {
+        const p = byArea[area][c.id];
+        return p != null ? `<td class="c">${p}% <b>${lvl(p)}</b></td>` : `<td class="c">-</td>`;
+      }).join('');
+      // Average across this area's assessments for the term column + points.
+      const vals = Object.values(byArea[area]);
+      const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+      totalPoints += pts(avg);
+      return `<tr><td>${esc(area)}</td>${cells}<td class="c"><b>${avg}% ${lvl(avg)}</b></td></tr>`;
     }).join('');
+    const headCols = cols.map((c: any) => `<th class="c">${esc(c.name)}</th>`).join('');
 
     const termLabel = (term || '').replace('term_', 'Term ');
     const logoTag = lr.logo ? `<img src="${lr.logo}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
@@ -762,10 +788,10 @@ class PdfController {
           <span><b>Class:</b> ${esc(lr.streamName || lr.gradeLevel || '')}</span>
         </div>
         <table>
-          <thead><tr><th>Learning Area</th><th class="c">Average</th><th class="c">Performance Level</th></tr></thead>
-          <tbody>${body || `<tr><td colspan="3" class="c">No marks recorded this term.</td></tr>`}</tbody>
+          <thead><tr><th>Learning Area</th>${headCols}<th class="c">Term Average</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="${cols.length + 2}" class="c">No marks recorded this term.</td></tr>`}</tbody>
         </table>
-        ${rows.length ? `<p class="rc-total">Performance-level total: ${totalPoints} / ${maxPoints} (${rows.length} learning areas)</p>` : ''}
+        ${areaNames.length ? `<p class="rc-total">Performance-level total: ${totalPoints} / ${maxPoints} (${areaNames.length} learning areas)</p>` : ''}
         <div class="rc-foot">
           <span>Class Teacher: __________________</span>
           <span>Checked by D.H.O.I. _______________</span>
@@ -925,6 +951,28 @@ class AdminController {
     await this.ds.query(`UPDATE tenants SET status = $1, updated_at = NOW() WHERE id = $2`, [status, id])
       .catch((e: any) => { throw e; });
     return { id, status };
+  }
+
+  // PERMANENTLY delete a school and all its data. Destructive — requires the school's
+  // exact name as confirmation in the body to avoid accidents.
+  @Delete('tenants/:id')
+  async deleteTenant(@Request() req: any, @Param('id') id: string, @Query() q: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const t = (await this.ds.query(`SELECT name FROM tenants WHERE id = $1 LIMIT 1`, [id]).catch(() => []))[0];
+    if (!t) return { error: 'School not found.' };
+    if ((q.confirm || '') !== t.name) {
+      return { error: 'confirm-mismatch', message: `Type the exact school name to confirm: ${t.name}` };
+    }
+    // Remove dependent rows across tenant-scoped tables, then the tenant itself.
+    const tables = [
+      'assessment_results', 'assessment_scores', 'teacher_stream_subjects', 'learners',
+      'streams', 'exams', 'fee_items', 'invoices', 'users', 'schools',
+    ];
+    for (const tbl of tables) {
+      await this.ds.query(`DELETE FROM ${tbl} WHERE tenant_id::text = $1`, [id]).catch(() => null);
+    }
+    await this.ds.query(`DELETE FROM tenants WHERE id = $1`, [id]).catch((e: any) => { throw e; });
+    return { deleted: true, id, name: t.name };
   }
 
   // Change a school's subscription tier (free | primary | senior, or custom).
