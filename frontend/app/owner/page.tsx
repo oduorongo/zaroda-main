@@ -83,17 +83,12 @@ export default function OwnerDashboard() {
     return map[st] || 'bg-gray-100 text-gray-500';
   };
 
-  if (user && user.role !== 'super_admin') return null;
-
   return (
-    <div className="min-h-screen bg-surface-2 p-4 sm:p-8">
+    <div className="p-4 sm:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-[#1a2e5a] flex items-center justify-center text-[#d4af37]">
-            <ShieldCheck size={22}/>
-          </div>
           <div>
-            <h1 className="text-xl font-black text-theme-heading">ZARODA Platform — Owner Console</h1>
+            <h1 className="text-xl font-black text-theme-heading">Overview</h1>
             <p className="text-sm text-theme-muted">Oversight and management across all schools.</p>
           </div>
         </div>
