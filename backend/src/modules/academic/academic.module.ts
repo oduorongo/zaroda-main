@@ -217,6 +217,22 @@ export class AcademicService {
         ).catch(() => []);
         if (lr.length) { streamId = lr[0].stream_id; gradeLevel = gradeLevel || lr[0].grade_level; }
       }
+      // Always trust the STREAM's grade level over whatever the (possibly stale) client
+      // sent — a stale page could still think a corrected class is the old grade and save
+      // marks under the wrong subject name. Pulling grade from the stream prevents that.
+      if (streamId) {
+        const sg = await this.dataSource.query(
+          `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
+        ).catch(() => []);
+        if (sg.length && sg[0].grade_level) gradeLevel = sg[0].grade_level;
+      }
+      // Normalise the creative-arts naming to the grade band so marks can't be split
+      // across "Creative Arts" (primary) vs "Creative Arts and Sports" (junior) by a
+      // stale page. This keeps a class's marks under one consistent subject name.
+      if (/^creative arts/i.test(String(r.subject || ''))) {
+        const isJunior = ['grade_7','grade_8','grade_9'].includes(gradeLevel || '');
+        r.subject = isJunior ? 'Creative Arts and Sports' : 'Creative Arts';
+      }
 
       // Enforce per-record: a teacher may only save marks for a learning area in a
       // stream they're assigned to teach it (or their own class as class teacher).
