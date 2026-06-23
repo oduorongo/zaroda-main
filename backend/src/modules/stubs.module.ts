@@ -586,11 +586,18 @@ class PdfController {
       const subjects: string[] = Array.from(new Set<string>(subjectList)).sort();
       const byLearner: Record<string, any> = {};
       for (const r of rows) {
-        const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0 });
-        if (r.percent != null) { L.marks[r.subject] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); }
+        const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0, pctSum: 0, count: 0 });
+        if (r.percent != null) { L.marks[r.subject] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); L.pctSum += Number(r.percent); L.count++; }
       }
       const learners = Object.values(byLearner).sort((a: any, b: any) => b.points - a.points);
       const maxPoints = subjects.length * (senior ? 8 : 4);
+      // Points average expressed as a performance level: avg the per-subject points, and
+      // map the average percentage back to a level code.
+      for (const L of learners as any[]) {
+        L.avgPoints = L.count ? (L.points / L.count) : 0;
+        L.avgPct = L.count ? Math.round(L.pctSum / L.count) : 0;
+        L.avgLevel = L.count ? lvl(L.avgPct) : '';
+      }
 
       const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
       const head = subjects.map(s => `<th>${esc(s)}</th>`).join('');
@@ -599,6 +606,7 @@ class PdfController {
           <td>${i+1}</td><td style="text-align:left">${esc(L.name)}</td><td>${esc(L.adm||'')}</td>
           ${subjects.map(s => { const m = L.marks[s]; return `<td>${m ? `${m.pct}% <b>${m.level}</b>` : '-'}</td>`; }).join('')}
           <td><b>${L.points}/${maxPoints}</b></td>
+          <td><b>${L.count ? `${L.avgPoints.toFixed(1)} ${L.avgLevel}` : '-'}</b></td>
         </tr>`).join('');
 
       const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
@@ -621,7 +629,7 @@ class PdfController {
           <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
-        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total</th></tr></thead>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total</th><th>Points Avg (level)</th></tr></thead>
         <tbody>${body || `<tr><td colspan="${subjects.length+4}">No marks found for this assessment.</td></tr>`}</tbody></table>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>

@@ -67,6 +67,45 @@ export default function AdminEnterMarksPage() {
       .finally(() => setLoading(false));
   }, [streamId]);
 
+  // Load already-saved marks so they appear in the boxes (and stay after saving). This
+  // lets an admin re-open a class, see every entered mark, change "out of" or any value,
+  // and re-save — updating the whole column.
+  const [savedMap, setSavedMap] = useState<Record<string, Record<string, string>>>({});
+  const loadExisting = async () => {
+    if (!streamId || !examId) { setSavedMap({}); return; }
+    try {
+      const r = await apiClient.get('/academic/mark-list', { params: { streamId, term, examId } });
+      const rows = r.data?.learners || [];
+      const map: Record<string, Record<string, string>> = {};
+      for (const lr of rows) {
+        const lid = lr.learnerId || lr.id;
+        const subs = lr.subjects || {};
+        map[lid] = {};
+        for (const [subj, val] of Object.entries(subs)) {
+          const raw = (val as any)?.rawScore;
+          if (raw != null) map[lid][subj] = String(raw);
+        }
+      }
+      setSavedMap(map);
+    } catch { setSavedMap({}); }
+  };
+  useEffect(() => { loadExisting(); /* eslint-disable-next-line */ }, [streamId, term, examId]);
+
+  // Pre-fill boxes from saved marks when area/learner/mode changes.
+  useEffect(() => {
+    if (mode !== 'area' || !area) return;
+    const next: Record<string, string> = {};
+    for (const [lid, subs] of Object.entries(savedMap)) {
+      const hit = Object.entries(subs).find(([s]) => s.toLowerCase() === area.toLowerCase());
+      if (hit) next[lid] = hit[1];
+    }
+    setAreaScores(next);
+  }, [savedMap, area, mode]);
+  useEffect(() => {
+    if (mode !== 'learner' || !learnerId) return;
+    setLearnerScores(savedMap[learnerId] ? { ...savedMap[learnerId] } : {});
+  }, [savedMap, learnerId, mode]);
+
   const senior = stream ? isSeniorScale(stream.gradeLevel) : false;
 
   const buildRecord = (lid: string, subject: string, raw: string) => {
@@ -91,7 +130,7 @@ export default function AdminEnterMarksPage() {
     try {
       await apiClient.post('/academic/assessment-results/bulk', { records });
       toast.success(`Saved ${records.length} marks for ${area}`);
-      setAreaScores({});
+      await loadExisting();   // keep saved values visible
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
   };
@@ -106,7 +145,7 @@ export default function AdminEnterMarksPage() {
       await apiClient.post('/academic/assessment-results/bulk', { records });
       const who = learners.find(l => l.id === learnerId);
       toast.success(`Saved ${records.length} marks for ${who?.firstName || 'learner'}`);
-      setLearnerScores({});
+      await loadExisting();   // keep saved values visible
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
   };
