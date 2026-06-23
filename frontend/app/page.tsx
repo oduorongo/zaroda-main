@@ -59,7 +59,7 @@ export default function HomePage() {
             ) : (
               <>
                 <Link href="/auth/login" className="text-sm font-semibold text-[#1a2e5a] px-3 py-2 hover:bg-[#f4f6fb] rounded-xl">Sign In</Link>
-                <Link href="/auth/signup" className="btn-primary text-sm">Start Free Trial</Link>
+                <Link href="/auth/signup" className="btn-primary text-sm">Get started free</Link>
               </>
             )}
           </div>
@@ -74,6 +74,9 @@ export default function HomePage() {
           <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-4 py-1.5 text-xs font-medium mb-6">
             <span className="w-1.5 h-1.5 bg-[#d4af37] rounded-full"/> Made in Kenya for Kenyan schools
           </div>
+          <div className="inline-flex items-center gap-2 bg-[#d4af37]/15 border border-[#d4af37]/40 text-[#d4af37] text-sm font-bold px-4 py-1.5 rounded-full mb-6">
+            🎉 FREE for all of 2026 — subscription begins 15 Jan 2027
+          </div>
           <h1 className="text-4xl md:text-6xl font-black leading-tight max-w-3xl mx-auto">
             Run your entire school from <span className="text-[#d4af37]">one platform</span>
           </h1>
@@ -82,7 +85,7 @@ export default function HomePage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center mt-9">
             <Link href="/auth/signup" className="inline-flex items-center justify-center gap-2 bg-[#d4af37] text-[#0f1c38] font-bold px-7 py-3.5 rounded-xl hover:bg-[#f0d060] transition-all active:scale-95">
-              Start your 2-week free trial <ArrowRight size={18}/>
+              Get started free <ArrowRight size={18}/>
             </Link>
             <Link href="/auth/login" className="inline-flex items-center justify-center gap-2 border border-white/25 font-semibold px-7 py-3.5 rounded-xl hover:bg-white/10 transition-all">
               Sign In
@@ -185,7 +188,10 @@ export default function HomePage() {
         <div className="text-center mb-14">
           <p className="text-[#f5820a] font-bold text-sm uppercase tracking-widest mb-2">Simple pricing</p>
           <h2 className="text-3xl md:text-4xl font-black text-[#1a2e5a]">Pay per stream, per year</h2>
-          <p className="text-[#7a82a8] mt-3">Save 30% when you have 3 or more streams. Start with a 2-week free trial.</p>
+          <div className="inline-flex items-center gap-2 bg-green-50 border border-green-300 text-green-700 text-sm font-bold px-4 py-2 rounded-full mt-4">
+            🎉 Free for the whole of 2026 — you pay nothing until 15 January 2027
+          </div>
+          <p className="text-[#7a82a8] mt-3">The prices below take effect from 15 Jan 2027. Save 30% when you have 3 or more streams.</p>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
@@ -198,18 +204,18 @@ export default function HomePage() {
                 <span className="text-sm font-semibold text-[#7a82a8]">KES</span>
                 <span className="text-4xl font-black text-[#1a2e5a]">{p.price}</span>
               </div>
-              <p className="text-xs text-[#7a82a8] mb-5">{p.per}</p>
-              <Link href="/auth/signup" className="btn-primary w-full justify-center">Start Free Trial</Link>
+              <p className="text-xs text-[#7a82a8] mb-5">{p.per} · from Jan 2027</p>
+              <Link href="/auth/signup" className="btn-primary w-full justify-center">Get started free</Link>
             </div>
           ))}
         </div>
 
         <div className="text-center mt-8 text-sm text-[#7a82a8]">
+          <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Free all of 2026</span>
+          <span className="mx-3">·</span>
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Library always free</span>
           <span className="mx-3">·</span>
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Sports Base always free</span>
-          <span className="mx-3">·</span>
-          <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> 30% off for 3+ streams</span>
         </div>
       </section>
 
@@ -219,7 +225,7 @@ export default function HomePage() {
           <h2 className="text-3xl md:text-4xl font-black">Ready to bring your school online?</h2>
           <p className="text-white/60 mt-3 max-w-lg mx-auto">Join Kenyan schools modernising how they manage academics, finance, and more.</p>
           <Link href="/auth/signup" className="inline-flex items-center gap-2 bg-[#d4af37] text-[#0f1c38] font-bold px-8 py-3.5 rounded-xl hover:bg-[#f0d060] transition-all active:scale-95 mt-7">
-            Start your free trial <ArrowRight size={18}/>
+            Get started free <ArrowRight size={18}/>
           </Link>
         </div>
       </section>
@@ -243,7 +249,7 @@ export default function HomePage() {
             <ul className="space-y-2 text-sm">
               <li><a href="#features" className="hover:text-white">Features</a></li>
               <li><a href="#pricing" className="hover:text-white">Pricing</a></li>
-              <li><Link href="/auth/signup" className="hover:text-white">Free Trial</Link></li>
+              <li><Link href="/auth/signup" className="hover:text-white">Free in 2026</Link></li>
               <li><Link href="/auth/login" className="hover:text-white">Sign In</Link></li>
             </ul>
           </div>

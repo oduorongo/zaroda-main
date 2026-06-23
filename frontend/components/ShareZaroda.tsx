@@ -16,9 +16,9 @@ function buildMessages(schoolName: string, signupUrl: string) {
 
 Still adding and ranking marks on paper and writing report cards by hand? I use *ZARODA School Management System* at ${school} — teachers enter marks online, mark lists and CBC report cards (both the 4 and 8 performance levels) generate automatically, and fees are tracked per learner.
 
-A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}`;
+A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}
 
-  const detailed =
+🎉 *FREE for the whole of 2026* — no card needed. Subscription only begins on 15 January 2027.`;
 `Dear colleague teacher,
 
 Tired of adding and ranking marks manually on paper and writing report cards by hand? 📚
@@ -38,7 +38,9 @@ If your school still struggles with:
 ✅ Class teachers, HOI and parents each get the right access
 ✅ Built in Kenya, for the Kenyan CBC/CBE curriculum
 
-A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}`;
+A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}
+
+🎉 *FREE for the whole of 2026* — every feature, no card required. Subscription only begins on 15 January 2027, so the entire 2026 school year is on us.`;
 
   return { short, detailed };
 }

@@ -205,8 +205,8 @@ export default function SignupPage() {
         <img src="/zaroda-logo.png" alt="ZARODA" className="inline-block w-14 h-14 rounded-xl object-cover mb-3"/>
         <div className="text-white font-black text-sm leading-tight">ZARODA SCHOOL</div>
         <div className="text-[#fdba74] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
-        <h1 className="text-xl font-black text-white">Start Your Free Trial</h1>
-        <p className="text-white/40 text-xs mt-1">2 weeks free · No card required</p>
+        <h1 className="text-xl font-black text-white">Free for all of 2026 🎉</h1>
+        <p className="text-white/40 text-xs mt-1">No card required · Subscription begins 15 January 2027</p>
       </div>
 
       <div className="bg-white rounded-2xl p-6 shadow-modal">
