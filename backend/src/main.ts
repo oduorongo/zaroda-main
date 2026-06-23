@@ -243,6 +243,58 @@ async function bootstrap() {
   // tied to the learner + subject, not the stream's grade tag.
   // Visit: /fix-stream-grade?key=zaroda-migrate-now&name=Grade%205%20A&grade=grade_5
   // Matches the stream by name (case-insensitive). Safe to run.
+  // Inspect the distinct subject names that marks are stored under for a stream — used
+  // to recover marks that were saved under a different grade's subject names (e.g. a
+  // Grade 5 class briefly labeled grade_7 saved "Integrated Science" instead of
+  // "Science & Technology"). Read-only. Visit:
+  //   /stream-marks?key=...&name=Grade 5 A
+  httpAdapter.get('/stream-marks', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const name = String(req.query?.name || '').trim();
+    if (!name) { res.type('text/plain').send('Usage: /stream-marks?key=...&name=Grade 5 A'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const st = (await ds.query(`SELECT id, grade_level FROM streams WHERE LOWER(REGEXP_REPLACE(name,'\\s+',' ','g')) = $1 LIMIT 1`,
+        [name.toLowerCase().replace(/\s+/g, ' ')]).catch(() => []))[0];
+      if (!st) { res.type('text/plain').send(`No stream "${name}".`); return; }
+      const rows = await ds.query(
+        `SELECT subject, term, COUNT(*)::int AS marks FROM assessment_results
+          WHERE stream_id = $1 GROUP BY subject, term ORDER BY subject, term`, [st.id],
+      ).catch(() => []);
+      res.type('text/plain').send(
+        `Stream "${name}" (grade_level=${st.grade_level})\n\nMARKS BY SUBJECT NAME:\n` +
+        (rows.length ? rows.map((r: any) => `  ${(r.subject||'').padEnd(28)} ${r.term || ''}   ${r.marks} marks`).join('\n')
+                     : '  (no marks found for this stream)'),
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
+  // Rename the subject on a stream's marks (recovery for mislabeled marks). Visit:
+  //   /rename-mark-subject?key=...&name=Grade 5 A&from=Integrated Science&to=Science %26 Technology
+  // Only touches assessment_results.subject — moves marks from one subject label to the
+  // correct one so they reappear in the rubric/report. No marks are deleted.
+  httpAdapter.get('/rename-mark-subject', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const name = String(req.query?.name || '').trim();
+    const from = String(req.query?.from || '').trim();
+    const to = String(req.query?.to || '').trim();
+    if (!name || !from || !to) { res.type('text/plain').send('Usage: /rename-mark-subject?key=...&name=Grade 5 A&from=Integrated Science&to=Science & Technology'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const st = (await ds.query(`SELECT id FROM streams WHERE LOWER(REGEXP_REPLACE(name,'\\s+',' ','g')) = $1 LIMIT 1`,
+        [name.toLowerCase().replace(/\s+/g, ' ')]).catch(() => []))[0];
+      if (!st) { res.type('text/plain').send(`No stream "${name}".`); return; }
+      const r = await ds.query(
+        `UPDATE assessment_results SET subject = $1 WHERE stream_id = $2 AND subject = $3`,
+        [to, st.id, from],
+      ).catch((e: any) => { throw e; });
+      const n = Array.isArray(r) ? (r[1] ?? '?') : (r?.rowCount ?? '?');
+      res.type('text/plain').send(`OK — moved marks on "${name}" from "${from}" to "${to}". Rows updated: ${n}.\nReload the rubric/report to see them.`);
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
   httpAdapter.get('/fix-stream-grade', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
