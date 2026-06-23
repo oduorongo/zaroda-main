@@ -19,6 +19,8 @@ Still adding and ranking marks on paper and writing report cards by hand? I use 
 A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}
 
 🎉 *FREE for the whole of 2026* — no card needed. Subscription only begins on 15 January 2027.`;
+
+  const detailed =
 `Dear colleague teacher,
 
 Tired of adding and ranking marks manually on paper and writing report cards by hand? 📚

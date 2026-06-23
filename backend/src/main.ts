@@ -247,21 +247,43 @@ async function bootstrap() {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
     const name = String(req.query?.name || '').trim();
+    const id = String(req.query?.id || '').trim();
     const grade = String(req.query?.grade || '').trim();
     const valid = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6',
       'grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'];
-    if (!name || !valid.includes(grade)) {
-      res.type('text/plain').send('Usage: /fix-stream-grade?key=...&name=Grade 5 A&grade=grade_5'); return;
+    if ((!name && !id) || !valid.includes(grade)) {
+      res.type('text/plain').send('Usage: /fix-stream-grade?key=...&name=Grade 5 A&grade=grade_5   (or &id=<streamId>)'); return;
     }
     try {
       const ds = app.get(DataSource);
-      const streams = await ds.query(`SELECT id, name, grade_level FROM streams WHERE LOWER(name) = LOWER($1)`, [name]).catch(() => []);
-      if (!streams.length) { res.type('text/plain').send(`No stream named "${name}". Check the exact name from /data-check.`); return; }
+      // Match by exact id, or by name ignoring case AND extra spaces (so "Grade 5  A"
+      // or a trailing space still matches "Grade 5 A").
+      let streams;
+      if (id) {
+        streams = await ds.query(`SELECT id, name, grade_level FROM streams WHERE id::text = $1`, [id]).catch(() => []);
+      } else {
+        const norm = name.toLowerCase().replace(/\s+/g, ' ');
+        streams = await ds.query(
+          `SELECT id, name, grade_level FROM streams WHERE LOWER(REGEXP_REPLACE(name, '\\s+', ' ', 'g')) = $1`, [norm],
+        ).catch(() => []);
+        // Fallback: contains match (e.g. name has a hidden suffix)
+        if (!streams.length) {
+          streams = await ds.query(`SELECT id, name, grade_level FROM streams WHERE LOWER(name) LIKE $1`, [`%${name.toLowerCase()}%`]).catch(() => []);
+        }
+      }
+      if (!streams.length) {
+        const all = await ds.query(`SELECT name, grade_level FROM streams ORDER BY name`).catch(() => []);
+        res.type('text/plain').send(`No stream matched "${name || id}".\n\nExisting streams (copy the exact name):\n` +
+          all.map((s: any) => `  "${s.name}"  → ${s.grade_level}`).join('\n'));
+        return;
+      }
+      const report: string[] = [];
       for (const s of streams) {
         await ds.query(`UPDATE streams SET grade_level = $1 WHERE id = $2`, [grade, s.id]).catch(() => null);
         await ds.query(`UPDATE learners SET grade_level = $1 WHERE stream_id = $2`, [grade, s.id]).catch(() => null);
+        report.push(`  "${s.name}"  ${s.grade_level} → ${grade}`);
       }
-      res.type('text/plain').send(`OK — set ${streams.length} stream(s) named "${name}" to ${grade}.\nMarks are unaffected. Reload the rubric to see the correct learning areas.`);
+      res.type('text/plain').send(`OK — updated ${streams.length} stream(s):\n${report.join('\n')}\n\nMarks are unaffected. Reload the rubric for that class to see the correct learning areas.`);
     } catch (e: any) {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
     }
