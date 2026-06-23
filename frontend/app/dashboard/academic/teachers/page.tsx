@@ -130,15 +130,14 @@ export default function TeachersPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanSS = (form.streamSubjects||[]).filter((r:any)=>r.streamId && r.subjects.length);
-    if (cleanSS.length === 0) { toast.error('Assign at least one class with its learning areas'); return; }
+    if (!form.subjects || form.subjects.length === 0) { toast.error('Select at least one learning area they teach'); return; }
     const parts = (form.fullName || '').trim().split(/\s+/);
     if (parts.length < 2) { toast.error('Enter first and last name'); return; }
     const firstName = parts.shift() as string;
     const lastName  = parts.join(' ');
     setSaving(true);
     try {
-      const res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, streamSubjects: cleanSS });
+      const res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, subjects: form.subjects });
       const creds = res.data?.credentials;
       toast.success(`${firstName} ${lastName} onboarded`);
       setShowNew(false);
@@ -250,10 +249,6 @@ export default function TeachersPage() {
                 <div className="col-span-2"><label className="label">Full Name *</label><input required value={form.fullName} onChange={set('fullName')} className="input" placeholder="e.g. Jane Wanjiku Kamau"/></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="label">ID Number</label><input value={form.idNumber} onChange={set('idNumber')} className="input"/></div>
-                <div><label className="label">TSC Number</label><input value={form.tscNumber} onChange={set('tscNumber')} className="input"/></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Email * <span className="text-theme-muted font-normal">(used as login username)</span></label><input type="email" required value={form.email} onChange={set('email')} className="input"/></div>
                 <div><label className="label">Phone</label><input value={form.phone} onChange={set('phone')} className="input" placeholder="+254…"/></div>
               </div>
@@ -268,39 +263,18 @@ export default function TeachersPage() {
                 </div>
               </div>
 
-              {/* Per-stream learning area assignment */}
+              {/* Learning areas the teacher takes — simple chip picker (matches self-onboarding) */}
               <div>
-                <label className="label">Learning Areas per Class/Stream *</label>
-                <p className="text-[11px] text-theme-muted mb-2">Add each class this teacher takes, then tick the learning areas they teach in that class.</p>
-                <div className="space-y-2">
-                  {form.streamSubjects.map((row:any, idx:number) => {
-                    const streamObj = streams.find((s:any)=>s.id===row.streamId);
-                    const grade = streamObj?.gradeLevel || '';
-                    const areas = areasForGrade(grade);
-                    return (
-                      <div key={idx} className="border border-theme rounded-xl p-2.5">
-                        <div className="flex items-center gap-2 mb-2">
-                          <select value={row.streamId} onChange={e=>updateStreamRow(idx,'streamId',e.target.value)} className="input flex-1">
-                            <option value="">Select class…</option>
-                            {streams.map((s:any)=><option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
-                          <button type="button" onClick={()=>removeStreamRow(idx)} className="btn-ghost p-1.5" title="Remove"><Trash2 size={14}/></button>
-                        </div>
-                        {row.streamId && (
-                          <div className="flex flex-wrap gap-1">
-                            {areas.map((s:string)=>(
-                              <button type="button" key={s} onClick={()=>toggleStreamSubject(idx,s)}
-                                className={`text-[11px] px-2 py-1 rounded-full border transition-colors
-                                  ${row.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
-                                {row.subjects.includes(s) && '✓ '}{s}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  <button type="button" onClick={addStreamRow} className="btn-ghost text-sm w-full">+ Add another class</button>
+                <label className="label">Learning Areas They Teach *</label>
+                <p className="text-[11px] text-theme-muted mb-2">Tick the learning areas this teacher takes.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALL_SUBJECTS.map((s:string)=>(
+                    <button type="button" key={s} onClick={()=>toggleSubject(s)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors
+                        ${form.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
+                      {form.subjects.includes(s) && '✓ '}{s}
+                    </button>
+                  ))}
                 </div>
               </div>
 

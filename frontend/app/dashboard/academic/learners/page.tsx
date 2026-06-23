@@ -22,9 +22,9 @@ export default function LearnersPage() {
   const [bulkSaving, setBulkSaving] = useState(false);
   const [saving,   setSaving]   = useState(false);
   const [form,     setForm]     = useState({
-    fullName: '', admissionNumber: '',
-    dateOfBirth: '', gender: 'male', gradeLevel: '', streamId: '', electives: [] as string[],
-    guardianName: '', guardianPhone: '', guardianEmail: '',
+    firstName: '', lastName: '', admissionNumber: '',
+    gender: '', gradeLevel: '', streamId: '',
+    guardianName: '', guardianPhone: '',
   });
 
   const load = () => {
@@ -209,16 +209,14 @@ export default function LearnersPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parts = (form.fullName || '').trim().split(/\s+/);
-    if (parts.length < 2) { toast.error('Enter the learner\'s full name (first and last)'); return; }
-    const firstName = parts.shift() as string;
-    const lastName  = parts.join(' ');
+    if (!form.firstName.trim() || !form.lastName.trim()) { toast.error('Enter first and last name'); return; }
+    if (!form.streamId) { toast.error('Select a class'); return; }
     setSaving(true);
     try {
-      await apiClient.post('/academic/learners', { ...form, firstName, lastName });
+      await apiClient.post('/academic/learners', { ...form });
       toast.success('Learner registered!');
       setShowForm(false);
-      setForm({ fullName:'',admissionNumber:'',dateOfBirth:'',gender:'male',gradeLevel:'',streamId:'',electives:[],guardianName:'',guardianPhone:'',guardianEmail:'' });
+      setForm({ firstName:'',lastName:'',admissionNumber:'',gender:'',gradeLevel:'',streamId:'',guardianName:'',guardianPhone:'' });
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Registration failed');
@@ -420,68 +418,34 @@ export default function LearnersPage() {
               <button onClick={() => setShowForm(false)} className="text-theme-muted hover:text-theme-heading"><X size={20}/></button>
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
-              <div>
-                <label className="label">Full Name *</label>
-                <input required value={form.fullName} onChange={set('fullName')} className="input" placeholder="John Kamau"/>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">First Name *</label><input required value={form.firstName} onChange={set('firstName')} className="input"/></div>
+                <div><label className="label">Last Name *</label><input required value={form.lastName} onChange={set('lastName')} className="input"/></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="label">Admission No. *</label><input required value={form.admissionNumber} onChange={set('admissionNumber')} className="input" placeholder="2025001"/></div>
-                <div><label className="label">Date of Birth</label><input type="date" value={form.dateOfBirth} onChange={set('dateOfBirth')} className="input"/></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Admission No.</label><input value={form.admissionNumber} onChange={set('admissionNumber')} className="input" placeholder="2025001"/></div>
                 <div>
-                  <label className="label">Gender *</label>
-                  <select required value={form.gender} onChange={set('gender')} className="input">
+                  <label className="label">Gender</label>
+                  <select value={form.gender} onChange={set('gender')} className="input">
+                    <option value="">Select…</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                   </select>
                 </div>
-                <div>
-                  <label className="label">Stream *</label>
-                  <select required value={form.streamId} onChange={e => {
-                    const s = streams.find(x => x.id === e.target.value);
-                    setForm(f => ({ ...f, streamId: e.target.value, gradeLevel: s?.gradeLevel || f.gradeLevel }));
-                  }} className="input">
-                    <option value="">Select stream…</option>
-                    {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
               </div>
-
-              {['grade_10','grade_11','grade_12'].includes(form.gradeLevel) && (
-                <div className="border-t border-theme pt-4">
-                  <p className="text-xs font-bold text-theme-muted uppercase tracking-wide mb-1">Senior School Learning Areas</p>
-                  <p className="text-xs text-theme-muted mb-2">Core: English, Kiswahili, Core Mathematics, Community Service Learning. Choose <b>3–4 electives</b>.</p>
-                  <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto p-1 rounded border" style={{ borderColor: 'var(--border)' }}>
-                    {SENIOR_ELECTIVES.map(opt => {
-                      const checked = (form.electives || []).includes(opt);
-                      return (
-                        <label key={opt} className="flex items-center gap-2 text-sm py-0.5 cursor-pointer">
-                          <input type="checkbox" checked={checked} onChange={() => {
-                            setForm(f => {
-                              const cur = f.electives || [];
-                              if (cur.includes(opt)) return { ...f, electives: cur.filter(x => x !== opt) };
-                              if (cur.length >= 4) { toast.error('Maximum 4 electives'); return f; }
-                              return { ...f, electives: [...cur, opt] };
-                            });
-                          }}/>
-                          <span>{opt}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[11px] text-theme-muted mt-1">{(form.electives || []).length} selected</p>
-                </div>
-              )}
-              <div className="border-t border-theme pt-4">
-                <p className="text-xs font-bold text-theme-muted uppercase tracking-wide mb-3">Guardian / Parent</p>
-                <div className="space-y-3">
-                  <div><label className="label">Guardian Name</label><input value={form.guardianName} onChange={set('guardianName')} className="input" placeholder="James Kamau"/></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="label">Guardian Phone</label><input type="tel" value={form.guardianPhone} onChange={set('guardianPhone')} className="input" placeholder="+254 7XX XXX XXX"/></div>
-                    <div><label className="label">Guardian Email</label><input type="email" value={form.guardianEmail} onChange={set('guardianEmail')} className="input" placeholder="guardian@email.com"/></div>
-                  </div>
-                </div>
+              <div>
+                <label className="label">Class *</label>
+                <select required value={form.streamId} onChange={e => {
+                  const s = streams.find(x => x.id === e.target.value);
+                  setForm(f => ({ ...f, streamId: e.target.value, gradeLevel: s?.gradeLevel || f.gradeLevel }));
+                }} className="input">
+                  <option value="">Select class…</option>
+                  {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Guardian Name</label><input value={form.guardianName} onChange={set('guardianName')} className="input" placeholder="James Kamau"/></div>
+                <div><label className="label">Guardian Phone</label><input type="tel" value={form.guardianPhone} onChange={set('guardianPhone')} className="input" placeholder="07XX XXX XXX"/></div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowForm(false)} className="btn-ghost flex-1">Cancel</button>
