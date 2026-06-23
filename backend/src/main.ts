@@ -237,11 +237,35 @@ async function bootstrap() {
     }
   });
 
-  // One-time manual migration trigger you can hit from a browser (no shell needed).
-  // Visit:  /run-migrations?key=YOUR_SECRET   where the secret is the MIGRATE_KEY env
-  // var (defaults to 'zaroda-migrate-now'). It drops the _migrations tracker and runs
-  // every (idempotent) .sql file, returning a per-file OK/FAIL report as plain text.
-  // Remove or rotate MIGRATE_KEY after you're done.
+  // Browser-runnable repair for a mislabeled class grade level (e.g. a Grade 5 stream
+  // saved as grade_7, which makes the rubric show the wrong learning areas). This only
+  // updates the class's grade LABEL — it does not touch or delete any marks, which are
+  // tied to the learner + subject, not the stream's grade tag.
+  // Visit: /fix-stream-grade?key=zaroda-migrate-now&name=Grade%205%20A&grade=grade_5
+  // Matches the stream by name (case-insensitive). Safe to run.
+  httpAdapter.get('/fix-stream-grade', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const name = String(req.query?.name || '').trim();
+    const grade = String(req.query?.grade || '').trim();
+    const valid = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6',
+      'grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'];
+    if (!name || !valid.includes(grade)) {
+      res.type('text/plain').send('Usage: /fix-stream-grade?key=...&name=Grade 5 A&grade=grade_5'); return;
+    }
+    try {
+      const ds = app.get(DataSource);
+      const streams = await ds.query(`SELECT id, name, grade_level FROM streams WHERE LOWER(name) = LOWER($1)`, [name]).catch(() => []);
+      if (!streams.length) { res.type('text/plain').send(`No stream named "${name}". Check the exact name from /data-check.`); return; }
+      for (const s of streams) {
+        await ds.query(`UPDATE streams SET grade_level = $1 WHERE id = $2`, [grade, s.id]).catch(() => null);
+        await ds.query(`UPDATE learners SET grade_level = $1 WHERE stream_id = $2`, [grade, s.id]).catch(() => null);
+      }
+      res.type('text/plain').send(`OK — set ${streams.length} stream(s) named "${name}" to ${grade}.\nMarks are unaffected. Reload the rubric to see the correct learning areas.`);
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
   httpAdapter.get('/run-migrations', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) {

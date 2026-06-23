@@ -938,6 +938,37 @@ class AdminController {
     };
   }
 
+  // ── STREAM GRADE-LEVEL REPAIR (owner) ───────────────────────────────────────
+  // Lists every stream with its grade level, across schools, so a mislabeled class
+  // (e.g. a Grade 5 stream saved as grade_7, which makes the rubric show the wrong
+  // learning areas) can be spotted and corrected. Read-only.
+  @Get('streams')
+  async listStreams(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', streams: [] };
+    const rows = await this.ds.query(
+      `SELECT st.id, st.name, st.grade_level AS "gradeLevel",
+              (SELECT name FROM schools s WHERE s.tenant_id = st.tenant_id LIMIT 1) AS "schoolName"
+         FROM streams st ORDER BY "schoolName", st.grade_level, st.name`,
+    ).catch(() => []);
+    return { streams: rows };
+  }
+
+  // Correct a stream's grade level. This ONLY updates the class's grade label so the
+  // rubric pulls the right learning areas — it does NOT touch learners or marks, which
+  // are tied to the learner and subject, not the stream's grade tag.
+  @Patch('streams/:id/grade-level')
+  async fixStreamGrade(@Request() req: any, @Param('id') id: string, @Body() dto: { gradeLevel: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const valid = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6',
+      'grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'];
+    if (!valid.includes(dto?.gradeLevel)) return { error: 'invalid grade level' };
+    await this.ds.query(`UPDATE streams SET grade_level = $1 WHERE id::text = $2`, [dto.gradeLevel, id])
+      .catch((e: any) => { throw new Error(e.message); });
+    // Keep any learners' grade_level in sync with their class (also label-only, no marks affected).
+    await this.ds.query(`UPDATE learners SET grade_level = $1 WHERE stream_id::text = $2`, [dto.gradeLevel, id]).catch(() => null);
+    return { message: 'Grade level corrected', id, gradeLevel: dto.gradeLevel };
+  }
+
   // ── PHASE 2: CONTROL ACTIONS (super_admin only, cross-tenant on purpose) ──────
   // Suspend or reactivate a school. Suspended schools' users are blocked at login
   // (enforced in auth). status: 'suspended' | 'active'.
