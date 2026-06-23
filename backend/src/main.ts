@@ -211,11 +211,26 @@ async function bootstrap() {
       const recentUsers = await ds.query(
         `SELECT email, role, created_at FROM users ORDER BY created_at DESC LIMIT 5`,
       ).catch(() => []);
+      // Diagnostics for the Grade 5 rubric issue: what areas grade_5 has, and what
+      // grade_level each stream was created with (a mis-set stream grade pulls the
+      // wrong learning areas into the rubric).
+      const g5areas = await ds.query(
+        `SELECT DISTINCT learning_area FROM assessment_templates WHERE grade_level='grade_5' ORDER BY learning_area`,
+      ).catch(() => []);
+      const streamGrades = await ds.query(
+        `SELECT name, grade_level FROM streams ORDER BY grade_level, name LIMIT 50`,
+      ).catch(() => []);
+      const gradeLevelsInTemplates = await ds.query(
+        `SELECT grade_level, COUNT(*)::int AS n FROM assessment_templates GROUP BY grade_level ORDER BY grade_level`,
+      ).catch(() => []);
       res.type('text/plain').send(
         `DATABASE: ${dbinfo[0]?.db} (user ${dbinfo[0]?.usr})\n\n` +
         `ROW COUNTS:\n` + Object.entries(out).map(([k, v]) => `  ${k.padEnd(22)} ${v}`).join('\n') +
         `\n\nSUPER ADMINS (${owners.length}):\n` + owners.map((o: any) => `  ${o.email}  [${o.role}]  ${o.created_at}`).join('\n') +
-        `\n\n5 MOST RECENT USERS:\n` + recentUsers.map((u: any) => `  ${u.email}  [${u.role}]  ${u.created_at}`).join('\n'),
+        `\n\n5 MOST RECENT USERS:\n` + recentUsers.map((u: any) => `  ${u.email}  [${u.role}]  ${u.created_at}`).join('\n') +
+        `\n\nGRADE_5 LEARNING AREAS IN TEMPLATES (${g5areas.length}):\n` + g5areas.map((a: any) => `  ${a.learning_area}`).join('\n') +
+        `\n\nTEMPLATE GRADE LEVELS:\n` + gradeLevelsInTemplates.map((g: any) => `  ${g.grade_level.padEnd(12)} ${g.n} areas`).join('\n') +
+        `\n\nSTREAMS & THEIR GRADE LEVELS:\n` + streamGrades.map((s: any) => `  ${(s.name||'').padEnd(24)} grade_level=${s.grade_level}`).join('\n'),
       );
     } catch (e: any) {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
@@ -238,25 +253,20 @@ async function bootstrap() {
       const ds = app.get(DataSource);
       const dir = path.join(process.cwd(), 'database', 'migrations');
 
-      // Optional clean rebuild: add &reset=true to DROP the entire public schema first.
-      // This wipes ALL data and objects, giving a guaranteed-clean slate so migrations
-      // run start-to-finish without tripping over leftovers from earlier partial runs.
-      // Use this once to fix a broken/half-built database, then migrate fresh.
-      if (String(req.query?.reset || '') === 'true') {
-        await ds.query(`DROP SCHEMA public CASCADE`).catch((e: any) => lines.push(`(reset note: ${e.message})`));
-        await ds.query(`CREATE SCHEMA public`).catch(() => null);
-        await ds.query(`GRANT ALL ON SCHEMA public TO CURRENT_USER`).catch(() => null);
-        await ds.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`).catch(() => null);
-        await ds.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`).catch(() => null);
-        lines.push('🧹 public schema reset (clean slate)');
-      }
-
+      // SAFETY: the destructive "&reset=true" rebuild path (which dropped the schema and
+      // wiped ALL data) has been REMOVED, along with the tracker-wipe. This endpoint is
+      // now strictly ADDITIVE — it only runs migration files that have not been applied
+      // before, and never drops the schema or clears the tracker. Re-hitting the URL is
+      // safe and simply skips everything already applied. A genuine rebuild must be done
+      // via a database backup/restore, never from a URL.
       await ds.query(`CREATE TABLE IF NOT EXISTS _migrations (filename VARCHAR(200) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => null);
-      await ds.query(`DELETE FROM _migrations`).catch(() => null);
+      const appliedRows = await ds.query(`SELECT filename FROM _migrations`).catch(() => []);
+      const applied = new Set<string>((appliedRows || []).map((r: any) => r.filename));
       await ds.query(`CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $fn$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $fn$ LANGUAGE plpgsql;`).catch(() => null);
       const files = fs.readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
-      let ok = 0, fail = 0;
+      let ok = 0, fail = 0, skip = 0;
       for (const file of files) {
+        if (applied.has(file)) { lines.push(`SKIP  ${file} (already applied)`); skip++; continue; }
         try {
           await ds.query(fs.readFileSync(path.join(dir, file), 'utf8'));
           await ds.query(`INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, [file]).catch(() => null);
@@ -265,7 +275,7 @@ async function bootstrap() {
           lines.push(`FAIL  ${file} — ${String(e.message || '').slice(0, 200)}`); fail++;
         }
       }
-      lines.push(`\nDONE — ${ok} ok, ${fail} failed`);
+      lines.push(`\nDONE — ${ok} applied, ${skip} skipped, ${fail} failed`);
       res.type('text/plain').send(lines.join('\n'));
     } catch (e: any) {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}\n${lines.join('\n')}`);
