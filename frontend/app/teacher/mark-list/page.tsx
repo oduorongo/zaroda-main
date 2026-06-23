@@ -8,7 +8,7 @@ import { Save, Loader2, Trophy, ArrowLeft, Calculator, Download, Printer, Lock }
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
-import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea } from '@/lib/cbc/constants';
+import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea, pointsForLevel } from '@/lib/cbc/constants';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import toast from 'react-hot-toast';
 
@@ -127,17 +127,24 @@ export default function TeacherMarkListPage() {
   };
 
   const ranked = useMemo(() => {
+    const grade = stream?.gradeLevel || 'grade_4';
     const rows = learners.map(l => {
       const subjectScores = scores[l.id] || {};
       const entered = Object.values(subjectScores);
       const totalRaw = entered.reduce((a, b) => a + b, 0);
       const percent = entered.length ? Math.round((totalRaw / (entered.length * maxScore)) * 100) : 0;
-      return { learner: l, subjectScores, totalRaw, percent, hasScores: entered.length > 0 };
+      // Points average expressed as a performance level: convert each subject's % to its
+      // CBC level points, sum, and average → then map the average % back to a level code.
+      const levelCodes = entered.map(v => percentToLevel(Math.round((v / maxScore) * 100), grade).code);
+      const totalPoints = levelCodes.reduce((sum, c) => sum + pointsForLevel(c, grade), 0);
+      const avgPoints = entered.length ? (totalPoints / entered.length) : 0;
+      const avgLevel = entered.length ? percentToLevel(percent, grade).code : '';
+      return { learner: l, subjectScores, totalRaw, percent, totalPoints, avgPoints, avgLevel, hasScores: entered.length > 0 };
     });
     const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
     withScores.forEach((r, i) => (r as any).rank = i + 1);
     return [...withScores, ...rows.filter(r => !r.hasScores)];
-  }, [learners, scores, subjects, maxScore]);
+  }, [learners, scores, subjects, maxScore, stream]);
 
   const save = async () => {
     setSaving(true);
@@ -190,7 +197,7 @@ export default function TeacherMarkListPage() {
 
   // ── Download (CSV) ───────────────────────────────────────
   const downloadCsv = () => {
-    const head = ['Rank', 'Adm No', 'Learner', ...subjects, 'Avg %'];
+    const head = ['Rank', 'Adm No', 'Learner', ...subjects, 'Avg %', 'Points Avg', 'Level'];
     const lines = [head.join(',')];
     ranked.forEach((r: any) => {
       const row = [
@@ -199,6 +206,8 @@ export default function TeacherMarkListPage() {
         `"${r.learner.firstName} ${r.learner.lastName}"`,
         ...subjects.map(s => r.subjectScores[s] ?? ''),
         r.hasScores ? r.percent : '',
+        r.hasScores ? r.avgPoints.toFixed(1) : '',
+        r.hasScores ? r.avgLevel : '',
       ];
       lines.push(row.join(','));
     });
@@ -221,6 +230,7 @@ export default function TeacherMarkListPage() {
         <td>${r.learner.firstName} ${r.learner.lastName}</td>
         ${subjects.map(s => `<td style="text-align:center">${r.subjectScores[s] ?? ''}</td>`).join('')}
         <td style="text-align:center;font-weight:700">${r.hasScores ? r.percent + '%' : ''}</td>
+        <td style="text-align:center;font-weight:700">${r.hasScores ? r.avgPoints.toFixed(1) + ' ' + r.avgLevel : ''}</td>
       </tr>`).join('');
     w.document.write(`<!doctype html><html><head><title>Mark List — ${stream?.name || ''}</title>
       <style>
@@ -234,7 +244,7 @@ export default function TeacherMarkListPage() {
       <p>${term.replace('_',' ')} · ${examType.replace('_',' ')} · ${academicYearLabel()} · Out of ${maxScore}</p>
       <table><thead><tr>
         <th>#</th><th>Adm No</th><th>Learner</th>
-        ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th>
+        ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
       </tr></thead><tbody>${rows}</tbody></table>
       <script>window.onload=function(){window.print()}</script>
       </body></html>`);
@@ -316,6 +326,7 @@ export default function TeacherMarkListPage() {
                 <th className="px-4 py-3 text-left">Learner</th>
                 {subjects.map(s => <th key={s} className="px-2 py-3 text-center">{s}</th>)}
                 <th className="px-3 py-3 text-center">Avg %</th>
+                <th className="px-3 py-3 text-center">Points Avg<br/><span className="text-[9px] font-normal opacity-70">(level)</span></th>
               </tr>
             </thead>
             <tbody>
@@ -347,6 +358,13 @@ export default function TeacherMarkListPage() {
                   })}
                   <td className="px-3 py-2 text-center font-black text-theme-heading">
                     {row.hasScores ? `${row.percent}%` : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {row.hasScores
+                      ? <span className="font-bold" style={{ color: percentToLevel(row.percent, stream?.gradeLevel || 'grade_4').color }}>
+                          {row.avgPoints.toFixed(1)} <span className="text-[10px]">{row.avgLevel}</span>
+                        </span>
+                      : '—'}
                   </td>
                 </tr>
               ))}

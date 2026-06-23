@@ -223,6 +223,12 @@ async function bootstrap() {
       const gradeLevelsInTemplates = await ds.query(
         `SELECT grade_level, COUNT(*)::int AS n FROM assessment_templates GROUP BY grade_level ORDER BY grade_level`,
       ).catch(() => []);
+      // Strand counts per grade + term — shows whether Term 2/3 strands are seeded.
+      const strandsByTerm = await ds.query(
+        `SELECT t.grade_level, st.term, COUNT(*)::int AS strands
+           FROM assessment_strands st JOIN assessment_templates t ON t.id = st.template_id
+          GROUP BY t.grade_level, st.term ORDER BY t.grade_level, st.term`,
+      ).catch(() => []);
       res.type('text/plain').send(
         `DATABASE: ${dbinfo[0]?.db} (user ${dbinfo[0]?.usr})\n\n` +
         `ROW COUNTS:\n` + Object.entries(out).map(([k, v]) => `  ${k.padEnd(22)} ${v}`).join('\n') +
@@ -230,6 +236,7 @@ async function bootstrap() {
         `\n\n5 MOST RECENT USERS:\n` + recentUsers.map((u: any) => `  ${u.email}  [${u.role}]  ${u.created_at}`).join('\n') +
         `\n\nGRADE_5 LEARNING AREAS IN TEMPLATES (${g5areas.length}):\n` + g5areas.map((a: any) => `  ${a.learning_area}`).join('\n') +
         `\n\nTEMPLATE GRADE LEVELS:\n` + gradeLevelsInTemplates.map((g: any) => `  ${g.grade_level.padEnd(12)} ${g.n} areas`).join('\n') +
+        `\n\nSTRANDS BY GRADE + TERM (shows if Term 2/3 seeded):\n` + strandsByTerm.map((s: any) => `  ${(s.grade_level||'').padEnd(12)} ${(s.term||'').padEnd(8)} ${s.strands} strands`).join('\n') +
         `\n\nSTREAMS & THEIR GRADE LEVELS:\n` + streamGrades.map((s: any) => `  ${(s.name||'').padEnd(24)} grade_level=${s.grade_level}`).join('\n'),
       );
     } catch (e: any) {
