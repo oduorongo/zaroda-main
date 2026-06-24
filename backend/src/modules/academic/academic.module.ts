@@ -527,7 +527,91 @@ export class AcademicService {
     };
   }
 
-  // ── Exams ────────────────────────────────────────────────
+  // ── School-wide analytics (admin/HOI only) ───────────────────
+  // Aggregates every mark in the school into: per-grade averages, per-learning-area
+  // averages school-wide, whole-school CBC level distribution, term trend, and a
+  // stream leaderboard (each class's average). Optionally filter by grade and/or term.
+  async getSchoolAnalytics(user: any, gradeLevel?: string, term?: string) {
+    if (!this.isHoiRole(user.role)) {
+      throw new BadRequestException('School analytics are available to administrators only.');
+    }
+    const tenantId = user.tenantId;
+
+    const rows = await this.dataSource.query(
+      `SELECT ar.subject, ar.percent, ar.term, ar.learner_id AS "learnerId",
+              s.id::text AS "streamId", s.name AS "streamName", s.grade_level AS "gradeLevel"
+         FROM assessment_results ar
+         JOIN streams s ON s.id::text = ar.stream_id::text
+        WHERE ar.tenant_id::text = $1 AND ar.percent IS NOT NULL
+          AND ($2::text IS NULL OR s.grade_level = $2)
+          AND ($3::text IS NULL OR ar.term = $3)`,
+      [tenantId, gradeLevel || null, term || null],
+    ).catch(() => []);
+
+    const isSeniorGrade = (g: string) => this.isSenior(g);
+
+    const byGrade: Record<string, { sum: number; n: number; learners: Set<string> }> = {};
+    const byArea: Record<string, { sum: number; n: number }> = {};
+    const byStream: Record<string, { name: string; grade: string; sum: number; n: number; learners: Set<string> }> = {};
+    const byTerm: Record<string, { sum: number; n: number }> = {};
+    const levelDistByBand: { junior: Record<string, number>; primary: Record<string, number> } = { junior: {}, primary: {} };
+    const allLearners = new Set<string>();
+    let totalSum = 0, totalN = 0;
+
+    for (const r of rows) {
+      const pct = Number(r.percent);
+      if (isNaN(pct)) continue;
+      const g = r.gradeLevel || 'unknown';
+      const senior = isSeniorGrade(g);
+      (byGrade[g] ||= { sum: 0, n: 0, learners: new Set() });
+      byGrade[g].sum += pct; byGrade[g].n++; byGrade[g].learners.add(r.learnerId);
+      (byArea[r.subject] ||= { sum: 0, n: 0 }); byArea[r.subject].sum += pct; byArea[r.subject].n++;
+      (byStream[r.streamId] ||= { name: r.streamName, grade: g, sum: 0, n: 0, learners: new Set() });
+      byStream[r.streamId].sum += pct; byStream[r.streamId].n++; byStream[r.streamId].learners.add(r.learnerId);
+      const t = r.term || 'term_?'; (byTerm[t] ||= { sum: 0, n: 0 }); byTerm[t].sum += pct; byTerm[t].n++;
+      const code = this.percentToLevelCode(pct, senior);
+      const bucket = senior ? levelDistByBand.junior : levelDistByBand.primary;
+      bucket[code] = (bucket[code] || 0) + 1;
+      allLearners.add(r.learnerId);
+      totalSum += pct; totalN++;
+    }
+
+    const grades = Object.entries(byGrade)
+      .map(([g, v]) => ({ gradeLevel: g, average: Math.round(v.sum / v.n), level: this.percentToLevelCode(Math.round(v.sum / v.n), isSeniorGrade(g)), learners: v.learners.size }))
+      .sort((a, b) => a.gradeLevel.localeCompare(b.gradeLevel));
+
+    const areas = Object.entries(byArea)
+      .map(([subject, v]) => ({ subject, average: Math.round(v.sum / v.n), count: v.n }))
+      .sort((a, b) => b.average - a.average);
+
+    const streams = Object.entries(byStream)
+      .map(([streamId, v]) => ({ streamId, name: v.name, gradeLevel: v.grade, average: Math.round(v.sum / v.n), level: this.percentToLevelCode(Math.round(v.sum / v.n), isSeniorGrade(v.grade)), learners: v.learners.size }))
+      .sort((a, b) => b.average - a.average)
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+
+    const trend = Object.entries(byTerm)
+      .map(([t, v]) => ({ term: t, average: Math.round(v.sum / v.n) }))
+      .sort((a, b) => a.term.localeCompare(b.term));
+
+    const distributionPrimary = Object.entries(levelDistByBand.primary).map(([code, count]) => ({ code, count }));
+    const distributionJunior  = Object.entries(levelDistByBand.junior).map(([code, count]) => ({ code, count }));
+
+    const schoolAverage = totalN ? Math.round(totalSum / totalN) : 0;
+
+    return {
+      gradeFilter: gradeLevel || 'all',
+      term: term || 'all',
+      learnerCount: allLearners.size,
+      schoolAverage,
+      grades,                 // per-grade averages
+      areas,                  // school-wide per-learning-area averages
+      streams,                // stream leaderboard
+      trend,                  // school avg % per term
+      distributionPrimary,    // CBC 4-level (grades 1-6)
+      distributionJunior,     // 8-level (grades 7-12)
+    };
+  }
+
   async getExams(tenantId: string) {
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear",
@@ -1627,6 +1711,11 @@ export class AcademicController {
   @Get('analytics/stream')
   getStreamAnalytics(@Request() req: any, @Query() q: any) {
     return this.academicService.getStreamAnalytics(req.user, q.streamId, q.term);
+  }
+
+  @Get('analytics/school')
+  getSchoolAnalytics(@Request() req: any, @Query() q: any) {
+    return this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term);
   }
 
   @Get('term-mark-sheet')

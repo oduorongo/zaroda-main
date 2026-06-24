@@ -6,7 +6,7 @@ import {
   Home, BookOpen, DollarSign, MessageSquare, FileText,
   Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
   Bell, Menu, X, ChevronRight, Users, BarChart2,
-  GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft,
+  GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
+  { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin' },
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'all' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
@@ -35,6 +36,7 @@ function canSee(roleKey: string, userRole: string): boolean {
   if (roleKey === 'all') return true;
   if (roleKey === 'finance')      return isBursar(userRole);
   if (roleKey === 'teacher')      return isTeacher(userRole) || isHoi(userRole);
+  if (roleKey === 'admin')        return isHoi(userRole);
   if (roleKey === 'teacher_only') return isTeacher(userRole);
   if (roleKey === 'parent_only')  return isParent(userRole);
   if (roleKey === 'learner_only') return isLearner(userRole);
