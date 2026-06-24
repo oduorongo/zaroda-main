@@ -124,84 +124,30 @@ export default function TeacherMarkListPage() {
   }, [stream, rubricAreas]);
   const band = useMemo(() => levelBandLabel(stream?.gradeLevel || 'grade_4'), [stream]);
 
-  const setScore = (learnerId: string, subject: string, raw: string) => {
-    if (raw === '') {
-      setScores(s => {
-        const next = { ...(s[learnerId] || {}) }; delete next[subject];
-        return { ...s, [learnerId]: next };
-      });
-      return;
-    }
-    const val = Math.min(maxScore, Math.max(0, Number(raw) || 0));
-    setScores(s => ({ ...s, [learnerId]: { ...(s[learnerId] || {}), [subject]: val } }));
-  };
-
   const ranked = useMemo(() => {
     const grade = stream?.gradeLevel || 'grade_4';
     const rows = learners.map(l => {
-      const subjectScores = scores[l.id] || {};
       const meta = savedMeta[l.id] || {};
-      // Compute each subject's percentage from its OWN "out of": prefer the stored
-      // percent/maxScore (authoritative, from entry time); for a freshly typed value not
-      // yet saved, fall back to the page's current maxScore. This fixes wrong averages
-      // when subjects were marked out of different totals.
-      const perSubjectPct: number[] = [];
-      const subjectPctMap: Record<string, number> = {};
-      Object.entries(subjectScores).forEach(([subj, raw]) => {
-        const m = meta[subj];
-        let pct: number | null = null;
-        if (m && !isNaN(m.percent) && savedCells.has(cellKey(l.id, subj))) {
-          pct = m.percent;                                   // authoritative stored %
-        } else if (maxScore > 0) {
-          pct = Math.round((Number(raw) / maxScore) * 100);  // unsaved edit → page maxScore
-        }
-        if (pct != null && !isNaN(pct)) { perSubjectPct.push(pct); subjectPctMap[subj] = pct; }
-      });
+      // Read-only: average each subject's STORED percentage (computed at entry time against
+      // its real "out of"). The mark list never recomputes from raw scores.
+      const perSubjectPct: number[] = Object.values(meta)
+        .map((m: any) => Number(m.percent)).filter(p => !isNaN(p));
+      // Per-subject % map keyed by subject, for the PDF/CSV exports.
+      const subjectPct: Record<string, number> = {};
+      Object.entries(meta).forEach(([s, m]: any) => { if (!isNaN(Number(m.percent))) subjectPct[s] = Number(m.percent); });
+      const subjectLvl: Record<string, string> = {};
+      Object.entries(meta).forEach(([s, m]: any) => { if (m.level) subjectLvl[s] = m.level; });
       const hasScores = perSubjectPct.length > 0;
       const percent = hasScores ? Math.round(perSubjectPct.reduce((a, b) => a + b, 0) / perSubjectPct.length) : 0;
       const totalPoints = perSubjectPct.reduce((sum, p) => sum + pointsForLevel(percentToLevel(p, grade).code, grade), 0);
       const avgPoints = hasScores ? (totalPoints / perSubjectPct.length) : 0;
       const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
-      return { learner: l, subjectScores, subjectPctMap, percent, totalPoints, avgPoints, avgLevel, hasScores };
+      return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgPoints, avgLevel, hasScores };
     });
     const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
     withScores.forEach((r, i) => (r as any).rank = i + 1);
     return [...withScores, ...rows.filter(r => !r.hasScores)];
-  }, [learners, scores, savedMeta, savedCells, subjects, maxScore, stream]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const records = ranked.filter(r => r.hasScores).flatMap(r =>
-        Object.entries(r.subjectScores).map(([subject, raw]) => {
-          // Each subject keeps its OWN "out of". For a mark already saved, reuse its stored
-          // maxScore (so saving the list NEVER overwrites a subject's real total with the
-          // page default). Only a freshly typed, not-yet-saved mark uses the page maxScore.
-          const stored = savedMeta[r.learner.id]?.[subject];
-          const isSaved = savedCells.has(cellKey(r.learner.id, subject));
-          const useMax = (isSaved && stored && stored.maxScore > 0) ? stored.maxScore : maxScore;
-          if (!useMax || useMax <= 0) return null;  // never save against an invalid total
-          const pct = Math.round((Number(raw) / useMax) * 100);
-          return {
-            learnerId: r.learner.id, subject, streamId,
-            rawScore: raw, maxScore: useMax, percent: pct,
-            level: percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
-            gradeLevel: stream?.gradeLevel,
-            term, examType, examId, academicYear: '2025/2026',
-          };
-        }).filter(Boolean)
-      );
-      if (!records.length) { toast.error('No scores to save'); return; }
-      await apiClient.post('/academic/assessment-results/bulk', { records });
-      // Everything now persisted → mark all current cells as saved (edit-only henceforth)
-      const saved = new Set(savedCells);
-      records.forEach(rec => saved.add(cellKey(rec.learnerId, rec.subject)));
-      setSavedCells(saved);
-      toast.success(`Class mark list saved — ${records.length} entries`);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Could not save mark list');
-    } finally { setSaving(false); }
-  };
+  }, [learners, savedMeta, subjects, stream]);
 
   // ── Print / Save as PDF (browser-based, no server PDF engine) ────
   const downloadPdf = async () => {
@@ -234,7 +180,7 @@ export default function TeacherMarkListPage() {
         r.hasScores ? r.rank : '',
         r.learner.admissionNumber || '',
         `"${r.learner.firstName} ${r.learner.lastName}"`,
-        ...subjects.map(s => r.subjectScores[s] ?? ''),
+        ...subjects.map(s => { const p = r.subjectPct?.[s]; const lv = r.subjectLvl?.[s]; return p != null ? `${p}% ${lv||''}` : ''; }),
         r.hasScores ? r.percent : '',
         r.hasScores ? r.avgPoints.toFixed(1) : '',
         r.hasScores ? r.avgLevel : '',
@@ -258,7 +204,7 @@ export default function TeacherMarkListPage() {
         <td style="text-align:center">${r.hasScores ? r.rank : ''}</td>
         <td>${r.learner.admissionNumber || ''}</td>
         <td>${r.learner.firstName} ${r.learner.lastName}</td>
-        ${subjects.map(s => `<td style="text-align:center">${r.subjectScores[s] ?? ''}</td>`).join('')}
+        ${subjects.map(s => { const p = r.subjectPct?.[s]; const lv = r.subjectLvl?.[s]; return `<td style="text-align:center">${p != null ? p + '% ' + (lv||'') : '-'}</td>`; }).join('')}
         <td style="text-align:center;font-weight:700">${r.hasScores ? r.percent + '%' : ''}</td>
         <td style="text-align:center;font-weight:700">${r.hasScores ? r.avgPoints.toFixed(1) + ' ' + r.avgLevel : ''}</td>
       </tr>`).join('');
@@ -271,7 +217,7 @@ export default function TeacherMarkListPage() {
         th{background:#1a2e5a;color:#fff;font-size:10px}
       </style></head><body>
       <h2>${stream?.name || 'Class'} — Mark List</h2>
-      <p>${term.replace('_',' ')} · ${examType.replace('_',' ')} · ${academicYearLabel()} · Out of ${maxScore}</p>
+      <p>${term.replace('_',' ')} · ${examType.replace('_',' ')} · ${academicYearLabel()}</p>
       <table><thead><tr>
         <th>#</th><th>Adm No</th><th>Learner</th>
         ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
@@ -300,9 +246,6 @@ export default function TeacherMarkListPage() {
           <button onClick={downloadPdf} disabled={learners.length === 0} className="btn-ghost text-sm" title="Download PDF"><Download size={15}/> PDF</button>
           <button onClick={downloadCsv} disabled={learners.length === 0} className="btn-ghost text-sm" title="Download CSV"><Download size={15}/> CSV</button>
           <button onClick={print} disabled={learners.length === 0} className="btn-ghost text-sm" title="Print"><Printer size={15}/> Print</button>
-          <button onClick={save} disabled={saving || learners.length === 0} className="btn-primary">
-            {saving ? <><Loader2 size={16} className="animate-spin"/> Saving…</> : <><Save size={16}/> Save Mark List</>}
-          </button>
         </div>
       </div>
 
@@ -327,10 +270,6 @@ export default function TeacherMarkListPage() {
             {termExams.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
           </select>
         </div>
-        <div>
-          <label className="label">Out of</label>
-          <input type="number" value={maxScore} onChange={e => setMaxScore(Number(e.target.value) || 100)} className="input w-20"/>
-        </div>
         {stream && (
           <div className="ml-auto text-xs bg-surface-2 rounded-lg px-3 py-2 text-theme-muted">
             <Calculator size={12} className="inline mr-1"/>{scaleLabel} · {band}
@@ -339,7 +278,7 @@ export default function TeacherMarkListPage() {
       </div>
 
       <div className="text-[11px] text-theme-muted flex items-center gap-1">
-        <Lock size={11}/> Cells with a saved mark are highlighted — entering a value edits the existing mark.
+        <Lock size={11}/> This mark list is read-only. To enter or change marks, use <b className="mx-1">Enter Marks</b> — they appear here as % and performance level automatically.
       </div>
 
       {loading ? <div className="h-64 shimmer rounded-2xl"/> : learners.length === 0 ? (
@@ -372,31 +311,16 @@ export default function TeacherMarkListPage() {
                     <div className="text-[10px] text-theme-muted">{row.learner.admissionNumber}</div>
                   </td>
                   {subjects.map(subj => {
-                    const isSaved = savedCells.has(cellKey(row.learner.id, subj));
-                    const rawVal = scores[row.learner.id]?.[subj];
                     const meta = savedMeta[row.learner.id]?.[subj];
-                    const hasVal = rawVal !== undefined && rawVal !== '' && !isNaN(Number(rawVal));
-                    // Saved marks show their stored % (against their real "out of"); unsaved
-                    // edits show a live % against the current page "Out of".
-                    const cellPct = (isSaved && meta && !isNaN(meta.percent))
-                      ? meta.percent
-                      : (hasVal && maxScore > 0 ? Math.round((Number(rawVal) / maxScore) * 100) : null);
+                    const cellPct = (meta && !isNaN(meta.percent)) ? meta.percent : null;
                     const cellLvl = cellPct != null ? percentToLevel(cellPct, stream?.gradeLevel || 'grade_4') : null;
                     return (
-                      <td key={subj} className="px-1 py-2 text-center">
-                        <input
-                          type="number" min={0} max={maxScore}
-                          value={scores[row.learner.id]?.[subj] ?? ''}
-                          placeholder="—"
-                          title={isSaved ? 'Saved mark — editing updates it' : 'New entry'}
-                          onChange={e => setScore(row.learner.id, subj, e.target.value)}
-                          className={`w-14 text-center text-sm px-1.5 py-1 rounded-lg focus:ring-1 focus:ring-[#1a2e5a] focus:outline-none ${isSaved ? 'bg-green-500/10 font-semibold text-green-700' : 'bg-surface-2'}`}
-                          style={{ border: isSaved ? '1px solid rgba(34,197,94,0.4)' : '1px solid var(--border)' }}/>
-                        {cellLvl && (
-                          <div className="text-[10px] mt-0.5 leading-tight font-semibold" style={{ color: cellLvl.color }}>
-                            {cellPct}% {cellLvl.code}
+                      <td key={subj} className="px-2 py-2 text-center">
+                        {cellLvl ? (
+                          <div className="font-bold" style={{ color: cellLvl.color }}>
+                            {cellPct}% <span className="text-[10px]">{cellLvl.code}</span>
                           </div>
-                        )}
+                        ) : <span className="text-theme-muted">—</span>}
                       </td>
                     );
                   })}
