@@ -170,6 +170,58 @@ export default function AdminEnterMarksPage() {
     return percentToLevel(Math.round((n / maxScoreNum) * 100), stream?.gradeLevel || 'grade_4');
   };
 
+  const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('load failed'));
+    document.head.appendChild(s);
+  });
+
+  // True download-to-device PDF of the {area} ranking (client-side render).
+  const downloadAreaPdf = async () => {
+    if (!examId) { toast.error('Pick an assessment first'); return; }
+    const filename = `${area}-${stream?.name || 'class'}-${term}.pdf`.replace(/\s+/g, '_');
+    const toastId = toast.loading('Preparing PDF…');
+    try {
+      const base = (typeof window !== 'undefined' ? window.location.origin : '');
+      const token = localStorage.getItem('zaroda_token');
+      const url = `${(process.env.NEXT_PUBLIC_API_URL || base)}/api/v1/pdf/area-ranking/html?streamId=${streamId}&term=${term}&examId=${examId}&subject=${encodeURIComponent(area)}&academicYear=2025/2026`;
+      const html = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.text());
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const html2canvas = (window as any).html2canvas;
+      const JsPDF = (window as any).jspdf?.jsPDF;
+      if (!html2canvas || !JsPDF) throw new Error('pdf libs unavailable');
+      const holder = document.createElement('div');
+      holder.style.cssText = 'position:fixed;left:-99999px;top:0;width:800px;background:#fff';
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      holder.querySelectorAll('script').forEach(s => s.remove());
+      const canvas = await html2canvas(holder, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      document.body.removeChild(holder);
+      const pdf = new JsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const img = canvas.toDataURL('image/png');
+      let remaining = imgH, position = 0;
+      if (imgH <= pageH) { pdf.addImage(img, 'PNG', 0, 0, imgW, imgH); }
+      else { while (remaining > 0) { pdf.addImage(img, 'PNG', 0, position, imgW, imgH); remaining -= pageH; position -= pageH; if (remaining > 0) pdf.addPage(); } }
+      pdf.save(filename);
+      toast.success('PDF downloaded', { id: toastId });
+    } catch {
+      toast.dismiss(toastId);
+      // Fallback: open print page
+      const base = (typeof window !== 'undefined' ? window.location.origin : '');
+      const token = localStorage.getItem('zaroda_token');
+      const url = `${(process.env.NEXT_PUBLIC_API_URL || base)}/api/v1/pdf/area-ranking/html?streamId=${streamId}&term=${term}&examId=${examId}&subject=${encodeURIComponent(area)}&academicYear=2025/2026`;
+      fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.text())
+        .then(html => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } })
+        .catch(() => toast.error('Could not generate PDF'));
+    }
+  };
+
   const filteredLearners = learners.filter(l => matchesLearner(l, search));
 
   return (
@@ -290,6 +342,9 @@ export default function AdminEnterMarksPage() {
             }}
             className="btn-ghost w-full justify-center">
             <Printer size={16}/> Print {area} ranking (score + level)
+          </button>
+          <button onClick={downloadAreaPdf} className="btn-primary w-full justify-center">
+            <Download size={16}/> Download {area} ranking (PDF)
           </button>
           <button
             onClick={() => {
