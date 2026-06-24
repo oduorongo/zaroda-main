@@ -612,6 +612,90 @@ export class AcademicService {
     };
   }
 
+  // ── Subject-teacher analytics ────────────────────────────────
+  // For a learning-area teacher: shows ONLY the subjects they teach, each compared across
+  // the classes they teach it in. Returns, per subject: class-by-class averages, the level
+  // distribution for that subject, term trend, and an overall average. Scoped strictly to
+  // the teacher's own (stream, subject) assignments.
+  async getSubjectTeacherAnalytics(user: any, subjectFilter?: string, term?: string) {
+    const tenantId = user.tenantId;
+
+    // The teacher's exact (stream, subject) assignments.
+    const ssRows = await this.dataSource.query(
+      `SELECT stream_id::text AS "streamId", subject FROM teacher_stream_subjects
+        WHERE tenant_id::text = $1 AND teacher_id::text = $2`,
+      [tenantId, user.id],
+    ).catch(() => []);
+
+    // Admins teach nothing specific; if an admin opens this, fall back to all subjects.
+    const admin = this.isHoiRole(user.role);
+    if (!ssRows.length && !admin) {
+      return { subjects: [], data: [], note: 'You have no learning-area assignments yet. Ask your admin to assign your subjects.' };
+    }
+
+    // subject -> set of streamIds the teacher teaches it in
+    const subjectStreams: Record<string, Set<string>> = {};
+    for (const r of ssRows) {
+      (subjectStreams[r.subject] ||= new Set()).add(r.streamId);
+    }
+    const mySubjects = Object.keys(subjectStreams).sort();
+    const chosen = subjectFilter && subjectStreams[subjectFilter] ? subjectFilter : mySubjects[0];
+    if (!chosen) return { subjects: [], data: null };
+
+    const streamIds = Array.from(subjectStreams[chosen]);
+    if (!streamIds.length) return { subjects: mySubjects, chosen, data: null };
+
+    // Pull marks for this subject in exactly those streams.
+    const rows = await this.dataSource.query(
+      `SELECT ar.percent, ar.term, ar.learner_id AS "learnerId",
+              s.id::text AS "streamId", s.name AS "streamName", s.grade_level AS "gradeLevel"
+         FROM assessment_results ar
+         JOIN streams s ON s.id::text = ar.stream_id::text
+        WHERE ar.tenant_id::text = $1 AND ar.subject = $2
+          AND ar.stream_id::text = ANY($3::text[])
+          AND ($4::text IS NULL OR ar.term = $4)
+          AND ar.percent IS NOT NULL`,
+      [tenantId, chosen, streamIds, term || null],
+    ).catch(() => []);
+
+    const byStream: Record<string, { name: string; grade: string; sum: number; n: number; learners: Set<string> }> = {};
+    const byTerm: Record<string, { sum: number; n: number }> = {};
+    const levelDist: Record<string, number> = {};
+    let totalSum = 0, totalN = 0; const allLearners = new Set<string>();
+
+    for (const r of rows) {
+      const pct = Number(r.percent); if (isNaN(pct)) continue;
+      const senior = this.isSenior(r.gradeLevel || '');
+      (byStream[r.streamId] ||= { name: r.streamName, grade: r.gradeLevel, sum: 0, n: 0, learners: new Set() });
+      const st = byStream[r.streamId]; st.sum += pct; st.n++; st.learners.add(r.learnerId);
+      const t = r.term || 'term_?'; (byTerm[t] ||= { sum: 0, n: 0 }); byTerm[t].sum += pct; byTerm[t].n++;
+      const code = this.percentToLevelCode(pct, senior);
+      levelDist[code] = (levelDist[code] || 0) + 1;
+      totalSum += pct; totalN++; allLearners.add(r.learnerId);
+    }
+
+    const classes = Object.entries(byStream)
+      .map(([streamId, v]) => ({ streamId, name: v.name, gradeLevel: v.grade, average: Math.round(v.sum / v.n), level: this.percentToLevelCode(Math.round(v.sum / v.n), this.isSenior(v.grade)), learners: v.learners.size }))
+      .sort((a, b) => b.average - a.average);
+
+    const trend = Object.entries(byTerm)
+      .map(([t, v]) => ({ term: t, average: Math.round(v.sum / v.n) }))
+      .sort((a, b) => a.term.localeCompare(b.term));
+
+    const distribution = Object.entries(levelDist).map(([code, count]) => ({ code, count }));
+
+    return {
+      subjects: mySubjects,           // the teacher's subjects (for the picker)
+      chosen,                         // the subject being shown
+      term: term || 'all',
+      overallAverage: totalN ? Math.round(totalSum / totalN) : 0,
+      learnerCount: allLearners.size,
+      classes,                        // class-by-class averages for this subject
+      distribution,                   // level distribution for this subject
+      trend,                          // term trend for this subject
+    };
+  }
+
   async getExams(tenantId: string) {
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear",
@@ -1716,6 +1800,11 @@ export class AcademicController {
   @Get('analytics/school')
   getSchoolAnalytics(@Request() req: any, @Query() q: any) {
     return this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term);
+  }
+
+  @Get('analytics/subject')
+  getSubjectTeacherAnalytics(@Request() req: any, @Query() q: any) {
+    return this.academicService.getSubjectTeacherAnalytics(req.user, q.subject, q.term);
   }
 
   @Get('term-mark-sheet')
