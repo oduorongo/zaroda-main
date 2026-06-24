@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'ca-normalize-2026-06-24', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -244,7 +244,27 @@ async function bootstrap() {
     }
   });
 
-  // Browser-runnable repair for a mislabeled class grade level (e.g. a Grade 5 stream
+  // OWNER BACKUP: download a full JSON snapshot of all data (schools, learners, marks,
+  // streams, exams). Read-only. Save this file regularly — it is your restore point.
+  // Visit: /export-data?key=zaroda-migrate-now
+  httpAdapter.get('/export-data', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const dump: any = { exportedAt: new Date().toISOString() };
+      const tables = ['tenants', 'schools', 'users', 'streams', 'learners', 'exams',
+        'assessment_results', 'assessment_scores'];
+      for (const t of tables) {
+        dump[t] = await ds.query(`SELECT * FROM ${t}`).catch((e: any) => ({ error: e.message }));
+      }
+      res.setHeader('Content-Disposition', `attachment; filename="zaroda-backup-${new Date().toISOString().slice(0,10)}.json"`);
+      res.type('application/json').send(JSON.stringify(dump, null, 2));
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
   // saved as grade_7, which makes the rubric show the wrong learning areas). This only
   // updates the class's grade LABEL — it does not touch or delete any marks, which are
   // tied to the learner + subject, not the stream's grade tag.

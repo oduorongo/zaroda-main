@@ -240,6 +240,14 @@ export class AcademicService {
         throw new BadRequestException(`You can only enter marks for learning areas you teach in your assigned classes (blocked: ${r.subject}).`);
       }
 
+      // SAFETY: never let a blank/invalid record delete an existing real mark. If no valid
+      // numeric score was sent, skip this record entirely (do NOT delete-then-insert-null).
+      // This stops a stale or accidental empty save from wiping previously-entered marks.
+      const rawNum = Number(r.rawScore);
+      if (r.rawScore === null || r.rawScore === undefined || r.rawScore === '' || isNaN(rawNum)) {
+        continue;
+      }
+
       // Replace any existing result for the same learner/subject/term/exam, then insert
       await this.dataSource.query(
         `DELETE FROM assessment_results
