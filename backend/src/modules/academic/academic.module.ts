@@ -446,6 +446,87 @@ export class AcademicService {
     return { gradeLevel, usePoints, learners: list };
   }
 
+  // ── Stream performance analytics ─────────────────────────────
+  // Aggregates assessment_results for one stream into: per-learning-area averages,
+  // CBC performance-level distribution, term-over-term trend, and learner ranking.
+  // Permission: admin/HOI, or the class teacher who owns the stream.
+  async getStreamAnalytics(user: any, streamId: string, term?: string) {
+    const tenantId = user.tenantId;
+    const owns = await this.actorOwnsStream(tenantId, user, streamId);
+    if (!owns) throw new BadRequestException('You can only view analytics for your own class.');
+
+    const sgrade = await this.dataSource.query(
+      `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
+    ).catch(() => []);
+    const gradeLevel = sgrade[0]?.grade_level || '';
+    const senior = this.isSenior(gradeLevel);
+
+    // Pull every mark for the stream (optionally filtered to a term).
+    const rows = await this.dataSource.query(
+      `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "adm", ar.subject, ar.percent, ar.term
+         FROM assessment_results ar
+         LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+        WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
+          AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.percent IS NOT NULL`,
+      [tenantId, streamId, term || null],
+    ).catch(() => []);
+
+    // Per-learning-area average %.
+    const byArea: Record<string, { sum: number; n: number }> = {};
+    // CBC level distribution across all marks.
+    const levelDist: Record<string, number> = {};
+    // Per-learner average (for ranking).
+    const byLearner: Record<string, { name: string; adm: string; sum: number; n: number }> = {};
+    // Term trend: average % per term.
+    const byTerm: Record<string, { sum: number; n: number }> = {};
+
+    for (const r of rows) {
+      const pct = Number(r.percent);
+      if (isNaN(pct)) continue;
+      (byArea[r.subject] ||= { sum: 0, n: 0 }); byArea[r.subject].sum += pct; byArea[r.subject].n++;
+      const code = this.percentToLevelCode(pct, senior);
+      levelDist[code] = (levelDist[code] || 0) + 1;
+      const lid = r.learnerId;
+      (byLearner[lid] ||= { name: `${r.firstName || ''} ${r.lastName || ''}`.trim(), adm: r.adm || '', sum: 0, n: 0 });
+      byLearner[lid].sum += pct; byLearner[lid].n++;
+      const t = r.term || 'term_?';
+      (byTerm[t] ||= { sum: 0, n: 0 }); byTerm[t].sum += pct; byTerm[t].n++;
+    }
+
+    const areas = Object.entries(byArea)
+      .map(([subject, v]) => ({ subject, average: Math.round(v.sum / v.n), level: this.percentToLevelCode(Math.round(v.sum / v.n), senior), count: v.n }))
+      .sort((a, b) => b.average - a.average);
+
+    const distribution = Object.entries(levelDist)
+      .map(([code, count]) => ({ code, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const ranking = Object.entries(byLearner)
+      .map(([learnerId, v]) => ({ learnerId, name: v.name, adm: v.adm, average: Math.round(v.sum / v.n), level: this.percentToLevelCode(Math.round(v.sum / v.n), senior) }))
+      .sort((a, b) => b.average - a.average)
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+
+    const trend = Object.entries(byTerm)
+      .map(([t, v]) => ({ term: t, average: Math.round(v.sum / v.n) }))
+      .sort((a, b) => a.term.localeCompare(b.term));
+
+    const classAverage = ranking.length
+      ? Math.round(ranking.reduce((s, r) => s + r.average, 0) / ranking.length) : 0;
+
+    return {
+      gradeLevel, senior, term: term || 'all',
+      learnerCount: ranking.length,
+      classAverage,
+      classLevel: ranking.length ? this.percentToLevelCode(classAverage, senior) : '',
+      areas,            // per-learning-area averages (best→worst)
+      distribution,     // level distribution
+      ranking,          // learners best→worst
+      trend,            // avg % per term
+    };
+  }
+
   // ── Exams ────────────────────────────────────────────────
   async getExams(tenantId: string) {
     return this.dataSource.query(
@@ -1541,6 +1622,11 @@ export class AcademicController {
   @Get('mark-list')
   getMarkList(@Request() req: any, @Query() q: any) {
     return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType, q.examId);
+  }
+
+  @Get('analytics/stream')
+  getStreamAnalytics(@Request() req: any, @Query() q: any) {
+    return this.academicService.getStreamAnalytics(req.user, q.streamId, q.term);
   }
 
   @Get('term-mark-sheet')

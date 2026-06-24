@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
-  Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2,
+  Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
 } from 'lucide-react';
 import { useAuth, isTeacher } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -18,6 +18,7 @@ const TEACHER_NAV = [
   { href: '/teacher/attendance', icon: CheckSquare, label: 'Attendance' },
   { href: '/teacher/enter-marks', icon: BarChart3,   label: 'Enter Marks' },
   { href: '/teacher/mark-list',  icon: ListChecks,  label: 'Class Mark List' },
+  { href: '/teacher/analytics',  icon: TrendingUp,  label: 'Performance Analytics' },
   { href: '/teacher/assessment', icon: ClipboardCheck, label: 'Assessment Rubric' },
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },
   { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling & CPD' },
