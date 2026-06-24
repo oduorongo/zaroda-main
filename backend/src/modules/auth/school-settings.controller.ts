@@ -37,10 +37,10 @@ export class SchoolSettingsService {
     if (!school) return null;
     const s = (school as any).settings || {};
     return {
-      schoolName:    school.name,
-      phone:         (school as any).phone || '',
-      email:         (school as any).email || '',
-      address:       (school as any).address || '',
+      schoolName:    s.schoolName || school.name,
+      phone:         s.phone   || (school as any).phone   || '',
+      email:         s.email   || (school as any).email   || '',
+      address:       s.address || (school as any).address || '',
       knecCode:      (school as any).knecCode || '',
       principalName: (school as any).principalName || '',
       motto:         s.motto || '',
@@ -66,6 +66,13 @@ export class SchoolSettingsService {
     for (const k of ['motto', 'brandPrimary', 'brandPrimaryDeep', 'brandAccent', 'badgeBase64'] as const) {
       if (dto[k] !== undefined) settings[k] = dto[k];
     }
+    // Also mirror the contact details into settings JSONB, because the PDF builders read
+    // them from settings->>'phone'/'email'/'address'. Without this they'd be saved only on
+    // the top-level columns and never appear on report cards / mark lists.
+    if (dto.phone !== undefined)   settings.phone   = dto.phone;
+    if (dto.email !== undefined)   settings.email   = dto.email;
+    if (dto.address !== undefined) settings.address = dto.address;
+    if (dto.schoolName !== undefined) settings.schoolName = dto.schoolName;
     (school as any).settings = settings;
 
     await this.schoolRepo.save(school);

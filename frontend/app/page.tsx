@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/hooks/useAuth';
 const MODULES = [
   { icon: BookOpen,      title: 'Academic Core',        desc: 'Learners, streams, attendance, CBC report cards, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
   { icon: DollarSign,    title: 'Finance & Fees',       desc: 'M-Pesa STK push collection, auto-reconciliation, FPE/FDJSE/FDSSE fund tracking, and payroll with statutory deductions.', color: 'bg-green-600' },
-  { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds with Claude AI. HOI approval built in.', color: 'bg-purple-600' },
+  { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600' },
   { icon: MessageSquare, title: 'Communication',        desc: 'SMS via Africa\'s Talking, email, WhatsApp, and push notifications. Personalised bulk fee reminders to parents.', color: 'bg-blue-600' },
   { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns. Completely free — no fines, ever.', color: 'bg-cyan-600', badge: 'FREE' },
   { icon: Trophy,        title: 'Sports & Championships', desc: 'School teams, AI talent analytics, and a bridge to ZARODA Sports Base for cross-school championships — free.', color: 'bg-amber-500' },
@@ -145,7 +145,7 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-4 grid md:grid-cols-2 gap-10 items-center">
           <div>
             <div className="inline-flex items-center gap-2 bg-purple-100 text-purple-700 rounded-full px-3 py-1 text-xs font-bold mb-4">
-              <Sparkles size={12}/> POWERED BY CLAUDE AI
+              <Sparkles size={12}/> POWERED BY ZARODA AI
             </div>
             <h2 className="text-3xl font-black text-[#1a2e5a] leading-tight">Lesson planning that used to take hours, done in seconds</h2>
             <p className="text-[#7a82a8] mt-4 leading-relaxed">
