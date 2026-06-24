@@ -304,6 +304,16 @@ export class AcademicService {
     return ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(gradeLevel || '');
   }
 
+  /** Default parent password derived from the email's first part + the year, e.g.
+   *  "john.doe@gmail.com" → "johndoe2026". Easy to communicate; the parent is forced to
+   *  change it on first login (must_change_password=true). Padded to a safe minimum length. */
+  private parentDefaultPassword(email: string): string {
+    let prefix = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!prefix) prefix = 'parent';
+    if (prefix.length < 3) prefix = (prefix + 'parent').slice(0, 6);
+    return `${prefix}2026`;
+  }
+
   /** Returns true if `actor` (a non-HOI teacher) may manage a learner in `streamId` —
    *  i.e. they are the class teacher of that stream, or it's their primary stream. */
   private async actorOwnsStream(tenantId: string, actor: any, streamId: any): Promise<boolean> {
@@ -1043,12 +1053,7 @@ export class AcademicService {
           `SELECT id FROM users WHERE email = $1 LIMIT 1`, [guardianEmail],
         );
         if (!existing.length) {
-          const gen = () => {
-            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-            const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-            return `${block()}-${block()}-${block()}`;
-          };
-          const plain = gen();
+          const plain = this.parentDefaultPassword(guardianEmail);
           const hash  = await bcrypt.hash(plain, 12);
           const gName = (dto.guardianName || 'Parent').trim().split(/\s+/);
           await this.dataSource.query(
@@ -1291,12 +1296,7 @@ export class AcademicService {
       ).catch(() => null);
     }
 
-    const gen = () => {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-      const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      return `${block()}-${block()}`;
-    };
-    const plain = gen();
+    const plain = this.parentDefaultPassword(email);
     const hash = await bcrypt.hash(plain, 12);
 
     const existing = (await this.dataSource.query(
