@@ -696,6 +696,98 @@ export class AcademicService {
     };
   }
 
+  // ── Parent analytics ─────────────────────────────────────────
+  // For a parent: lists their children (learners whose guardian_email matches the parent's
+  // account email), and for a chosen child returns per-learning-area performance, level,
+  // term trend, the child's overall average, and how the child compares to their class
+  // average — WITHOUT exposing any other named learner.
+  async getParentAnalytics(user: any, learnerId?: string, term?: string) {
+    const tenantId = user.tenantId;
+    const email = String(user.email || '').toLowerCase().trim();
+
+    // Find this parent's children by guardian email (the established linkage), scoped to
+    // the parent's tenant.
+    const children = await this.dataSource.query(
+      `SELECT id::text AS id, first_name AS "firstName", last_name AS "lastName",
+              stream_id::text AS "streamId", grade_level AS "gradeLevel"
+         FROM learners
+        WHERE tenant_id::text = $1 AND LOWER(guardian_email) = $2
+        ORDER BY first_name`,
+      [tenantId, email],
+    ).catch(() => []);
+
+    if (!children.length) {
+      return { children: [], note: 'No children are linked to your account yet. Please contact the school office.' };
+    }
+
+    const childList = children.map((c: any) => ({ id: c.id, name: `${c.firstName || ''} ${c.lastName || ''}`.trim() }));
+    const chosen = (learnerId && children.find((c: any) => c.id === learnerId)) || children[0];
+
+    const senior = this.isSenior(chosen.gradeLevel || '');
+
+    // The child's own marks.
+    const myRows = await this.dataSource.query(
+      `SELECT subject, percent, term FROM assessment_results
+        WHERE tenant_id::text = $1 AND learner_id::text = $2
+          AND ($3::text IS NULL OR term = $3) AND percent IS NOT NULL`,
+      [tenantId, chosen.id, term || null],
+    ).catch(() => []);
+
+    // The class average per subject (for comparison), computed across the child's stream
+    // — aggregated, never exposing other learners by name.
+    const classRows = await this.dataSource.query(
+      `SELECT subject, AVG(percent) AS "avgPct" FROM assessment_results
+        WHERE tenant_id::text = $1 AND stream_id::text = $2
+          AND ($3::text IS NULL OR term = $3) AND percent IS NOT NULL
+        GROUP BY subject`,
+      [tenantId, chosen.streamId, term || null],
+    ).catch(() => []);
+    const classAvgBySubject: Record<string, number> = {};
+    for (const r of classRows) classAvgBySubject[r.subject] = Math.round(Number(r.avgPct));
+
+    const byArea: Record<string, { sum: number; n: number }> = {};
+    const byTerm: Record<string, { sum: number; n: number }> = {};
+    let totalSum = 0, totalN = 0;
+    for (const r of myRows) {
+      const pct = Number(r.percent); if (isNaN(pct)) continue;
+      (byArea[r.subject] ||= { sum: 0, n: 0 }); byArea[r.subject].sum += pct; byArea[r.subject].n++;
+      const t = r.term || 'term_?'; (byTerm[t] ||= { sum: 0, n: 0 }); byTerm[t].sum += pct; byTerm[t].n++;
+      totalSum += pct; totalN++;
+    }
+
+    const areas = Object.entries(byArea)
+      .map(([subject, v]) => {
+        const avg = Math.round(v.sum / v.n);
+        return {
+          subject, average: avg, level: this.percentToLevelCode(avg, senior),
+          classAverage: classAvgBySubject[subject] ?? null,
+        };
+      })
+      .sort((a, b) => b.average - a.average);
+
+    const trend = Object.entries(byTerm)
+      .map(([t, v]) => ({ term: t, average: Math.round(v.sum / v.n) }))
+      .sort((a, b) => a.term.localeCompare(b.term));
+
+    const overallAverage = totalN ? Math.round(totalSum / totalN) : 0;
+    // Child's overall vs class overall (aggregate of class subject averages).
+    const classOverall = Object.values(classAvgBySubject).length
+      ? Math.round(Object.values(classAvgBySubject).reduce((a, b) => a + b, 0) / Object.values(classAvgBySubject).length)
+      : null;
+
+    return {
+      children: childList,
+      chosen: { id: chosen.id, name: `${chosen.firstName || ''} ${chosen.lastName || ''}`.trim(), gradeLevel: chosen.gradeLevel },
+      term: term || 'all',
+      overallAverage,
+      overallLevel: totalN ? this.percentToLevelCode(overallAverage, senior) : '',
+      classOverall,
+      areas,     // per-subject: child average + level + class average
+      trend,     // child's term trend
+      hasMarks: totalN > 0,
+    };
+  }
+
   async getExams(tenantId: string) {
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear",
@@ -1805,6 +1897,11 @@ export class AcademicController {
   @Get('analytics/subject')
   getSubjectTeacherAnalytics(@Request() req: any, @Query() q: any) {
     return this.academicService.getSubjectTeacherAnalytics(req.user, q.subject, q.term);
+  }
+
+  @Get('analytics/parent')
+  getParentAnalytics(@Request() req: any, @Query() q: any) {
+    return this.academicService.getParentAnalytics(req.user, q.learnerId, q.term);
   }
 
   @Get('term-mark-sheet')

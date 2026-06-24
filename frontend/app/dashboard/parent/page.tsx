@@ -76,9 +76,9 @@ export default function ParentPortalPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 mt-4">
-                  <Link href="/dashboard/finance" className="btn-primary flex-1 justify-center text-xs"><CreditCard size={13}/> Pay Fees</Link>
+                  <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
                   <Link href="/dashboard/academic/report-cards" className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</Link>
-                  <Link href="/dashboard/communication" className="btn-ghost flex-1 justify-center text-xs"><MessageSquare size={13}/> Message</Link>
+                  <Link href="/dashboard/finance" className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Pay Fees</Link>
                 </div>
               </div>
             ))}
