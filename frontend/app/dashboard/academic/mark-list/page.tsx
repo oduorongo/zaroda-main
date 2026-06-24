@@ -24,6 +24,7 @@ export default function MarkListPage() {
   const examType = selectedExam?.examType || '';
   const [maxScore,  setMaxScore]  = useState(100);
   const [scores,    setScores]    = useState<Record<string, Record<string, number>>>({});
+  const [savedMeta, setSavedMeta] = useState<Record<string, Record<string, { percent: number; level: string }>>>({});
   const [loading,   setLoading]   = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [search,    setSearch]    = useState('');
@@ -57,16 +58,16 @@ export default function MarkListPage() {
       apiClient.get('/academic/mark-list', { params: { streamId, term, examId } }).catch(() => ({ data: [] })),
     ]).then(([lrn, ml]) => {
       setLearners(lrn.data);
-      // Pre-fill scores from any marks already entered (by subject teachers or admin)
-      const filled: Record<string, Record<string, number>> = {};
+      // Read-only: capture each subject's STORED percent/level (from entry time).
+      const meta: Record<string, Record<string, { percent: number; level: string }>> = {};
       const mlLearners = Array.isArray(ml.data) ? ml.data : (ml.data?.learners || []);
       mlLearners.forEach((row: any) => {
-        filled[row.learnerId] = {};
+        meta[row.learnerId] = {};
         Object.entries(row.subjects || {}).forEach(([subj, v]: any) => {
-          if (v.rawScore != null) filled[row.learnerId][subj] = v.rawScore;
+          if (v.percent != null) meta[row.learnerId][subj] = { percent: Number(v.percent), level: v.level };
         });
       });
-      setScores(filled);
+      setSavedMeta(meta);
     }).catch(() => toast.error('Could not load class mark list'))
       .finally(() => setLoading(false));
   }, [streamId, term, examId]);
@@ -74,11 +75,6 @@ export default function MarkListPage() {
   // Determine learning areas for this specific grade (KICD-accurate)
   const subjects = useMemo(() => learningAreasFor(stream?.gradeLevel || 'grade_4'), [stream]);
   const band = useMemo(() => levelBandLabel(stream?.gradeLevel || 'grade_4'), [stream]);
-
-  const setScore = (learnerId: string, subject: string, raw: string) => {
-    const val = Math.min(maxScore, Math.max(0, Number(raw) || 0));
-    setScores(s => ({ ...s, [learnerId]: { ...(s[learnerId] || {}), [subject]: val } }));
-  };
 
   // Points apply only to grades 7-12 (8-point KNEC scale)
   const isSenior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream?.gradeLevel || '');
@@ -88,24 +84,24 @@ export default function MarkListPage() {
     if (pct >= 11) return 2; return 1;
   };
 
-  // Compute each learner's total %, then rank
+  // Read-only ranking: average each subject's STORED percentage.
   const ranked = useMemo(() => {
+    const grade = stream?.gradeLevel || 'grade_4';
     const rows = learners.map(l => {
-      const subjectScores = scores[l.id] || {};
-      const entered = Object.values(subjectScores);
-      const totalRaw = entered.reduce((a, b) => a + b, 0);
-      const maxPossible = subjects.length * maxScore;
-      const percent = maxPossible > 0 && entered.length > 0
-        ? Math.round((totalRaw / (entered.length * maxScore)) * 100)
-        : 0;
-      return { learner: l, subjectScores, totalRaw, percent, hasScores: entered.length > 0 };
+      const meta = savedMeta[l.id] || {};
+      const subjectPct: Record<string, number> = {};
+      const subjectLvl: Record<string, string> = {};
+      Object.entries(meta).forEach(([s, m]: any) => { if (!isNaN(Number(m.percent))) { subjectPct[s] = Number(m.percent); subjectLvl[s] = m.level; } });
+      const pcts = Object.values(subjectPct);
+      const hasScores = pcts.length > 0;
+      const percent = hasScores ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
+      const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
+      return { learner: l, subjectPct, subjectLvl, percent, avgLevel, hasScores };
     });
-    // Rank by percent desc (only those with scores)
     const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
     withScores.forEach((r, i) => (r as any).rank = i + 1);
-    const without = rows.filter(r => !r.hasScores);
-    return [...withScores, ...without];
-  }, [learners, scores, subjects, maxScore]);
+    return [...withScores, ...rows.filter(r => !r.hasScores)];
+  }, [learners, savedMeta, subjects, stream]);
 
   const printMarkList = async () => {
     const win = window.open('', '_blank');
@@ -123,26 +119,7 @@ export default function MarkListPage() {
     }
   };
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      const records = ranked.filter(r => r.hasScores).flatMap(r =>
-        Object.entries(r.subjectScores).map(([subject, raw]) => {
-          const pct = Math.round((raw / maxScore) * 100);
-          return {
-            learnerId:    r.learner.id, subject, streamId,
-            rawScore:     raw, maxScore, percent: pct,
-            level:        percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
-            gradeLevel:   stream?.gradeLevel,
-            term, examType, examId, academicYear: '2025/2026',
-          };
-        })
-      );
-      await apiClient.post('/academic/assessment-results/bulk', { records });
-      toast.success(`Mark list saved — ${records.length} entries`);
-    } catch { toast.error('Could not save mark list'); }
-    finally { setSaving(false); }
-  };
+  const save = async () => { /* mark list is read-only; entry happens in Enter Marks */ };
 
   const scaleLabel = stream ? (isSeniorScale(stream.gradeLevel) ? '8-level (Grade 7–12)' : '4-level (ECDE–Grade 6)') : '';
 
@@ -159,9 +136,6 @@ export default function MarkListPage() {
               <Printer size={16}/> Print / Save PDF
             </button>
           )}
-          <button onClick={save} disabled={saving || learners.length === 0} className="btn-primary">
-            {saving ? <><Loader2 size={16} className="animate-spin"/> Saving…</> : <><Save size={16}/> Save Mark List</>}
-          </button>
         </div>
       </div>
 
@@ -187,10 +161,6 @@ export default function MarkListPage() {
               <option key={ex.id} value={ex.id}>{ex.name}</option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className="label">Out of</label>
-          <input type="number" value={maxScore} onChange={e => setMaxScore(Number(e.target.value)||100)} className="input w-24"/>
         </div>
         {stream && (
           <div className="ml-auto text-xs bg-surface-2 border border-theme rounded-lg px-3 py-2 text-theme-muted">
@@ -238,14 +208,16 @@ export default function MarkListPage() {
                       <div className="font-semibold text-theme-heading whitespace-nowrap">{row.learner.firstName} {row.learner.lastName}</div>
                       <div className="text-[10px] text-theme-muted">{row.learner.admissionNumber}</div>
                     </td>
-                    {subjects.map(subj => (
-                      <td key={subj} className="px-1 py-1.5 text-center">
-                        <input type="number" min={0} max={maxScore}
-                          value={row.subjectScores[subj] ?? ''}
-                          onChange={e => setScore(row.learner.id, subj, e.target.value)}
-                          className="w-12 text-center text-xs px-1 py-1 bg-surface-2 border border-theme rounded-lg focus:ring-1 focus:ring-[#1a2e5a] focus:outline-none"/>
-                      </td>
-                    ))}
+                    {subjects.map(subj => {
+                      const p = row.subjectPct?.[subj];
+                      const cl = p != null ? percentToLevel(p, stream?.gradeLevel || 'grade_4') : null;
+                      return (
+                        <td key={subj} className="px-2 py-1.5 text-center">
+                          {cl ? <span className="font-bold" style={{ color: cl.color }}>{p}% <span className="text-[10px]">{cl.code}</span></span>
+                              : <span className="text-theme-muted">—</span>}
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-2 text-center font-black text-theme-heading">
                       {row.hasScores ? `${row.percent}%` : '—'}
                     </td>
