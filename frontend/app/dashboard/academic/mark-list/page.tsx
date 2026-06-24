@@ -119,6 +119,51 @@ export default function MarkListPage() {
     }
   };
 
+  const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('load failed'));
+    document.head.appendChild(s);
+  });
+
+  // True download-to-device PDF (client-side render, no server PDF engine needed).
+  const downloadPdf = async () => {
+    const filename = `mark-list-${(stream?.name || 'class').replace(/\s+/g, '-')}-${term}.pdf`;
+    const toastId = toast.loading('Preparing PDF…');
+    try {
+      const res = await apiClient.get('/pdf/mark-list/html', {
+        params: { streamId, term, examType, examId, academicYear: '2025/2026' }, responseType: 'text',
+      });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const html2canvas = (window as any).html2canvas;
+      const JsPDF = (window as any).jspdf?.jsPDF;
+      if (!html2canvas || !JsPDF) throw new Error('pdf libs unavailable');
+      const holder = document.createElement('div');
+      holder.style.cssText = 'position:fixed;left:-99999px;top:0;width:1000px;background:#fff';
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      holder.querySelectorAll('script').forEach(s => s.remove());
+      const canvas = await html2canvas(holder, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      document.body.removeChild(holder);
+      const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const img = canvas.toDataURL('image/png');
+      let remaining = imgH, position = 0;
+      if (imgH <= pageH) { pdf.addImage(img, 'PNG', 0, 0, imgW, imgH); }
+      else { while (remaining > 0) { pdf.addImage(img, 'PNG', 0, position, imgW, imgH); remaining -= pageH; position -= pageH; if (remaining > 0) pdf.addPage(); } }
+      pdf.save(filename);
+      toast.success('PDF downloaded', { id: toastId });
+    } catch {
+      toast.dismiss(toastId);
+      printMarkList();  // fallback to print page
+    }
+  };
+
   const save = async () => { /* mark list is read-only; entry happens in Enter Marks */ };
 
   const scaleLabel = stream ? (isSeniorScale(stream.gradeLevel) ? '8-level (Grade 7–12)' : '4-level (ECDE–Grade 6)') : '';
@@ -131,11 +176,14 @@ export default function MarkListPage() {
           <p className="text-sm text-theme-muted">Enter raw scores — auto-converts to % and CBC level, then ranks the class</p>
         </div>
         <div className="flex items-center gap-2">
-          {streamId && (
-            <button onClick={printMarkList} className="btn-ghost">
-              <Printer size={16}/> Print / Save PDF
+          {streamId && (<>
+            <button onClick={downloadPdf} className="btn-primary">
+              <Download size={16}/> Download PDF
             </button>
-          )}
+            <button onClick={printMarkList} className="btn-ghost">
+              <Printer size={16}/> Print
+            </button>
+          </>)}
         </div>
       </div>
 

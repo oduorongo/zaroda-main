@@ -150,24 +150,75 @@ export default function TeacherMarkListPage() {
   }, [learners, savedMeta, subjects, stream]);
 
   // ── Print / Save as PDF (browser-based, no server PDF engine) ────
+  // Loads a script from CDN once (cached after first use).
+  const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('load failed'));
+    document.head.appendChild(s);
+  });
+
+  // True download-to-device: fetch the print-ready HTML, render it to a real PDF file in
+  // the browser (html2canvas + jsPDF from CDN — no server PDF engine needed), and download.
+  // Falls back to opening the print page if the libraries can't load (e.g. offline).
   const downloadPdf = async () => {
-    const win = window.open('', '_blank');
+    const filename = `mark-list-${(stream?.name || 'class').replace(/\s+/g, '-')}-${term}.pdf`;
+    const toastId = toast.loading('Preparing PDF…');
     try {
       const res = await apiClient.get('/pdf/mark-list/html', {
         params: { streamId, term, examType, examId, academicYear: '2025/2026' },
         responseType: 'text',
       });
       const html = typeof res.data === 'string' ? res.data : String(res.data);
-      if (win) {
-        win.document.open(); win.document.write(html); win.document.close();
-        const fire = () => { try { win.focus(); win.print(); } catch {} };
-        if (win.document.readyState === 'complete') setTimeout(fire, 500);
-        else win.onload = () => setTimeout(fire, 300);
+
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const html2canvas = (window as any).html2canvas;
+      const JsPDF = (window as any).jspdf?.jsPDF;
+      if (!html2canvas || !JsPDF) throw new Error('pdf libs unavailable');
+
+      // Render the HTML off-screen so we can rasterize it.
+      const holder = document.createElement('div');
+      holder.style.cssText = 'position:fixed;left:-99999px;top:0;width:1000px;background:#fff';
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      // Strip any auto-print script the page included.
+      holder.querySelectorAll('script').forEach(s => s.remove());
+
+      const canvas = await html2canvas(holder, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      document.body.removeChild(holder);
+
+      const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const img = canvas.toDataURL('image/png');
+      // Paginate vertically if the table is taller than one page.
+      let remaining = imgH, position = 0;
+      if (imgH <= pageH) {
+        pdf.addImage(img, 'PNG', 0, 0, imgW, imgH);
+      } else {
+        while (remaining > 0) {
+          pdf.addImage(img, 'PNG', 0, position, imgW, imgH);
+          remaining -= pageH; position -= pageH;
+          if (remaining > 0) pdf.addPage();
+        }
       }
-      else toast.error('Allow pop-ups to print');
-    } catch {
-      if (win) win.close();
-      toast.error('Could not open mark list');
+      pdf.save(filename);
+      toast.success('PDF downloaded', { id: toastId });
+    } catch (e) {
+      toast.dismiss(toastId);
+      // Fallback: open the print page so the teacher can still Save-as-PDF.
+      const win = window.open('', '_blank');
+      try {
+        const res = await apiClient.get('/pdf/mark-list/html', {
+          params: { streamId, term, examType, examId, academicYear: '2025/2026' }, responseType: 'text',
+        });
+        const html = typeof res.data === 'string' ? res.data : String(res.data);
+        if (win) { win.document.open(); win.document.write(html); win.document.close(); }
+        else toast.error('Allow pop-ups, then try again');
+      } catch { if (win) win.close(); toast.error('Could not generate PDF'); }
     }
   };
 
