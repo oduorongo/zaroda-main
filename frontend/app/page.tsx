@@ -68,6 +68,12 @@ export default function HomePage() {
 
       {/* ───── Hero ───── */}
       <section className="relative overflow-hidden bg-[#0f1c38] text-white">
+        {/* Background classroom/dashboard image with a dark overlay so text stays readable */}
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/hero-classroom.png')" }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0f1c38]/85 via-[#0f1c38]/80 to-[#0f1c38]/92"/>
         <div className="absolute top-0 right-0 w-96 h-96 bg-[#d4af37]/10 rounded-full blur-3xl -translate-y-20 translate-x-20"/>
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#243f7a]/40 rounded-full blur-3xl translate-y-20"/>
         <div className="relative max-w-6xl mx-auto px-4 py-20 md:py-28 text-center">
