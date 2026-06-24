@@ -471,7 +471,11 @@ class PdfController {
       const stream = (await this.ds.query(
         `SELECT s.name, s.grade_level AS "gradeLevel",
                 (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName",
-                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo"
+                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo",
+                (SELECT settings->>'phone'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolPhone",
+                (SELECT settings->>'email'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolEmail",
+                (SELECT settings->>'address' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolAddress",
+                (SELECT settings->>'motto'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolMotto"
            FROM streams s WHERE s.id::text = $1 AND s.tenant_id::text = $2 LIMIT 1`,
         [streamId, tenantId],
       ).catch(() => []))[0] || {};
@@ -526,6 +530,7 @@ class PdfController {
         </style></head><body>
         <div class="h">${logoTag}
           <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
+          ${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
           <h2>${esc(subject)} — Ranking · ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>Rank</th><th>Learner</th><th>Adm</th><th>Score</th><th>%</th><th>Level</th></tr></thead>
@@ -552,7 +557,10 @@ class PdfController {
       const stream = (await this.ds.query(
         `SELECT s.name, s.grade_level AS "gradeLevel",
                 (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName",
-                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo"
+                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo",
+                (SELECT settings->>'phone'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolPhone",
+                (SELECT settings->>'email'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolEmail",
+                (SELECT settings->>'address' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolAddress"
            FROM streams s WHERE s.id::text = $1 AND s.tenant_id::text = $2 LIMIT 1`,
         [streamId, tenantId],
       ).catch(() => []))[0] || {};
@@ -627,6 +635,7 @@ class PdfController {
         <div class="ml-head">
           ${logoTag}
           <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
+          ${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total</th><th>Points Avg (level)</th></tr></thead>
@@ -722,7 +731,11 @@ class PdfController {
               l.grade_level AS "gradeLevel",
               s.name AS "streamName",
               (SELECT name FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolName",
-              (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "logo"
+              (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "logo",
+              (SELECT settings->>'phone'   FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolPhone",
+              (SELECT settings->>'email'   FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolEmail",
+              (SELECT settings->>'address' FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolAddress",
+              (SELECT settings->>'motto'   FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolMotto"
          FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
         WHERE l.id::text = $1 AND l.tenant_id::text = $2 LIMIT 1`,
       [learnerId, tenantId],
@@ -783,11 +796,16 @@ class PdfController {
 
     const termLabel = (term || '').replace('term_', 'Term ');
     const logoTag = lr.logo ? `<img src="${lr.logo}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+    const contactBits = [lr.schoolAddress, lr.schoolPhone, lr.schoolEmail].filter(Boolean).map((x: string) => esc(x)).join(' · ');
+    const contactLine = contactBits ? `<p style="font-size:11px;color:#555;margin:2px 0">${contactBits}</p>` : '';
+    const mottoLine = lr.schoolMotto ? `<p style="font-size:11px;font-style:italic;color:#777;margin:2px 0">“${esc(lr.schoolMotto)}”</p>` : '';
     const card = `
       <div class="rc">
         <div class="rc-head">
           ${logoTag}
           <h1>${esc(lr.schoolName || 'ZARODA School')}</h1>
+          ${contactLine}
+          ${mottoLine}
           <p>Learner Report Card · ${esc(termLabel)} · ${esc(academicYear)}</p>
         </div>
         <div class="rc-meta">

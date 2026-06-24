@@ -150,12 +150,21 @@ export default function MarkListPage() {
       const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      const imgW = pageW;
+      const M = 24;  // ~0.33in printable margin all around
+      const imgW = pageW - M * 2;
       const imgH = (canvas.height * imgW) / canvas.width;
       const img = canvas.toDataURL('image/png');
-      let remaining = imgH, position = 0;
-      if (imgH <= pageH) { pdf.addImage(img, 'PNG', 0, 0, imgW, imgH); }
-      else { while (remaining > 0) { pdf.addImage(img, 'PNG', 0, position, imgW, imgH); remaining -= pageH; position -= pageH; if (remaining > 0) pdf.addPage(); } }
+      const usableH = pageH - M * 2;
+      if (imgH <= usableH) {
+        pdf.addImage(img, 'PNG', M, M, imgW, imgH);
+      } else {
+        let offset = 0;
+        while (offset < imgH) {
+          pdf.addImage(img, 'PNG', M, M - offset, imgW, imgH);
+          offset += usableH;
+          if (offset < imgH) pdf.addPage();
+        }
+      }
       pdf.save(filename);
       toast.success('PDF downloaded', { id: toastId });
     } catch {

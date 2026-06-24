@@ -129,7 +129,72 @@ export function usePdfDownload() {
     }
   }, []);
 
-  return { download, printHtml, downloading, error };
+  // Fetches print-ready HTML from the server and renders it to a REAL PDF file in the
+  // browser (html2canvas + jsPDF from CDN), then downloads it. Works without any server
+  // PDF engine. Falls back to the print window if the libraries can't load.
+  const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('load failed'));
+    document.head.appendChild(s);
+  });
+
+  const downloadHtmlAsPdf = useCallback(async (
+    endpoint: string, filename: string, key: string,
+    orientation: 'portrait' | 'landscape' = 'portrait',
+  ) => {
+    setDownloading(key);
+    setError(null);
+    try {
+      const response = await apiClient.request({ url: endpoint, method: 'GET', responseType: 'text' });
+      const html = typeof response.data === 'string' ? response.data : String(response.data);
+      if (!/<(!doctype|html|body|table|div)/i.test(html.slice(0, 200))) {
+        setError('Document not returned by server'); setDownloading(null); return;
+      }
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const html2canvas = (window as any).html2canvas;
+      const JsPDF = (window as any).jspdf?.jsPDF;
+      if (!html2canvas || !JsPDF) throw new Error('pdf libs unavailable');
+
+      const holder = document.createElement('div');
+      holder.style.cssText = `position:fixed;left:-99999px;top:0;width:${orientation === 'landscape' ? 1000 : 760}px;background:#fff`;
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      holder.querySelectorAll('script').forEach(s => s.remove());
+      const canvas = await html2canvas(holder, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      document.body.removeChild(holder);
+
+      const pdf = new JsPDF({ orientation, unit: 'pt', format: 'a4' });
+      const M = 24;                                   // ~0.33in margin on all sides for printing
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW - M * 2;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const img = canvas.toDataURL('image/png');
+      const usableH = pageH - M * 2;
+      if (imgH <= usableH) {
+        pdf.addImage(img, 'PNG', M, M, imgW, imgH);
+      } else {
+        // Place the tall image and shift it up by one usable page-height per page, so each
+        // page shows the next slice. The top/bottom margins are preserved on every page.
+        let offset = 0;
+        while (offset < imgH) {
+          pdf.addImage(img, 'PNG', M, M - offset, imgW, imgH);
+          offset += usableH;
+          if (offset < imgH) pdf.addPage();
+        }
+      }
+      pdf.save(filename);
+    } catch {
+      // Fallback to the print window so the user can still Save-as-PDF.
+      await printHtml(endpoint, key);
+    } finally {
+      setDownloading(null);
+    }
+  }, [printHtml]);
+
+  return { download, printHtml, downloadHtmlAsPdf, downloading, error };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -189,7 +254,7 @@ export function ReportCardButton({
   learnerName?: string;
   compact?:     boolean;
 }) {
-  const { printHtml, download, downloading, error } = usePdfDownload();
+  const { printHtml, downloadHtmlAsPdf, downloading, error } = usePdfDownload();
   const key = `rc-${learnerId}`;
   const fname = `report-card-${learnerName?.replace(/\s+/g,'-') || learnerId}-${term}.pdf`;
 
@@ -210,10 +275,11 @@ export function ReportCardButton({
         loading={downloading === `${key}-dl`}
         label={compact ? 'Save' : '↓ Save PDF'}
         compact={compact}
-        onClick={() => download(
-          `/pdf/report-card/${learnerId}?term=${term}&academicYear=${encodeURIComponent(academicYear)}`,
+        onClick={() => downloadHtmlAsPdf(
+          `/pdf/report-card/${learnerId}/html?term=${term}&academicYear=${encodeURIComponent(academicYear)}`,
           fname,
           `${key}-dl`,
+          'portrait',
         )}
       />
       </div>
@@ -234,7 +300,7 @@ export function BulkReportCardsButton({
   academicYear: string;
   streamName?: string;
 }) {
-  const { printHtml, download, downloading, error } = usePdfDownload();
+  const { printHtml, downloadHtmlAsPdf, downloading, error } = usePdfDownload();
   const key = `bulk-rc-${streamId}`;
   const fname = `report-cards-${streamName?.replace(/\s+/g,'-') || streamId}-${term}.pdf`;
 
@@ -253,10 +319,11 @@ export function BulkReportCardsButton({
       <PdfButton
         loading={downloading === `${key}-dl`}
         label="↓ Save All PDF"
-        onClick={() => download(
-          `/pdf/report-cards/bulk?streamId=${streamId}&term=${term}&academicYear=${encodeURIComponent(academicYear)}`,
+        onClick={() => downloadHtmlAsPdf(
+          `/pdf/report-cards/bulk/html?streamId=${streamId}&term=${term}&academicYear=${encodeURIComponent(academicYear)}`,
           fname,
           `${key}-dl`,
+          'portrait',
         )}
       />
       </div>

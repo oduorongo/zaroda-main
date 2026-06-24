@@ -191,18 +191,19 @@ export default function TeacherMarkListPage() {
       const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      const imgW = pageW;
+      const M = 24;  // ~0.33in printable margin all around
+      const imgW = pageW - M * 2;
       const imgH = (canvas.height * imgW) / canvas.width;
       const img = canvas.toDataURL('image/png');
-      // Paginate vertically if the table is taller than one page.
-      let remaining = imgH, position = 0;
-      if (imgH <= pageH) {
-        pdf.addImage(img, 'PNG', 0, 0, imgW, imgH);
+      const usableH = pageH - M * 2;
+      if (imgH <= usableH) {
+        pdf.addImage(img, 'PNG', M, M, imgW, imgH);
       } else {
-        while (remaining > 0) {
-          pdf.addImage(img, 'PNG', 0, position, imgW, imgH);
-          remaining -= pageH; position -= pageH;
-          if (remaining > 0) pdf.addPage();
+        let offset = 0;
+        while (offset < imgH) {
+          pdf.addImage(img, 'PNG', M, M - offset, imgW, imgH);
+          offset += usableH;
+          if (offset < imgH) pdf.addPage();
         }
       }
       pdf.save(filename);
