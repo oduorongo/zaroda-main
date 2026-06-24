@@ -29,6 +29,9 @@ export default function TeacherMarkListPage() {
   const [scores,   setScores]   = useState<Record<string, Record<string, number>>>({});
   // Cells that already exist in the database (saved). Key: `${learnerId}|${subject}`.
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
+  // Authoritative stored percent/maxScore/level per saved cell (from entry time), so the
+  // list reflects real percentages even when subjects had different totals.
+  const [savedMeta, setSavedMeta] = useState<Record<string, Record<string, { percent: number; maxScore: number; level: string }>>>({});
   // Authoritative learning areas for this class, from the assessment rubric
   const [rubricAreas, setRubricAreas] = useState<string[]>([]);
   const [loading,  setLoading]  = useState(false);
@@ -84,21 +87,28 @@ export default function TeacherMarkListPage() {
       const toColumn = (saved: string) => matchLearningArea(saved, rubric) || saved;
       // Pre-fill from marks already saved, and record which cells are saved (edit-only).
       const filled: Record<string, Record<string, number>> = {};
+      const meta: Record<string, Record<string, { percent: number; maxScore: number; level: string }>> = {};
       const saved = new Set<string>();
       const extraCols = new Set<string>();
       const mlLearners = Array.isArray(ml.data) ? ml.data : (ml.data?.learners || []);
       mlLearners.forEach((row: any) => {
         filled[row.learnerId] = {};
+        meta[row.learnerId] = {};
         Object.entries(row.subjects || {}).forEach(([subj, v]: any) => {
           if (v.rawScore != null) {
             const col = toColumn(subj);
             filled[row.learnerId][col] = v.rawScore;
+            // Keep the authoritative stored percent/maxScore/level (computed at entry time
+            // against the real "out of") so the list shows true percentages even when
+            // subjects were marked out of different totals.
+            meta[row.learnerId][col] = { percent: Number(v.percent), maxScore: Number(v.maxScore), level: v.level };
             saved.add(cellKey(row.learnerId, col));
             if (!rubric.some(rc => norm(rc) === norm(col))) extraCols.add(col); // saved but not in rubric
           }
         });
       });
       setScores(filled);
+      setSavedMeta(meta);
       setSavedCells(saved);
       // Rubric columns + any saved subjects that aren't in the rubric (so no marks are hidden).
       setRubricAreas(Array.from(new Set([...rubric, ...extraCols])));
@@ -130,21 +140,34 @@ export default function TeacherMarkListPage() {
     const grade = stream?.gradeLevel || 'grade_4';
     const rows = learners.map(l => {
       const subjectScores = scores[l.id] || {};
-      const entered = Object.values(subjectScores);
-      const totalRaw = entered.reduce((a, b) => a + b, 0);
-      const percent = entered.length ? Math.round((totalRaw / (entered.length * maxScore)) * 100) : 0;
-      // Points average expressed as a performance level: convert each subject's % to its
-      // CBC level points, sum, and average → then map the average % back to a level code.
-      const levelCodes = entered.map(v => percentToLevel(Math.round((v / maxScore) * 100), grade).code);
-      const totalPoints = levelCodes.reduce((sum, c) => sum + pointsForLevel(c, grade), 0);
-      const avgPoints = entered.length ? (totalPoints / entered.length) : 0;
-      const avgLevel = entered.length ? percentToLevel(percent, grade).code : '';
-      return { learner: l, subjectScores, totalRaw, percent, totalPoints, avgPoints, avgLevel, hasScores: entered.length > 0 };
+      const meta = savedMeta[l.id] || {};
+      // Compute each subject's percentage from its OWN "out of": prefer the stored
+      // percent/maxScore (authoritative, from entry time); for a freshly typed value not
+      // yet saved, fall back to the page's current maxScore. This fixes wrong averages
+      // when subjects were marked out of different totals.
+      const perSubjectPct: number[] = [];
+      const subjectPctMap: Record<string, number> = {};
+      Object.entries(subjectScores).forEach(([subj, raw]) => {
+        const m = meta[subj];
+        let pct: number | null = null;
+        if (m && !isNaN(m.percent) && savedCells.has(cellKey(l.id, subj))) {
+          pct = m.percent;                                   // authoritative stored %
+        } else if (maxScore > 0) {
+          pct = Math.round((Number(raw) / maxScore) * 100);  // unsaved edit → page maxScore
+        }
+        if (pct != null && !isNaN(pct)) { perSubjectPct.push(pct); subjectPctMap[subj] = pct; }
+      });
+      const hasScores = perSubjectPct.length > 0;
+      const percent = hasScores ? Math.round(perSubjectPct.reduce((a, b) => a + b, 0) / perSubjectPct.length) : 0;
+      const totalPoints = perSubjectPct.reduce((sum, p) => sum + pointsForLevel(percentToLevel(p, grade).code, grade), 0);
+      const avgPoints = hasScores ? (totalPoints / perSubjectPct.length) : 0;
+      const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
+      return { learner: l, subjectScores, subjectPctMap, percent, totalPoints, avgPoints, avgLevel, hasScores };
     });
     const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
     withScores.forEach((r, i) => (r as any).rank = i + 1);
     return [...withScores, ...rows.filter(r => !r.hasScores)];
-  }, [learners, scores, subjects, maxScore, stream]);
+  }, [learners, scores, savedMeta, savedCells, subjects, maxScore, stream]);
 
   const save = async () => {
     setSaving(true);
@@ -344,9 +367,14 @@ export default function TeacherMarkListPage() {
                   {subjects.map(subj => {
                     const isSaved = savedCells.has(cellKey(row.learner.id, subj));
                     const rawVal = scores[row.learner.id]?.[subj];
-                    const hasVal = rawVal !== undefined && rawVal !== '' && !isNaN(Number(rawVal)) && maxScore > 0;
-                    const cellPct = hasVal ? Math.round((Number(rawVal) / maxScore) * 100) : null;
-                    const cellLvl = hasVal ? percentToLevel(cellPct as number, stream?.gradeLevel || 'grade_4') : null;
+                    const meta = savedMeta[row.learner.id]?.[subj];
+                    const hasVal = rawVal !== undefined && rawVal !== '' && !isNaN(Number(rawVal));
+                    // Saved marks show their stored % (against their real "out of"); unsaved
+                    // edits show a live % against the current page "Out of".
+                    const cellPct = (isSaved && meta && !isNaN(meta.percent))
+                      ? meta.percent
+                      : (hasVal && maxScore > 0 ? Math.round((Number(rawVal) / maxScore) * 100) : null);
+                    const cellLvl = cellPct != null ? percentToLevel(cellPct, stream?.gradeLevel || 'grade_4') : null;
                     return (
                       <td key={subj} className="px-1 py-2 text-center">
                         <input
