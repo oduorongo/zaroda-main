@@ -27,7 +27,9 @@ export default function AdminEnterMarksPage() {
   const [term, setTerm]         = useState('term_1');
   const [exams, setExams]       = useState<any[]>([]);
   const [examId, setExamId]     = useState('');
-  const [maxScore, setMaxScore] = useState(100);
+  const [maxScore, setMaxScore] = useState<string>('');  // blank & mandatory — teacher must set the subject's total before entering marks
+  const maxScoreNum = Number(maxScore);
+  const maxScoreReady = maxScore !== '' && !isNaN(maxScoreNum) && maxScoreNum > 0;
   const [search, setSearch]     = useState('');
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
@@ -123,11 +125,11 @@ export default function AdminEnterMarksPage() {
   const buildRecord = (lid: string, subject: string, raw: string) => {
     const n = Number(raw);
     if (raw === '' || isNaN(n)) return null;
-    const percent = Math.round((n / maxScore) * 100);
+    const percent = Math.round((n / maxScoreNum) * 100);
     const level = percentToLevel(percent, stream?.gradeLevel || 'grade_4').code;
     return {
       learnerId: lid, streamId, gradeLevel: stream?.gradeLevel, subject,
-      rawScore: n, maxScore, percent, level,
+      rawScore: n, maxScore: maxScoreNum, percent, level,
       examType: selectedExam?.examType || '', examId,
       term, academicYear: '2025/2026',
     };
@@ -165,7 +167,7 @@ export default function AdminEnterMarksPage() {
   const levelFor = (raw: string) => {
     const n = Number(raw);
     if (raw === '' || isNaN(n)) return null;
-    return percentToLevel(Math.round((n / maxScore) * 100), stream?.gradeLevel || 'grade_4');
+    return percentToLevel(Math.round((n / maxScoreNum) * 100), stream?.gradeLevel || 'grade_4');
   };
 
   const filteredLearners = learners.filter(l => matchesLearner(l, search));
@@ -203,8 +205,19 @@ export default function AdminEnterMarksPage() {
             </select>
           </div>
           <div>
-            <label className="label">Out of</label>
-            <input type="number" value={maxScore} onChange={e => setMaxScore(Number(e.target.value) || 100)} className="input w-full"/>
+            <label className="label" style={{ color: maxScoreReady ? undefined : '#f5820a' }}>
+              Out of (total score) *
+            </label>
+            <input
+              type="number" inputMode="numeric" value={maxScore}
+              onChange={e => setMaxScore(e.target.value)}
+              placeholder="e.g. 30"
+              className="input w-full font-bold"
+              style={maxScoreReady
+                ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.06)' }
+                : { borderColor: '#f5820a', background: 'rgba(245,130,10,0.08)' }}
+            />
+            {!maxScoreReady && <p className="text-[11px] mt-1" style={{ color: '#f5820a' }}>Set your subject's total score first.</p>}
           </div>
         </div>
       </div>
@@ -224,6 +237,10 @@ export default function AdminEnterMarksPage() {
       {!examId ? (
         <div className="card p-6 text-center text-theme-muted text-sm">
           Create an assessment for this term first (Academic → Assessments), then return here to enter marks.
+        </div>
+      ) : !maxScoreReady ? (
+        <div className="card p-6 text-center text-sm" style={{ color: '#f5820a', border: '1px solid #f5820a' }}>
+          Enter the <b>“Out of (total score)”</b> for this subject above before you start entering marks.
         </div>
       ) : loading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin text-theme-muted" size={24}/></div>
@@ -280,8 +297,8 @@ export default function AdminEnterMarksPage() {
               filteredLearners.forEach(l => {
                 const raw = areaScores[l.id] ?? '';
                 const lvl = levelFor(raw);
-                const pct = raw !== '' && !isNaN(Number(raw)) ? Math.round((Number(raw)/maxScore)*100) : '';
-                rows.push([`${l.firstName||''} ${l.lastName||''}`.trim(), l.admissionNumber||'', String(raw), String(maxScore), pct === '' ? '' : `${pct}%`, lvl?.code || '']);
+                const pct = raw !== '' && !isNaN(Number(raw)) ? Math.round((Number(raw)/maxScoreNum)*100) : '';
+                rows.push([`${l.firstName||''} ${l.lastName||''}`.trim(), l.admissionNumber||'', String(raw), String(maxScoreNum), pct === '' ? '' : `${pct}%`, lvl?.code || '']);
               });
               const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
               const blob = new Blob([csv], { type: 'text/csv' });

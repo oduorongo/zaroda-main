@@ -343,6 +343,10 @@ export default function TeacherMarkListPage() {
                   </td>
                   {subjects.map(subj => {
                     const isSaved = savedCells.has(cellKey(row.learner.id, subj));
+                    const rawVal = scores[row.learner.id]?.[subj];
+                    const hasVal = rawVal !== undefined && rawVal !== '' && !isNaN(Number(rawVal)) && maxScore > 0;
+                    const cellPct = hasVal ? Math.round((Number(rawVal) / maxScore) * 100) : null;
+                    const cellLvl = hasVal ? percentToLevel(cellPct as number, stream?.gradeLevel || 'grade_4') : null;
                     return (
                       <td key={subj} className="px-1 py-2 text-center">
                         <input
@@ -353,6 +357,11 @@ export default function TeacherMarkListPage() {
                           onChange={e => setScore(row.learner.id, subj, e.target.value)}
                           className={`w-14 text-center text-sm px-1.5 py-1 rounded-lg focus:ring-1 focus:ring-[#1a2e5a] focus:outline-none ${isSaved ? 'bg-green-500/10 font-semibold text-green-700' : 'bg-surface-2'}`}
                           style={{ border: isSaved ? '1px solid rgba(34,197,94,0.4)' : '1px solid var(--border)' }}/>
+                        {cellLvl && (
+                          <div className="text-[10px] mt-0.5 leading-tight font-semibold" style={{ color: cellLvl.color }}>
+                            {cellPct}% {cellLvl.code}
+                          </div>
+                        )}
                       </td>
                     );
                   })}
