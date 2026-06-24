@@ -229,11 +229,23 @@ async function bootstrap() {
            FROM assessment_strands st JOIN assessment_templates t ON t.id = st.template_id
           GROUP BY t.grade_level, st.term ORDER BY t.grade_level, st.term`,
       ).catch(() => []);
+      // Parent linkage: parent accounts and whether any learner's guardian_email matches.
+      const parents = await ds.query(
+        `SELECT u.email,
+                (SELECT COUNT(*)::int FROM learners l WHERE LOWER(l.guardian_email) = LOWER(u.email)) AS "linkedChildren"
+           FROM users u WHERE u.role = 'parent' ORDER BY u.email LIMIT 20`,
+      ).catch(() => []);
+      const guardianEmails = await ds.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName", guardian_email AS "guardianEmail"
+           FROM learners WHERE guardian_email IS NOT NULL AND guardian_email <> '' ORDER BY first_name LIMIT 20`,
+      ).catch(() => []);
       res.type('text/plain').send(
         `DATABASE: ${dbinfo[0]?.db} (user ${dbinfo[0]?.usr})\n\n` +
         `ROW COUNTS:\n` + Object.entries(out).map(([k, v]) => `  ${k.padEnd(22)} ${v}`).join('\n') +
         `\n\nSUPER ADMINS (${owners.length}):\n` + owners.map((o: any) => `  ${o.email}  [${o.role}]  ${o.created_at}`).join('\n') +
         `\n\n5 MOST RECENT USERS:\n` + recentUsers.map((u: any) => `  ${u.email}  [${u.role}]  ${u.created_at}`).join('\n') +
+        `\n\nPARENT ACCOUNTS (email → children matched by guardian_email):\n` + (parents.length ? parents.map((p: any) => `  ${p.email}  → ${p.linkedChildren} child(ren)`).join('\n') : '  (none)') +
+        `\n\nLEARNERS' GUARDIAN EMAILS:\n` + (guardianEmails.length ? guardianEmails.map((l: any) => `  ${l.firstName} ${l.lastName}  → ${l.guardianEmail}`).join('\n') : '  (none set)') +
         `\n\nGRADE_5 LEARNING AREAS IN TEMPLATES (${g5areas.length}):\n` + g5areas.map((a: any) => `  ${a.learning_area}`).join('\n') +
         `\n\nTEMPLATE GRADE LEVELS:\n` + gradeLevelsInTemplates.map((g: any) => `  ${g.grade_level.padEnd(12)} ${g.n} areas`).join('\n') +
         `\n\nSTRANDS BY GRADE + TERM (shows if Term 2/3 seeded):\n` + strandsByTerm.map((s: any) => `  ${(s.grade_level||'').padEnd(12)} ${(s.term||'').padEnd(8)} ${s.strands} strands`).join('\n') +

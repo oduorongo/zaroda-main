@@ -16,24 +16,34 @@ import clsx from 'clsx';
 
 // ── Navigation definition ──────────────────────────────────
 const NAV_ITEMS = [
-  { href: '/dashboard',                        icon: Home,         label: 'Dashboard',            roles: 'all' },
+  { href: '/dashboard',                        icon: Home,         label: 'Dashboard',            roles: 'parent_ok' },
   { href: '/dashboard/teacher',                icon: GraduationCap,label: 'My Workspace',         roles: 'teacher_only' },
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
   { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin' },
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
-  { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'all' },
+  { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
-  { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling & CPD',      roles: 'all' },
+  { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling & CPD',      roles: 'staff' },
   // Library module deactivated — to be rebuilt afresh (does not match the envisioned design).
   // { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all',   badge: 'FREE' },
-  { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'all' },
-  { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'all' },
+  { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
+  { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'staff' },
 ];
 
 function canSee(roleKey: string, userRole: string): boolean {
-  if (roleKey === 'all') return true;
+  // Parents and learners get a deliberately focused menu — their portal, the home
+  // dashboard, and communication. They do NOT see staff/admin modules.
+  if (isParent(userRole)) {
+    return ['parent_only', 'parent_ok'].includes(roleKey);
+  }
+  if (isLearner(userRole)) {
+    return ['learner_only', 'learner_ok'].includes(roleKey);
+  }
+  if (roleKey === 'all') return true;          // all STAFF (parents/learners handled above)
+  if (roleKey === 'staff') return true;        // staff-only modules
+  if (roleKey === 'parent_ok' || roleKey === 'learner_ok') return true;  // staff also see these
   if (roleKey === 'finance')      return isBursar(userRole);
   if (roleKey === 'teacher')      return isTeacher(userRole) || isHoi(userRole);
   if (roleKey === 'admin')        return isHoi(userRole);

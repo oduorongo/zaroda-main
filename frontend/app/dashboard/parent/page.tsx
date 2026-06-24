@@ -14,7 +14,7 @@ export default function ParentPortalPage() {
   const [loading,  setLoading]  = useState(true);
 
   useEffect(() => {
-    apiClient.get('/parent/children')
+    apiClient.get('/academic/my-children')
       .then(r => setChildren(r.data))
       .catch(() => setChildren([]))
       .finally(() => setLoading(false));

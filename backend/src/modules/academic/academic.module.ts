@@ -788,6 +788,45 @@ export class AcademicService {
     };
   }
 
+  // ── Parent: list my children ─────────────────────────────────
+  // Finds learners whose guardian_email matches the parent's account email. This is the
+  // endpoint the parent portal uses to show the child cards.
+  async getMyChildren(user: any) {
+    const tenantId = user.tenantId;
+    const email = String(user.email || '').toLowerCase().trim();
+    if (!email) return [];
+    const rows = await this.dataSource.query(
+      `SELECT l.id::text AS id, l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber", l.grade_level AS "gradeLevel",
+              s.name AS "streamName", s.id::text AS "streamId"
+         FROM learners l
+         LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.tenant_id::text = $1 AND LOWER(l.guardian_email) = $2
+        ORDER BY l.first_name`,
+      [tenantId, email],
+    ).catch(() => []);
+
+    // Attach a current performance level (overall average → CBC level) per child.
+    const out: any[] = [];
+    for (const c of rows) {
+      const agg = await this.dataSource.query(
+        `SELECT AVG(percent) AS "avg" FROM assessment_results
+          WHERE tenant_id::text = $1 AND learner_id::text = $2 AND percent IS NOT NULL`,
+        [tenantId, c.id],
+      ).catch(() => []);
+      const avg = agg[0]?.avg != null ? Math.round(Number(agg[0].avg)) : null;
+      out.push({
+        id: c.id, firstName: c.firstName, lastName: c.lastName,
+        admissionNumber: c.admissionNumber,
+        stream: c.streamName ? { name: c.streamName, id: c.streamId } : null,
+        currentLevel: avg != null ? this.percentToLevelCode(avg, this.isSenior(c.gradeLevel || '')) : null,
+        attendanceRate: null,   // attendance integration can fill this later
+        balance: null,          // finance integration can fill this later
+      });
+    }
+    return out;
+  }
+
   async getExams(tenantId: string) {
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear",
@@ -1902,6 +1941,11 @@ export class AcademicController {
   @Get('analytics/parent')
   getParentAnalytics(@Request() req: any, @Query() q: any) {
     return this.academicService.getParentAnalytics(req.user, q.learnerId, q.term);
+  }
+
+  @Get('my-children')
+  getMyChildren(@Request() req: any) {
+    return this.academicService.getMyChildren(req.user);
   }
 
   @Get('term-mark-sheet')
