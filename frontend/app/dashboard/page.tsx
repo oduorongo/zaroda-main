@@ -1,12 +1,13 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Users, DollarSign, BookOpen, GraduationCap, TrendingUp, TrendingDown,
   Calendar, CheckCircle, FileText, Library, Trophy, Scale, ArrowRight,
   MessageSquare, UserPlus, ClipboardList, CheckSquare, BarChart3, Star, Heart,
 } from 'lucide-react';
-import { useAuth, isHoi } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, isParent, isLearner } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 
 // ── Overview stat card (matches the design) ────────────────
@@ -29,15 +30,25 @@ function StatCard({ icon: Icon, label, value, trend, trendUp, iconBg }: any) {
 
 export default function DashboardPage() {
   const { user }   = useAuth();
+  const router     = useRouter();
   const [stats, setStats]     = useState<any>({});
   const [loading, setLoading] = useState(true);
 
+  // Parents and learners must not see the school-wide dashboard — send them to their
+  // own portal, which is scoped to just their data.
   useEffect(() => {
     if (!user) return;
+    if (isParent(user.role))  { router.replace('/dashboard/parent'); return; }
+    if (isLearner(user.role)) { router.replace('/dashboard/learner'); return; }
+  }, [user, router]);
+
+  useEffect(() => {
+    if (!user || isParent(user.role) || isLearner(user.role)) return;
     apiClient.get('/academic/dashboard').then(r => setStats(r.data)).catch(()=>setStats({})).finally(()=>setLoading(false));
   }, [user]);
 
   if (!user) return null;
+  if (isParent(user.role) || isLearner(user.role)) return null;  // redirecting
 
   const OVERVIEW = [
     { icon: Users,        label: 'Students',       value: (stats.totalPopulation ?? stats.totalLearners ?? 0).toLocaleString('en-KE'), trend: `${stats.boys ?? 0} boys · ${stats.girls ?? 0} girls`,  trendUp: true,  iconBg: 'bg-blue-600' },

@@ -20,6 +20,23 @@ export default function ParentPortalPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Open ONLY this child's report card (never the whole class). Defaults to the current
+  // term; the page that opens is the single-learner print-ready report.
+  const downloadChildReport = async (c: any) => {
+    const term = 'term_2';
+    const year = '2025/2026';
+    const win = window.open('', '_blank');
+    try {
+      const res = await apiClient.get(`/pdf/report-card/${c.id}/html`, {
+        params: { term, academicYear: year }, responseType: 'text',
+      });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      if (win) { win.document.open(); win.document.write(html); win.document.close(); }
+    } catch {
+      if (win) win.close();
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-[#1a2e5a] to-[#243f7a] rounded-2xl p-6 text-white relative overflow-hidden">
@@ -77,7 +94,7 @@ export default function ParentPortalPage() {
                 </div>
                 <div className="flex gap-2 mt-4">
                   <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
-                  <Link href="/dashboard/academic/report-cards" className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</Link>
+                  <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</button>
                   <Link href="/dashboard/finance" className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Pay Fees</Link>
                 </div>
               </div>

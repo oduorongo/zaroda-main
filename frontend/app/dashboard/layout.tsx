@@ -16,7 +16,7 @@ import clsx from 'clsx';
 
 // ── Navigation definition ──────────────────────────────────
 const NAV_ITEMS = [
-  { href: '/dashboard',                        icon: Home,         label: 'Dashboard',            roles: 'parent_ok' },
+  { href: '/dashboard',                        icon: Home,         label: 'Dashboard',            roles: 'staff' },
   { href: '/dashboard/teacher',                icon: GraduationCap,label: 'My Workspace',         roles: 'teacher_only' },
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },

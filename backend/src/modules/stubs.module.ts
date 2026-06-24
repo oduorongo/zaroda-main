@@ -662,6 +662,16 @@ class PdfController {
   @Get('report-card/:learnerId/html')
   async reportCardHtml(@Param('learnerId') learnerId: string, @Request() req: any, @Query() q: any, @Res() res: any) {
     try {
+      // Parents may only view their OWN child's report card. Verify the learner's
+      // guardian_email matches the requesting parent's account email.
+      if (req.user?.role === 'parent') {
+        const ok = await this.ds.query(
+          `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id::text = $2
+              AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
+          [learnerId, req.user.tenantId, String(req.user.email || '')],
+        ).catch(() => []);
+        if (!ok.length) { res.status(403).send('<p style="font-family:sans-serif">You can only view your own child\'s report card.</p>'); return; }
+      }
       const html = await this.buildReportCardHtml(req.user.tenantId, learnerId, q.term, q.academicYear || '2025/2026', true);
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
@@ -675,6 +685,10 @@ class PdfController {
   async bulkReportCardsHtml(@Request() req: any, @Query() q: any, @Res() res: any) {
     const tenantId = req.user.tenantId;
     const { streamId, term, academicYear } = q;
+    // Bulk (whole-class) report cards are for staff only — never parents or learners.
+    if (['parent', 'learner'].includes(req.user?.role)) {
+      res.status(403).send('<p style="font-family:sans-serif">Not available.</p>'); return;
+    }
     try {
       const learners = await this.ds.query(
         `SELECT id FROM learners WHERE tenant_id::text = $1 AND stream_id::text = $2 AND COALESCE(is_active, true) = true ORDER BY first_name`,

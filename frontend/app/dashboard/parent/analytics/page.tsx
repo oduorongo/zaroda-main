@@ -122,10 +122,8 @@ function ParentAnalyticsInner() {
                 <YAxis type="category" dataKey="subject" width={130} tick={{ fontSize: 11 }}/>
                 <Tooltip formatter={(v: any, n: any) => [`${v}%`, n === 'average' ? data.chosen.name : 'Class average']}/>
                 <Legend formatter={(v: string) => v === 'average' ? data.chosen.name : 'Class average'}/>
-                <Bar dataKey="classAverage" fill={GREY} radius={[0, 4, 4, 0]} barSize={10}/>
-                <Bar dataKey="average" radius={[0, 4, 4, 0]} barSize={14}>
-                  {data.areas.map((a: any, i: number) => <Cell key={i} fill={percentToLevel(a.average, grade).color}/>)}
-                </Bar>
+                <Bar dataKey="classAverage" name="classAverage" fill={GREY} radius={[0, 4, 4, 0]} barSize={10}/>
+                <Bar dataKey="average" name="average" fill={NAVY} radius={[0, 4, 4, 0]} barSize={14}/>
               </BarChart>
             </ResponsiveContainer>
           </div>
