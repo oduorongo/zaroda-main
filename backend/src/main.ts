@@ -266,12 +266,14 @@ async function bootstrap() {
         [name.toLowerCase().replace(/\s+/g, ' ')]).catch(() => []))[0];
       if (!st) { res.type('text/plain').send(`No stream "${name}".`); return; }
       const rows = await ds.query(
-        `SELECT subject, term, COUNT(*)::int AS marks FROM assessment_results
-          WHERE stream_id = $1 GROUP BY subject, term ORDER BY subject, term`, [st.id],
+        `SELECT subject, term, COUNT(*)::int AS marks,
+                MIN(max_score) AS "minOutOf", MAX(max_score) AS "maxOutOf",
+                ROUND(AVG(percent)) AS "avgPct", MIN(percent) AS "minPct", MAX(percent) AS "maxPct"
+           FROM assessment_results WHERE stream_id = $1 GROUP BY subject, term ORDER BY subject, term`, [st.id],
       ).catch(() => []);
       res.type('text/plain').send(
-        `Stream "${name}" (grade_level=${st.grade_level})\n\nMARKS BY SUBJECT NAME:\n` +
-        (rows.length ? rows.map((r: any) => `  ${(r.subject||'').padEnd(28)} ${r.term || ''}   ${r.marks} marks`).join('\n')
+        `Stream "${name}" (grade_level=${st.grade_level})\n\nMARKS BY SUBJECT:\n` +
+        (rows.length ? rows.map((r: any) => `  ${(r.subject||'').padEnd(26)} ${r.term||''}  ${String(r.marks).padStart(3)} marks  | out-of ${r.minOutOf}–${r.maxOutOf}  | pct ${r.minPct}–${r.maxPct} (avg ${r.avgPct})`).join('\n')
                      : '  (no marks found for this stream)'),
       );
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }

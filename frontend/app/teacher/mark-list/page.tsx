@@ -174,15 +174,22 @@ export default function TeacherMarkListPage() {
     try {
       const records = ranked.filter(r => r.hasScores).flatMap(r =>
         Object.entries(r.subjectScores).map(([subject, raw]) => {
-          const pct = Math.round((raw / maxScore) * 100);
+          // Each subject keeps its OWN "out of". For a mark already saved, reuse its stored
+          // maxScore (so saving the list NEVER overwrites a subject's real total with the
+          // page default). Only a freshly typed, not-yet-saved mark uses the page maxScore.
+          const stored = savedMeta[r.learner.id]?.[subject];
+          const isSaved = savedCells.has(cellKey(r.learner.id, subject));
+          const useMax = (isSaved && stored && stored.maxScore > 0) ? stored.maxScore : maxScore;
+          if (!useMax || useMax <= 0) return null;  // never save against an invalid total
+          const pct = Math.round((Number(raw) / useMax) * 100);
           return {
             learnerId: r.learner.id, subject, streamId,
-            rawScore: raw, maxScore, percent: pct,
+            rawScore: raw, maxScore: useMax, percent: pct,
             level: percentToLevel(pct, stream?.gradeLevel || 'grade_4').code,
             gradeLevel: stream?.gradeLevel,
             term, examType, examId, academicYear: '2025/2026',
           };
-        })
+        }).filter(Boolean)
       );
       if (!records.length) { toast.error('No scores to save'); return; }
       await apiClient.post('/academic/assessment-results/bulk', { records });
