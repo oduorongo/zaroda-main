@@ -95,14 +95,26 @@ export default function RecordPaymentPage() {
     } finally { setSaving(false); }
   };
 
-  const openReceipt = (paymentId: string) => {
-    const token = localStorage.getItem('zaroda_token');
-    const base = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
-    const url = `${base}/api/v1/finance/payments/${paymentId}/receipt/html`;
-    const w = window.open('', '_blank');
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.text())
-      .then(html => { if (w) { w.document.write(html); w.document.close(); } })
-      .catch(() => toast.error('Could not open receipt'));
+  const openReceipt = async (paymentId: string) => {
+    const tId = toast.loading('Opening receipt…');
+    try {
+      // Use apiClient so the base URL + auth header are guaranteed correct (a manual fetch
+      // with window.location.origin would hit the frontend domain, not the API).
+      const res = await apiClient.get(`/finance/payments/${paymentId}/receipt/html`, { responseType: 'text' });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      const blob = new Blob([html], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      const w = window.open(blobUrl, '_blank');
+      if (!w) {
+        const a = document.createElement('a');
+        a.href = blobUrl; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      toast.dismiss(tId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || `Could not open receipt`, { id: tId });
+    }
   };
 
   const filtered = learners.filter(l =>

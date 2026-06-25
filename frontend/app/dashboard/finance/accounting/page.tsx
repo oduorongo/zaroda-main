@@ -20,12 +20,15 @@ export default function AccountingPage() {
     try {
       const { data } = await apiClient.get(`/finance/reports/${key}`, { responseType: 'blob' });
       const url = URL.createObjectURL(data);
-      const a = document.createElement('a'); a.href = url; a.download = `${key}.pdf`;
+      const a = document.createElement('a'); a.href = url; a.download = `${key}-report.csv`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      toast.success(`${label} generated`);
-    } catch { toast.error(`Could not generate ${label}. Endpoint: /api/v1/finance/reports/${key}`); }
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      toast.success(`${label} downloaded (CSV)`);
+    } catch (e: any) { toast.error(err(e, label, key)); }
     finally { setGenerating(''); }
   };
+  const err = (e: any, label: string, key: string) =>
+    e?.response?.status === 404 ? `${label} report not available yet` : `Could not generate ${label}`;
 
   return (
     <div className="space-y-5">
@@ -48,7 +51,7 @@ export default function AccountingPage() {
               <div className="text-xs text-theme-muted mt-0.5 mb-4">{r.desc}</div>
               <button onClick={() => generate(r.key, r.label)} disabled={generating === r.key}
                 className="btn-ghost w-full justify-center text-xs">
-                <Download size={13}/> {generating === r.key ? 'Generating…' : 'Generate PDF'}
+                <Download size={13}/> {generating === r.key ? 'Generating…' : 'Download CSV'}
               </button>
             </div>
           );
