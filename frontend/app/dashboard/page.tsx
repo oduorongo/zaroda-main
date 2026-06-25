@@ -52,7 +52,7 @@ export default function DashboardPage() {
 
   const OVERVIEW = [
     { icon: Users,        label: 'Students',       value: (stats.totalPopulation ?? stats.totalLearners ?? 0).toLocaleString('en-KE'), trend: `${stats.boys ?? 0} boys · ${stats.girls ?? 0} girls`,  trendUp: true,  iconBg: 'bg-blue-600' },
-    { icon: GraduationCap,label: 'Teachers',       value: stats.totalTeachers ?? 0,  trend: 'Active staff',  trendUp: true,  iconBg: 'bg-purple-600' },
+    { icon: GraduationCap,label: 'Teachers',       value: stats.totalTeachers ?? 0,  trend: `${stats.maleTeachers ?? 0} male · ${stats.femaleTeachers ?? 0} female`,  trendUp: true,  iconBg: 'bg-purple-600' },
     { icon: Heart,        label: 'Parents',        value: stats.parentCount ?? 0,    trend: 'By unique phone', trendUp: true, iconBg: 'bg-rose-600' },
     { icon: BookOpen,     label: 'Classes',        value: stats.totalStreams ?? 0,   trend: 'Streams',  trendUp: true,  iconBg: 'bg-amber-500' },
     { icon: CheckCircle,  label: 'Attendance',     value: `${stats.attendanceRate ?? 0}%`, trend: 'Last 30 days', trendUp: true, iconBg: 'bg-green-600' },

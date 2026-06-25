@@ -121,10 +121,15 @@ export class AcademicService {
       `SELECT s.id, s.name, s.grade_level AS "gradeLevel",
               s.class_teacher_id AS "classTeacherId", s.class_teacher_name AS "classTeacherName",
               s.academic_year AS "academicYear",
-              COALESCE(c.n, 0)::int AS "learnersCount"
+              COALESCE(c.n, 0)::int AS "learnersCount",
+              COALESCE(c.boys, 0)::int AS "boys",
+              COALESCE(c.girls, 0)::int AS "girls"
        FROM streams s
        LEFT JOIN (
-         SELECT stream_id::text AS sid, COUNT(*) AS n FROM learners
+         SELECT stream_id::text AS sid, COUNT(*) AS n,
+                COUNT(*) FILTER (WHERE LOWER(gender) IN ('male','m','boy'))   AS boys,
+                COUNT(*) FILTER (WHERE LOWER(gender) IN ('female','f','girl')) AS girls
+         FROM learners
          WHERE tenant_id::text = $1 AND is_active = true GROUP BY stream_id::text
        ) c ON c.sid = s.id::text
        WHERE s.tenant_id::text = $1
@@ -1596,6 +1601,17 @@ export class AcademicService {
       this.dataSource.query(`SELECT COUNT(*) FROM incidents WHERE tenant_id = $1 AND status = 'open'`, [tenantId]).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
     ]);
 
+    // Teacher gender split (for the dashboard teacher card).
+    const teacherGender = await this.dataSource.query(
+      `SELECT COUNT(*) FILTER (WHERE LOWER(gender) IN ('male','m'))   AS "maleTeachers",
+              COUNT(*) FILTER (WHERE LOWER(gender) IN ('female','f')) AS "femaleTeachers"
+         FROM users WHERE tenant_id = $1
+           AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')`,
+      [tenantId],
+    ).then(r => ({ male: parseInt(r[0]?.maleTeachers||'0'), female: parseInt(r[0]?.femaleTeachers||'0') })).catch(() => ({ male: 0, female: 0 }));
+    const maleTeachers = teacherGender.male;
+    const femaleTeachers = teacherGender.female;
+
     // Attendance rate (present / total records) over the last 30 days
     const attendanceRate = await this.dataSource.query(
       `SELECT ROUND(100.0 * SUM(CASE WHEN status='present' THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0)) AS rate
@@ -1693,6 +1709,7 @@ export class AcademicService {
       boys, girls, unspecified, totalPopulation, parentCount,
       topClasses, upcomingEvents, assessmentProgress,
       enrollmentTrend,
+      maleTeachers, femaleTeachers,
     };
   }
 

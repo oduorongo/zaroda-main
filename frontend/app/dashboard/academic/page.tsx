@@ -104,7 +104,7 @@ export default function AcademicPage() {
                 </div>
                 <div className="font-bold text-theme-heading">{s.name}</div>
                 <div className="text-xs text-theme-muted mt-0.5">
-                  {s.learnersCount || 0} learners · {s.classTeacherName || 'No teacher assigned'}
+                  {s.learnersCount || 0} learners ({s.boys || 0} B · {s.girls || 0} G) · {s.classTeacherName || 'No teacher assigned'}
                 </div>
               </Link>
             ))}
