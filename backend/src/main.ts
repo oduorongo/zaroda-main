@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-fix-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-term-diag-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -318,10 +318,16 @@ async function bootstrap() {
       let detail: any = null;
       if (grade) {
         detail = await ds.query(
-          `SELECT learning_area, COUNT(*) AS rows,
-                  COUNT(*) FILTER (WHERE tenant_id IS NULL) AS global_rows
-             FROM assessment_templates WHERE grade_level = $1
-            GROUP BY learning_area ORDER BY learning_area`,
+          `SELECT t.learning_area,
+                  COUNT(*) FILTER (WHERE st.term = 'term_1') AS t1,
+                  COUNT(*) FILTER (WHERE st.term = 'term_2') AS t2,
+                  COUNT(*) FILTER (WHERE st.term = 'term_3') AS t3,
+                  COUNT(*) FILTER (WHERE st.term IS NULL) AS tnull,
+                  COUNT(*) AS total_strands
+             FROM assessment_templates t
+             LEFT JOIN assessment_strands st ON st.template_id = t.id
+            WHERE t.grade_level = $1
+            GROUP BY t.learning_area ORDER BY t.learning_area`,
           [grade],
         ).catch((e: any) => ({ error: e.message }));
       }
@@ -330,9 +336,9 @@ async function bootstrap() {
         (Array.isArray(byGrade) && byGrade.length
           ? byGrade.map((r: any) => `  ${String(r.grade_level).padEnd(12)} areas:${r.areas}  templates:${r.templates}  global(null-tenant):${r.global_rows}`).join('\n')
           : `  (none) ${JSON.stringify(byGrade)}`) +
-        (detail ? `\n\n${grade} LEARNING AREAS:\n` +
+        (detail ? `\n\n${grade} STRANDS PER LEARNING AREA (by term):\n  ${'AREA'.padEnd(34)} T1  T2  T3  NULL  TOTAL\n` +
           (Array.isArray(detail) && detail.length
-            ? detail.map((r: any) => `  ${String(r.learning_area).padEnd(34)} rows:${r.rows}  global:${r.global_rows}`).join('\n')
+            ? detail.map((r: any) => `  ${String(r.learning_area).padEnd(34)} ${String(r.t1).padEnd(3)} ${String(r.t2).padEnd(3)} ${String(r.t3).padEnd(3)} ${String(r.tnull).padEnd(4)}  ${r.total_strands}`).join('\n')
             : `  (none for ${grade})`) : ''),
       );
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
