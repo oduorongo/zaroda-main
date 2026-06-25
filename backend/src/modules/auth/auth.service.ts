@@ -197,7 +197,7 @@ export class AuthService {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret:    this.configService.get('JWT_SECRET', 'zaroda-dev-secret'),
-        expiresIn: this.configService.get('JWT_EXPIRES_IN', '15m'),
+        expiresIn: this.configService.get('JWT_EXPIRES_IN', '12h'),
       }),
       this.jwtService.signAsync(payload, {
         secret:    this.configService.get('JWT_REFRESH_SECRET', 'zaroda-refresh-secret'),

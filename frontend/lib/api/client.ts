@@ -19,27 +19,41 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 });
 
 // ── Response interceptor: handle 401, refresh token ────────
+// Single-flight refresh: when several requests 401 at once (e.g. a tab firing parallel
+// calls right as the 15-min access token expires), only ONE refresh runs. The others wait
+// for it and reuse the new token — preventing a refresh-token race that would otherwise
+// rotate the token multiple times, invalidate it, and wrongly log the user out.
+let refreshPromise: Promise<string> | null = null;
+
+function runRefresh(): Promise<string> {
+  if (!refreshPromise) {
+    const refreshToken = localStorage.getItem('zaroda_refresh');
+    if (!refreshToken) return Promise.reject(new Error('no refresh token'));
+    refreshPromise = axios
+      .post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
+      .then(({ data }) => {
+        localStorage.setItem('zaroda_token',   data.accessToken);
+        localStorage.setItem('zaroda_refresh', data.refreshToken);
+        return data.accessToken as string;
+      })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
     const url = original?.url || '';
-    // Never run the refresh/redirect dance for the auth endpoints themselves — a failed
-    // login should surface its error to the form, not trigger a refresh + page redirect
-    // (which causes a confusing "flash back to login" instead of showing the message).
     const isAuthCall = url.includes('/auth/login') || url.includes('/auth/refresh');
     if (error.response?.status === 401 && !original._retry && !isAuthCall) {
       original._retry = true;
       try {
-        const refreshToken = localStorage.getItem('zaroda_refresh');
-        if (!refreshToken) throw new Error('no refresh token');
-        const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken });
-        localStorage.setItem('zaroda_token',   data.accessToken);
-        localStorage.setItem('zaroda_refresh', data.refreshToken);
-        original.headers.Authorization = `Bearer ${data.accessToken}`;
+        const newToken = await runRefresh();   // shared across all concurrent 401s
+        original.headers.Authorization = `Bearer ${newToken}`;
         return apiClient(original);
       } catch {
-        // Refresh failed — clear storage and redirect to login
         localStorage.removeItem('zaroda_token');
         localStorage.removeItem('zaroda_refresh');
         localStorage.removeItem('zaroda_user');

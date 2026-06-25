@@ -21,7 +21,7 @@ import { SchoolSettingsController, SchoolSettingsService } from './school-settin
       inject:     [ConfigService],
       useFactory: (cfg: ConfigService) => ({
         secret:      cfg.get('JWT_SECRET', 'zaroda-dev-secret'),
-        signOptions: { expiresIn: cfg.get('JWT_EXPIRES_IN', '15m') },
+        signOptions: { expiresIn: cfg.get('JWT_EXPIRES_IN', '12h') },
       }),
     }),
   ],
