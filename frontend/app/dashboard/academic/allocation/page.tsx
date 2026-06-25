@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 const PATHWAY_SUBJECTS: Record<string, string[]> = {
   'STEM': ['Mathematics','Biology','Chemistry','Physics','General Science','Agriculture','Computer Science','Home Science','Drawing & Design','Aviation Technology','Building & Construction','Electrical Technology','Metal Technology','Power Mechanics','Woodwork','Media Technology','Marine & Fisheries'],
   'Arts & Sports Science': ['Sports & Recreation','Physical Education','Music & Dance','Theatre & Film','Fine Art','Sculpture','Textile & Fashion Design','Crafts'],
-  'Social Sciences': ['English','Literature in English','Kiswahili','Fasihi ya Kiswahili','Kenya Sign Language','Indigenous Languages','Arabic','French','German','Mandarin','History & Citizenship','Geography','Christian Religious Education','Islamic Religious Education','Hindu Religious Education','Business Studies','Economics'],
+  'Social Sciences': ['English','Literature in English','Kiswahili','Fasihi ya Kiswahili','Kenya Sign Language','Arabic','French','German','Mandarin','History & Citizenship','Geography','Christian Religious Education','Islamic Religious Education','Hindu Religious Education','Business Studies','Economics'],
 };
 
 export default function AllocationPage() {

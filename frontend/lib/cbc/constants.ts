@@ -51,7 +51,7 @@ export const SENIOR_ELECTIVES = [
   'History & Citizenship', 'Geography', 'Christian Religious Education',
   'Islamic Religious Education', 'Hindu Religious Education', 'Business Studies',
   'Literature in English', 'Fasihi ya Kiswahili', 'Kenyan Sign Language',
-  'Indigenous Languages', 'Arabic', 'French', 'German', 'Mandarin Chinese',
+  'Arabic', 'French', 'German', 'Mandarin Chinese',
 ];
 
 /** A senior learner's full set of learning areas = 4 core + their chosen electives. */
@@ -169,7 +169,6 @@ export const LEARNING_AREAS: Record<string, string[]> = {
     'Environmental Activities', 'Religious Activities',
   ],
   'Lower Primary': [
-    'Indigenous Language Activities',
     'Kiswahili Language Activities',
     'English Language Activities', 'Mathematical Activities',
     'Religious Education Activities', 'Environmental Activities',
