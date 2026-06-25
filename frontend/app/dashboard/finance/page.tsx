@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { DollarSign, Search, CreditCard, Loader2, FileText, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
@@ -64,9 +65,9 @@ export default function FinancePage() {
           <p className="text-sm text-theme-muted">Fee collection · M-Pesa · Payroll · FPE/FDJSE/FDSSE</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <a href="/dashboard/finance/fee-structures" className="btn-ghost text-xs">Fee Structures</a>
-          <a href="/dashboard/finance/expenses" className="btn-ghost text-xs">Expenses</a>
-          <a href="/dashboard/finance/accounting" className="btn-ghost text-xs">Accounting</a>
+          <Link href="/dashboard/finance/fee-structures" className="btn-ghost text-xs">Fee Structures</Link>
+          <Link href="/dashboard/finance/expenses" className="btn-ghost text-xs">Expenses</Link>
+          <Link href="/dashboard/finance/accounting" className="btn-ghost text-xs">Accounting</Link>
         </div>
       </div>
 

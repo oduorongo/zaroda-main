@@ -5,7 +5,7 @@
 // Replace each stub with the full service as you build out.
 // ============================================================
 
-import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards } from '@nestjs/common';
+import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -106,6 +106,73 @@ class FinanceController {
 
   @Get('payroll')
   getPayroll(@Request() req: any) { return []; }
+
+  @Get('expenses')
+  async getExpenses(@Request() req: any) {
+    await this.ensureExpensesTable();
+    return this.ds.query(
+      `SELECT id, category, description, amount, spent_on AS "spentOn", created_at AS "createdAt"
+         FROM expenses WHERE tenant_id = $1 ORDER BY COALESCE(spent_on, created_at) DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  private async ensureExpensesTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS expenses (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, school_id uuid,
+         category text, description text, amount numeric,
+         spent_on date, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+  }
+
+  @Post('expenses')
+  async createExpense(@Request() req: any, @Body() dto: any) {
+    const role = req.user.role;
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+      return { error: 'Only the HOI, bursar or administrator can record expenses.' };
+    }
+    if (!dto?.amount || isNaN(Number(dto.amount))) return { error: 'A valid amount is required.' };
+    await this.ensureExpensesTable();
+    const rows = await this.ds.query(
+      `INSERT INTO expenses (tenant_id, school_id, category, description, amount, spent_on, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW())
+       RETURNING id, category, description, amount, spent_on AS "spentOn"`,
+      [req.user.tenantId, req.user.schoolId || null, dto.category || 'General',
+       dto.description || null, Number(dto.amount), dto.spentOn || new Date().toISOString().slice(0, 10)],
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    return rows[0];
+  }
+
+  @Get('reports/:key')
+  async getReport(@Request() req: any, @Param('key') key: string, @Res() res: any) {
+    // Lightweight CSV report so the Accounting tab works without a heavy PDF engine.
+    const tenantId = req.user.tenantId;
+    let title = key, header = 'Item,Amount', lines: string[] = [];
+    try {
+      if (key === 'income') {
+        const rows = await this.ds.query(
+          `SELECT name AS item, amount FROM fee_items WHERE tenant_id = $1 ORDER BY created_at DESC`, [tenantId],
+        ).catch(() => []);
+        title = 'Income (Fee Items)'; lines = rows.map((r: any) => `${String(r.item).replace(/,/g,' ')},${r.amount}`);
+      } else if (key === 'expenses') {
+        const rows = await this.ds.query(
+          `SELECT category, description, amount FROM expenses WHERE tenant_id = $1 ORDER BY created_at DESC`, [tenantId],
+        ).catch(() => []);
+        title = 'Expenses'; header = 'Category,Description,Amount';
+        lines = rows.map((r: any) => `${String(r.category||'').replace(/,/g,' ')},${String(r.description||'').replace(/,/g,' ')},${r.amount}`);
+      } else {
+        title = 'Report'; lines = [];
+      }
+      const csv = `${title}\n${header}\n${lines.join('\n')}\n`;
+      res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${key}-report.csv"` });
+      res.send(csv);
+    } catch (e: any) {
+      res.status(200).set({ 'Content-Type': 'text/csv' }).send(`${title}\n${header}\n`);
+    }
+  }
 
   @Get('dashboard')
   getDashboard(@Request() req: any) {
