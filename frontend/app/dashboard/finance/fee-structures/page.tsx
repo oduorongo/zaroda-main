@@ -45,7 +45,9 @@ export default function FeeStructuresPage() {
       toast.success('Fee structure created');
       setShowNew(false);
       load();
-    } catch { toast.error('Could not save'); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not save fee structure');
+    }
     finally { setSaving(false); }
   };
 

@@ -37,6 +37,7 @@ class FinanceController {
   // ── FEE STRUCTURES (set by HOI / bursar / admin) ──────────
   @Get('fee-structures')
   async getFeeStructures(@Request() req: any) {
+    await this.ensureFeeItemsTable();
     return this.ds.query(
       `SELECT id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
               category, amount, is_mandatory AS "isMandatory", created_at AS "createdAt"
@@ -45,29 +46,46 @@ class FinanceController {
     ).catch(() => []);
   }
 
+  private async ensureFeeItemsTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS fee_items (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, school_id uuid,
+         name text, grade_level text, term text, academic_year text,
+         category text, amount numeric, is_mandatory boolean DEFAULT true,
+         created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+  }
+
   @Post('fee-structures')
   async createFeeStructure(@Request() req: any, @Body() dto: any) {
     const role = req.user.role;
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
-      return { error: 'Only the HOI, bursar or administrator can set fee structures.' };
+      throw new BadRequestException('Only the HOI, bursar or administrator can set fee structures.');
     }
     if (!dto?.name || !String(dto.name).trim()) {
-      return { error: 'Fee name is required.' };
+      throw new BadRequestException('Fee name is required.');
     }
-    const rows = await this.ds.query(
-      `INSERT INTO fee_items
-         (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-       RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
-                 category, amount, is_mandatory AS "isMandatory"`,
-      [
-        req.user.tenantId, req.user.schoolId || null,
-        String(dto.name).trim(), dto.gradeLevel || null, dto.term || null,
-        dto.academicYear || null, dto.category || 'tuition',
-        Number(dto.amount) || 0, dto.isMandatory !== false,
-      ],
-    );
-    return rows[0];
+    await this.ensureFeeItemsTable();
+    try {
+      const rows = await this.ds.query(
+        `INSERT INTO fee_items
+           (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+         RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
+                   category, amount, is_mandatory AS "isMandatory"`,
+        [
+          req.user.tenantId, req.user.schoolId || null,
+          String(dto.name).trim(), dto.gradeLevel || null, dto.term || null,
+          dto.academicYear || null, dto.category || 'tuition',
+          Number(dto.amount) || 0, dto.isMandatory !== false,
+        ],
+      );
+      return rows[0];
+    } catch (e: any) {
+      throw new BadRequestException(`Could not save fee structure: ${e.message}`);
+    }
   }
 
   @Delete('fee-structures/:id')
