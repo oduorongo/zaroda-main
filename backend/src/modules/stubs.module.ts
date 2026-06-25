@@ -50,12 +50,26 @@ class FinanceController {
     await this.ds.query(
       `CREATE TABLE IF NOT EXISTS fee_items (
          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-         tenant_id uuid, school_id uuid,
-         name text, grade_level text, term text, academic_year text,
-         category text, amount numeric, is_mandatory boolean DEFAULT true,
+         tenant_id uuid,
          created_at timestamptz DEFAULT NOW()
        )`,
     ).catch(() => null);
+    // The table may pre-exist from an older version with a different shape. Add any columns
+    // our INSERT/SELECT needs, so it works regardless of how it was originally created.
+    const cols: [string, string][] = [
+      ['school_id', 'uuid'],
+      ['name', 'text'],
+      ['grade_level', 'text'],
+      ['term', 'text'],
+      ['academic_year', 'text'],
+      ['category', 'text'],
+      ['amount', 'numeric'],
+      ['is_mandatory', 'boolean DEFAULT true'],
+      ['created_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [name, type] of cols) {
+      await this.ds.query(`ALTER TABLE fee_items ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);
+    }
   }
 
   @Post('fee-structures')
@@ -139,11 +153,17 @@ class FinanceController {
     await this.ds.query(
       `CREATE TABLE IF NOT EXISTS expenses (
          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-         tenant_id uuid, school_id uuid,
-         category text, description text, amount numeric,
-         spent_on date, created_at timestamptz DEFAULT NOW()
+         tenant_id uuid,
+         created_at timestamptz DEFAULT NOW()
        )`,
     ).catch(() => null);
+    const cols: [string, string][] = [
+      ['school_id', 'uuid'], ['category', 'text'], ['description', 'text'],
+      ['amount', 'numeric'], ['spent_on', 'date'], ['created_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [name, type] of cols) {
+      await this.ds.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);
+    }
   }
 
   @Post('expenses')
