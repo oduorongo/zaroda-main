@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'sdk-build-fix-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-seed-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -302,6 +302,76 @@ async function bootstrap() {
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
 
+  // Seed strands + sub-strands into the rubric for one grade/area/term. POST JSON:
+  // { key, gradeLevel, learningArea, term, replace?: true, strands: [{ name, substrands:[".."] }] }
+  // 'replace:true' first deletes existing strands for that area+term (use to correct bad data).
+  httpAdapter.post('/seed-rubric', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    const b = req.body || {};
+    if ((b.key || req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const { gradeLevel, learningArea, term, strands, replace } = b;
+    if (!gradeLevel || !learningArea || !term || !Array.isArray(strands) || !strands.length) {
+      res.status(400).type('text/plain').send('Need gradeLevel, learningArea, term and a non-empty strands array.');
+      return;
+    }
+    try {
+      const ds = app.get(DataSource);
+      // Find (or create) the template for this grade + area (global / null tenant).
+      let tpl = await ds.query(
+        `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
+        [gradeLevel, learningArea],
+      ).catch(() => []);
+      let templateId: string;
+      if (tpl.length) {
+        templateId = tpl[0].id;
+      } else {
+        const created = await ds.query(
+          `INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,NULL) RETURNING id`,
+          [gradeLevel, learningArea],
+        );
+        templateId = created[0].id;
+      }
+
+      if (replace) {
+        // Delete existing strands (and their substrands via FK or manual) for this area+term.
+        const old = await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1 AND term = $2`, [templateId, term]).catch(() => []);
+        const ids = old.map((r: any) => r.id);
+        if (ids.length) {
+          await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [ids]).catch(() => null);
+          await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [ids]).catch(() => null);
+        }
+      }
+
+      // Find current max position so appended strands order after existing ones.
+      const posRow = await ds.query(`SELECT COALESCE(MAX(position),0) AS m FROM assessment_strands WHERE template_id = $1 AND term = $2`, [templateId, term]).catch(() => [{ m: 0 }]);
+      let pos = Number(posRow[0]?.m || 0);
+      let strandCount = 0, subCount = 0;
+      for (const st of strands) {
+        if (!st?.name) continue;
+        pos += 1; strandCount += 1;
+        const sRow = await ds.query(
+          `INSERT INTO assessment_strands (template_id, position, name, term) VALUES ($1,$2,$3,$4) RETURNING id`,
+          [templateId, pos, st.name, term],
+        );
+        const strandId = sRow[0].id;
+        const subs = Array.isArray(st.substrands) ? st.substrands : [];
+        let sp = 0;
+        for (const sub of subs) {
+          const subName = typeof sub === 'string' ? sub : (sub?.name || '');
+          if (!subName) continue;
+          sp += 1; subCount += 1;
+          await ds.query(
+            `INSERT INTO assessment_substrands (strand_id, position, name) VALUES ($1,$2,$3)`,
+            [strandId, sp, subName],
+          );
+        }
+      }
+      res.type('text/plain').send(`OK — ${gradeLevel} / ${learningArea} / ${term}\nInserted ${strandCount} strand(s) and ${subCount} sub-strand(s)${replace ? ' (replaced existing for this term)' : ''}.`);
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
   // Browser-runnable: shows what learning areas exist in the rubric (assessment_templates)
   // per grade, so we can verify the rubric data. /rubric-check?key=...&grade=grade_7
   httpAdapter.get('/rubric-check', async (req: any, res: any) => {
@@ -331,11 +401,32 @@ async function bootstrap() {
           [grade],
         ).catch((e: any) => ({ error: e.message }));
       }
+      // All-grades gap scan: every learning area whose T1/T2/T3 strand counts look incomplete.
+      const allGaps = await ds.query(
+        `SELECT t.grade_level, t.learning_area,
+                COUNT(*) FILTER (WHERE st.term = 'term_1') AS t1,
+                COUNT(*) FILTER (WHERE st.term = 'term_2') AS t2,
+                COUNT(*) FILTER (WHERE st.term = 'term_3') AS t3,
+                COUNT(*) FILTER (WHERE st.term IS NULL) AS tnull
+           FROM assessment_templates t
+           LEFT JOIN assessment_strands st ON st.template_id = t.id
+          GROUP BY t.grade_level, t.learning_area
+         HAVING COUNT(*) FILTER (WHERE st.term = 'term_1') = 0
+             OR COUNT(*) FILTER (WHERE st.term = 'term_2') = 0
+             OR COUNT(*) FILTER (WHERE st.term = 'term_3') = 0
+             OR COUNT(*) FILTER (WHERE st.term IS NULL) > 0
+          ORDER BY t.grade_level, t.learning_area`,
+      ).catch((e: any) => ({ error: e.message }));
+
       res.type('text/plain').send(
         `RUBRIC (assessment_templates)\n\nBY GRADE:\n` +
         (Array.isArray(byGrade) && byGrade.length
           ? byGrade.map((r: any) => `  ${String(r.grade_level).padEnd(12)} areas:${r.areas}  templates:${r.templates}  global(null-tenant):${r.global_rows}`).join('\n')
           : `  (none) ${JSON.stringify(byGrade)}`) +
+        `\n\n⚠ INCOMPLETE AREAS (missing a term, ALL GRADES):\n  ${'GRADE'.padEnd(10)} ${'AREA'.padEnd(30)} T1  T2  T3  NULL\n` +
+        (Array.isArray(allGaps) && allGaps.length
+          ? allGaps.map((r: any) => `  ${String(r.grade_level).padEnd(10)} ${String(r.learning_area).padEnd(30)} ${String(r.t1).padEnd(3)} ${String(r.t2).padEnd(3)} ${String(r.t3).padEnd(3)} ${r.tnull}`).join('\n')
+          : `  (none — all areas have strands in every term)`) +
         (detail ? `\n\n${grade} STRANDS PER LEARNING AREA (by term):\n  ${'AREA'.padEnd(34)} T1  T2  T3  NULL  TOTAL\n` +
           (Array.isArray(detail) && detail.length
             ? detail.map((r: any) => `  ${String(r.learning_area).padEnd(34)} ${String(r.t1).padEnd(3)} ${String(r.t2).padEnd(3)} ${String(r.t3).padEnd(3)} ${String(r.tnull).padEnd(4)}  ${r.total_strands}`).join('\n')
