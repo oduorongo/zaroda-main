@@ -830,13 +830,26 @@ export class AcademicService {
         [tenantId, c.id],
       ).catch(() => []);
       const avg = agg[0]?.avg != null ? Math.round(Number(agg[0].avg)) : null;
+
+      // Real fee balance: billed (fee items for grade) minus total paid.
+      const paidRow = await this.dataSource.query(
+        `SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE tenant_id::text = $1 AND learner_id::text = $2`,
+        [tenantId, c.id],
+      ).catch(() => [{ paid: 0 }]);
+      const billedRow = await this.dataSource.query(
+        `SELECT COALESCE(SUM(amount),0) AS billed FROM fee_items
+          WHERE tenant_id::text = $1 AND (grade_level IS NULL OR grade_level = $2)`,
+        [tenantId, c.gradeLevel || null],
+      ).catch(() => [{ billed: 0 }]);
+      const balance = Number(billedRow[0]?.billed || 0) - Number(paidRow[0]?.paid || 0);
+
       out.push({
         id: c.id, firstName: c.firstName, lastName: c.lastName,
         admissionNumber: c.admissionNumber,
         stream: c.streamName ? { name: c.streamName, id: c.streamId } : null,
         currentLevel: avg != null ? this.percentToLevelCode(avg, this.isSenior(c.gradeLevel || '')) : null,
         attendanceRate: null,   // attendance integration can fill this later
-        balance: null,          // finance integration can fill this later
+        balance,
       });
     }
     return out;

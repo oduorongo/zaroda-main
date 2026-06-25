@@ -137,6 +137,87 @@ class FinanceController {
   @Get('receipts')
   getReceipts(@Request() req: any) { return []; }
 
+  // Parent-safe: a parent's OWN child's balance + payment history (read-only). Verifies the
+  // learner's guardian_email matches the requesting parent's account email.
+  @Get('payments/my-child/:learnerId')
+  async parentChildFinance(@Request() req: any, @Param('learnerId') learnerId: string) {
+    await this.ensurePaymentsTable();
+    const tenantId = req.user.tenantId;
+    // Parents may only view their own child; staff (bursar/admin) may view any learner.
+    if (req.user.role === 'parent') {
+      const ok = await this.ds.query(
+        `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id = $2
+            AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
+        [learnerId, tenantId, String(req.user.email || '')],
+      ).catch(() => []);
+      if (!ok.length) throw new BadRequestException('You can only view your own child’s account.');
+    }
+    const payments = await this.ds.query(
+      `SELECT id, amount, method, reference, term, academic_year AS "academicYear",
+              receipt_number AS "receiptNumber", paid_on AS "paidOn", created_at AS "createdAt"
+         FROM payments WHERE tenant_id = $1 AND learner_id = $2
+        ORDER BY COALESCE(paid_on, created_at::date) DESC`,
+      [tenantId, learnerId],
+    ).catch(() => []);
+    const totalPaid = payments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+    const grade = await this.ds.query(
+      `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [learnerId],
+    ).then((r: any[]) => r[0]?.g || null).catch(() => null);
+    const billedRows = await this.ds.query(
+      `SELECT COALESCE(SUM(amount),0) AS billed FROM fee_items
+        WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)`,
+      [tenantId, grade],
+    ).catch(() => [{ billed: 0 }]);
+    const totalBilled = Number(billedRows[0]?.billed || 0);
+    return { payments, totalPaid, totalBilled, balance: totalBilled - totalPaid };
+  }
+
+  // Edit a recorded payment (bursar/admin only).
+  @Patch('payments/:id')
+  async updatePayment(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    const role = req.user.role;
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+      throw new BadRequestException('Only the bursar or an administrator can edit payments.');
+    }
+    await this.ensurePaymentsTable();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    const map: Record<string, string> = {
+      amount: 'amount', method: 'method', reference: 'reference', note: 'note',
+      term: 'term', academicYear: 'academic_year', paidOn: 'paid_on',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) {
+        let v = dto[k];
+        if (k === 'amount') { v = Number(v); if (!v || v <= 0) throw new BadRequestException('Enter a valid amount.'); }
+        if ((k === 'paidOn' || k === 'term' || k === 'academicYear') && v === '') v = null;
+        fields.push(`${col} = $${i++}`); vals.push(v);
+      }
+    }
+    if (!fields.length) return { updated: false };
+    vals.push(id, req.user.tenantId);
+    try {
+      const rows = await this.ds.query(
+        `UPDATE payments SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i}
+         RETURNING id, amount, method, receipt_number AS "receiptNumber", paid_on AS "paidOn"`,
+        vals,
+      );
+      if (!rows.length) throw new BadRequestException('Payment not found.');
+      return rows[0];
+    } catch (e: any) {
+      throw new BadRequestException(`Could not update payment: ${e.message}`);
+    }
+  }
+
+  @Delete('payments/:id')
+  async deletePayment(@Request() req: any, @Param('id') id: string) {
+    const role = req.user.role;
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+      throw new BadRequestException('Only the bursar or an administrator can delete payments.');
+    }
+    await this.ds.query(`DELETE FROM payments WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
   // ── Manual payments (cash / m-pesa manual / bank-cheque) ──────
   private async ensurePaymentsTable() {
     await this.ds.query(

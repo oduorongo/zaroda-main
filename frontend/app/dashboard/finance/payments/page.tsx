@@ -33,6 +33,27 @@ export default function RecordPaymentPage() {
 
   const [form, setForm] = useState({ amount: '', method: 'cash', reference: '', note: '', term: '', academicYear: '2025/2026', paidOn: new Date().toISOString().slice(0,10) });
   const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const [editPay, setEditPay] = useState<any>(null);
+
+  const saveEdit = async () => {
+    try {
+      await apiClient.patch(`/finance/payments/${editPay.id}`, {
+        amount: Number(editPay.amount), method: editPay.method,
+        reference: editPay.reference, note: editPay.note, paidOn: editPay.paidOn,
+      });
+      toast.success('Payment updated'); setEditPay(null);
+      if (learner) pickLearner(learner);
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not update'); }
+  };
+
+  const removePay = async (p: any) => {
+    if (!confirm(`Delete payment of ${ksh(p.amount)} (Receipt ${p.receiptNumber})? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/finance/payments/${p.id}`);
+      toast.success('Payment deleted');
+      if (learner) pickLearner(learner);
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not delete'); }
+  };
 
   useEffect(() => {
     apiClient.get('/academic/streams').then(r => setStreams(r.data || [])).catch(() => {});
@@ -193,7 +214,11 @@ export default function RecordPaymentPage() {
                         <td className="px-2 py-2 capitalize">{(p.method||'').replace('_',' ')}</td>
                         <td className="px-2 py-2 text-right font-semibold">{ksh(p.amount)}</td>
                         <td className="px-2 py-2 text-theme-muted text-xs">{p.receiptNumber}</td>
-                        <td className="px-2 py-2 text-right"><button onClick={() => openReceipt(p.id)} className="btn-ghost text-xs"><Printer size={12}/> Print</button></td>
+                        <td className="px-2 py-2 text-right whitespace-nowrap">
+                          <button onClick={() => openReceipt(p.id)} className="btn-ghost text-xs"><Printer size={12}/> Print</button>
+                          <button onClick={() => setEditPay({ ...p, paidOn: p.paidOn || (p.createdAt||'').slice(0,10) })} className="btn-ghost text-xs">Edit</button>
+                          <button onClick={() => removePay(p)} className="btn-ghost text-xs text-red-600">Delete</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -202,6 +227,37 @@ export default function RecordPaymentPage() {
             </div>
           )}
         </>
+      )}
+
+      {editPay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-bold text-theme-heading">Edit Payment · {editPay.receiptNumber}</h3>
+              <button onClick={() => setEditPay(null)}>✕</button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div><label className="label">Amount (KES)</label>
+                <input type="number" min={1} value={editPay.amount} onChange={e => setEditPay({ ...editPay, amount: e.target.value })} className="input"/></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Method</label>
+                  <select value={editPay.method} onChange={e => setEditPay({ ...editPay, method: e.target.value })} className="input">
+                    {METHODS.map(m => <option key={m.v} value={m.v}>{m.label}</option>)}
+                  </select></div>
+                <div><label className="label">Date paid</label>
+                  <input type="date" value={editPay.paidOn || ''} onChange={e => setEditPay({ ...editPay, paidOn: e.target.value })} className="input"/></div>
+              </div>
+              <div><label className="label">Reference</label>
+                <input value={editPay.reference || ''} onChange={e => setEditPay({ ...editPay, reference: e.target.value })} className="input"/></div>
+              <div><label className="label">Note</label>
+                <input value={editPay.note || ''} onChange={e => setEditPay({ ...editPay, note: e.target.value })} className="input"/></div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setEditPay(null)} className="btn-ghost flex-1 justify-center">Cancel</button>
+                <button onClick={saveEdit} className="btn-primary flex-1 justify-center">Save changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

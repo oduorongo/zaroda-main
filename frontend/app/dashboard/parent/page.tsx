@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   User, DollarSign, FileText, MessageSquare, CheckCircle,
-  TrendingUp, CreditCard, ChevronRight, Heart,
+  TrendingUp, CreditCard, ChevronRight, Heart, Loader2,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -22,6 +22,18 @@ export default function ParentPortalPage() {
 
   // Open ONLY this child's report card (never the whole class). Defaults to the current
   // term; the page that opens is the single-learner print-ready report.
+  const [feesChild, setFeesChild] = useState<any>(null);
+  const [feesData, setFeesData]   = useState<any>(null);
+  const [feesLoading, setFeesLoading] = useState(false);
+
+  const openFees = async (c: any) => {
+    setFeesChild(c); setFeesData(null); setFeesLoading(true);
+    try {
+      const r = await apiClient.get(`/finance/payments/my-child/${c.id}`);
+      setFeesData(r.data);
+    } catch { setFeesData(null); }
+    finally { setFeesLoading(false); }
+  };
   const downloadChildReport = async (c: any) => {
     const term = 'term_2';
     const year = '2025/2026';
@@ -95,13 +107,55 @@ export default function ParentPortalPage() {
                 <div className="flex gap-2 mt-4">
                   <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
                   <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</button>
-                  <Link href="/dashboard/finance" className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Pay Fees</Link>
+                  <button onClick={() => openFees(c)} className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Fees</button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {feesChild && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[85vh] flex flex-col" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-bold text-theme-heading">{feesChild.firstName} {feesChild.lastName} · Fees</h3>
+              <button onClick={() => setFeesChild(null)}>✕</button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              {feesLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+              ) : !feesData ? (
+                <p className="text-sm text-theme-muted text-center py-6">Fee information isn’t available right now.</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                    <div className="bg-surface-2 rounded-xl p-3"><div className="text-[10px] text-theme-muted uppercase">Billed</div><div className="font-black text-theme-heading text-sm">KES {Number(feesData.totalBilled||0).toLocaleString('en-KE')}</div></div>
+                    <div className="bg-surface-2 rounded-xl p-3"><div className="text-[10px] text-theme-muted uppercase">Paid</div><div className="font-black text-green-600 text-sm">KES {Number(feesData.totalPaid||0).toLocaleString('en-KE')}</div></div>
+                    <div className="bg-surface-2 rounded-xl p-3"><div className="text-[10px] text-theme-muted uppercase">Balance</div><div className={`font-black text-sm ${feesData.balance>0?'text-[#f5820a]':'text-green-600'}`}>KES {Number(feesData.balance||0).toLocaleString('en-KE')}</div></div>
+                  </div>
+                  <h4 className="font-semibold text-theme-heading text-sm mb-2">Payment history</h4>
+                  {(feesData.payments||[]).length === 0 ? (
+                    <p className="text-sm text-theme-muted">No payments recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {feesData.payments.map((p:any)=>(
+                        <div key={p.id} className="flex items-center justify-between text-sm border-b border-theme/40 pb-2">
+                          <div>
+                            <div className="font-semibold text-theme-heading">KES {Number(p.amount).toLocaleString('en-KE')}</div>
+                            <div className="text-[11px] text-theme-muted capitalize">{(p.method||'').replace('_',' ')} · {p.paidOn || (p.createdAt||'').slice(0,10)} · {p.receiptNumber}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-theme-muted mt-4">For payments or fee questions, please contact the school bursar’s office.</p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
