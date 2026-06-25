@@ -631,7 +631,11 @@ class ProRecordsController {
   }
 
   private async aiGenerate(recordType: string, dto: any): Promise<string> {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    // Resolved at runtime via an indirect require so the build never depends on the package
+    // being installed/typed. AI only runs when ANTHROPIC_API_KEY is set anyway.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const req: any = eval('require');
+    const Anthropic = req('@anthropic-ai/sdk').default || req('@anthropic-ai/sdk');
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const kinds: Record<string, string> = {
       scheme_of_work: 'a complete CBC Scheme of Work broken into weeks and lessons with strand, sub-strand, specific learning outcomes, key inquiry questions, learning experiences, learning resources, and assessment methods',
