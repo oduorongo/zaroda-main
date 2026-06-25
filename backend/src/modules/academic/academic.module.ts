@@ -1376,6 +1376,11 @@ export class AcademicService {
         fields.push(`${col} = $${i++}`); vals.push(v);
       }
     }
+    // Gender, normalised to male/female (or null) to satisfy any CHECK constraint.
+    if (dto.gender !== undefined) {
+      const g = String(dto.gender || '').toLowerCase();
+      fields.push(`gender = $${i++}`); vals.push(['male','female'].includes(g) ? g : null);
+    }
     if (fields.length) {
       vals.push(teacherId, tenantId);
       await this.dataSource.query(
@@ -1766,7 +1771,7 @@ export class AcademicService {
     return this.dataSource.query(
       `SELECT id, first_name AS "firstName", last_name AS "lastName", email, phone,
               role, stream_name AS "streamName", id_number AS "idNumber",
-              tsc_number AS "tscNumber", subjects
+              tsc_number AS "tscNumber", gender, subjects
        FROM users
        WHERE tenant_id = $1 AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')
        ORDER BY first_name`,
@@ -1806,14 +1811,15 @@ export class AcademicService {
 
     const rows = await this.dataSource.query(
       `INSERT INTO users
-         (email, password_hash, first_name, last_name, phone, role,
+         (email, password_hash, first_name, last_name, phone, gender, role,
           tenant_id, school_id, stream_id, stream_name, id_number, tsc_number,
           subjects, is_active, email_verified, must_change_password, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,false,true,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,false,true,NOW(),NOW())
        RETURNING id, email, first_name AS "firstName", last_name AS "lastName", subjects`,
       [
         email, passwordHash,
         dto.firstName, dto.lastName, dto.phone || null,
+        (['male','female'].includes(String(dto.gender||'').toLowerCase()) ? String(dto.gender).toLowerCase() : null),
         dto.role || 'subject_teacher',
         tenantId, schoolId, dto.streamId || null, dto.streamName || null,
         dto.idNumber || null, dto.tscNumber || null, subjectsCsv,

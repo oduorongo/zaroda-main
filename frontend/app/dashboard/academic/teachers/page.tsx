@@ -58,7 +58,7 @@ export default function TeachersPage() {
   const openEdit = async (t:any) => {
     setEditTeacher({
       id: t.id, fullName: `${t.firstName||''} ${t.lastName||''}`.trim(),
-      email: t.email||'', phone: t.phone||'', role: t.role,
+      email: t.email||'', phone: t.phone||'', gender: t.gender||'', role: t.role,
       streamSubjects: [{ streamId:'', subjects:[] }],
       // Streams this teacher is already the class teacher of.
       classTeacherStreamIds: streams.filter((s:any)=>s.classTeacherId===t.id).map((s:any)=>String(s.id)),
@@ -84,7 +84,7 @@ export default function TeachersPage() {
       const cleanSS = (editTeacher.streamSubjects||[]).filter((r:any)=>r.streamId && r.subjects.length);
       await apiClient.patch(`/academic/teachers/${editTeacher.id}`, {
         fullName: editTeacher.fullName, email: editTeacher.email, phone: editTeacher.phone,
-        role: editTeacher.role, streamSubjects: cleanSS,
+        gender: editTeacher.gender, role: editTeacher.role, streamSubjects: cleanSS,
         classTeacherStreamIds: editTeacher.classTeacherStreamIds || [],
       });
       toast.success('Teacher updated'); setEditTeacher(null); load();
@@ -98,7 +98,7 @@ export default function TeachersPage() {
   };
 
   const [form, setForm] = useState<any>({
-    fullName:'', email:'', phone:'', idNumber:'', tscNumber:'',
+    fullName:'', email:'', phone:'', gender:'', idNumber:'', tscNumber:'',
     role:'subject_teacher', streamId:'', streamName:'', subjects:[] as string[],
     streamSubjects: [{ streamId:'', subjects:[] as string[] }],
   });
@@ -141,7 +141,7 @@ export default function TeachersPage() {
       const creds = res.data?.credentials;
       toast.success(`${firstName} ${lastName} onboarded`);
       setShowNew(false);
-      setForm({ fullName:'', email:'', phone:'', idNumber:'', tscNumber:'', role:'subject_teacher', streamId:'', streamName:'', subjects:[], streamSubjects:[{ streamId:'', subjects:[] }] });
+      setForm({ fullName:'', email:'', phone:'', gender:'', idNumber:'', tscNumber:'', role:'subject_teacher', streamId:'', streamName:'', subjects:[], streamSubjects:[{ streamId:'', subjects:[] }] });
       if (creds) setNewCreds({ name: `${res.data.teacher.firstName} ${res.data.teacher.lastName}`, ...creds });
       load();
     } catch (err:any) {
@@ -251,6 +251,13 @@ export default function TeachersPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Email * <span className="text-theme-muted font-normal">(used as login username)</span></label><input type="email" required value={form.email} onChange={set('email')} className="input"/></div>
                 <div><label className="label">Phone</label><input value={form.phone} onChange={set('phone')} className="input" placeholder="+254…"/></div>
+                <div><label className="label">Gender</label>
+                  <select value={form.gender} onChange={set('gender')} className="input">
+                    <option value="">Select…</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Role</label>
@@ -359,6 +366,13 @@ export default function TeachersPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Email</label><input value={editTeacher.email} onChange={e=>setEditTeacher({...editTeacher, email:e.target.value})} className="input"/></div>
                 <div><label className="label">Phone</label><input value={editTeacher.phone} onChange={e=>setEditTeacher({...editTeacher, phone:e.target.value})} className="input"/></div>
+                <div><label className="label">Gender</label>
+                  <select value={editTeacher.gender||''} onChange={e=>setEditTeacher({...editTeacher, gender:e.target.value})} className="input">
+                    <option value="">Select…</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
