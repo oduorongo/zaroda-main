@@ -70,6 +70,20 @@ class FinanceController {
     for (const [name, type] of cols) {
       await this.ds.query(`ALTER TABLE fee_items ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);
     }
+    // The table may have been created as a CHILD of a fee_structures table, leaving NOT-NULL
+    // columns our simplified insert doesn't use (e.g. fee_structure_id, fee_type). Find any
+    // NOT-NULL column that isn't one we deliberately populate, and drop its NOT-NULL so a
+    // standalone fee item can be saved. This is self-healing against any legacy table shape.
+    const keep = new Set(['id', 'tenant_id']);  // these stay NOT NULL / have defaults
+    const notNullCols = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'fee_items' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNullCols as any[])) {
+      const c = row.column_name;
+      if (keep.has(c)) continue;
+      await this.ds.query(`ALTER TABLE fee_items ALTER COLUMN ${c} DROP NOT NULL`).catch(() => null);
+    }
   }
 
   @Post('fee-structures')
@@ -163,6 +177,15 @@ class FinanceController {
     ];
     for (const [name, type] of cols) {
       await this.ds.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);
+    }
+    const keep = new Set(['id', 'tenant_id']);
+    const notNullCols = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'expenses' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNullCols as any[])) {
+      if (keep.has(row.column_name)) continue;
+      await this.ds.query(`ALTER TABLE expenses ALTER COLUMN ${row.column_name} DROP NOT NULL`).catch(() => null);
     }
   }
 
