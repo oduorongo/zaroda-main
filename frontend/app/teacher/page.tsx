@@ -13,6 +13,7 @@ export default function TeacherHome() {
   const [classes, setClasses]   = useState<any[]>([]);
   const [subjects, setSubjects] = useState<string[]>([]);
   const [today, setToday]       = useState<any[]>([]);
+  const [progress, setProgress] = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
@@ -22,7 +23,8 @@ export default function TeacherHome() {
       apiClient.get('/academic/teachers').catch(()=>({data:[]})),
       apiClient.get('/academic/my-timetable').catch(()=>({data:[]})),
       apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(()=>({data:[]})),
-    ]).then(([s, t, tt, ss]) => {
+      apiClient.get('/academic/my-assessment-progress').catch(()=>({data:[]})),
+    ]).then(([s, t, tt, ss, ap]) => {
       // All streams this teacher owns OR is assigned to teach in (across learning areas).
       const assignedIds = new Set<string>((ss.data||[]).map((row:any)=>String(row.streamId)));
       const mine = (s.data||[]).filter((x:any) =>
@@ -33,6 +35,7 @@ export default function TeacherHome() {
       // Today's lessons from personal timetable
       const dayName = new Date().toLocaleDateString('en-US',{weekday:'long'});
       setToday((tt.data||[]).filter((l:any) => l.day === dayName));
+      setProgress(ap.data || []);
     }).finally(()=>setLoading(false));
   }, [user]);
 
@@ -142,6 +145,27 @@ export default function TeacherHome() {
           </div>
         )}
       </div>
+
+      {/* Assessment upload progress — how many of my learners have marks per assessment */}
+      {progress.length > 0 && (
+        <div>
+          <h2 className="section-title">Assessment Upload Progress</h2>
+          <div className="card p-5 space-y-3">
+            <p className="text-xs text-theme-muted">Marks entered for your classes, per created assessment.</p>
+            {progress.map((a:any) => (
+              <div key={a.id}>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="font-semibold text-theme-heading truncate">{a.name || (a.examType||'').replace('_',' ')} <span className="text-theme-muted font-normal">· {(a.term||'').replace('term_','Term ')}</span></span>
+                  <span className="text-theme-muted">{a.entered}/{a.total} ({a.percent}%)</span>
+                </div>
+                <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${a.percent}%`, background: a.percent >= 80 ? '#16a34a' : a.percent >= 40 ? '#d4af37' : '#f5820a' }}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

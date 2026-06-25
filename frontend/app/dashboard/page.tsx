@@ -69,19 +69,19 @@ export default function DashboardPage() {
     { icon: BarChart3,    label: 'Generate Report', href: '/dashboard/academic/mark-list',  color: 'bg-teal-600' },
   ];
 
-  const EVENTS = [
-    { d: '20', m: 'MAY', title: 'Mid Term Examinations Begin', sub: 'All Classes',       time: '8:00 AM' },
-    { d: '24', m: 'MAY', title: 'Science Fair',                sub: 'School Hall',        time: '10:00 AM' },
-    { d: '28', m: 'MAY', title: 'Parents Meeting',             sub: 'Main Auditorium',    time: '2:00 PM' },
-    { d: '02', m: 'JUN', title: 'Sports Day',                  sub: 'School Playground',  time: '9:00 AM' },
-  ];
+  const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const EVENTS = (stats.upcomingEvents || []).map((e: any) => {
+    const d = e.startDate ? new Date(e.startDate) : null;
+    return {
+      d: d ? String(d.getDate()).padStart(2, '0') : '--',
+      m: d ? MONTHS[d.getMonth()] : '',
+      title: e.name || (e.examType || 'Assessment').replace('_', ' '),
+      sub: (e.term || '').replace('term_', 'Term '),
+      time: d ? d.toLocaleDateString('en-KE', { weekday: 'short' }) : '',
+    };
+  });
 
-  const TOP_CLASSES = [
-    { name: 'Grade 10A', score: 95 },
-    { name: 'Grade 9B',  score: 93 },
-    { name: 'Grade 11A', score: 91 },
-    { name: 'Grade 8A',  score: 89 },
-  ];
+  const TOP_CLASSES = (stats.topClasses || []).map((c: any) => ({ name: c.name, score: c.score }));
 
   return (
     <div className="space-y-6">
@@ -145,7 +145,7 @@ export default function DashboardPage() {
             <h3 className="font-bold text-theme-heading">Student Enrollment</h3>
             <span className="text-xs text-theme-muted bg-surface-2 px-2 py-1 rounded-lg">This Term</span>
           </div>
-          <EnrollmentChart/>
+          <EnrollmentChart series={stats.enrollmentTrend}/>
           <div className="flex gap-6 mt-4 pt-4 border-theme" style={{ borderTop: '1px solid var(--border)' }}>
             <div><div className="text-xs text-theme-muted">Total Students</div><div className="font-black text-theme-heading">{(stats.totalLearners ?? 1256).toLocaleString('en-KE')}</div></div>
             <div><div className="text-xs text-theme-muted">New Admissions</div><div className="font-black text-theme-heading">{stats.newAdmissions ?? 128}</div></div>
@@ -185,7 +185,9 @@ export default function DashboardPage() {
             <h3 className="font-bold text-theme-heading">Upcoming Events</h3>
           </div>
           <div className="space-y-3">
-            {EVENTS.map(e => (
+            {EVENTS.length === 0 ? (
+              <p className="text-sm text-theme-muted py-4">No upcoming assessments scheduled. Create an assessment with a date to see it here.</p>
+            ) : EVENTS.map((e: any) => (
               <div key={e.title} className="flex gap-3">
                 <div className="w-10 text-center flex-shrink-0">
                   <div className="text-base font-black text-theme-heading leading-none">{e.d}</div>
@@ -193,7 +195,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex-1 min-w-0 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
                   <div className="text-sm font-semibold text-theme-heading truncate">{e.title}</div>
-                  <div className="text-xs text-theme-muted">{e.sub} · {e.time}</div>
+                  <div className="text-xs text-theme-muted">{e.sub}{e.time ? ` · ${e.time}` : ''}</div>
                 </div>
               </div>
             ))}
@@ -204,7 +206,9 @@ export default function DashboardPage() {
         <div className="card p-5">
           <h3 className="font-bold text-theme-heading mb-4">Top Performing Classes</h3>
           <div className="space-y-3">
-            {TOP_CLASSES.map((c, i) => (
+            {TOP_CLASSES.length === 0 ? (
+              <p className="text-sm text-theme-muted py-4">No marks recorded yet. Rankings appear once teachers enter marks.</p>
+            ) : TOP_CLASSES.map((c: any, i: number) => (
               <div key={c.name} className="flex items-center gap-3">
                 <span className="text-sm font-black text-theme-muted w-4">{i+1}</span>
                 <Star size={15} className="text-[#d4af37] fill-[#d4af37]"/>
@@ -215,19 +219,47 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Assessment upload progress (admin/HOI) */}
+      {isHoi(user.role) && (stats.assessmentProgress || []).length > 0 && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <ClipboardList size={18} className="text-[#1a2e5a]"/>
+            <h3 className="font-bold text-theme-heading">Assessment Upload Progress</h3>
+          </div>
+          <p className="text-xs text-theme-muted mb-4">How many learners have marks entered for each created assessment.</p>
+          <div className="space-y-3">
+            {(stats.assessmentProgress || []).map((a: any) => (
+              <div key={a.id}>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="font-semibold text-theme-heading truncate">{a.name || (a.examType || '').replace('_',' ')} <span className="text-theme-muted font-normal">· {(a.term||'').replace('term_','Term ')}</span></span>
+                  <span className="text-theme-muted">{a.entered}/{a.total} ({a.percent}%)</span>
+                </div>
+                <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${a.percent}%`, background: a.percent >= 80 ? '#16a34a' : a.percent >= 40 ? '#d4af37' : '#f5820a' }}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Lightweight enrollment line chart (SVG, theme-aware) ────
-function EnrollmentChart() {
-  const pts = [380, 520, 600, 720, 1100, 1256];
-  const max = 1500, w = 520, h = 150, pad = 10;
-  const stepX = (w - pad*2) / (pts.length - 1);
+function EnrollmentChart({ series }: { series?: { label: string; total: number }[] }) {
+  const data = (series && series.length) ? series : [];
+  if (!data.length) {
+    return <div className="h-[120px] flex items-center justify-center text-sm text-theme-muted">Enrollment trend appears as learners are admitted.</div>;
+  }
+  const pts = data.map(d => d.total);
+  const months = data.map(d => d.label);
+  const max = Math.max(10, ...pts) * 1.1, w = 520, h = 150, pad = 10;
+  const stepX = (w - pad*2) / Math.max(1, pts.length - 1);
   const coords = pts.map((v, i) => [pad + i*stepX, h - pad - (v/max)*(h - pad*2)]);
   const path = coords.map((c, i) => `${i===0?'M':'L'} ${c[0]} ${c[1]}`).join(' ');
   const area = `${path} L ${coords[coords.length-1][0]} ${h-pad} L ${coords[0][0]} ${h-pad} Z`;
-  const months = ['Jan','Feb','Mar','Apr','May','Jun'];
   return (
     <svg viewBox={`0 0 ${w} ${h+20}`} className="w-full">
       <defs>

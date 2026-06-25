@@ -1634,12 +1634,114 @@ export class AcademicService {
       [tenantId],
     ).then(r => parseInt(r[0]?.n || '0')).catch(() => 0);
 
+    // ── Top performing classes (real): average % per stream from assessment_results ──
+    const topClasses = await this.dataSource.query(
+      `SELECT s.name AS name, ROUND(AVG(ar.percent)) AS score
+         FROM assessment_results ar JOIN streams s ON s.id::text = ar.stream_id::text
+        WHERE ar.tenant_id::text = $1 AND ar.percent IS NOT NULL
+        GROUP BY s.name HAVING COUNT(*) > 0
+        ORDER BY score DESC LIMIT 5`,
+      [tenantId],
+    ).then((r: any[]) => r.map(x => ({ name: x.name, score: Math.round(Number(x.score)) }))).catch(() => []);
+
+    // ── Upcoming events (real): exams/assessments dated today or later ──
+    const upcomingEvents = await this.dataSource.query(
+      `SELECT name, exam_type AS "examType", start_date AS "startDate", term
+         FROM exams
+        WHERE tenant_id::text = $1 AND start_date IS NOT NULL AND start_date >= CURRENT_DATE
+        ORDER BY start_date ASC LIMIT 5`,
+      [tenantId],
+    ).catch(() => []);
+
+    // ── Assessment upload progress (real): for each recent assessment, how many learners
+    // have marks vs the school population, so admins see completion at a glance. ──
+    const assessmentProgress = await this.dataSource.query(
+      `SELECT e.id, e.name, e.term, e.exam_type AS "examType",
+              (SELECT COUNT(DISTINCT ar.learner_id) FROM assessment_results ar
+                WHERE ar.tenant_id::text = $1 AND ar.exam_id::text = e.id::text) AS "marksEntered",
+              (SELECT COUNT(*) FROM learners l WHERE l.tenant_id::text = $1 AND l.is_active = true) AS "totalLearners"
+         FROM exams e WHERE e.tenant_id::text = $1
+        ORDER BY e.created_at DESC LIMIT 6`,
+      [tenantId],
+    ).then((r: any[]) => r.map(x => {
+      const entered = Number(x.marksEntered) || 0;
+      const total = Number(x.totalLearners) || 0;
+      return { id: x.id, name: x.name, term: x.term, examType: x.examType, entered, total,
+        percent: total ? Math.round((entered / total) * 100) : 0 };
+    })).catch(() => []);
+
+    // ── Enrollment trend (real): cumulative active learners by month, last 6 months ──
+    const enrollmentRows = await this.dataSource.query(
+      `WITH months AS (
+         SELECT generate_series(date_trunc('month', CURRENT_DATE) - interval '5 months',
+                                date_trunc('month', CURRENT_DATE), interval '1 month') AS m
+       )
+       SELECT to_char(months.m, 'Mon') AS label,
+              (SELECT COUNT(*) FROM learners l
+                WHERE l.tenant_id::text = $1
+                  AND COALESCE(l.admission_date, l.created_at::date) <= (months.m + interval '1 month - 1 day')
+              )::int AS total
+         FROM months ORDER BY months.m ASC`,
+      [tenantId],
+    ).then((r: any[]) => r.map(x => ({ label: x.label, total: Number(x.total) || 0 }))).catch(() => []);
+    const enrollmentTrend = enrollmentRows;
+
     return {
       totalLearners, totalStreams, totalTeachers,
       attendanceRate, feesCollected, newAdmissions,
       pendingApprovals, openIncidents,
       boys, girls, unspecified, totalPopulation, parentCount,
+      topClasses, upcomingEvents, assessmentProgress,
+      enrollmentTrend,
     };
+  }
+
+  // ── Teacher: assessment upload progress (own classes) ────────
+  // For a class/subject teacher: per created assessment, how many of THEIR learners have
+  // marks entered vs the total in their classes. Scoped to streams they own or teach in.
+  async getTeacherAssessmentProgress(user: any) {
+    const tenantId = user.tenantId;
+    if (this.isHoiRole(user.role)) {
+      // Admins use the school-wide version on the main dashboard.
+      return [];
+    }
+    // Streams the teacher owns (class teacher) or is assigned to teach in.
+    const owned = await this.dataSource.query(
+      `SELECT id::text AS id FROM streams WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
+      [tenantId, user.id],
+    ).catch(() => []);
+    const assigned = await this.dataSource.query(
+      `SELECT DISTINCT stream_id::text AS id FROM teacher_stream_subjects
+        WHERE tenant_id::text = $1 AND teacher_id::text = $2`,
+      [tenantId, user.id],
+    ).catch(() => []);
+    const streamIds = Array.from(new Set([...owned.map((r: any) => r.id), ...assigned.map((r: any) => r.id)]));
+    if (!streamIds.length) return [];
+
+    // Total learners across the teacher's streams.
+    const totalRow = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS n FROM learners
+        WHERE tenant_id::text = $1 AND is_active = true AND stream_id::text = ANY($2::text[])`,
+      [tenantId, streamIds],
+    ).catch(() => [{ n: 0 }]);
+    const totalLearners = totalRow[0]?.n || 0;
+
+    // Per assessment: distinct learners (in the teacher's streams) who have marks.
+    const rows = await this.dataSource.query(
+      `SELECT e.id, e.name, e.term, e.exam_type AS "examType",
+              (SELECT COUNT(DISTINCT ar.learner_id) FROM assessment_results ar
+                WHERE ar.tenant_id::text = $1 AND ar.exam_id::text = e.id::text
+                  AND ar.stream_id::text = ANY($2::text[])) AS "marksEntered"
+         FROM exams e WHERE e.tenant_id::text = $1
+        ORDER BY e.created_at DESC LIMIT 6`,
+      [tenantId, streamIds],
+    ).catch(() => []);
+
+    return rows.map((x: any) => {
+      const entered = Number(x.marksEntered) || 0;
+      return { id: x.id, name: x.name, term: x.term, examType: x.examType,
+        entered, total: totalLearners, percent: totalLearners ? Math.round((entered / totalLearners) * 100) : 0 };
+    });
   }
 
   // ── Teachers ─────────────────────────────────────────────
@@ -1946,6 +2048,11 @@ export class AcademicController {
   @Get('my-children')
   getMyChildren(@Request() req: any) {
     return this.academicService.getMyChildren(req.user);
+  }
+
+  @Get('my-assessment-progress')
+  getTeacherAssessmentProgress(@Request() req: any) {
+    return this.academicService.getTeacherAssessmentProgress(req.user);
   }
 
   @Get('term-mark-sheet')

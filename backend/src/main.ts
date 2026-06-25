@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'ca-normalize-2026-06-24', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'dashboard-realdata-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -254,6 +254,30 @@ async function bootstrap() {
     } catch (e: any) {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
     }
+  });
+
+  // Browser-runnable: shows the REAL top-performing classes the dashboard computes, so we
+  // can confirm the data without logging in. /dashboard-check?key=...
+  httpAdapter.get('/dashboard-check', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const top = await ds.query(
+        `SELECT s.name AS name, ROUND(AVG(ar.percent)) AS score, COUNT(*) AS marks
+           FROM assessment_results ar JOIN streams s ON s.id::text = ar.stream_id::text
+          WHERE ar.percent IS NOT NULL
+          GROUP BY s.name HAVING COUNT(*) > 0 ORDER BY score DESC LIMIT 10`,
+      ).catch((e: any) => ({ error: e.message }));
+      const totalMarks = await ds.query(`SELECT COUNT(*) AS n FROM assessment_results WHERE percent IS NOT NULL`).catch(() => [{ n: '?' }]);
+      res.type('text/plain').send(
+        `TOTAL MARKS WITH percent: ${totalMarks[0]?.n}\n\n` +
+        `TOP CLASSES (real, computed live):\n` +
+        (Array.isArray(top) && top.length
+          ? top.map((t: any) => `  ${String(t.name).padEnd(24)} ${t.score}%  (${t.marks} marks)`).join('\n')
+          : `  (none) ${JSON.stringify(top)}`),
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
 
   // OWNER BACKUP: download a full JSON snapshot of all data (schools, learners, marks,
