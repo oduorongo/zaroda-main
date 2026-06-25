@@ -137,6 +137,142 @@ class FinanceController {
   @Get('receipts')
   getReceipts(@Request() req: any) { return []; }
 
+  // ── Manual payments (cash / m-pesa manual / bank-cheque) ──────
+  private async ensurePaymentsTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS payments (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    const cols: [string, string][] = [
+      ['school_id', 'uuid'], ['learner_id', 'uuid'], ['learner_name', 'text'],
+      ['admission_number', 'text'], ['amount', 'numeric'], ['method', 'text'],
+      ['reference', 'text'], ['note', 'text'], ['term', 'text'], ['academic_year', 'text'],
+      ['receipt_number', 'text'], ['recorded_by', 'text'], ['paid_on', 'date'],
+      ['created_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [n, t] of cols) {
+      await this.ds.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    const notNull = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'payments' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNull as any[])) {
+      if (['id', 'tenant_id'].includes(row.column_name)) continue;
+      await this.ds.query(`ALTER TABLE payments ALTER COLUMN ${row.column_name} DROP NOT NULL`).catch(() => null);
+    }
+  }
+
+  @Post('payments')
+  async recordPayment(@Request() req: any, @Body() dto: any) {
+    const role = req.user.role;
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+      throw new BadRequestException('Only the bursar or an administrator can record payments.');
+    }
+    if (!dto?.learnerId) throw new BadRequestException('Please select a learner.');
+    const amount = Number(dto.amount);
+    if (!amount || amount <= 0) throw new BadRequestException('Enter a valid amount.');
+    await this.ensurePaymentsTable();
+
+    // Receipt number: ZRD-<short tenant>-<YYMMDD>-<random>
+    const receiptNumber = `ZRD-${String(req.user.tenantId).slice(0, 4).toUpperCase()}-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random()*9000)}`;
+    const recorder = `${req.user.email || ''}`;
+    try {
+      const rows = await this.ds.query(
+        `INSERT INTO payments
+           (tenant_id, school_id, learner_id, learner_name, admission_number, amount, method,
+            reference, note, term, academic_year, receipt_number, recorded_by, paid_on, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+         RETURNING id, receipt_number AS "receiptNumber", amount, method, paid_on AS "paidOn"`,
+        [
+          req.user.tenantId, req.user.schoolId || null, dto.learnerId,
+          dto.learnerName || null, dto.admissionNumber || null, amount,
+          dto.method || 'cash', dto.reference || null, dto.note || null,
+          dto.term || null, dto.academicYear || null, receiptNumber, recorder,
+          dto.paidOn || new Date().toISOString().slice(0, 10),
+        ],
+      );
+      return rows[0];
+    } catch (e: any) {
+      throw new BadRequestException(`Could not record payment: ${e.message}`);
+    }
+  }
+
+  // A learner's payment history + total paid + balance (vs mandatory fee items for them).
+  @Get('payments/learner/:learnerId')
+  async learnerPayments(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
+    await this.ensurePaymentsTable();
+    const tenantId = req.user.tenantId;
+    const payments = await this.ds.query(
+      `SELECT id, amount, method, reference, note, term, academic_year AS "academicYear",
+              receipt_number AS "receiptNumber", paid_on AS "paidOn", created_at AS "createdAt"
+         FROM payments WHERE tenant_id = $1 AND learner_id = $2
+        ORDER BY COALESCE(paid_on, created_at::date) DESC`,
+      [tenantId, learnerId],
+    ).catch(() => []);
+    const totalPaid = payments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+
+    // Total billed = sum of fee items matching the learner's grade (or grade-agnostic items).
+    const grade = await this.ds.query(
+      `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [learnerId],
+    ).then((r: any[]) => r[0]?.g || null).catch(() => null);
+    const billedRows = await this.ds.query(
+      `SELECT COALESCE(SUM(amount),0) AS billed FROM fee_items
+        WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
+          AND ($3::text IS NULL OR term = $3)`,
+      [tenantId, grade, q.term || null],
+    ).catch(() => [{ billed: 0 }]);
+    const totalBilled = Number(billedRows[0]?.billed || 0);
+
+    return { payments, totalPaid, totalBilled, balance: totalBilled - totalPaid };
+  }
+
+  // Printable receipt HTML for a recorded payment.
+  @Get('payments/:id/receipt/html')
+  async paymentReceiptHtml(@Request() req: any, @Param('id') id: string, @Res() res: any) {
+    await this.ensurePaymentsTable();
+    const rows = await this.ds.query(
+      `SELECT p.*, (SELECT name FROM schools s WHERE s.tenant_id = p.tenant_id LIMIT 1) AS "schoolName",
+              (SELECT settings->>'phone'   FROM schools s WHERE s.tenant_id = p.tenant_id LIMIT 1) AS "schoolPhone",
+              (SELECT settings->>'email'   FROM schools s WHERE s.tenant_id = p.tenant_id LIMIT 1) AS "schoolEmail",
+              (SELECT settings->>'address' FROM schools s WHERE s.tenant_id = p.tenant_id LIMIT 1) AS "schoolAddress"
+         FROM payments p WHERE p.id::text = $1 AND p.tenant_id = $2 LIMIT 1`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) { res.status(404).send('<p>Receipt not found</p>'); return; }
+    const p = rows[0];
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const ksh = (n: any) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
+    const contacts = [p.schoolPhone && ('Tel: ' + esc(p.schoolPhone)), p.schoolEmail && esc(p.schoolEmail), p.schoolAddress && esc(p.schoolAddress)].filter(Boolean).join(' · ');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(p.receipt_number)}</title>
+      <style>body{font-family:Arial,sans-serif;color:#1a2e5a;max-width:640px;margin:24px auto;padding:0 16px}
+      .h{text-align:center;border-bottom:3px solid #d4af37;padding-bottom:10px}.h h1{margin:0;font-size:20px}
+      .meta{font-size:12px;color:#555;margin-top:2px}.box{border:1px solid #ddd;border-radius:8px;padding:16px;margin-top:16px}
+      table{width:100%;border-collapse:collapse;margin-top:10px}td{padding:6px 4px;font-size:14px}.r{text-align:right}
+      .total{font-size:18px;font-weight:bold;border-top:2px solid #1a2e5a;margin-top:8px}.foot{margin-top:24px;font-size:11px;color:#777;text-align:center}
+      @media print{button{display:none}}</style></head><body>
+      <div class="h"><h1>${esc(p.schoolName || 'ZARODA School')}</h1>${contacts ? `<div class="meta">${contacts}</div>` : ''}
+      <div class="meta">OFFICIAL FEE RECEIPT</div></div>
+      <div class="box">
+        <table>
+          <tr><td>Receipt No.</td><td class="r"><b>${esc(p.receipt_number)}</b></td></tr>
+          <tr><td>Date</td><td class="r">${esc(p.paid_on || (p.created_at && String(p.created_at).slice(0,10)))}</td></tr>
+          <tr><td>Learner</td><td class="r">${esc(p.learner_name || '')}${p.admission_number ? ' · Adm ' + esc(p.admission_number) : ''}</td></tr>
+          <tr><td>Method</td><td class="r">${esc((p.method || '').replace('_',' ').toUpperCase())}${p.reference ? ' · Ref ' + esc(p.reference) : ''}</td></tr>
+          ${p.term ? `<tr><td>Term</td><td class="r">${esc(String(p.term).replace('term_','Term '))} ${esc(p.academic_year || '')}</td></tr>` : ''}
+          ${p.note ? `<tr><td>Note</td><td class="r">${esc(p.note)}</td></tr>` : ''}
+          <tr class="total"><td>Amount Paid</td><td class="r">${ksh(p.amount)}</td></tr>
+        </table>
+      </div>
+      <div class="foot">Received by ${esc(p.recorded_by || 'school')} · Generated by ZARODA SOLUTIONS<br>This is a computer-generated receipt.</div>
+      <div style="text-align:center;margin-top:16px"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+      </body></html>`;
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.send(html);
+  }
+
   @Post('mpesa/stk-push')
   stkPush(@Request() req: any, @Body() dto: { invoiceId: string; phone: string }) {
     // TODO: integrate Safaricom Daraja STK Push

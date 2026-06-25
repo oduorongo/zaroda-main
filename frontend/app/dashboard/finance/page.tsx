@@ -65,6 +65,7 @@ export default function FinancePage() {
           <p className="text-sm text-theme-muted">Fee collection · M-Pesa · Payroll · FPE/FDJSE/FDSSE</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link href="/dashboard/finance/payments" className="btn-primary text-xs"><DollarSign size={13}/> Record Payment</Link>
           <Link href="/dashboard/finance/fee-structures" className="btn-ghost text-xs">Fee Structures</Link>
           <Link href="/dashboard/finance/expenses" className="btn-ghost text-xs">Expenses</Link>
           <Link href="/dashboard/finance/accounting" className="btn-ghost text-xs">Accounting</Link>
