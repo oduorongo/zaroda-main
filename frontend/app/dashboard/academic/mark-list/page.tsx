@@ -73,7 +73,7 @@ export default function MarkListPage() {
   }, [streamId, term, examId]);
 
   // Determine learning areas for this specific grade (KICD-accurate)
-  const subjects = useMemo(() => learningAreasFor(stream?.gradeLevel || 'grade_4'), [stream]);
+  const subjects = useMemo(() => learningAreasFor(stream?.gradeLevel || 'grade_4').filter(a => !/indigenous/i.test(a)), [stream]);
   const band = useMemo(() => levelBandLabel(stream?.gradeLevel || 'grade_4'), [stream]);
 
   // Points apply only to grades 7-12 (8-point KNEC scale)

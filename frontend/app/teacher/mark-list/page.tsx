@@ -111,7 +111,9 @@ export default function TeacherMarkListPage() {
       setSavedMeta(meta);
       setSavedCells(saved);
       // Rubric columns + any saved subjects that aren't in the rubric (so no marks are hidden).
-      setRubricAreas(Array.from(new Set([...rubric, ...extraCols])));
+      // Indigenous Language (Activities) is not examinable — never show it as a column.
+      const isIndigenous = (a: string) => /indigenous/i.test(a || '');
+      setRubricAreas(Array.from(new Set([...rubric, ...extraCols])).filter(a => !isIndigenous(a)));
     }).catch(() => toast.error('Could not load class mark list'))
       .finally(() => setLoading(false));
   }, [streamId, term, examId]);

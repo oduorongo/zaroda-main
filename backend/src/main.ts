@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'dashboard-gender-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'no-indigenous-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -254,6 +254,52 @@ async function bootstrap() {
     } catch (e: any) {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
     }
+  });
+
+  // Browser-runnable: REMOVE non-examinable "Indigenous Language" learning areas from the
+  // assessment rubric (assessment_templates + related rows) so they stop appearing on mark
+  // lists. Run with &confirm=yes to actually delete; without it, just reports what exists.
+  // /remove-indigenous?key=...&confirm=yes
+  httpAdapter.get('/remove-indigenous', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const like = `%indigenous%`;
+    try {
+      const ds = app.get(DataSource);
+      // Show what exists first.
+      const found = await ds.query(
+        `SELECT grade_level, learning_area, COUNT(*) AS n FROM assessment_templates
+          WHERE LOWER(learning_area) LIKE $1 GROUP BY grade_level, learning_area ORDER BY grade_level`,
+        [like],
+      ).catch((e: any) => ({ error: e.message }));
+
+      let report = `INDIGENOUS LANGUAGE TEMPLATES FOUND:\n` +
+        (Array.isArray(found) && found.length
+          ? found.map((r: any) => `  ${String(r.grade_level).padEnd(12)} ${r.learning_area}  (${r.n})`).join('\n')
+          : `  (none)`);
+
+      if ((req.query?.confirm || '') === 'yes' && Array.isArray(found) && found.length) {
+        // Delete the rubric rows. Child tables (strands/sub-strands) reference templates by
+        // template_id; delete those first where the table exists, then the templates.
+        const tplIds = await ds.query(
+          `SELECT id FROM assessment_templates WHERE LOWER(learning_area) LIKE $1`, [like],
+        ).then((r: any[]) => r.map(x => x.id)).catch(() => []);
+        let del = 0;
+        if (tplIds.length) {
+          for (const child of ['assessment_substrands', 'assessment_strands']) {
+            await ds.query(`DELETE FROM ${child} WHERE template_id = ANY($1::int[])`, [tplIds]).catch(() => null);
+          }
+          const r = await ds.query(
+            `DELETE FROM assessment_templates WHERE LOWER(learning_area) LIKE $1`, [like],
+          ).catch(() => ({ rowCount: 0 }));
+          del = (r as any)?.rowCount ?? tplIds.length;
+        }
+        report += `\n\nDELETED ${del} template row(s). Indigenous Language will no longer appear on mark lists.`;
+      } else if (Array.isArray(found) && found.length) {
+        report += `\n\nTo remove these, re-run with &confirm=yes appended to the URL.`;
+      }
+      res.type('text/plain').send(report);
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
 
   // Browser-runnable: shows the REAL top-performing classes the dashboard computes, so we
