@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'records-real-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-fix-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -299,6 +299,42 @@ async function bootstrap() {
         report += `\n\nTo remove these, re-run with &confirm=yes appended to the URL.`;
       }
       res.type('text/plain').send(report);
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
+  // Browser-runnable: shows what learning areas exist in the rubric (assessment_templates)
+  // per grade, so we can verify the rubric data. /rubric-check?key=...&grade=grade_7
+  httpAdapter.get('/rubric-check', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const grade = req.query?.grade || null;
+      const byGrade = await ds.query(
+        `SELECT grade_level, COUNT(DISTINCT learning_area) AS areas, COUNT(*) AS templates,
+                COUNT(*) FILTER (WHERE tenant_id IS NULL) AS global_rows
+           FROM assessment_templates GROUP BY grade_level ORDER BY grade_level`,
+      ).catch((e: any) => ({ error: e.message }));
+      let detail: any = null;
+      if (grade) {
+        detail = await ds.query(
+          `SELECT learning_area, COUNT(*) AS rows,
+                  COUNT(*) FILTER (WHERE tenant_id IS NULL) AS global_rows
+             FROM assessment_templates WHERE grade_level = $1
+            GROUP BY learning_area ORDER BY learning_area`,
+          [grade],
+        ).catch((e: any) => ({ error: e.message }));
+      }
+      res.type('text/plain').send(
+        `RUBRIC (assessment_templates)\n\nBY GRADE:\n` +
+        (Array.isArray(byGrade) && byGrade.length
+          ? byGrade.map((r: any) => `  ${String(r.grade_level).padEnd(12)} areas:${r.areas}  templates:${r.templates}  global(null-tenant):${r.global_rows}`).join('\n')
+          : `  (none) ${JSON.stringify(byGrade)}`) +
+        (detail ? `\n\n${grade} LEARNING AREAS:\n` +
+          (Array.isArray(detail) && detail.length
+            ? detail.map((r: any) => `  ${String(r.learning_area).padEnd(34)} rows:${r.rows}  global:${r.global_rows}`).join('\n')
+            : `  (none for ${grade})`) : ''),
+      );
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
 

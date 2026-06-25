@@ -28,7 +28,13 @@ export default function OwnerRubricsPage() {
 
   useEffect(() => {
     apiClient.get(`/assessment/learning-areas?gradeLevel=${grade}`)
-      .then(r => { const a = r.data?.areas || r.data || []; setAreas(a); if (a[0]) setArea(typeof a[0] === 'string' ? a[0] : a[0].name); })
+      .then(r => {
+        const raw = r.data?.areas || r.data || [];
+        // Backend returns [{ learningArea }]; also tolerate strings or { name }.
+        const names = raw.map((a: any) => typeof a === 'string' ? a : (a.learningArea || a.name || a.area)).filter(Boolean);
+        setAreas(names);
+        if (names[0]) setArea(names[0]);
+      })
       .catch(() => setAreas([]));
   }, [grade]);
 
@@ -72,7 +78,7 @@ export default function OwnerRubricsPage() {
             <label className="label">Learning Area</label>
             <select value={area} onChange={e => setArea(e.target.value)} className="input w-56">
               {areas.length === 0 && <option value="">No areas</option>}
-              {areas.map((a: any) => { const name = typeof a === 'string' ? a : a.name; return <option key={name} value={name}>{name}</option>; })}
+              {areas.map((a: any) => { const name = typeof a === 'string' ? a : (a.learningArea || a.name); return <option key={name} value={name}>{name}</option>; })}
             </select>
           </div>
           <div>
