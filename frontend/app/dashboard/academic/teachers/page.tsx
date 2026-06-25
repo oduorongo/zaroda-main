@@ -209,18 +209,20 @@ export default function TeachersPage() {
                   <div className="font-bold text-theme-heading truncate">{t.firstName} {t.lastName}</div>
                   <div className="text-[10px] text-theme-muted">{roleLabel[t.role] || t.role}{t.tscNumber ? ` · TSC ${t.tscNumber}` : ''}</div>
                 </div>
-                {isHoi(user?.role || '') && t.id !== user?.id && (
+                {isHoi(user?.role || '') && (
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button onClick={()=>openEdit(t)} title="Edit teacher"
                       className="text-theme-muted hover:text-[#2563eb] p-1"><Pencil size={14}/></button>
-                    {t.role !== 'hoi' && (
-                      <button onClick={()=>setConfirmHoi(t)} title="Make HOI"
-                        className="text-theme-muted hover:text-[#d4af37] p-1"><Crown size={14}/></button>
-                    )}
-                    <button onClick={()=>toggleActive(t)} title={t.isActive===false?'Reactivate':'Deactivate'}
-                      className="text-theme-muted hover:text-amber-600 p-1">{t.isActive===false ? <UserCheck size={14}/> : <UserX size={14}/>}</button>
-                    <button onClick={()=>setConfirmDelete(t)} title="Remove teacher"
-                      className="text-theme-muted hover:text-red-600 p-1"><Trash2 size={15}/></button>
+                    {t.id !== user?.id && (<>
+                      {t.role !== 'hoi' && (
+                        <button onClick={()=>setConfirmHoi(t)} title="Make HOI"
+                          className="text-theme-muted hover:text-[#d4af37] p-1"><Crown size={14}/></button>
+                      )}
+                      <button onClick={()=>toggleActive(t)} title={t.isActive===false?'Reactivate':'Deactivate'}
+                        className="text-theme-muted hover:text-amber-600 p-1">{t.isActive===false ? <UserCheck size={14}/> : <UserX size={14}/>}</button>
+                      <button onClick={()=>setConfirmDelete(t)} title="Remove teacher"
+                        className="text-theme-muted hover:text-red-600 p-1"><Trash2 size={15}/></button>
+                    </>)}
                   </div>
                 )}
               </div>
