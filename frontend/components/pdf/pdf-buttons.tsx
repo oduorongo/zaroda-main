@@ -427,19 +427,26 @@ export function SchemeButton({
   title?:   string;
   compact?: boolean;
 }) {
-  const { download, downloading } = usePdfDownload();
-  const key = `scheme-${schemeId}`;
-
+  const [opening, setOpening] = useState(false);
+  const openDoc = async () => {
+    setOpening(true);
+    try {
+      const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, { responseType: 'text' });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (!w) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch { /* surfaced by interceptor */ }
+    finally { setOpening(false); }
+  };
   return (
     <PdfButton
-      loading={downloading === key}
-      label={compact ? 'Scheme PDF' : '↓ Download Scheme of Work'}
+      loading={opening}
+      label={compact ? 'Export' : '↓ Export / Print'}
       compact={compact}
-      onClick={() => download(
-        `/pdf/scheme/${schemeId}`,
-        `scheme-${title?.replace(/\s+/g,'-') || schemeId}.pdf`,
-        key,
-      )}
+      onClick={openDoc}
     />
   );
 }

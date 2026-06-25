@@ -537,38 +537,216 @@ class SchemeOfWork {
 @Controller('professional-records')
 @UseGuards(JwtAuthGuard)
 class ProRecordsController {
-  @Get('schemes')
-  getSchemes(@Request() req: any) { return []; }
+  constructor(private readonly ds: DataSource) {}
 
+  private async ensureTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS schemes_of_work (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    const cols: [string, string][] = [
+      ['teacher_id', 'uuid'], ['teacher_name', 'text'], ['record_type', 'text'],
+      ['subject', 'text'], ['grade', 'text'], ['term', 'text'], ['academic_year', 'text'],
+      ['title', 'text'], ['content', 'text'], ['status', "text DEFAULT 'draft'"],
+      ['is_ai_generated', 'boolean DEFAULT false'], ['hoi_comment', 'text'],
+      ['updated_at', 'timestamptz DEFAULT NOW()'], ['created_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [n, t] of cols) {
+      await this.ds.query(`ALTER TABLE schemes_of_work ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    const notNull = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'schemes_of_work' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNull as any[])) {
+      if (['id', 'tenant_id'].includes(row.column_name)) continue;
+      await this.ds.query(`ALTER TABLE schemes_of_work ALTER COLUMN ${row.column_name} DROP NOT NULL`).catch(() => null);
+    }
+  }
+
+  private isHoi(role: string) { return ['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(role); }
+
+  // List records. Teachers see their own; HOI/admin see all (esp. submitted ones to review).
+  @Get('schemes')
+  async getSchemes(@Request() req: any, @Query() q: any) {
+    await this.ensureTable();
+    const tenantId = req.user.tenantId;
+    const type = q.type || null;
+    const params: any[] = [tenantId];
+    let where = `tenant_id = $1`;
+    if (this.isHoi(req.user.role)) {
+      // sees all
+    } else {
+      params.push(req.user.id); where += ` AND teacher_id = $${params.length}`;
+    }
+    if (type) { params.push(type); where += ` AND record_type = $${params.length}`; }
+    return this.ds.query(
+      `SELECT id, teacher_id AS "teacherId", teacher_name AS "teacherName", record_type AS "recordType",
+              subject, grade, term, academic_year AS "academicYear", title, content, status,
+              is_ai_generated AS "isAiGenerated", hoi_comment AS "hoiComment",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM schemes_of_work WHERE ${where} ORDER BY created_at DESC`,
+      params,
+    ).catch(() => []);
+  }
+
+  // Create a record. If ANTHROPIC_API_KEY is set, AI-generate the content; otherwise create a
+  // draft the teacher can fill in/edit manually (the module works either way).
   @Post('schemes/generate')
   async generateScheme(@Request() req: any, @Body() dto: any) {
-    // TODO: call Anthropic API with KICD prompt
-    // Requires: ANTHROPIC_API_KEY in .env
-    return {
-      id:           'generated-stub',
-      subject:      dto.subject,
-      grade:        dto.grade,
-      term:         dto.term,
-      academicYear: dto.academicYear,
-      status:       'draft',
-      isAiGenerated:true,
-      message:      'AI generation ready — set ANTHROPIC_API_KEY in backend .env to enable',
+    await this.ensureTable();
+    const recordType = dto.recordType || 'scheme_of_work';
+    const title = dto.title || `${(recordType || '').replace(/_/g, ' ')} — ${dto.subject} ${dto.grade}`;
+    let content = dto.content || '';
+    let aiGenerated = false;
+
+    if (!content && process.env.ANTHROPIC_API_KEY) {
+      try {
+        content = await this.aiGenerate(recordType, dto);
+        aiGenerated = true;
+      } catch { content = ''; }
+    }
+
+    const rows = await this.ds.query(
+      `INSERT INTO schemes_of_work
+         (tenant_id, teacher_id, teacher_name, record_type, subject, grade, term, academic_year,
+          title, content, status, is_ai_generated, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,NOW(),NOW())
+       RETURNING id, record_type AS "recordType", subject, grade, term,
+                 academic_year AS "academicYear", title, content, status, is_ai_generated AS "isAiGenerated"`,
+      [
+        req.user.tenantId, req.user.id, req.user.email || null, recordType,
+        dto.subject || null, dto.grade || null, dto.term || null, dto.academicYear || null,
+        title, content, aiGenerated,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not create record: ${e.message}`); });
+
+    const out = rows[0];
+    if (!content && !process.env.ANTHROPIC_API_KEY) {
+      out.message = 'Saved as draft. AI generation is off (set ANTHROPIC_API_KEY) — you can write or paste the content using Edit.';
+    }
+    return out;
+  }
+
+  private async aiGenerate(recordType: string, dto: any): Promise<string> {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const kinds: Record<string, string> = {
+      scheme_of_work: 'a complete CBC Scheme of Work broken into weeks and lessons with strand, sub-strand, specific learning outcomes, key inquiry questions, learning experiences, learning resources, and assessment methods',
+      lesson_plan: 'a detailed CBC Lesson Plan with strand/sub-strand, specific learning outcomes, key inquiry question, introduction/development/conclusion steps, core competencies, values, resources and assessment',
+      lesson_notes: 'clear CBC Lesson Notes — the actual subject content a teacher delivers for this topic',
+      record_of_work: 'a CBC Record of Work Covered template with week, date, work covered and remarks columns',
     };
+    const want = kinds[recordType] || kinds.scheme_of_work;
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: `You are a Kenyan CBC/CBE curriculum expert. Produce ${want} for ${dto.subject}, ${dto.grade}, ${String(dto.term||'').replace('term_','Term ')}, ${dto.academicYear}. Follow KICD/KNEC formats strictly. Only include strands and sub-strands that exist in the official KICD design for this grade and subject. Return clean, well-structured content.`,
+      }],
+    });
+    const block: any = msg.content?.[0];
+    return block && block.type === 'text' ? block.text : '';
+  }
+
+  @Patch('schemes/:id')
+  async updateScheme(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    await this.ensureTable();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    for (const [k, col] of Object.entries({ title: 'title', content: 'content', subject: 'subject', grade: 'grade', term: 'term', academicYear: 'academic_year' })) {
+      if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(dto[k]); }
+    }
+    if (!fields.length) return { updated: false };
+    fields.push(`updated_at = NOW()`);
+    vals.push(id, req.user.tenantId);
+    // Teachers may only edit their own; HOI may edit any.
+    const ownClause = this.isHoi(req.user.role) ? '' : ` AND teacher_id = $${i + 2}`;
+    if (ownClause) vals.push(req.user.id);
+    const rows = await this.ds.query(
+      `UPDATE schemes_of_work SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i}${ownClause}
+       RETURNING id, status`, vals,
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    if (!rows.length) throw new BadRequestException('Record not found or not yours to edit.');
+    return rows[0];
   }
 
   @Patch('schemes/:id/submit')
-  submitScheme(@Param('id') id: string) {
-    return { id, status: 'submitted', message: 'Submitted for HOI approval' };
+  async submitScheme(@Request() req: any, @Param('id') id: string) {
+    await this.ensureTable();
+    const rows = await this.ds.query(
+      `UPDATE schemes_of_work SET status = 'submitted', updated_at = NOW()
+        WHERE id::text = $1 AND tenant_id = $2 AND teacher_id = $3 RETURNING id, status`,
+      [id, req.user.tenantId, req.user.id],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Record not found or not yours.');
+    return rows[0];
   }
 
   @Patch('schemes/:id/approve')
-  approveScheme(@Param('id') id: string) {
-    return { id, status: 'approved' };
+  async approveScheme(@Request() req: any, @Param('id') id: string) {
+    await this.ensureTable();
+    if (!this.isHoi(req.user.role)) throw new BadRequestException('Only the HOI/DHOI can approve.');
+    const rows = await this.ds.query(
+      `UPDATE schemes_of_work SET status = 'approved', hoi_comment = NULL, updated_at = NOW()
+        WHERE id::text = $1 AND tenant_id = $2 RETURNING id, status`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Record not found.');
+    return rows[0];
   }
 
   @Patch('schemes/:id/reject')
-  rejectScheme(@Param('id') id: string, @Body() dto: any) {
-    return { id, status: 'rejected', hoiComment: dto.comment };
+  async rejectScheme(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    await this.ensureTable();
+    if (!this.isHoi(req.user.role)) throw new BadRequestException('Only the HOI/DHOI can reject.');
+    const rows = await this.ds.query(
+      `UPDATE schemes_of_work SET status = 'rejected', hoi_comment = $3, updated_at = NOW()
+        WHERE id::text = $1 AND tenant_id = $2 RETURNING id, status, hoi_comment AS "hoiComment"`,
+      [id, req.user.tenantId, dto.comment || 'Please revise.'],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Record not found.');
+    return rows[0];
+  }
+
+  @Delete('schemes/:id')
+  async deleteScheme(@Request() req: any, @Param('id') id: string) {
+    await this.ensureTable();
+    const ownClause = this.isHoi(req.user.role) ? '' : ` AND teacher_id = '${req.user.id}'`;
+    await this.ds.query(`DELETE FROM schemes_of_work WHERE id::text = $1 AND tenant_id = $2${ownClause}`,
+      [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // Printable HTML for export (works for any record type).
+  @Get('schemes/:id/html')
+  async schemeHtml(@Request() req: any, @Param('id') id: string, @Res() res: any) {
+    await this.ensureTable();
+    const rows = await this.ds.query(
+      `SELECT s.*, (SELECT name FROM schools sc WHERE sc.tenant_id = s.tenant_id LIMIT 1) AS "schoolName"
+         FROM schemes_of_work s WHERE s.id::text = $1 AND s.tenant_id = $2 LIMIT 1`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) { res.status(404).send('<p>Record not found</p>'); return; }
+    const r = rows[0];
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const body = esc(r.content || '(No content yet — open the record and add content.)').replace(/\n/g, '<br>');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(r.title)}</title>
+      <style>body{font-family:Arial,sans-serif;color:#1a2e5a;max-width:860px;margin:24px auto;padding:0 20px;line-height:1.5}
+      .h{text-align:center;border-bottom:3px solid #d4af37;padding-bottom:10px;margin-bottom:16px}.h h1{margin:0;font-size:20px}
+      .meta{font-size:12px;color:#555}.sig{margin-top:40px;font-size:13px}.foot{margin-top:24px;font-size:11px;color:#777;text-align:center}
+      @media print{button{display:none}}</style></head><body>
+      <div class="h"><h1>${esc(r.schoolName || 'ZARODA School')}</h1>
+        <div class="meta">${esc((r.record_type||'').replace(/_/g,' ').toUpperCase())} · ${esc(r.subject||'')} · ${esc(r.grade||'')} · ${esc(String(r.term||'').replace('term_','Term '))} ${esc(r.academic_year||'')}</div></div>
+      <div>${body}</div>
+      <div class="sig">Prepared by: ${esc(r.teacher_name || '________________')}　　　Checked by D.H.O.I: ________________</div>
+      <div class="foot">Generated by ZARODA SOLUTIONS</div>
+      <div style="text-align:center;margin-top:16px"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+      </body></html>`;
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.send(html);
   }
 }
 

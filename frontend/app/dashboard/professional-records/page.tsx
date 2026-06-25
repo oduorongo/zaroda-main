@@ -24,7 +24,28 @@ export default function ProfessionalRecordsPage() {
   const [loading,  setLoading]  = useState(true);
   const [showNew,  setShowNew]  = useState(false);
   const [generating,setGenerating]=useState(false);
-  const [form,     setForm]     = useState({ subject:'Mathematics', grade:'Grade 4', term:'term_1', academicYear:'2025/2026' });
+  const [form,     setForm]     = useState({ recordType:'scheme_of_work', subject:'Mathematics', grade:'Grade 4', term:'term_1', academicYear:'2025/2026' });
+  const [editRec,  setEditRec]  = useState<any>(null);
+
+  const RECORD_TYPES = [
+    { v:'scheme_of_work', label:'Scheme of Work' },
+    { v:'lesson_plan',    label:'Lesson Plan' },
+    { v:'lesson_notes',   label:'Lesson Notes' },
+    { v:'record_of_work', label:'Record of Work' },
+  ];
+
+  const saveEdit = async () => {
+    try {
+      await apiClient.patch(`/professional-records/schemes/${editRec.id}`, { title: editRec.title, content: editRec.content });
+      toast.success('Saved'); setEditRec(null); load();
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save'); }
+  };
+
+  const removeRec = async (id: string) => {
+    if (!confirm('Delete this record? This cannot be undone.')) return;
+    try { await apiClient.delete(`/professional-records/schemes/${id}`); toast.success('Deleted'); load(); }
+    catch { toast.error('Could not delete'); }
+  };
 
   const load = () => {
     setLoading(true);
@@ -36,7 +57,7 @@ export default function ProfessionalRecordsPage() {
 
   useEffect(() => { load(); }, []);
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement>) =>
+  const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   const generate = async (e: React.FormEvent) => {
@@ -44,10 +65,10 @@ export default function ProfessionalRecordsPage() {
     setGenerating(true);
     try {
       const { data } = await apiClient.post('/professional-records/schemes/generate', form);
-      toast.success('Scheme of Work generated! Review and submit when ready.');
+      toast.success(data?.message ? 'Saved as draft — use Edit to add content.' : 'Generated! Review and submit when ready.');
       setShowNew(false);
       load();
-    } catch { toast.error('Generation failed. Please try again, or contact support if it persists.'); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not create record.'); }
     finally { setGenerating(false); }
   };
 
@@ -138,7 +159,10 @@ export default function ProfessionalRecordsPage() {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
                     <SchemeButton schemeId={s.id} title={`${s.subject} ${s.grade}`} compact/>
-                    {s.status === 'draft' && isTeacher(user?.role||'') && (
+                    {(s.status === 'draft' || s.status === 'rejected') && (isTeacher(user?.role||'') || isHoi(user?.role||'')) && (
+                      <button onClick={() => setEditRec({ id: s.id, title: s.title || '', content: s.content || '' })} className="btn-ghost text-xs py-1.5 px-3">Edit</button>
+                    )}
+                    {(s.status === 'draft' || s.status === 'rejected') && isTeacher(user?.role||'') && (
                       <button onClick={() => submit(s.id)} className="btn-ghost text-xs py-1.5 px-3">Submit →</button>
                     )}
                     {s.status === 'submitted' && isHoi(user?.role||'') && (
@@ -146,6 +170,9 @@ export default function ProfessionalRecordsPage() {
                         <button onClick={() => approve(s.id)} className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700">Approve</button>
                         <button onClick={() => reject(s.id)}  className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-lg hover:bg-red-200">Reject</button>
                       </>
+                    )}
+                    {(s.status === 'draft' || s.status === 'rejected') && (
+                      <button onClick={() => removeRec(s.id)} className="text-xs text-red-600 px-2 py-1 rounded-lg hover:bg-red-50">Delete</button>
                     )}
                   </div>
                 </div>
@@ -167,6 +194,12 @@ export default function ProfessionalRecordsPage() {
               <button onClick={() => setShowNew(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={generate} className="p-5 space-y-4">
+              <div>
+                <label className="label">Record Type *</label>
+                <select required value={form.recordType} onChange={set('recordType')} className="input">
+                  {RECORD_TYPES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="label">Subject *</label>
                 <select required value={form.subject} onChange={set('subject')} className="input">
@@ -209,6 +242,34 @@ export default function ProfessionalRecordsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit content modal */}
+      {editRec && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl max-h-[88vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <h3 className="text-lg font-bold text-theme-heading">Edit Record</h3>
+              <button onClick={() => setEditRec(null)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <div>
+                <label className="label">Title</label>
+                <input value={editRec.title} onChange={e => setEditRec({ ...editRec, title: e.target.value })} className="input"/>
+              </div>
+              <div>
+                <label className="label">Content</label>
+                <textarea value={editRec.content} onChange={e => setEditRec({ ...editRec, content: e.target.value })}
+                  rows={16} className="input font-mono text-sm" placeholder="Write or paste the scheme / lesson plan / notes / record of work content here…"/>
+                <p className="text-[11px] text-theme-muted mt-1">This content is what prints when you export the record to PDF.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-theme">
+              <button onClick={() => setEditRec(null)} className="btn-ghost flex-1 justify-center">Cancel</button>
+              <button onClick={saveEdit} className="btn-primary flex-1 justify-center">Save</button>
+            </div>
           </div>
         </div>
       )}
