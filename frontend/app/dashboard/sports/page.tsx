@@ -206,8 +206,9 @@ export default function SportsPage() {
       ) : tab === 'qualifications' ? (
         quals.length === 0 ? (
           <div className="card p-10 text-center">
-            <p className="text-theme-muted">No qualification registers yet</p>
-            <button className="btn-primary mt-4"><Plus size={14}/> Create Register</button>
+            <p className="text-theme-muted mb-1">Qualification registers are being unified with School Team selection.</p>
+            <p className="text-xs text-theme-muted mb-4">Form your school squad from inter-class results, then mark it ready for the Base.</p>
+            <Link href="/dashboard/sports/school-team" className="btn-primary inline-flex"><Trophy size={14}/> Form School Team</Link>
           </div>
         ) : (
           <div className="space-y-3">

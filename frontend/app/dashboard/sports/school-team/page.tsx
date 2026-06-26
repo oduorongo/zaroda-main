@@ -11,6 +11,7 @@ const SPORTS = ['Football','Netball','Volleyball','Handball','Rugby','Hockey','B
 export default function SchoolTeamPage() {
   const [sport, setSport]           = useState('Football');
   const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [pool, setPool]             = useState<any[]>([]);
   const [squad, setSquad]           = useState<any[]>([]);
   const [status, setStatus]         = useState('draft');
   const [loading, setLoading]       = useState(false);
@@ -24,6 +25,7 @@ export default function SchoolTeamPage() {
         apiClient.get(`/sports/school-team?sport=${encodeURIComponent(s)}`).catch(()=>({data:[]})),
       ]);
       setSuggestions(sug.data?.suggestions || []);
+      setPool(sug.data?.pool || []);
       const saved = (sq.data || [])[0];
       setSquad(saved?.members || []);
       setStatus(saved?.status || 'draft');
@@ -100,6 +102,28 @@ export default function SchoolTeamPage() {
                     </button>
                   );
                 })}
+              </div>
+            )}
+            {pool.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-theme/40">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-theme-muted uppercase">All {sport} team players</h4>
+                  <button onClick={() => { const merged=[...squad]; pool.forEach((p:any)=>{ if(!inSquad(p.name,p.class)) merged.push({name:p.name,class:p.class||'',discipline:sport,basis:'team-pool'}); }); setSquad(merged); }} className="text-xs text-[#1a2e5a] hover:underline">Add all</button>
+                </div>
+                <div className="space-y-1.5 max-h-[30vh] overflow-y-auto">
+                  {pool.map((p:any, i:number) => {
+                    const picked = inSquad(p.name, p.class);
+                    return (
+                      <button key={`pool-${i}`} onClick={() => toggle(p)}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2 border ${picked?'border-[#1a2e5a] bg-[#1a2e5a]/5':'border-theme hover:bg-surface-2'}`}>
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${picked?'bg-[#1a2e5a] text-white border-[#1a2e5a]':'border-theme'}`}>{picked?'✓':''}</span>
+                        <span className="font-medium text-theme-heading">{p.name}</span>
+                        <span className="text-theme-muted text-xs">{p.class}</span>
+                        <span className="ml-auto text-[10px] text-theme-muted">{p.team}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

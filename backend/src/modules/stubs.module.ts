@@ -1106,26 +1106,51 @@ class SportsController {
             bump(`${r.name}|${r.class || r.cls || ''}`, { name: r.name, class: r.class || r.cls || '', discipline: f.discipline, bestPosition: pos, source: 'race' }, pts);
           }
         }
-      } else if (f.winner && f.winner !== 'Draw') {
-        // Winning team's players (look up the team roster by name).
-        const teamRow = await this.ds.query(
-          `SELECT athletes FROM sports_teams WHERE tenant_id = $1 AND name = $2 LIMIT 1`,
-          [tenantId, f.winner],
-        ).catch(() => []);
-        let roster: any[] = [];
-        try { roster = Array.isArray(teamRow[0]?.athletes) ? teamRow[0].athletes : JSON.parse(teamRow[0]?.athletes || '[]'); } catch { roster = []; }
-        if (roster.length) {
-          for (const p of roster) bump(`${p.name}|${p.stream || ''}`, { name: p.name, class: p.stream || '', discipline: f.discipline, source: 'match', team: f.winner }, 3);
-        } else {
-          // No roster on file — at least surface the winning team itself.
-          bump(`team:${f.winner}`, { name: f.winner, class: '', discipline: f.discipline, source: 'match-team' }, 3);
+      } else if (f.kind !== 'race') {
+        // Ball games: include players from BOTH participating teams (not only the winner),
+        // so the games dept can form a school squad from across all who took part. Winners
+        // get a higher merit weight so they still rank above the rest.
+        for (const side of [{ team: f.homeTeam, won: f.winner === f.homeTeam }, { team: f.awayTeam, won: f.winner === f.awayTeam }]) {
+          if (!side.team) continue;
+          const teamRow = await this.ds.query(
+            `SELECT athletes FROM sports_teams WHERE tenant_id = $1 AND name = $2 LIMIT 1`,
+            [tenantId, side.team],
+          ).catch(() => []);
+          let roster: any[] = [];
+          try { roster = Array.isArray(teamRow[0]?.athletes) ? teamRow[0].athletes : JSON.parse(teamRow[0]?.athletes || '[]'); } catch { roster = []; }
+          const weight = side.won ? 4 : 2;   // winners weighted higher, but all participants surface
+          if (roster.length) {
+            for (const p of roster) bump(`${p.name}|${p.stream || ''}`, { name: p.name, class: p.stream || '', discipline: f.discipline, source: side.won ? 'match-winner' : 'match-participant', team: side.team }, weight);
+          } else {
+            bump(`team:${side.team}`, { name: side.team, class: '', discipline: f.discipline, source: side.won ? 'match-winner' : 'match-participant' }, weight);
+          }
         }
       }
     }
 
     const suggestions = Object.values(merit).sort((a: any, b: any) =>
       b.points - a.points || (a.bestPosition || 99) - (b.bestPosition || 99));
-    return { sport, count: suggestions.length, suggestions };
+
+    // Baseline pool: every player in every team for this sport, so a squad can be formed even
+    // before results exist. Players already surfaced from results keep their (higher) merit.
+    let pool: any[] = [];
+    if (sport) {
+      const teams = await this.ds.query(
+        `SELECT name, athletes FROM sports_teams WHERE tenant_id = $1 AND sport = $2`,
+        [tenantId, sport],
+      ).catch(() => []);
+      const seen = new Set(suggestions.map((s: any) => `${s.name}|${s.class || ''}`));
+      for (const t of teams) {
+        let roster: any[] = [];
+        try { roster = Array.isArray(t.athletes) ? t.athletes : JSON.parse(t.athletes || '[]'); } catch { roster = []; }
+        for (const p of roster) {
+          const key = `${p.name}|${p.stream || ''}`;
+          if (!seen.has(key)) { seen.add(key); pool.push({ name: p.name, class: p.stream || '', discipline: sport, source: 'team-pool', team: t.name, points: 0 }); }
+        }
+      }
+    }
+
+    return { sport, count: suggestions.length, suggestions, pool };
   }
 
   @Get('school-team')
