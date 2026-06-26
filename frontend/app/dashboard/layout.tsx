@@ -54,7 +54,7 @@ function canSee(roleKey: string, userRole: string): boolean {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, hydrated, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const router   = useRouter();
   const pathname = usePathname();
@@ -70,13 +70,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .catch(() => {});
   }, [user]);
 
-  // Redirect if not logged in
+  // Redirect if not logged in — but ONLY after the persisted store has rehydrated, so a
+  // momentary null during client-side navigation doesn't bounce a logged-in user to login.
   useEffect(() => {
+    if (!hydrated) return;
     if (!user) { router.push('/auth/login'); return; }
-    // Teachers have their own independent portal — keep them out of the admin dashboard
     if (isTeacher(user.role)) router.replace('/teacher');
-  }, [user, router]);
+  }, [user, hydrated, router]);
 
+  if (!hydrated) return null;
   if (!user || isTeacher(user.role)) return null;
 
   const navItems = NAV_ITEMS.filter(n => canSee(n.roles, user.role));

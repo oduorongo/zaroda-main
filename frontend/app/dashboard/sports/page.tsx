@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Trophy, Users, Star, Send, Plus, ExternalLink, Loader2, Swords, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
@@ -141,9 +142,9 @@ export default function SportsPage() {
               <Plus size={14}/> New Team
             </button>
           )}
-          <a href="/dashboard/sports/fixtures" className="btn-ghost text-sm flex items-center gap-1.5">
+          <Link href="/dashboard/sports/fixtures" className="btn-ghost text-sm flex items-center gap-1.5">
             <Swords size={14}/> Fixtures
-          </a>
+          </Link>
           <a href="/dashboard/sports-base" target="_blank" rel="noopener noreferrer"
             className="btn-ghost text-sm flex items-center gap-1.5">
             <Trophy size={14} className="text-[#f5820a]"/> Sports Base <ExternalLink size={12}/>

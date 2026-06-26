@@ -20,6 +20,7 @@ export interface AppUser {
 interface AuthState {
   user:    AppUser | null;
   loading: boolean;
+  hydrated: boolean;
   login:   (email: string, password: string) => Promise<void>;
   logout:  () => void;
   isRole:  (...roles: string[]) => boolean;
@@ -30,6 +31,7 @@ export const useAuth = create<AuthState>()(
     (set, get) => ({
       user:    null,
       loading: false,
+      hydrated: false,
 
       login: async (email, password) => {
         set({ loading: true });
@@ -56,7 +58,11 @@ export const useAuth = create<AuthState>()(
         return user ? roles.includes(user.role) : false;
       },
     }),
-    { name: 'zaroda_user', partialize: (s) => ({ user: s.user }) },
+    {
+      name: 'zaroda_user',
+      partialize: (s) => ({ user: s.user }),
+      onRehydrateStorage: () => (state) => { useAuth.setState({ hydrated: true }); },
+    },
   ),
 );
 
