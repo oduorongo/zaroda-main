@@ -21,8 +21,46 @@ export default function FixturesPage() {
   const set = (k:string) => (e:any) => setForm(f=>({...f,[k]:e.target.value}));
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true);
-    try { await apiClient.post('/sports/fixtures', form); toast.success('Fixture scheduled'); setShowNew(false); load(); }
-    catch { toast.error('Could not save'); } finally { setSaving(false); }
+    try { await apiClient.post('/sports/fixtures', form); toast.success('Fixture scheduled'); setShowNew(false);
+      setForm({ discipline:'Football', homeTeam:'', awayTeam:'', venue:'', date:'', type:'inter_class' }); load(); }
+    catch (err:any) { toast.error(err?.response?.data?.message || 'Could not save'); } finally { setSaving(false); }
+  };
+
+  // Result recording (match score OR race positions)
+  const [resultFix, setResultFix] = useState<any>(null);
+  const [score, setScore] = useState({ homeScore:'', awayScore:'', notes:'' });
+  const [positions, setPositions] = useState<{position:string;name:string;cls:string;time:string}[]>([{position:'1',name:'',cls:'',time:''}]);
+
+  const openResult = (f:any) => {
+    setResultFix(f);
+    setScore({ homeScore: f.homeScore ?? '', awayScore: f.awayScore ?? '', notes: f.notes || '' });
+    setPositions(Array.isArray(f.results) && f.results.length
+      ? f.results.map((r:any)=>({ position:String(r.position||''), name:r.name||'', cls:r.class||r.cls||'', time:r.time||'' }))
+      : [{position:'1',name:'',cls:'',time:''},{position:'2',name:'',cls:'',time:''},{position:'3',name:'',cls:'',time:''}]);
+  };
+  const addPos = () => setPositions(p => [...p, { position:String(p.length+1), name:'', cls:'', time:'' }]);
+  const setPos = (i:number, k:string, v:string) => setPositions(p => p.map((row,idx)=> idx===i ? { ...row, [k]:v } : row));
+
+  const saveResult = async () => {
+    if (!resultFix) return;
+    setSaving(true);
+    try {
+      const payload: any = resultFix.kind === 'race'
+        ? { results: positions.filter(p=>p.name).map(p=>({ position:Number(p.position)||null, name:p.name, class:p.cls, time:p.time })), notes: score.notes }
+        : { homeScore: Number(score.homeScore)||0, awayScore: Number(score.awayScore)||0,
+            winner: (Number(score.homeScore)||0) === (Number(score.awayScore)||0) ? 'Draw'
+              : (Number(score.homeScore)||0) > (Number(score.awayScore)||0) ? resultFix.homeTeam : resultFix.awayTeam,
+            notes: score.notes };
+      await apiClient.patch(`/sports/fixtures/${resultFix.id}/result`, payload);
+      toast.success('Result recorded'); setResultFix(null); load();
+    } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not save result'); }
+    finally { setSaving(false); }
+  };
+
+  const removeFixture = async (id:string) => {
+    if (!confirm('Delete this fixture?')) return;
+    try { await apiClient.delete(`/sports/fixtures/${id}`); toast.success('Deleted'); load(); }
+    catch { toast.error('Could not delete'); }
   };
 
   return (
@@ -46,13 +84,39 @@ export default function FixturesPage() {
       ) : (
         <div className="space-y-3">
           {fixtures.map((f:any)=>(
-            <div key={f.id} className="card p-4 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center flex-shrink-0"><Trophy size={18} className="text-[#d4af37]"/></div>
-              <div className="flex-1">
-                <div className="font-bold text-theme-heading text-sm">{f.homeTeam} vs {f.awayTeam}</div>
-                <div className="text-xs text-theme-muted">{f.discipline} · {f.venue} · {f.date ? new Date(f.date).toLocaleDateString('en-KE') : 'TBD'}</div>
+            <div key={f.id} className="card p-4">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center flex-shrink-0"><Trophy size={18} className="text-[#d4af37]"/></div>
+                <div className="flex-1 min-w-0">
+                  {f.kind === 'race' ? (
+                    <div className="font-bold text-theme-heading text-sm">{f.discipline}</div>
+                  ) : (
+                    <div className="font-bold text-theme-heading text-sm">{f.homeTeam} vs {f.awayTeam}</div>
+                  )}
+                  <div className="text-xs text-theme-muted">{f.discipline}{f.venue?` · ${f.venue}`:''} · {f.date ? new Date(f.date).toLocaleDateString('en-KE') : 'TBD'}{f.status==='completed'?' · ✓ Completed':''}</div>
+                </div>
+                {f.kind !== 'race' && f.homeScore != null && <div className="font-black text-theme-heading text-lg">{f.homeScore} - {f.awayScore}</div>}
               </div>
-              {f.homeScore != null && <div className="font-black text-theme-heading">{f.homeScore} - {f.awayScore}</div>}
+
+              {/* Race results podium */}
+              {f.kind === 'race' && Array.isArray(f.results) && f.results.length > 0 && (
+                <div className="mt-3 pl-14 space-y-1">
+                  {f.results.slice(0,5).map((r:any,idx:number)=>(
+                    <div key={idx} className="flex items-center gap-2 text-xs">
+                      <span className="font-black text-[#d4af37] w-5">{r.position}.</span>
+                      <span className="font-medium text-theme-heading">{r.name}</span>
+                      <span className="text-theme-muted">{r.class||r.cls||''}</span>
+                      {r.time && <span className="text-theme-muted ml-auto">{r.time}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {f.winner && f.kind !== 'race' && <div className="mt-2 pl-14 text-xs text-green-600 font-semibold">Winner: {f.winner}</div>}
+
+              <div className="flex gap-2 mt-3 pl-14">
+                <button onClick={()=>openResult(f)} className="btn-ghost text-xs">{f.status==='completed'?'Edit Result':'Record Result'}</button>
+                <button onClick={()=>removeFixture(f.id)} className="btn-ghost text-xs text-red-600">Delete</button>
+              </div>
             </div>
           ))}
         </div>
@@ -66,11 +130,19 @@ export default function FixturesPage() {
               <button onClick={()=>setShowNew(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
-              <div><label className="label">Discipline</label><input value={form.discipline} onChange={set('discipline')} className="input" placeholder="Football"/></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="label">Home Team</label><input required value={form.homeTeam} onChange={set('homeTeam')} className="input" placeholder="Grade 6 North"/></div>
-                <div><label className="label">Away Team</label><input required value={form.awayTeam} onChange={set('awayTeam')} className="input" placeholder="Grade 6 South"/></div>
+              <div><label className="label">Discipline / Event</label>
+                <select value={form.discipline} onChange={set('discipline')} className="input">
+                  {['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis','Cross Country'].map(s=><option key={s}>{s}</option>)}
+                </select>
               </div>
+              {!/athletics|swimming|cross country/i.test(form.discipline) ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Home Team / Class</label><input required value={form.homeTeam} onChange={set('homeTeam')} className="input" placeholder="Grade 6 North"/></div>
+                  <div><label className="label">Away Team / Class</label><input required value={form.awayTeam} onChange={set('awayTeam')} className="input" placeholder="Grade 6 South"/></div>
+                </div>
+              ) : (
+                <p className="text-xs text-theme-muted bg-surface-2 rounded-lg p-2">This is a race/field event — you'll enter finishing positions when recording the result, so no teams are needed here.</p>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Venue</label><input value={form.venue} onChange={set('venue')} className="input" placeholder="School field"/></div>
                 <div><label className="label">Date</label><input type="date" value={form.date} onChange={set('date')} className="input"/></div>
@@ -83,6 +155,49 @@ export default function FixturesPage() {
               <div className="flex gap-3"><button type="button" onClick={()=>setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? <Loader2 size={14} className="animate-spin"/> : 'Schedule'}</button></div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Record Result modal */}
+      {resultFix && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[88vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <h3 className="text-lg font-bold text-theme-heading">Record Result</h3>
+              <button onClick={()=>setResultFix(null)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {resultFix.kind === 'race' ? (
+                <>
+                  <p className="text-sm text-theme-muted">{resultFix.discipline} — enter finishing positions.</p>
+                  <div className="space-y-2">
+                    {positions.map((p,i)=>(
+                      <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                        <input value={p.position} onChange={e=>setPos(i,'position',e.target.value)} className="input col-span-2 text-center" placeholder="#"/>
+                        <input value={p.name} onChange={e=>setPos(i,'name',e.target.value)} className="input col-span-5" placeholder="Athlete name"/>
+                        <input value={p.cls} onChange={e=>setPos(i,'cls',e.target.value)} className="input col-span-2" placeholder="Class"/>
+                        <input value={p.time} onChange={e=>setPos(i,'time',e.target.value)} className="input col-span-3" placeholder="Time"/>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={addPos} className="btn-ghost text-xs"><Plus size={12}/> Add position</button>
+                </>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">{resultFix.homeTeam}</label>
+                    <input type="number" min={0} value={score.homeScore} onChange={e=>setScore(s=>({...s,homeScore:e.target.value}))} className="input text-center text-xl font-bold"/></div>
+                  <div><label className="label">{resultFix.awayTeam}</label>
+                    <input type="number" min={0} value={score.awayScore} onChange={e=>setScore(s=>({...s,awayScore:e.target.value}))} className="input text-center text-xl font-bold"/></div>
+                </div>
+              )}
+              <div><label className="label">Notes (optional)</label>
+                <input value={score.notes} onChange={e=>setScore(s=>({...s,notes:e.target.value}))} className="input" placeholder="e.g. MVP, weather, remarks"/></div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={()=>setResultFix(null)} className="btn-ghost flex-1 justify-center">Cancel</button>
+                <button onClick={saveResult} disabled={saving} className="btn-primary flex-1 justify-center">{saving ? <Loader2 size={14} className="animate-spin"/> : 'Save Result'}</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

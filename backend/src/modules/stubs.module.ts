@@ -879,7 +879,14 @@ class SportsController {
               created_at AS "createdAt"
          FROM sports_teams WHERE tenant_id = $1 ORDER BY sport, name`,
       [req.user.tenantId],
-    ).then((rows: any[]) => rows.map(r => ({ ...r, athleteCount: Array.isArray(r.athletes) ? r.athletes.length : 0 })))
+    ).then((rows: any[]) => rows.map(r => {
+      // athletes is JSONB — the driver may hand it back as a string OR an array. Normalise.
+      let athletes: any[] = [];
+      if (Array.isArray(r.athletes)) athletes = r.athletes;
+      else if (typeof r.athletes === 'string') { try { athletes = JSON.parse(r.athletes); } catch { athletes = []; } }
+      if (!Array.isArray(athletes)) athletes = [];
+      return { ...r, athletes, athleteCount: athletes.length };
+    }))
      .catch(() => []);
   }
 
@@ -934,6 +941,110 @@ class SportsController {
   async deleteTeam(@Request() req: any, @Param('id') id: string) {
     await this.ensureTeamsTable();
     await this.ds.query(`DELETE FROM sports_teams WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // ── Fixtures (inter-class matches & races) ──────────────────
+  private async ensureFixturesTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS sports_fixtures (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    const cols: [string, string][] = [
+      ['school_id', 'uuid'], ['discipline', 'text'], ['kind', 'text'],
+      ['home_team', 'text'], ['away_team', 'text'], ['venue', 'text'],
+      ['fixture_date', 'date'], ['type', 'text'], ['status', "text DEFAULT 'scheduled'"],
+      ['home_score', 'integer'], ['away_score', 'integer'], ['winner', 'text'],
+      ['results', 'jsonb'], ['notes', 'text'],
+      ['created_by', 'uuid'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [n, t] of cols) {
+      await this.ds.query(`ALTER TABLE sports_fixtures ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    const notNull = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'sports_fixtures' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNull as any[])) {
+      if (['id', 'tenant_id'].includes(row.column_name)) continue;
+      await this.ds.query(`ALTER TABLE sports_fixtures ALTER COLUMN ${row.column_name} DROP NOT NULL`).catch(() => null);
+    }
+  }
+
+  @Get('fixtures')
+  async getFixtures(@Request() req: any, @Query() q: any) {
+    await this.ensureFixturesTable();
+    const tenantId = req.user.tenantId;
+    const params: any[] = [tenantId];
+    let where = `tenant_id = $1`;
+    // Tab maps: 'results' = completed; 'interclass' = type inter_class; 'fixtures' = upcoming.
+    const tab = q.type || 'fixtures';
+    if (tab === 'results') {
+      where += ` AND status = 'completed'`;
+    } else if (tab === 'interclass') {
+      params.push('inter_class'); where += ` AND type = $${params.length}`;
+    } else {
+      where += ` AND status <> 'completed'`;
+    }
+    const rows = await this.ds.query(
+      `SELECT id, discipline, kind, home_team AS "homeTeam", away_team AS "awayTeam",
+              venue, fixture_date AS "date", type, status,
+              home_score AS "homeScore", away_score AS "awayScore", winner, results, notes
+         FROM sports_fixtures WHERE ${where}
+        ORDER BY fixture_date NULLS LAST, created_at DESC`,
+      params,
+    ).catch(() => []);
+    return rows;
+  }
+
+  @Post('fixtures')
+  async createFixture(@Request() req: any, @Body() dto: any) {
+    if (!dto?.homeTeam && !dto?.discipline) throw new BadRequestException('A discipline or teams are required.');
+    await this.ensureFixturesTable();
+    // kind: 'race' for athletics/swimming (positions), else 'match' (home vs away).
+    const disc = String(dto.discipline || '').toLowerCase();
+    const kind = (disc.includes('athletics') || disc.includes('swimming') || disc.includes('race') || disc.includes('cross country')) ? 'race' : 'match';
+    const rows = await this.ds.query(
+      `INSERT INTO sports_fixtures
+         (tenant_id, school_id, discipline, kind, home_team, away_team, venue, fixture_date, type, status, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'scheduled',$10,NOW(),NOW())
+       RETURNING id, discipline, kind, home_team AS "homeTeam", away_team AS "awayTeam", venue, fixture_date AS "date", type, status`,
+      [
+        req.user.tenantId, req.user.schoolId || null, dto.discipline || null, kind,
+        dto.homeTeam || null, dto.awayTeam || null, dto.venue || null,
+        dto.date || null, dto.type || 'inter_class', req.user.id,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not schedule fixture: ${e.message}`); });
+    return rows[0];
+  }
+
+  // Record a result: for matches send homeScore/awayScore; for races send results:[{position,name,class,time}].
+  @Patch('fixtures/:id/result')
+  async recordResult(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    await this.ensureFixturesTable();
+    const fields: string[] = ['status = \'completed\'', 'updated_at = NOW()'];
+    const vals: any[] = []; let i = 1;
+    if (dto.homeScore !== undefined) { fields.push(`home_score = $${i++}`); vals.push(Number(dto.homeScore)); }
+    if (dto.awayScore !== undefined) { fields.push(`away_score = $${i++}`); vals.push(Number(dto.awayScore)); }
+    if (dto.winner !== undefined)    { fields.push(`winner = $${i++}`);     vals.push(dto.winner || null); }
+    if (dto.results !== undefined)   { fields.push(`results = $${i++}::jsonb`); vals.push(JSON.stringify(dto.results || [])); }
+    if (dto.notes !== undefined)     { fields.push(`notes = $${i++}`);      vals.push(dto.notes || null); }
+    vals.push(id, req.user.tenantId);
+    const rows = await this.ds.query(
+      `UPDATE sports_fixtures SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i}
+       RETURNING id, status, home_score AS "homeScore", away_score AS "awayScore", winner, results`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    if (!rows.length) throw new BadRequestException('Fixture not found.');
+    return rows[0];
+  }
+
+  @Delete('fixtures/:id')
+  async deleteFixture(@Request() req: any, @Param('id') id: string) {
+    await this.ensureFixturesTable();
+    await this.ds.query(`DELETE FROM sports_fixtures WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
   }
 

@@ -25,10 +25,13 @@ export default function SportsPage() {
 
   const openEdit = (t: any) => {
     setEditId(t.id);
+    let athletes: any[] = [];
+    if (Array.isArray(t.athletes)) athletes = t.athletes;
+    else if (typeof t.athletes === 'string') { try { athletes = JSON.parse(t.athletes); } catch { athletes = []; } }
     setForm({
       name: t.name || '', sport: t.sport || 'Football', ageCategory: t.ageCategory || 'Under 15',
       gender: t.gender || 'Mixed', coach: t.coach || '',
-      athletes: Array.isArray(t.athletes) ? t.athletes : [],
+      athletes: Array.isArray(athletes) ? athletes : [],
     });
     setPickStream(''); setStreamLearners([]);
     setShowNew(true);
@@ -297,9 +300,30 @@ export default function SportsPage() {
                   <input value={form.coach} onChange={setF('coach')} className="input" placeholder="Optional"/></div>
               </div>
 
-              {/* Athlete picker */}
+              {/* Squad editor: current members (removable) + add more from classes */}
               <div>
-                <label className="label">Add {cap(memberNoun(form.sport))} (from a class)</label>
+                {form.athletes.length > 0 && (
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="label mb-0">Current squad ({form.athletes.length})</label>
+                      <button type="button" onClick={() => setForm((f:any)=>({ ...f, athletes: [] }))}
+                        className="text-[11px] text-red-600 hover:underline">Clear all</button>
+                    </div>
+                    <div className="border border-theme rounded-xl divide-y divide-theme/30 max-h-44 overflow-y-auto">
+                      {form.athletes.map((a:any, idx:number) => (
+                        <div key={a.id || idx} className="flex items-center gap-2 px-3 py-2 text-sm">
+                          <span className="w-5 text-theme-muted">{idx+1}.</span>
+                          <span className="font-medium text-theme-heading">{a.name}</span>
+                          <span className="text-theme-muted text-xs ml-1">{a.stream || ''}{a.admissionNumber?` · ${a.admissionNumber}`:''}</span>
+                          <button type="button" onClick={() => toggleAthlete({ id: a.id })}
+                            className="ml-auto text-theme-muted hover:text-red-600" title="Remove">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <label className="label">Add {memberNoun(form.sport)} (pick a class)</label>
                 <select value={pickStream} onChange={e => setPickStream(e.target.value)} className="input mb-2">
                   <option value="">Select a class to pick from…</option>
                   {streams.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -314,22 +338,13 @@ export default function SportsPage() {
                             className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-surface-2 ${picked?'bg-surface-2':''}`}>
                             <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${picked?'bg-[#1a2e5a] text-white border-[#1a2e5a]':'border-theme'}`}>{picked?'✓':''}</span>
                             {l.firstName} {l.lastName} <span className="text-theme-muted">· Adm {l.admissionNumber || '—'}</span>
+                            {picked && <span className="ml-auto text-[10px] text-[#1a2e5a]">in squad</span>}
                           </button>
                         );
                       })}
                   </div>
                 )}
-                {form.athletes.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {form.athletes.map((a:any) => (
-                      <span key={a.id} className="text-xs bg-[#1a2e5a]/10 text-[#1a2e5a] px-2 py-1 rounded-full flex items-center gap-1">
-                        {a.name}
-                        <button type="button" onClick={()=>toggleAthlete({ id:a.id })} className="hover:text-red-600">✕</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[11px] text-theme-muted mt-1">{form.athletes.length} {memberNoun(form.sport)} selected. You can pick from multiple classes.</p>
+                <p className="text-[11px] text-theme-muted mt-1">Tick to add, tick again to remove. You can pick from multiple classes; the current squad above updates live.</p>
               </div>
 
               <div className="flex gap-3 pt-1">
