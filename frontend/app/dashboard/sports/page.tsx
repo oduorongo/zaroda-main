@@ -145,6 +145,9 @@ export default function SportsPage() {
           <Link href="/dashboard/sports/fixtures" className="btn-ghost text-sm flex items-center gap-1.5">
             <Swords size={14}/> Fixtures
           </Link>
+          <Link href="/dashboard/sports/school-team" className="btn-ghost text-sm flex items-center gap-1.5">
+            <Trophy size={14} className="text-[#d4af37]"/> School Team
+          </Link>
           <a href="/dashboard/sports-base" target="_blank" rel="noopener noreferrer"
             className="btn-ghost text-sm flex items-center gap-1.5">
             <Trophy size={14} className="text-[#f5820a]"/> Sports Base <ExternalLink size={12}/>

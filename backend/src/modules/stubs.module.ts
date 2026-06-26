@@ -1048,6 +1048,131 @@ class SportsController {
     return { deleted: true };
   }
 
+  // ── School team formation (from inter-class results) ──────────
+  private async ensureSquadTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS school_squads (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    const cols: [string, string][] = [
+      ['school_id', 'uuid'], ['sport', 'text'], ['members', 'jsonb'],
+      ['status', "text DEFAULT 'draft'"], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [n, t] of cols) {
+      await this.ds.query(`ALTER TABLE school_squads ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    const notNull = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'school_squads' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNull as any[])) {
+      if (['id', 'tenant_id'].includes(row.column_name)) continue;
+      await this.ds.query(`ALTER TABLE school_squads ALTER COLUMN ${row.column_name} DROP NOT NULL`).catch(() => null);
+    }
+  }
+
+  // Suggest top performers for a sport from COMPLETED fixtures/races.
+  // - Races: athletes who placed top 3 (with their best position & class).
+  // - Matches: the players of winning teams (from the team rosters).
+  @Get('school-team/suggestions')
+  async squadSuggestions(@Request() req: any, @Query() q: any) {
+    try { await this.ensureFixturesTable(); await this.ensureTeamsTable(); } catch { /* */ }
+    const tenantId = req.user.tenantId;
+    const sport = q.sport || null;
+    const fixtures = await this.ds.query(
+      `SELECT discipline, kind, home_team AS "homeTeam", away_team AS "awayTeam",
+              home_score AS "homeScore", away_score AS "awayScore", winner, results
+         FROM sports_fixtures
+        WHERE tenant_id = $1 AND status = 'completed'
+          AND ($2::text IS NULL OR discipline = $2)`,
+      [tenantId, sport],
+    ).catch(() => []);
+
+    // Tally a "merit" score for each candidate so the strongest float to the top.
+    const merit: Record<string, any> = {};
+    const bump = (key: string, info: any, points: number) => {
+      if (!merit[key]) merit[key] = { ...info, points: 0, appearances: 0 };
+      merit[key].points += points; merit[key].appearances += 1;
+      if (info.bestPosition && (!merit[key].bestPosition || info.bestPosition < merit[key].bestPosition)) merit[key].bestPosition = info.bestPosition;
+    };
+
+    for (const f of fixtures) {
+      if (f.kind === 'race' && Array.isArray(f.results)) {
+        for (const r of f.results) {
+          const pos = Number(r.position) || 99;
+          if (pos <= 3 && r.name) {
+            const pts = pos === 1 ? 5 : pos === 2 ? 3 : 2;
+            bump(`${r.name}|${r.class || r.cls || ''}`, { name: r.name, class: r.class || r.cls || '', discipline: f.discipline, bestPosition: pos, source: 'race' }, pts);
+          }
+        }
+      } else if (f.winner && f.winner !== 'Draw') {
+        // Winning team's players (look up the team roster by name).
+        const teamRow = await this.ds.query(
+          `SELECT athletes FROM sports_teams WHERE tenant_id = $1 AND name = $2 LIMIT 1`,
+          [tenantId, f.winner],
+        ).catch(() => []);
+        let roster: any[] = [];
+        try { roster = Array.isArray(teamRow[0]?.athletes) ? teamRow[0].athletes : JSON.parse(teamRow[0]?.athletes || '[]'); } catch { roster = []; }
+        if (roster.length) {
+          for (const p of roster) bump(`${p.name}|${p.stream || ''}`, { name: p.name, class: p.stream || '', discipline: f.discipline, source: 'match', team: f.winner }, 3);
+        } else {
+          // No roster on file — at least surface the winning team itself.
+          bump(`team:${f.winner}`, { name: f.winner, class: '', discipline: f.discipline, source: 'match-team' }, 3);
+        }
+      }
+    }
+
+    const suggestions = Object.values(merit).sort((a: any, b: any) =>
+      b.points - a.points || (a.bestPosition || 99) - (b.bestPosition || 99));
+    return { sport, count: suggestions.length, suggestions };
+  }
+
+  @Get('school-team')
+  async getSquads(@Request() req: any, @Query() q: any) {
+    await this.ensureSquadTable();
+    const params: any[] = [req.user.tenantId];
+    let where = `tenant_id = $1`;
+    if (q.sport) { params.push(q.sport); where += ` AND sport = $2`; }
+    const rows = await this.ds.query(
+      `SELECT id, sport, members, status, updated_at AS "updatedAt" FROM school_squads WHERE ${where} ORDER BY sport`,
+      params,
+    ).catch(() => []);
+    return rows.map((r: any) => {
+      let members: any[] = [];
+      try { members = Array.isArray(r.members) ? r.members : JSON.parse(r.members || '[]'); } catch { members = []; }
+      return { ...r, members, memberCount: members.length };
+    });
+  }
+
+  // Save (create or replace) the school squad for a sport.
+  @Post('school-team')
+  async saveSquad(@Request() req: any, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role) && !String(req.user.role).includes('teacher')) {
+      throw new BadRequestException('Only staff can form the school team.');
+    }
+    if (!dto?.sport) throw new BadRequestException('Sport is required.');
+    await this.ensureSquadTable();
+    const members = Array.isArray(dto.members) ? dto.members : [];
+    const existing = await this.ds.query(
+      `SELECT id FROM school_squads WHERE tenant_id = $1 AND sport = $2 LIMIT 1`,
+      [req.user.tenantId, dto.sport],
+    ).catch(() => []);
+    if (existing.length) {
+      await this.ds.query(
+        `UPDATE school_squads SET members = $1::jsonb, status = $2, updated_at = NOW() WHERE id = $3`,
+        [JSON.stringify(members), dto.status || 'draft', existing[0].id],
+      ).catch((e: any) => { throw new BadRequestException(e.message); });
+      return { id: existing[0].id, updated: true, memberCount: members.length };
+    }
+    const rows = await this.ds.query(
+      `INSERT INTO school_squads (tenant_id, school_id, sport, members, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$4::jsonb,$5,NOW(),NOW()) RETURNING id`,
+      [req.user.tenantId, req.user.schoolId || null, dto.sport, JSON.stringify(members), dto.status || 'draft'],
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    return { id: rows[0].id, created: true, memberCount: members.length };
+  }
+
   @Get('qualifications')
   getQualifications(@Request() req: any) { return []; }
 
