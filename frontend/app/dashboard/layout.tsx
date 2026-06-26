@@ -62,6 +62,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showShare, setShowShare] = useState(false);
   const [schoolName, setSchoolName] = useState('');
 
+  const [ready, setReady] = useState(false);
+  // Belt-and-braces: once mounted on the client, give hydration a tick to settle, then
+  // proceed regardless. This guarantees the app can never get permanently stuck behind the
+  // hydration gate even if the store's rehydrate callback misbehaves.
+  useEffect(() => {
+    if (hydrated) { setReady(true); return; }
+    const t = setTimeout(() => setReady(true), 150);
+    return () => clearTimeout(t);
+  }, [hydrated]);
+
   // Load the school name for the sidebar (from school settings).
   useEffect(() => {
     if (!user) return;
@@ -70,15 +80,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .catch(() => {});
   }, [user]);
 
-  // Redirect if not logged in — but ONLY after the persisted store has rehydrated, so a
-  // momentary null during client-side navigation doesn't bounce a logged-in user to login.
+  // Redirect if not logged in — but ONLY after hydration has settled, so a momentary null
+  // during a full-reload navigation doesn't bounce a logged-in user to login.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!ready) return;
     if (!user) { router.push('/auth/login'); return; }
     if (isTeacher(user.role)) router.replace('/teacher');
-  }, [user, hydrated, router]);
+  }, [user, ready, router]);
 
-  if (!hydrated) return null;
+  if (!ready) return null;
   if (!user || isTeacher(user.role)) return null;
 
   const navItems = NAV_ITEMS.filter(n => canSee(n.roles, user.role));

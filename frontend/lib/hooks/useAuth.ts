@@ -61,7 +61,11 @@ export const useAuth = create<AuthState>()(
     {
       name: 'zaroda_user',
       partialize: (s) => ({ user: s.user }),
-      onRehydrateStorage: () => (state) => { useAuth.setState({ hydrated: true }); },
+      onRehydrateStorage: () => (state) => {
+        // Mark hydration complete. Use the rehydrated state object directly (avoids
+        // referencing `useAuth` before it is assigned, which left `hydrated` stuck false).
+        if (state) state.hydrated = true;
+      },
     },
   ),
 );
