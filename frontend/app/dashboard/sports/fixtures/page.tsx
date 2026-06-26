@@ -11,6 +11,16 @@ export default function FixturesPage() {
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ discipline:'Football', homeTeam:'', awayTeam:'', venue:'', date:'', type:'inter_class' });
+  const [teams, setTeams] = useState<any[]>([]);
+
+  useEffect(() => {
+    apiClient.get('/sports/teams').then(r => setTeams(r.data || [])).catch(() => {});
+  }, []);
+
+  // Teams matching the chosen discipline (so you pick relevant teams); fall back to all.
+  const teamsForDiscipline = teams.filter((t:any) =>
+    !form.discipline || (t.sport || '').toLowerCase() === form.discipline.toLowerCase());
+  const teamOptions = (teamsForDiscipline.length ? teamsForDiscipline : teams);
 
   const load = () => {
     setLoading(true);
@@ -20,7 +30,12 @@ export default function FixturesPage() {
 
   const set = (k:string) => (e:any) => setForm(f=>({...f,[k]:e.target.value}));
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    const isRace = /athletics|swimming|cross country/i.test(form.discipline);
+    if (!isRace && form.homeTeam && form.homeTeam === form.awayTeam) {
+      toast.error('Home and away cannot be the same team.'); return;
+    }
+    setSaving(true);
     try { await apiClient.post('/sports/fixtures', form); toast.success('Fixture scheduled'); setShowNew(false);
       setForm({ discipline:'Football', homeTeam:'', awayTeam:'', venue:'', date:'', type:'inter_class' }); load(); }
     catch (err:any) { toast.error(err?.response?.data?.message || 'Could not save'); } finally { setSaving(false); }
@@ -137,8 +152,29 @@ export default function FixturesPage() {
               </div>
               {!/athletics|swimming|cross country/i.test(form.discipline) ? (
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="label">Home Team / Class</label><input required value={form.homeTeam} onChange={set('homeTeam')} className="input" placeholder="Grade 6 North"/></div>
-                  <div><label className="label">Away Team / Class</label><input required value={form.awayTeam} onChange={set('awayTeam')} className="input" placeholder="Grade 6 South"/></div>
+                  <div><label className="label">Home Team</label>
+                    {teamOptions.length > 0 ? (
+                      <select required value={form.homeTeam} onChange={set('homeTeam')} className="input">
+                        <option value="">Select team…</option>
+                        {teamOptions.map((t:any) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                      </select>
+                    ) : (
+                      <input required value={form.homeTeam} onChange={set('homeTeam')} className="input" placeholder="Grade 6 North"/>
+                    )}
+                  </div>
+                  <div><label className="label">Away Team</label>
+                    {teamOptions.length > 0 ? (
+                      <select required value={form.awayTeam} onChange={set('awayTeam')} className="input">
+                        <option value="">Select team…</option>
+                        {teamOptions.map((t:any) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                      </select>
+                    ) : (
+                      <input required value={form.awayTeam} onChange={set('awayTeam')} className="input" placeholder="Grade 6 South"/>
+                    )}
+                  </div>
+                  {teamOptions.length === 0 && (
+                    <p className="col-span-2 text-[11px] text-theme-muted">No {form.discipline} teams created yet — type names here, or create teams first in the Teams tab to pick them.</p>
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-theme-muted bg-surface-2 rounded-lg p-2">This is a race/field event — you'll enter finishing positions when recording the result, so no teams are needed here.</p>
