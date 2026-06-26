@@ -52,7 +52,7 @@ export default function SchoolTeamPage() {
     try {
       await apiClient.post('/sports/school-team', { sport, members: squad, status: newStatus || status });
       if (newStatus) setStatus(newStatus);
-      toast.success(newStatus === 'ready_for_base' ? 'School team confirmed — ready for Base' : 'School team saved');
+      toast.success(newStatus === 'ready_for_base' ? 'School team confirmed — ready for ZARODA Sports' : 'School team saved');
     } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
   };
@@ -153,14 +153,14 @@ export default function SchoolTeamPage() {
                 {saving ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>} Save draft
               </button>
               <button onClick={() => save('ready_for_base')} disabled={saving || squad.length===0} className="btn-primary justify-center text-sm">
-                <Send size={14}/> Confirm & mark ready for Base
+                <Send size={14}/> Confirm & mark ready for ZARODA Sports
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <p className="text-[11px] text-theme-muted">Tip: suggestions are ranked by merit — race winners and top-3 finishers, plus players from winning teams. You can also add or remove anyone manually. Once confirmed, the squad is marked ready to hand off to the ZARODA Sports Base.</p>
+      <p className="text-[11px] text-theme-muted">Tip: suggestions are ranked by merit — race winners and top-3 finishers, plus players from winning teams. You can also add or remove anyone manually. Once confirmed, the squad is marked ready to hand off to the ZARODA Sports.</p>
     </div>
   );
 }

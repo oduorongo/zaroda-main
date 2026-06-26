@@ -117,7 +117,7 @@ export default function SportsPage() {
     setPushing(qualId);
     try {
       await apiClient.post('/sports/push-to-base', { qualificationRegisterId: qualId, championshipId: champId });
-      toast.success('Athletes registered at ZARODA Sports Base! Bib numbers assigned.');
+      toast.success('Athletes registered at ZARODA Sports! Bib numbers assigned.');
       setTab('qualifications');
     } catch { toast.error('Push failed'); }
     finally { setPushing(null); }
@@ -134,7 +134,7 @@ export default function SportsPage() {
       <div className="page-header">
         <div>
           <h1 className="text-2xl font-black text-theme-heading">Sports Management</h1>
-          <p className="text-sm text-theme-muted">School teams · Qualifications · ZARODA Sports Base</p>
+          <p className="text-sm text-theme-muted">School teams · Qualifications · ZARODA Sports</p>
         </div>
         <div className="flex gap-2">
           {tab === 'teams' && (
@@ -150,14 +150,14 @@ export default function SportsPage() {
           </Link>
           <a href="/dashboard/sports-base" target="_blank" rel="noopener noreferrer"
             className="btn-ghost text-sm flex items-center gap-1.5">
-            <Trophy size={14} className="text-[#f5820a]"/> Sports Base <ExternalLink size={12}/>
+            <Trophy size={14} className="text-[#f5820a]"/> ZARODA Sports <ExternalLink size={12}/>
           </a>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-theme gap-1">
-        {[{k:'teams',l:'🏟 Teams'},{k:'qualifications',l:'📋 Qualifications'},{k:'base',l:'🏆 Push to Base'}].map(t => (
+        {[{k:'teams',l:'🏟 Teams'},{k:'qualifications',l:'📋 Qualifications'},{k:'base',l:'🏆 Push to ZARODA Sports'}].map(t => (
           <button key={t.k} onClick={() => setTab(t.k as any)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${tab===t.k?'border-[#1a2e5a] text-theme-heading':'border-transparent text-theme-muted hover:text-theme-heading'}`}>
             {t.l}
@@ -207,7 +207,7 @@ export default function SportsPage() {
         quals.length === 0 ? (
           <div className="card p-10 text-center">
             <p className="text-theme-muted mb-1">Qualification registers are being unified with School Team selection.</p>
-            <p className="text-xs text-theme-muted mb-4">Form your school squad from inter-class results, then mark it ready for the Base.</p>
+            <p className="text-xs text-theme-muted mb-4">Form your school squad from inter-class results, then mark it ready for ZARODA Sports.</p>
             <Link href="/dashboard/sports/school-team" className="btn-primary inline-flex"><Trophy size={14}/> Form School Team</Link>
           </div>
         ) : (
@@ -238,17 +238,17 @@ export default function SportsPage() {
           </div>
         )
       ) : (
-        /* Push to Base tab */
+        /* Push to ZARODA Sports tab */
         champs.length === 0 ? (
           <div className="card p-10 text-center text-theme-muted">
-            <p>No Base championships currently open for registration</p>
+            <p>No ZARODA Sports championships currently open for registration</p>
             <a href="/dashboard/sports-base" target="_blank" className="text-[#f5820a] text-sm hover:underline mt-2 inline-block">
-              Browse ZARODA Sports Base →
+              Browse ZARODA Sports →
             </a>
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-theme-muted">Select a championship to push your qualified athletes to ZARODA Sports Base. Bib numbers are assigned automatically — free.</p>
+            <p className="text-sm text-theme-muted">Select a championship to push your qualified athletes to ZARODA Sports. Bib numbers are assigned automatically — free.</p>
             {champs.map((c: any) => (
               <div key={c.id} className="card p-4">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
