@@ -18,9 +18,32 @@ export default function SportsPage() {
   const [pickStream, setPickStream] = useState('');
   const [streamLearners, setStreamLearners] = useState<any[]>([]);
   const [form, setForm] = useState<any>({ name:'', sport:'Football', ageCategory:'Under 15', gender:'Mixed', coach:'', athletes:[] as any[] });
+  const [editId, setEditId] = useState<string|null>(null);
+  const [viewTeam, setViewTeam] = useState<any>(null);
+
+  const openView = (t: any) => setViewTeam(t);
+
+  const openEdit = (t: any) => {
+    setEditId(t.id);
+    setForm({
+      name: t.name || '', sport: t.sport || 'Football', ageCategory: t.ageCategory || 'Under 15',
+      gender: t.gender || 'Mixed', coach: t.coach || '',
+      athletes: Array.isArray(t.athletes) ? t.athletes : [],
+    });
+    setPickStream(''); setStreamLearners([]);
+    setShowNew(true);
+  };
 
   const SPORTS = ['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis'];
   const AGE_CATS = ['Under 11','Under 13','Under 15','Under 17','Under 19','Open'];
+
+  // Ball/court games field "players"; track, field & swimming field "athletes".
+  const memberNoun = (sport?: string) => {
+    const s = (sport || '').toLowerCase();
+    if (s.includes('athletics') || s.includes('swimming') || s.includes('cross country')) return 'athletes';
+    return 'players';
+  };
+  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 
   const loadTeams = () => {
     apiClient.get('/sports/teams').then(r => setTeams(r.data)).catch(() => {});
@@ -49,13 +72,18 @@ export default function SportsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiClient.post('/sports/teams', form);
-      toast.success('Team created');
-      setShowNew(false);
+      if (editId) {
+        await apiClient.patch(`/sports/teams/${editId}`, form);
+        toast.success('Team updated');
+      } else {
+        await apiClient.post('/sports/teams', form);
+        toast.success('Team created');
+      }
+      setShowNew(false); setEditId(null);
       setForm({ name:'', sport:'Football', ageCategory:'Under 15', gender:'Mixed', coach:'', athletes:[] });
       setPickStream(''); setStreamLearners([]);
       loadTeams();
-    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not create team'); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save team'); }
     finally { setSaving(false); }
   };
 
@@ -106,7 +134,7 @@ export default function SportsPage() {
         </div>
         <div className="flex gap-2">
           {tab === 'teams' && (
-            <button onClick={() => setShowNew(true)} className="btn-primary text-sm flex items-center gap-1.5">
+            <button onClick={() => { setEditId(null); setForm({ name:'', sport:'Football', ageCategory:'Under 15', gender:'Mixed', coach:'', athletes:[] }); setShowNew(true); }} className="btn-primary text-sm flex items-center gap-1.5">
               <Plus size={14}/> New Team
             </button>
           )}
@@ -137,7 +165,7 @@ export default function SportsPage() {
           <div className="card p-10 text-center">
             <Trophy size={36} className="mx-auto text-[#e2e6f0] mb-2"/>
             <p className="text-theme-muted">No teams yet</p>
-            <button onClick={() => setShowNew(true)} className="btn-primary mt-4"><Plus size={14}/> Create Team</button>
+            <button onClick={() => { setEditId(null); setShowNew(true); }} className="btn-primary mt-4"><Plus size={14}/> Create Team</button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -155,10 +183,14 @@ export default function SportsPage() {
                     className="ml-auto text-theme-muted hover:text-red-600 p-1"><Trash2 size={15}/></button>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-theme-muted">
-                  <Users size={12}/> {t.athleteCount || 0} athletes
+                  <Users size={12}/> {t.athleteCount || 0} {memberNoun(t.sport)}
                   {t.gender && t.gender !== 'Mixed' && (
                     <span className="ml-auto">{t.gender}</span>
                   )}
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => openView(t)} className="btn-ghost flex-1 justify-center text-xs">View</button>
+                  <button onClick={() => openEdit(t)} className="btn-ghost flex-1 justify-center text-xs">Edit</button>
                 </div>
               </div>
             ))}
@@ -242,8 +274,8 @@ export default function SportsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg max-h-[90vh] flex flex-col" style={{ border:'1px solid var(--border)' }}>
             <div className="flex items-center justify-between p-5" style={{ borderBottom:'1px solid var(--border)' }}>
-              <h3 className="text-lg font-bold text-theme-heading">Create Team</h3>
-              <button onClick={() => setShowNew(false)} className="text-theme-muted text-xl leading-none">✕</button>
+              <h3 className="text-lg font-bold text-theme-heading">{editId ? 'Edit Team' : 'Create Team'}</h3>
+              <button onClick={() => { setShowNew(false); setEditId(null); }} className="text-theme-muted text-xl leading-none">✕</button>
             </div>
             <form onSubmit={createTeam} className="p-5 space-y-4 overflow-y-auto">
               <div className="grid sm:grid-cols-2 gap-3">
@@ -267,7 +299,7 @@ export default function SportsPage() {
 
               {/* Athlete picker */}
               <div>
-                <label className="label">Add Athletes (from a class)</label>
+                <label className="label">Add {cap(memberNoun(form.sport))} (from a class)</label>
                 <select value={pickStream} onChange={e => setPickStream(e.target.value)} className="input mb-2">
                   <option value="">Select a class to pick from…</option>
                   {streams.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -297,16 +329,51 @@ export default function SportsPage() {
                     ))}
                   </div>
                 )}
-                <p className="text-[11px] text-theme-muted mt-1">{form.athletes.length} athlete(s) selected. You can pick from multiple classes.</p>
+                <p className="text-[11px] text-theme-muted mt-1">{form.athletes.length} {memberNoun(form.sport)} selected. You can pick from multiple classes.</p>
               </div>
 
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowNew(false)} className="btn-ghost flex-1 justify-center">Cancel</button>
+                <button type="button" onClick={() => { setShowNew(false); setEditId(null); }} className="btn-ghost flex-1 justify-center">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">
-                  {saving ? <Loader2 size={15} className="animate-spin"/> : <Plus size={15}/>} Create Team
+                  {saving ? <Loader2 size={15} className="animate-spin"/> : <Plus size={15}/>} {editId ? 'Save Changes' : 'Create Team'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Team roster */}
+      {viewTeam && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[85vh] flex flex-col" style={{ border:'1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom:'1px solid var(--border)' }}>
+              <div>
+                <h3 className="text-lg font-bold text-theme-heading">{viewTeam.name}</h3>
+                <p className="text-xs text-theme-muted">{viewTeam.sport}{viewTeam.ageCategory?` · ${viewTeam.ageCategory}`:''}{viewTeam.gender?` · ${viewTeam.gender}`:''}{viewTeam.coach?` · Coach: ${viewTeam.coach}`:''}</p>
+              </div>
+              <button onClick={() => setViewTeam(null)} className="text-theme-muted text-xl leading-none">✕</button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              <div className="text-xs font-semibold text-theme-muted uppercase mb-2">{cap(memberNoun(viewTeam.sport))} ({(viewTeam.athletes||[]).length})</div>
+              {(viewTeam.athletes||[]).length === 0 ? (
+                <p className="text-sm text-theme-muted">No {memberNoun(viewTeam.sport)} added yet. Use Edit to add some.</p>
+              ) : (
+                <ol className="space-y-1">
+                  {viewTeam.athletes.map((a:any, idx:number) => (
+                    <li key={a.id || idx} className="flex items-center gap-2 text-sm py-1.5 border-b border-theme/30">
+                      <span className="w-5 text-theme-muted">{idx+1}.</span>
+                      <span className="font-medium text-theme-heading">{a.name}</span>
+                      <span className="text-theme-muted text-xs ml-auto">{a.stream || ''}{a.admissionNumber?` · ${a.admissionNumber}`:''}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => { const t = viewTeam; setViewTeam(null); openEdit(t); }} className="btn-primary flex-1 justify-center text-sm">Edit Team</button>
+                <button onClick={() => setViewTeam(null)} className="btn-ghost flex-1 justify-center text-sm">Close</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
