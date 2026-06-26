@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'sports-fixtures-2026-06-25', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'fixtures-diag-2026-06-26', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -374,6 +374,28 @@ async function bootstrap() {
 
   // Browser-runnable: shows what learning areas exist in the rubric (assessment_templates)
   // per grade, so we can verify the rubric data. /rubric-check?key=...&grade=grade_7
+  httpAdapter.get('/fixtures-check', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      await ds.query(
+        `CREATE TABLE IF NOT EXISTS sports_fixtures (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`,
+      ).catch(() => null);
+      for (const [n, t] of [['discipline','text'],['kind','text'],['home_team','text'],['away_team','text'],['venue','text'],['fixture_date','date'],['type','text'],['status',"text DEFAULT 'scheduled'"],['home_score','integer'],['away_score','integer'],['winner','text'],['results','jsonb'],['notes','text'],['school_id','uuid'],['created_by','uuid'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
+        await ds.query(`ALTER TABLE sports_fixtures ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+      }
+      const cols = await ds.query(
+        `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = 'sports_fixtures' ORDER BY ordinal_position`,
+      ).catch((e: any) => ({ error: e.message }));
+      const cnt = await ds.query(`SELECT COUNT(*) AS n FROM sports_fixtures`).catch((e: any) => [{ n: 'ERR: ' + e.message }]);
+      res.type('text/plain').send(
+        `sports_fixtures table OK. Rows: ${cnt[0]?.n}\n\nColumns:\n` +
+        (Array.isArray(cols) ? cols.map((c: any) => `  ${String(c.column_name).padEnd(16)} ${c.data_type}  ${c.is_nullable === 'NO' ? 'NOT NULL' : ''}`).join('\n') : JSON.stringify(cols)),
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
   httpAdapter.get('/rubric-check', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }

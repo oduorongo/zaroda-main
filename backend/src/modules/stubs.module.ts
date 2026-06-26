@@ -975,7 +975,7 @@ class SportsController {
 
   @Get('fixtures')
   async getFixtures(@Request() req: any, @Query() q: any) {
-    await this.ensureFixturesTable();
+    try { await this.ensureFixturesTable(); } catch { /* never let table setup 500 the page */ }
     const tenantId = req.user.tenantId;
     const params: any[] = [tenantId];
     let where = `tenant_id = $1`;
