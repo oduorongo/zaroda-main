@@ -843,11 +843,99 @@ export class LibraryModule {}
 @Controller('sports')
 @UseGuards(JwtAuthGuard)
 class SportsController {
+  constructor(private readonly ds: DataSource) {}
+
+  private async ensureTeamsTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS sports_teams (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    const cols: [string, string][] = [
+      ['school_id', 'uuid'], ['name', 'text'], ['sport', 'text'], ['category', 'text'],
+      ['age_category', 'text'], ['gender', 'text'], ['athletes', 'jsonb'],
+      ['coach', 'text'], ['created_by', 'uuid'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+      ['created_at', 'timestamptz DEFAULT NOW()'],
+    ];
+    for (const [n, t] of cols) {
+      await this.ds.query(`ALTER TABLE sports_teams ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    const notNull = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'sports_teams' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNull as any[])) {
+      if (['id', 'tenant_id'].includes(row.column_name)) continue;
+      await this.ds.query(`ALTER TABLE sports_teams ALTER COLUMN ${row.column_name} DROP NOT NULL`).catch(() => null);
+    }
+  }
+
   @Get('teams')
-  getTeams(@Request() req: any) { return []; }
+  async getTeams(@Request() req: any) {
+    await this.ensureTeamsTable();
+    return this.ds.query(
+      `SELECT id, name, sport, age_category AS "ageCategory", gender, athletes, coach,
+              created_at AS "createdAt"
+         FROM sports_teams WHERE tenant_id = $1 ORDER BY sport, name`,
+      [req.user.tenantId],
+    ).then((rows: any[]) => rows.map(r => ({ ...r, athleteCount: Array.isArray(r.athletes) ? r.athletes.length : 0 })))
+     .catch(() => []);
+  }
 
   @Post('teams')
-  createTeam(@Request() req: any, @Body() dto: any) { return { id: 'stub', ...dto }; }
+  async createTeam(@Request() req: any, @Body() dto: any) {
+    const role = req.user.role;
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'class_teacher', 'subject_teacher', 'overall_class_teacher'].includes(role)) {
+      throw new BadRequestException('You do not have permission to create teams.');
+    }
+    if (!dto?.name || !String(dto.name).trim()) throw new BadRequestException('Team name is required.');
+    if (!dto?.sport) throw new BadRequestException('Please choose a sport / event.');
+    await this.ensureTeamsTable();
+    const athletes = Array.isArray(dto.athletes) ? dto.athletes : [];
+    try {
+      const rows = await this.ds.query(
+        `INSERT INTO sports_teams (tenant_id, school_id, name, sport, age_category, gender, athletes, coach, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,NOW(),NOW())
+         RETURNING id, name, sport, age_category AS "ageCategory", gender, athletes, coach`,
+        [
+          req.user.tenantId, req.user.schoolId || null, String(dto.name).trim(), dto.sport,
+          dto.ageCategory || null, dto.gender || null, JSON.stringify(athletes), dto.coach || null, req.user.id,
+        ],
+      );
+      return { ...rows[0], athleteCount: athletes.length };
+    } catch (e: any) {
+      throw new BadRequestException(`Could not create team: ${e.message}`);
+    }
+  }
+
+  @Patch('teams/:id')
+  async updateTeam(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    await this.ensureTeamsTable();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    for (const [k, col] of Object.entries({ name: 'name', sport: 'sport', ageCategory: 'age_category', gender: 'gender', coach: 'coach' })) {
+      if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(dto[k]); }
+    }
+    if (dto.athletes !== undefined) { fields.push(`athletes = $${i++}::jsonb`); vals.push(JSON.stringify(Array.isArray(dto.athletes) ? dto.athletes : [])); }
+    if (!fields.length) return { updated: false };
+    fields.push(`updated_at = NOW()`);
+    vals.push(id, req.user.tenantId);
+    const rows = await this.ds.query(
+      `UPDATE sports_teams SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i}
+       RETURNING id, name, sport, age_category AS "ageCategory", gender, athletes, coach`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    if (!rows.length) throw new BadRequestException('Team not found.');
+    const r = rows[0];
+    return { ...r, athleteCount: Array.isArray(r.athletes) ? r.athletes.length : 0 };
+  }
+
+  @Delete('teams/:id')
+  async deleteTeam(@Request() req: any, @Param('id') id: string) {
+    await this.ensureTeamsTable();
+    await this.ds.query(`DELETE FROM sports_teams WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
 
   @Get('qualifications')
   getQualifications(@Request() req: any) { return []; }
@@ -864,8 +952,15 @@ class SportsController {
   getBaseChampionships(@Query() q: any) { return []; }
 
   @Get('dashboard')
-  getDashboard(@Request() req: any) {
-    return { totalTeams: 0, totalAthletes: 0, activeChampionships: 0 };
+  async getDashboard(@Request() req: any) {
+    await this.ensureTeamsTable();
+    const r = await this.ds.query(
+      `SELECT COUNT(*)::int AS teams,
+              COALESCE(SUM(jsonb_array_length(COALESCE(athletes,'[]'::jsonb))),0)::int AS athletes
+         FROM sports_teams WHERE tenant_id = $1`,
+      [req.user.tenantId],
+    ).catch(() => [{ teams: 0, athletes: 0 }]);
+    return { totalTeams: r[0]?.teams || 0, totalAthletes: r[0]?.athletes || 0, activeChampionships: 0 };
   }
 }
 
