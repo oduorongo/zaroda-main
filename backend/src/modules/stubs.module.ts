@@ -924,6 +924,36 @@ class LibraryController {
     return { received: made.length, baseCode, copies: made };
   }
 
+  // Parent view: library books issued to THEIR child (guardian-verified by email).
+  @Get('my-child/:learnerId')
+  async getChildLoans(@Request() req: any, @Param('learnerId') learnerId: string) {
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    const owns = await this.ds.query(
+      `SELECT id, (first_name || ' ' || COALESCE(last_name,'')) AS name FROM learners
+        WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
+      [learnerId, tenantId, req.user.email || ''],
+    ).catch(() => []);
+    if (!owns.length) throw new BadRequestException('This learner is not linked to your account.');
+
+    const loans = await this.ds.query(
+      `SELECT book_title AS "bookTitle", book_code AS "bookCode", issued_on AS "issuedOn",
+              due_on AS "dueOn", status, returned_on AS "returnedOn", return_condition AS "returnCondition",
+              (status <> 'returned' AND due_on < CURRENT_DATE) AS overdue
+         FROM library_loans
+        WHERE tenant_id = $1 AND borrower_type = 'learner' AND borrower_id::text = $2
+        ORDER BY issued_on DESC`,
+      [tenantId, learnerId],
+    ).catch(() => []);
+    const out = (loans as any[]);
+    return {
+      learnerName: String(owns[0].name).trim(),
+      current: out.filter(l => l.status !== 'returned'),
+      history: out.filter(l => l.status === 'returned'),
+      currentCount: out.filter(l => l.status !== 'returned').length,
+    };
+  }
+
   // Delete a book copy (admin) — by id or exact code. Also clears any loan rows for it.
   // Use to remove stray copies, e.g. ones created during a failed issue attempt.
   @Delete('books/:idOrCode')

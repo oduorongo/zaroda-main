@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   User, DollarSign, FileText, MessageSquare, CheckCircle,
-  TrendingUp, CreditCard, ChevronRight, Heart, Loader2,
+  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -25,6 +25,19 @@ export default function ParentPortalPage() {
   const [feesChild, setFeesChild] = useState<any>(null);
   const [feesData, setFeesData]   = useState<any>(null);
   const [feesLoading, setFeesLoading] = useState(false);
+
+  const [libChild, setLibChild] = useState<any>(null);
+  const [libData, setLibData]   = useState<any>(null);
+  const [libLoading, setLibLoading] = useState(false);
+
+  const openLibrary = async (c: any) => {
+    setLibChild(c); setLibData(null); setLibLoading(true);
+    try {
+      const r = await apiClient.get(`/library/my-child/${c.id}`);
+      setLibData(r.data);
+    } catch { setLibData(null); }
+    finally { setLibLoading(false); }
+  };
 
   const openFees = async (c: any) => {
     setFeesChild(c); setFeesData(null); setFeesLoading(true);
@@ -108,6 +121,7 @@ export default function ParentPortalPage() {
                   <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
                   <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</button>
                   <button onClick={() => openFees(c)} className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Fees</button>
+                  <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 justify-center text-xs"><BookOpen size={13}/> Library</button>
                 </div>
               </div>
             ))}
@@ -150,6 +164,57 @@ export default function ParentPortalPage() {
                     </div>
                   )}
                   <p className="text-[11px] text-theme-muted mt-4">For payments or fee questions, please contact the school bursar’s office.</p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Library books modal */}
+      {libChild && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <h3 className="font-bold text-theme-heading">{libChild.firstName} {libChild.lastName} · Library</h3>
+              <button onClick={() => setLibChild(null)}>✕</button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              {libLoading ? (
+                <div className="text-center py-6 text-theme-muted text-sm">Loading…</div>
+              ) : !libData ? (
+                <div className="text-center py-6 text-theme-muted text-sm">No library records found for your child.</div>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <div className="text-xs font-semibold text-theme-muted uppercase mb-2">Currently borrowed ({libData.currentCount || 0})</div>
+                    {(libData.current||[]).length === 0 ? (
+                      <p className="text-sm text-theme-muted">No books currently with your child.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {libData.current.map((l:any, i:number)=>(
+                          <div key={i} className={`rounded-xl p-3 text-sm border ${l.overdue?'border-red-200 bg-red-50':'border-theme'}`}>
+                            <div className="font-semibold text-theme-heading">{l.bookTitle} <span className="font-mono text-xs text-theme-muted">{l.bookCode}</span></div>
+                            <div className="text-[11px] text-theme-muted">Issued {l.issuedOn} · due {l.dueOn}{l.overdue?' · OVERDUE':''}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {(libData.history||[]).length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-theme-muted uppercase mb-2">Returned</div>
+                      <div className="space-y-1.5">
+                        {libData.history.slice(0,15).map((l:any, i:number)=>(
+                          <div key={i} className="flex items-center justify-between text-sm border-b border-theme/30 pb-1.5">
+                            <span className="text-theme-heading">{l.bookTitle}</span>
+                            <span className="text-[11px] text-theme-muted">returned {l.returnedOn||''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-theme-muted mt-4">For library questions, please contact the school library.</p>
                 </>
               )}
             </div>
