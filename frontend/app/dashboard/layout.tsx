@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
   { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling & CPD',      roles: 'staff' },
-  { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all',   badge: 'FREE' },
+  { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all' },
   { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
   { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'staff' },
 ];
@@ -81,14 +81,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Redirect if not logged in — but ONLY after hydration has settled, so a momentary null
   // during a full-reload navigation doesn't bounce a logged-in user to login.
+  // Dashboard pages teachers ARE allowed to open (shared modules), despite otherwise being
+  // routed to their own /teacher workspace.
+  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling'];
+  const teacherAllowedHere = TEACHER_ALLOWED.some(p => pathname.startsWith(p));
+
   useEffect(() => {
     if (!ready) return;
     if (!user) { router.push('/auth/login'); return; }
-    if (isTeacher(user.role)) router.replace('/teacher');
-  }, [user, ready, router]);
+    if (isTeacher(user.role) && !teacherAllowedHere) router.replace('/teacher');
+  }, [user, ready, router, teacherAllowedHere]);
 
   if (!ready) return null;
-  if (!user || isTeacher(user.role)) return null;
+  if (!user) return null;
+  if (isTeacher(user.role) && !teacherAllowedHere) return null;
 
   const navItems = NAV_ITEMS.filter(n => canSee(n.roles, user.role));
   const initials = `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();

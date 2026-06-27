@@ -24,6 +24,7 @@ const TEACHER_NAV = [
   { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling & CPD' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },
   { href: '/teacher/records',    icon: Sparkles,    label: 'Schemes & Records' },
+  { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },
 ];
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {

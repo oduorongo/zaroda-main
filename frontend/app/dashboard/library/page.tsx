@@ -13,7 +13,7 @@ export default function LibraryPage() {
   const { user } = useAuth();
   const admin = isHoi(user?.role || '');
 
-  const [tab, setTab] = useState<'stock'|'loans'|'overdue'>('stock');
+  const [tab, setTab] = useState<'stock'|'loans'|'overdue'|'returned'>('stock');
   const [books, setBooks] = useState<any[]>([]);
   const [loans, setLoans] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({});
@@ -22,17 +22,43 @@ export default function LibraryPage() {
 
   const [showReceive, setShowReceive] = useState(false);
   const [showIssue, setShowIssue]   = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [rcv, setRcv] = useState({ title:'', author:'', category:'Textbook', publisher:'', isbn:'', copies:'1', condition:'New' });
-  const [iss, setIss] = useState({ code:'', borrowerType:'learner', borrowerName:'', borrowerClass:'', loanDays:'14' });
+  const [iss, setIss] = useState<any>({ code:'', borrowerType:'learner', borrowerId:'', borrowerName:'', borrowerClass:'', loanDays:'14' });
   const [lookup, setLookup] = useState<any>(null);
+
+  // Borrower picker (from enrolment)
+  const [streams, setStreams] = useState<any[]>([]);
+  const [pickStream, setPickStream] = useState('');
+  const [borrowers, setBorrowers] = useState<any[]>([]);
+  const [borrowerSearch, setBorrowerSearch] = useState('');
+
+  // Settings (code scheme + who can issue)
+  const [cfg, setCfg] = useState<any>({ codePrefix:'LIB', codeIncludeCategory:true, codeStart:1, classTeachersCanIssue:true, subjectTeachersCanIssue:true });
+
+  useEffect(() => {
+    apiClient.get('/academic/streams').then(r => setStreams(r.data || [])).catch(()=>{});
+    apiClient.get('/library/settings').then(r => setCfg(r.data || cfg)).catch(()=>{});
+  }, []);
+
+  // Load borrowers when type/stream changes inside the issue modal.
+  useEffect(() => {
+    if (!showIssue) return;
+    const ep = iss.borrowerType === 'teacher'
+      ? '/library/borrowers?type=teacher'
+      : `/library/borrowers?type=learner${pickStream?`&streamId=${pickStream}`:''}`;
+    apiClient.get(ep).then(r => setBorrowers(r.data || [])).catch(()=>setBorrowers([]));
+  }, [showIssue, iss.borrowerType, pickStream]);
 
   const loadStats = () => apiClient.get('/library/stats').then(r => setStats(r.data || {})).catch(()=>{});
   const load = () => {
     setLoading(true);
     const ep = tab === 'stock' ? `/library/books?search=${encodeURIComponent(search)}`
-      : tab === 'overdue' ? '/library/loans?status=overdue' : '/library/loans?status=active';
+      : tab === 'overdue' ? '/library/loans?status=overdue'
+      : tab === 'returned' ? '/library/loans?status=returned'
+      : '/library/loans?status=active';
     apiClient.get(ep)
       .then(r => { if (tab === 'stock') setBooks(r.data || []); else setLoans(r.data || []); })
       .catch(()=>{}).finally(()=>setLoading(false));
@@ -69,10 +95,10 @@ export default function LibraryPage() {
     if (!iss.borrowerName.trim()) { toast.error('Enter the borrower name'); return; }
     setSaving(true);
     try {
-      await apiClient.post('/library/loans', { code: lookup.code, borrowerType: iss.borrowerType, borrowerName: iss.borrowerName, borrowerClass: iss.borrowerClass, loanDays: Number(iss.loanDays) });
+      await apiClient.post('/library/loans', { code: lookup.code, borrowerType: iss.borrowerType, borrowerId: iss.borrowerId || null, borrowerName: iss.borrowerName, borrowerClass: iss.borrowerClass, loanDays: Number(iss.loanDays) });
       toast.success(`"${lookup.title}" issued to ${iss.borrowerName}`);
       setShowIssue(false); setLookup(null);
-      setIss({ code:'', borrowerType:'learner', borrowerName:'', borrowerClass:'', loanDays:'14' });
+      setIss({ code:'', borrowerType:'learner', borrowerId:'', borrowerName:'', borrowerClass:'', loanDays:'14' });
       load(); loadStats();
     } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not issue'); }
     finally { setSaving(false); }
@@ -108,6 +134,7 @@ export default function LibraryPage() {
         <div className="flex gap-2">
           <button onClick={()=>setShowIssue(true)} className="btn-ghost text-sm"><ArrowLeftRight size={14}/> Issue book</button>
           {admin && <button onClick={()=>setShowReceive(true)} className="btn-primary text-sm"><Plus size={14}/> Receive books</button>}
+          {admin && <button onClick={()=>setShowSettings(true)} className="btn-ghost text-sm">Settings</button>}
         </div>
       </div>
 
@@ -123,7 +150,7 @@ export default function LibraryPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-theme">
-        {[{k:'stock',l:'Stock'},{k:'loans',l:'Issued'},{k:'overdue',l:'Overdue'}].map(t => (
+        {[{k:'stock',l:'Stock'},{k:'loans',l:'Issued'},{k:'overdue',l:'Overdue'},{k:'returned',l:'Collection'}].map(t => (
           <button key={t.k} onClick={()=>setTab(t.k as any)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 ${tab===t.k?'border-[#1a2e5a] text-theme-heading':'border-transparent text-theme-muted hover:text-theme-heading'}`}>{t.l}</button>
         ))}
@@ -157,18 +184,23 @@ export default function LibraryPage() {
           </div>
         )
       ) : (
-        loans.length === 0 ? <div className="card p-10 text-center text-theme-muted">{tab==='overdue'?'Nothing overdue.':'No books currently issued.'}</div> : (
+        loans.length === 0 ? <div className="card p-10 text-center text-theme-muted">{tab==='overdue'?'Nothing overdue.':tab==='returned'?'No returns recorded yet.':'No books currently issued.'}</div> : (
           <div className="space-y-2">
             {loans.map((l:any) => (
               <div key={l.id} className="card p-4 flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${l.overdue?'bg-red-100':'bg-surface-2'}`}>
-                  {l.overdue ? <AlertTriangle size={16} className="text-red-600"/> : <Book size={16} className="text-theme-muted"/>}
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${l.status==='returned'?'bg-green-100':l.overdue?'bg-red-100':'bg-surface-2'}`}>
+                  {l.status==='returned' ? <CheckCircle size={16} className="text-green-600"/> : l.overdue ? <AlertTriangle size={16} className="text-red-600"/> : <Book size={16} className="text-theme-muted"/>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-theme-heading text-sm truncate">{l.bookTitle} <span className="font-mono text-xs text-theme-muted">{l.bookCode}</span></div>
-                  <div className="text-xs text-theme-muted">{l.borrowerName}{l.borrowerClass?` · ${l.borrowerClass}`:''} · {l.borrowerType} · due {l.dueOn}{l.overdue?' (overdue)':''}</div>
+                  <div className="text-xs text-theme-muted">
+                    {l.borrowerName}{l.borrowerClass?` · ${l.borrowerClass}`:''} · {l.borrowerType}
+                    {l.status==='returned'
+                      ? ` · returned ${l.returnedOn || ''}${l.returnCondition?` · ${l.returnCondition}`:''}`
+                      : ` · due ${l.dueOn}${l.overdue?' (overdue)':''}`}
+                  </div>
                 </div>
-                <button onClick={()=>returnBook(l.id)} className="btn-ghost text-xs"><CheckCircle size={13}/> Return</button>
+                {l.status!=='returned' && <button onClick={()=>returnBook(l.id)} className="btn-ghost text-xs"><CheckCircle size={13}/> Return</button>}
               </div>
             ))}
           </div>
@@ -228,16 +260,85 @@ export default function LibraryPage() {
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Borrower type</label>
-                  <select value={iss.borrowerType} onChange={e=>setIss({...iss,borrowerType:e.target.value})} className="input"><option value="learner">Learner</option><option value="teacher">Teacher</option></select></div>
+                  <select value={iss.borrowerType} onChange={e=>{setIss({...iss,borrowerType:e.target.value,borrowerId:'',borrowerName:'',borrowerClass:''});setPickStream('');}} className="input"><option value="learner">Learner</option><option value="teacher">Teacher</option></select></div>
                 <div><label className="label">Loan days</label><input type="number" min={1} value={iss.loanDays} onChange={e=>setIss({...iss,loanDays:e.target.value})} className="input"/></div>
-                <div><label className="label">Borrower name *</label><input required value={iss.borrowerName} onChange={e=>setIss({...iss,borrowerName:e.target.value})} className="input"/></div>
-                <div><label className="label">Class / Dept</label><input value={iss.borrowerClass} onChange={e=>setIss({...iss,borrowerClass:e.target.value})} className="input"/></div>
+              </div>
+
+              {iss.borrowerType === 'learner' && (
+                <div><label className="label">Class</label>
+                  <select value={pickStream} onChange={e=>setPickStream(e.target.value)} className="input">
+                    <option value="">All classes…</option>
+                    {streams.map((s:any)=><option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <div><label className="label">Select {iss.borrowerType} *</label>
+                <input value={borrowerSearch} onChange={e=>setBorrowerSearch(e.target.value)} className="input mb-1" placeholder={`Search ${iss.borrowerType} by name…`}/>
+                <div className="max-h-40 overflow-y-auto border border-theme rounded-xl divide-y divide-theme/30">
+                  {borrowers.filter((b:any)=>!borrowerSearch || b.name.toLowerCase().includes(borrowerSearch.toLowerCase())).length === 0 ? (
+                    <div className="p-3 text-sm text-theme-muted">No {iss.borrowerType}s found</div>
+                  ) : borrowers.filter((b:any)=>!borrowerSearch || b.name.toLowerCase().includes(borrowerSearch.toLowerCase())).slice(0,60).map((b:any)=>(
+                    <button type="button" key={b.id} onClick={()=>setIss({...iss,borrowerId:b.id,borrowerName:b.name,borrowerClass:b.stream||b.sub||''})}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-surface-2 ${iss.borrowerId===b.id?'bg-surface-2 font-semibold':''}`}>
+                      <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] ${iss.borrowerId===b.id?'bg-[#1a2e5a] text-white border-[#1a2e5a]':'border-theme'}`}>{iss.borrowerId===b.id?'✓':''}</span>
+                      {b.name} <span className="text-theme-muted text-xs">{b.sub}</span>
+                    </button>
+                  ))}
+                </div>
+                {iss.borrowerName && <p className="text-[11px] text-green-600 mt-1">Selected: {iss.borrowerName}{iss.borrowerClass?` · ${iss.borrowerClass}`:''}</p>}
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={()=>{setShowIssue(false);setLookup(null);}} className="btn-ghost flex-1 justify-center">Cancel</button>
                 <button type="submit" disabled={saving || !lookup || lookup.status==='issued'} className="btn-primary flex-1 justify-center">{saving?<Loader2 size={14} className="animate-spin"/>:<ArrowLeftRight size={14}/>} Issue</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settings modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[88vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <h3 className="font-bold text-theme-heading">Library Settings</h3>
+              <button onClick={()=>setShowSettings(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-4 overflow-y-auto">
+              <div>
+                <h4 className="text-sm font-bold text-theme-heading mb-2">Book coding scheme</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Code prefix</label>
+                    <input value={cfg.codePrefix} onChange={e=>setCfg({...cfg,codePrefix:e.target.value.toUpperCase()})} className="input font-mono" placeholder="e.g. MCS"/></div>
+                  <div><label className="label">Start number</label>
+                    <input type="number" min={1} value={cfg.codeStart} onChange={e=>setCfg({...cfg,codeStart:e.target.value})} className="input"/></div>
+                </div>
+                <label className="flex items-center gap-2 mt-2 text-sm">
+                  <input type="checkbox" checked={cfg.codeIncludeCategory} onChange={e=>setCfg({...cfg,codeIncludeCategory:e.target.checked})}/>
+                  Include category in the code
+                </label>
+                <p className="text-[11px] text-theme-muted mt-1">Preview: <span className="font-mono">{(cfg.codePrefix||'LIB')}{cfg.codeIncludeCategory?'-TEXT':''}-{String(Math.max(1,Number(cfg.codeStart)||1)).padStart(5,'0')}/1</span></p>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-bold text-theme-heading mb-2">Who can issue & receive returns</h4>
+                <p className="text-[11px] text-theme-muted mb-2">Admins can always issue. Choose whether teachers may too.</p>
+                <label className="flex items-center gap-2 text-sm py-1">
+                  <input type="checkbox" checked={cfg.classTeachersCanIssue} onChange={e=>setCfg({...cfg,classTeachersCanIssue:e.target.checked})}/>
+                  Class teachers can issue & receive from learners
+                </label>
+                <label className="flex items-center gap-2 text-sm py-1">
+                  <input type="checkbox" checked={cfg.subjectTeachersCanIssue} onChange={e=>setCfg({...cfg,subjectTeachersCanIssue:e.target.checked})}/>
+                  Learning area (subject) teachers can issue & receive
+                </label>
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button onClick={()=>setShowSettings(false)} className="btn-ghost flex-1 justify-center">Cancel</button>
+                <button onClick={async()=>{ try{ await apiClient.patch('/library/settings', cfg); toast.success('Settings saved'); setShowSettings(false);}catch(err:any){toast.error(err?.response?.data?.message||'Could not save');} }} className="btn-primary flex-1 justify-center">Save settings</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

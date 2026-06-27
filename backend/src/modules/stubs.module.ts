@@ -813,9 +813,55 @@ class LibraryController {
   }
 
   private isAdmin(role: string) { return ['hoi','dhois','tenant_owner','school_admin'].includes(role); }
-  private canIssue(role: string) {
-    // School chooses issue model via setting; by default admins + any teacher may issue.
-    return this.isAdmin(role) || String(role).includes('teacher') || role === 'librarian';
+
+  // Library config lives in schools.settings.library (JSONB) — no schema change needed.
+  private async getLibrarySettings(tenantId: string): Promise<any> {
+    const rows = await this.ds.query(
+      `SELECT settings->'library' AS lib FROM schools WHERE tenant_id = $1 LIMIT 1`, [tenantId],
+    ).catch(() => []);
+    return rows[0]?.lib || {};
+  }
+
+  @Get('settings')
+  async getSettings(@Request() req: any) {
+    const s = await this.getLibrarySettings(req.user.tenantId);
+    return {
+      codePrefix: s.codePrefix || 'LIB',
+      codeIncludeCategory: s.codeIncludeCategory !== false,
+      codeStart: s.codeStart || 1,
+      classTeachersCanIssue: s.classTeachersCanIssue !== false,   // default allow
+      subjectTeachersCanIssue: s.subjectTeachersCanIssue !== false,
+    };
+  }
+
+  @Patch('settings')
+  async saveSettings(@Request() req: any, @Body() dto: any) {
+    if (!this.isAdmin(req.user.role)) throw new BadRequestException('Only an administrator can change library settings.');
+    const tenantId = req.user.tenantId;
+    const current = await this.getLibrarySettings(tenantId);
+    const next = {
+      ...current,
+      ...(dto.codePrefix !== undefined ? { codePrefix: String(dto.codePrefix).toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,8) } : {}),
+      ...(dto.codeIncludeCategory !== undefined ? { codeIncludeCategory: !!dto.codeIncludeCategory } : {}),
+      ...(dto.codeStart !== undefined ? { codeStart: Math.max(1, Number(dto.codeStart) || 1) } : {}),
+      ...(dto.classTeachersCanIssue !== undefined ? { classTeachersCanIssue: !!dto.classTeachersCanIssue } : {}),
+      ...(dto.subjectTeachersCanIssue !== undefined ? { subjectTeachersCanIssue: !!dto.subjectTeachersCanIssue } : {}),
+    };
+    await this.ds.query(
+      `UPDATE schools SET settings = jsonb_set(COALESCE(settings,'{}'::jsonb), '{library}', $2::jsonb, true) WHERE tenant_id = $1`,
+      [tenantId, JSON.stringify(next)],
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    return next;
+  }
+
+  // Whether THIS user may issue/receive, honoring the school's configured policy.
+  private async canIssueAsync(user: any): Promise<boolean> {
+    if (this.isAdmin(user.role) || user.role === 'librarian') return true;
+    const s = await this.getLibrarySettings(user.tenantId);
+    const role = String(user.role);
+    if (role === 'class_teacher' || role === 'overall_class_teacher') return s.classTeachersCanIssue !== false;
+    if (role === 'subject_teacher') return s.subjectTeachersCanIssue !== false;
+    return false;
   }
 
   // Receive a batch of a new book — creates N coded copies. Admin only.
@@ -828,15 +874,27 @@ class LibraryController {
     const qty = Math.max(1, Math.min(500, Number(dto.copies) || 1));
     await this.ensureTables();
     const tenantId = req.user.tenantId;
+
+    // School's own coding scheme (set in settings), else a sensible default.
+    const settings = await this.getLibrarySettings(tenantId);
+    const prefix = (settings.codePrefix || 'LIB').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 8) || 'LIB';
+    const useCategory = settings.codeIncludeCategory !== false;  // default true
+    const startAt = Math.max(1, Number(settings.codeStart) || 1);
     const cat = String(dto.category || 'GEN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'GEN';
 
-    // Systematic code: LIB-<CAT>-<00001> per title, with /copyNo per physical copy.
+    // Sequence: continue from the highest existing number for this prefix(+category), but never
+    // below the school's chosen start. Code: <PREFIX>[-<CAT>]-<NNNNN>, with /copyNo per copy.
+    const codeLike = useCategory ? `${prefix}-${cat}-%` : `${prefix}-%`;
     const seqRow = await this.ds.query(
-      `SELECT COUNT(DISTINCT code) AS n FROM library_books WHERE tenant_id = $1 AND category = $2`,
-      [tenantId, dto.category || 'General'],
-    ).catch(() => [{ n: 0 }]);
-    const titleSeq = (Number(seqRow[0]?.n) || 0) + 1;
-    const baseCode = `LIB-${cat}-${String(titleSeq).padStart(5, '0')}`;
+      `SELECT COALESCE(MAX( (regexp_replace(regexp_replace(code,'/[0-9]+$',''),'^.*-',''))::int ),0) AS maxn
+         FROM library_books WHERE tenant_id = $1 AND code LIKE $2
+           AND regexp_replace(regexp_replace(code,'/[0-9]+$',''),'^.*-','') ~ '^[0-9]+$'`,
+      [tenantId, codeLike],
+    ).catch(() => [{ maxn: 0 }]);
+    const nextSeq = Math.max(startAt, (Number(seqRow[0]?.maxn) || 0) + 1);
+    const baseCode = useCategory
+      ? `${prefix}-${cat}-${String(nextSeq).padStart(5, '0')}`
+      : `${prefix}-${String(nextSeq).padStart(5, '0')}`;
 
     const made: any[] = [];
     for (let c = 1; c <= qty; c++) {
@@ -855,8 +913,35 @@ class LibraryController {
     return { received: made.length, baseCode, copies: made };
   }
 
-  // Catalogue / stock — grouped by title with available/issued counts.
-  @Get('books')
+  // Borrowers for the issue picker: learners (optionally by stream) or teachers — drawn from
+  // enrolment so the librarian selects rather than types.
+  @Get('borrowers')
+  async getBorrowers(@Request() req: any, @Query() q: any) {
+    const tenantId = req.user.tenantId;
+    if (q.type === 'teacher') {
+      const t = await this.ds.query(
+        `SELECT id, (first_name || ' ' || COALESCE(last_name,'')) AS name, role
+           FROM users WHERE tenant_id::text = $1
+             AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')
+          ORDER BY first_name`,
+        [tenantId],
+      ).catch(() => []);
+      return t.map((r: any) => ({ id: r.id, name: String(r.name).trim(), sub: (r.role || '').replace('_', ' ') }));
+    }
+    // learners — optionally filtered by stream
+    const params: any[] = [tenantId];
+    let where = `l.tenant_id::text = $1 AND l.is_active = true`;
+    if (q.streamId) { params.push(q.streamId); where += ` AND l.stream_id::text = $${params.length}`; }
+    const learners = await this.ds.query(
+      `SELECT l.id, (l.first_name || ' ' || COALESCE(l.last_name,'')) AS name,
+              l.admission_number AS adm, s.name AS stream
+         FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE ${where} ORDER BY l.first_name LIMIT 500`,
+      params,
+    ).catch(() => []);
+    return learners.map((r: any) => ({ id: r.id, name: String(r.name).trim(), sub: `${r.stream || ''}${r.adm ? ' · ' + r.adm : ''}`, stream: r.stream, adm: r.adm }));
+  }
+
   async getBooks(@Request() req: any, @Query() q: any) {
     await this.ensureTables();
     const params: any[] = [req.user.tenantId];
@@ -926,7 +1011,7 @@ class LibraryController {
   // Issue a copy to a learner or teacher.
   @Post('loans')
   async issueBook(@Request() req: any, @Body() dto: any) {
-    if (!this.canIssue(req.user.role)) throw new BadRequestException('You are not permitted to issue books. Ask an administrator.');
+    if (!(await this.canIssueAsync(req.user))) throw new BadRequestException('You are not permitted to issue books. Ask an administrator.');
     if (!dto?.bookId && !dto?.code) throw new BadRequestException('Select a book copy to issue.');
     await this.ensureTables();
     const tenantId = req.user.tenantId;
@@ -976,7 +1061,7 @@ class LibraryController {
   // Return a book; optionally record its condition on return.
   @Patch('loans/:id/return')
   async returnBook(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    if (!this.canIssue(req.user.role)) throw new BadRequestException('You are not permitted to receive returns.');
+    if (!(await this.canIssueAsync(req.user))) throw new BadRequestException('You are not permitted to receive returns.');
     await this.ensureTables();
     const loans = await this.ds.query(`SELECT book_id FROM library_loans WHERE id::text = $1 AND tenant_id = $2 LIMIT 1`, [id, req.user.tenantId]).catch(() => []);
     if (!loans.length) throw new BadRequestException('Loan not found.');
