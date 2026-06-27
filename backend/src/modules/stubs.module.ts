@@ -809,12 +809,13 @@ class LibraryController {
     for (const tbl of ['library_books', 'library_loans']) {
       const nn = await this.ds.query(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tbl}' AND is_nullable = 'NO' AND column_default IS NULL`).catch(() => []);
       for (const r of (nn as any[])) { if (!['id','tenant_id'].includes(r.column_name)) await this.ds.query(`ALTER TABLE ${tbl} ALTER COLUMN ${r.column_name} DROP NOT NULL`).catch(() => null); }
-      // Drop legacy CHECK constraints (e.g. an old library_loans_status_check that only allowed
-      // a fixed set of statuses) so current values like 'issued'/'returned' are accepted.
+      // Drop legacy CHECK and FOREIGN KEY constraints. The old library_loans_status_check
+      // restricted statuses; the old borrower_id FK forced borrowers to reference one table,
+      // but here a borrower may be a learner OR a teacher, so the rigid FK must go.
       const checks = await this.ds.query(
         `SELECT con.conname FROM pg_constraint con
            JOIN pg_class rel ON rel.oid = con.conrelid
-          WHERE rel.relname = '${tbl}' AND con.contype = 'c'`,
+          WHERE rel.relname = '${tbl}' AND con.contype IN ('c','f')`,
       ).catch(() => []);
       for (const c of (checks as any[])) {
         await this.ds.query(`ALTER TABLE ${tbl} DROP CONSTRAINT IF EXISTS "${c.conname}"`).catch(() => null);
