@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Book, Plus, X, Loader2, Library as LibIcon, ArrowLeftRight, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
+import { Search, Book, Plus, X, Loader2, Library as LibIcon, ArrowLeftRight, AlertTriangle, CheckCircle, Trash2, Users } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
@@ -23,7 +23,45 @@ export default function LibraryPage() {
   const [showReceive, setShowReceive] = useState(false);
   const [showIssue, setShowIssue]   = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Bulk issue (one title to many learners)
+  const [bulk, setBulk] = useState<any>({ title:'', author:'', category:'Textbook', condition:'Good', loanDays:'30' });
+  const [bulkStream, setBulkStream] = useState('');
+  const [bulkLearners, setBulkLearners] = useState<any[]>([]);
+  const [bulkPicked, setBulkPicked] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!showBulk || !bulkStream) { return; }
+    apiClient.get(`/library/borrowers?type=learner&streamId=${bulkStream}`).then(r => setBulkLearners(r.data || [])).catch(()=>setBulkLearners([]));
+  }, [showBulk, bulkStream]);
+
+  const toggleBulk = (l: any) => {
+    setBulkPicked(prev => prev.find((x:any)=>x.id===l.id) ? prev.filter((x:any)=>x.id!==l.id) : [...prev, l]);
+  };
+  const addWholeClass = () => {
+    const merged = [...bulkPicked];
+    bulkLearners.forEach((l:any)=>{ if(!merged.find((x:any)=>x.id===l.id)) merged.push(l); });
+    setBulkPicked(merged);
+  };
+  const doBulkIssue = async () => {
+    if (!bulk.title.trim()) { toast.error('Enter the book title'); return; }
+    if (bulkPicked.length === 0) { toast.error('Select at least one learner'); return; }
+    setSaving(true);
+    try {
+      const { data } = await apiClient.post('/library/loans/bulk', {
+        title: bulk.title, author: bulk.author, category: bulk.category, condition: bulk.condition,
+        loanDays: Number(bulk.loanDays),
+        learners: bulkPicked.map((l:any)=>({ id:l.id, name:l.name, class:l.stream||l.sub||'' })),
+      });
+      toast.success(`Issued "${data.title}" to ${data.issued}/${data.total} learners (${data.baseCode})`);
+      setShowBulk(false); setBulkPicked([]); setBulkStream(''); setBulkLearners([]);
+      setBulk({ title:'', author:'', category:'Textbook', condition:'Good', loanDays:'30' });
+      load(); loadStats();
+    } catch (err:any) { toast.error(err?.response?.data?.message || 'Bulk issue failed'); }
+    finally { setSaving(false); }
+  };
 
   const [rcv, setRcv] = useState({ title:'', author:'', category:'Textbook', publisher:'', isbn:'', copies:'1', condition:'New' });
   const [iss, setIss] = useState<any>({ code:'', borrowerType:'learner', borrowerId:'', borrowerName:'', borrowerClass:'', loanDays:'14' });
@@ -156,6 +194,7 @@ export default function LibraryPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={()=>setShowIssue(true)} className="btn-ghost text-sm"><ArrowLeftRight size={14}/> Issue book</button>
+          <button onClick={()=>setShowBulk(true)} className="btn-ghost text-sm"><Users size={14}/> Bulk issue</button>
           {admin && <button onClick={()=>setShowReceive(true)} className="btn-primary text-sm"><Plus size={14}/> Receive books</button>}
           {admin && <button onClick={()=>setShowSettings(true)} className="btn-ghost text-sm">Settings</button>}
         </div>
@@ -388,6 +427,66 @@ export default function LibraryPage() {
               <div className="flex gap-3 pt-1">
                 <button onClick={()=>setShowSettings(false)} className="btn-ghost flex-1 justify-center">Cancel</button>
                 <button onClick={async()=>{ try{ await apiClient.patch('/library/settings', cfg); toast.success('Settings saved'); setShowSettings(false);}catch(err:any){toast.error(err?.response?.data?.message||'Could not save');} }} className="btn-primary flex-1 justify-center">Save settings</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk issue modal */}
+      {showBulk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <div>
+                <h3 className="font-bold text-theme-heading">Bulk Issue — one book to a class</h3>
+                <p className="text-[11px] text-theme-muted">For class sets: issue the same title to many learners at once.</p>
+              </div>
+              <button onClick={()=>setShowBulk(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <div><label className="label">Book title *</label>
+                <input value={bulk.title} onChange={e=>setBulk({...bulk,title:e.target.value})} className="input" placeholder="e.g. KLB Top Scholar Mathematics Grade 7"/></div>
+              <div className="grid grid-cols-3 gap-2">
+                <div><label className="label">Author</label><input value={bulk.author} onChange={e=>setBulk({...bulk,author:e.target.value})} className="input"/></div>
+                <div><label className="label">Category</label>
+                  <select value={bulk.category} onChange={e=>setBulk({...bulk,category:e.target.value})} className="input">{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
+                <div><label className="label">Loan days</label><input type="number" min={1} value={bulk.loanDays} onChange={e=>setBulk({...bulk,loanDays:e.target.value})} className="input"/></div>
+              </div>
+
+              <div><label className="label">Class *</label>
+                <select value={bulkStream} onChange={e=>{setBulkStream(e.target.value);}} className="input">
+                  <option value="">Select a class…</option>
+                  {streams.map((s:any)=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              {bulkStream && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="label mb-0">Learners — tick to issue ({bulkPicked.length} selected)</label>
+                    <button type="button" onClick={addWholeClass} className="text-xs text-[#1a2e5a] hover:underline">Select whole class</button>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto border border-theme rounded-xl divide-y divide-theme/30">
+                    {bulkLearners.length === 0 ? <div className="p-3 text-sm text-theme-muted">No learners in this class</div> :
+                      bulkLearners.map((l:any)=>{
+                        const picked = bulkPicked.find((x:any)=>x.id===l.id);
+                        return (
+                          <button type="button" key={l.id} onClick={()=>toggleBulk(l)}
+                            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-surface-2 ${picked?'bg-surface-2':''}`}>
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${picked?'bg-[#1a2e5a] text-white border-[#1a2e5a]':'border-theme'}`}>{picked?'✓':''}</span>
+                            {l.name} <span className="text-theme-muted text-xs">{l.sub}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+              {bulkPicked.length > 0 && <p className="text-[11px] text-green-600">{bulkPicked.length} learner(s) will each receive a copy, individually coded.</p>}
+
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={()=>setShowBulk(false)} className="btn-ghost flex-1 justify-center">Cancel</button>
+                <button onClick={doBulkIssue} disabled={saving || !bulk.title.trim() || bulkPicked.length===0} className="btn-primary flex-1 justify-center">{saving?<Loader2 size={14} className="animate-spin"/>:<Users size={14}/>} Issue to {bulkPicked.length||''}</button>
               </div>
             </div>
           </div>

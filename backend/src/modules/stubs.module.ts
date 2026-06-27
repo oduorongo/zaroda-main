@@ -924,7 +924,78 @@ class LibraryController {
     return { received: made.length, baseCode, copies: made };
   }
 
-  // Parent view: library books issued to THEIR child (guardian-verified by email).
+  // Bulk issue: give a book (by title) to several learners at once — for schools with class
+  // sets or few titles. Creates a coded copy per learner and a loan for each.
+  @Post('loans/bulk')
+  async bulkIssue(@Request() req: any, @Body() dto: any) {
+    if (!(await this.canIssueAsync(req.user))) throw new BadRequestException('You are not permitted to issue books. Ask an administrator.');
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    const learners = Array.isArray(dto.learners) ? dto.learners.filter((l: any) => l && (l.id || l.name)) : [];
+    if (!learners.length) throw new BadRequestException('Select at least one learner.');
+
+    // Determine the title/details. Either an existing catalogued title (by code/baseCode) or a
+    // new title entered now.
+    let title = dto.title, author = dto.author || null, category = dto.category || 'General', condition = dto.condition || 'Good';
+    if ((!title || !String(title).trim()) && (dto.code || dto.baseCode)) {
+      const ref = await this.ds.query(
+        `SELECT title, author, category FROM library_books WHERE tenant_id = $1
+           AND (code = $2 OR regexp_replace(code,'/[0-9]+$','') = $2) LIMIT 1`,
+        [tenantId, dto.code || dto.baseCode],
+      ).catch(() => []);
+      if (ref.length) { title = ref[0].title; author = ref[0].author; category = ref[0].category; }
+    }
+    if (!title || !String(title).trim()) throw new BadRequestException('Enter the book title (or pick an existing book) to bulk-issue.');
+
+    // Code scheme.
+    const settings = await this.getLibrarySettings(tenantId);
+    const prefix = (settings.codePrefix || 'LIB').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 8) || 'LIB';
+    const useCategory = settings.codeIncludeCategory !== false;
+    const startAt = Math.max(1, Number(settings.codeStart) || 1);
+    const cat = String(category || 'GEN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'GEN';
+    const codeLike = useCategory ? `${prefix}-${cat}-%` : `${prefix}-%`;
+    const seqRow = await this.ds.query(
+      `SELECT COALESCE(MAX( (regexp_replace(regexp_replace(code,'/[0-9]+$',''),'^.*-',''))::int ),0) AS maxn
+         FROM library_books WHERE tenant_id = $1 AND code LIKE $2
+           AND regexp_replace(regexp_replace(code,'/[0-9]+$',''),'^.*-','') ~ '^[0-9]+$'`,
+      [tenantId, codeLike],
+    ).catch(() => [{ maxn: 0 }]);
+    let seq = Math.max(startAt, (Number(seqRow[0]?.maxn) || 0) + 1);
+    const base = useCategory ? `${prefix}-${cat}-${String(seq).padStart(5, '0')}` : `${prefix}-${String(seq).padStart(5, '0')}`;
+
+    const days = Math.max(1, Number(dto.loanDays) || 14);
+    const due = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    let issued = 0; const failures: string[] = [];
+    let copyNo = 0;
+    for (const ln of learners) {
+      copyNo += 1;
+      const code = `${base}/${copyNo}`;
+      try {
+        const created = await this.ds.query(
+          `INSERT INTO library_books
+             (tenant_id, school_id, title, author, category, code, copy_no, total_copies, condition, status, received_by, received_on, notes, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'available',$10,$11,$12,NOW(),NOW())
+           RETURNING id, code, title`,
+          [tenantId, req.user.schoolId || null, String(title).trim(), author, category, code, copyNo, learners.length, condition, req.user.id, today, 'Bulk-issued class set'],
+        );
+        const b = created[0];
+        await this.ds.query(
+          `INSERT INTO library_loans
+             (tenant_id, book_id, book_code, book_title, borrower_type, borrower_id, borrower_name, borrower_class, issued_by, issued_by_name, issued_on, due_on, status, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,'learner',$5,$6,$7,$8,$9,$10,$11,'issued',NOW(),NOW())`,
+          [tenantId, b.id, b.code, b.title, ln.id || null, ln.name || null, ln.class || ln.stream || null, req.user.id, req.user.email || null, today, due],
+        );
+        await this.ds.query(`UPDATE library_books SET status = 'issued', updated_at = NOW() WHERE id = $1`, [b.id]).catch(() => null);
+        issued += 1;
+      } catch (e: any) {
+        failures.push(ln.name || ln.id);
+      }
+    }
+    return { issued, total: learners.length, baseCode: base, title, failures };
+  }
+
   @Get('my-child/:learnerId')
   async getChildLoans(@Request() req: any, @Param('learnerId') learnerId: string) {
     await this.ensureTables();
