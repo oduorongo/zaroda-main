@@ -159,6 +159,57 @@ export class AssessmentService {
     return null;
   }
 
+  // Parent view: a child's rubric (formative levels per sub-strand) WITH video links for
+  // home-learning extension. Guardian-verified. Returns per learning area.
+  async getChildRubric(tenantId: string, parentEmail: string, learnerId: string, term: string) {
+    const own = await this.dataSource.query(
+      `SELECT id, grade_level AS "gradeLevel", (first_name||' '||COALESCE(last_name,'')) AS name
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
+      [learnerId, tenantId, parentEmail || ''],
+    ).catch(() => []);
+    if (!own.length) throw new BadRequestException('This learner is not linked to your account.');
+    const learner = own[0];
+    const termKey = this.normaliseTerm(term);
+
+    // The child's saved levels by sub-strand.
+    const scoreRows = await this.dataSource.query(
+      `SELECT substrand_id AS "substrandId", level FROM assessment_scores
+        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3`,
+      [tenantId, learnerId, termKey],
+    ).catch(() => []);
+    const levelBy: Record<string, string> = {};
+    for (const r of scoreRows) levelBy[r.substrandId] = r.level;
+
+    // All learning areas (templates) for this grade, with strands+substrands+video links.
+    const areas = await this.dataSource.query(
+      `SELECT t.id AS "templateId", t.learning_area AS "learningArea"
+         FROM assessment_templates t WHERE t.grade_level = $1
+          AND (t.tenant_id IS NULL OR t.tenant_id::text = $2)
+        ORDER BY t.learning_area`,
+      [learner.gradeLevel, tenantId],
+    ).catch(() => []);
+
+    const out: any[] = [];
+    for (const a of areas) {
+      const rows = await this.dataSource.query(
+        `SELECT st.name AS "strandName", ss.id AS "substrandId", ss.name AS "subName", ss.youtube_url AS "youtubeUrl"
+           FROM assessment_strands st JOIN assessment_substrands ss ON ss.strand_id = st.id
+          WHERE st.template_id = $1 AND ($2::text IS NULL OR st.term = $2)
+          ORDER BY st.position, ss.position`,
+        [a.templateId, termKey],
+      ).catch(() => []);
+      if (!rows.length) continue;
+      const strands: Record<string, any> = {};
+      for (const r of rows) {
+        (strands[r.strandName] = strands[r.strandName] || { strand: r.strandName, substrands: [] }).substrands.push({
+          name: r.subName, level: levelBy[r.substrandId] || null, video: r.youtubeUrl || null,
+        });
+      }
+      out.push({ learningArea: a.learningArea, strands: Object.values(strands) });
+    }
+    return { learnerName: String(learner.name).trim(), term: termKey, areas: out };
+  }
+
   // A learner's saved formative levels for a learning area + term
   async getScores(tenantId: string, learnerId: string, term: string, learningArea?: string) {
     const rows = await this.dataSource.query(
@@ -360,6 +411,11 @@ export class AssessmentController {
   @Get('book')
   getBook(@Request() req: any, @Query() q: any) {
     return this.svc.getBook(req.user.tenantId, q.gradeLevel, q.learningArea, q.term);
+  }
+
+  @Get('child-rubric/:learnerId')
+  getChildRubric(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
+    return this.svc.getChildRubric(req.user.tenantId, req.user.email || '', learnerId, q.term || 'term_1');
   }
 
   @Get('scores')

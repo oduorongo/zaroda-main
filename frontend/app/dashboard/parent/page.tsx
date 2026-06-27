@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   User, DollarSign, FileText, MessageSquare, CheckCircle,
-  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen,
+  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -29,6 +29,20 @@ export default function ParentPortalPage() {
   const [libChild, setLibChild] = useState<any>(null);
   const [libData, setLibData]   = useState<any>(null);
   const [libLoading, setLibLoading] = useState(false);
+
+  const [rubChild, setRubChild] = useState<any>(null);
+  const [rubData, setRubData]   = useState<any>(null);
+  const [rubLoading, setRubLoading] = useState(false);
+  const [rubTerm, setRubTerm]   = useState('term_1');
+
+  const openRubric = async (c: any, term = rubTerm) => {
+    setRubChild(c); setRubData(null); setRubLoading(true); setRubTerm(term);
+    try {
+      const r = await apiClient.get(`/assessment/child-rubric/${c.id}?term=${term}`);
+      setRubData(r.data);
+    } catch { setRubData(null); }
+    finally { setRubLoading(false); }
+  };
 
   const openLibrary = async (c: any) => {
     setLibChild(c); setLibData(null); setLibLoading(true);
@@ -122,6 +136,7 @@ export default function ParentPortalPage() {
                   <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</button>
                   <button onClick={() => openFees(c)} className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Fees</button>
                   <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 justify-center text-xs"><BookOpen size={13}/> Library</button>
+                  <button onClick={() => openRubric(c)} className="btn-ghost flex-1 justify-center text-xs"><Sparkles size={13}/> Rubric</button>
                 </div>
               </div>
             ))}
@@ -216,6 +231,76 @@ export default function ParentPortalPage() {
                   )}
                   <p className="text-[11px] text-theme-muted mt-4">For library questions, please contact the school library.</p>
                 </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rubric & videos modal */}
+      {rubChild && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-xl max-h-[88vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <div>
+                <h3 className="font-bold text-theme-heading">{rubChild.firstName} {rubChild.lastName} · Assessment Rubric</h3>
+                <p className="text-[11px] text-theme-muted">Formative progress with videos to extend learning at home</p>
+              </div>
+              <button onClick={() => setRubChild(null)}>✕</button>
+            </div>
+            <div className="px-5 pt-3">
+              <div className="flex gap-1 bg-surface-2 rounded-xl p-1 w-fit">
+                {['term_1','term_2','term_3'].map(t => (
+                  <button key={t} onClick={()=>openRubric(rubChild, t)}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-semibold ${rubTerm===t?'bg-surface text-theme-heading shadow-sm':'text-theme-muted'}`}>{t.replace('term_','Term ')}</button>
+                ))}
+              </div>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              {rubLoading ? (
+                <div className="text-center py-6 text-theme-muted text-sm">Loading…</div>
+              ) : !rubData || (rubData.areas||[]).length === 0 ? (
+                <div className="text-center py-6 text-theme-muted text-sm">No rubric records for this term yet.</div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex gap-3 text-[10px] text-theme-muted flex-wrap">
+                    <span><b className="text-green-600">EE</b> Exceeding</span>
+                    <span><b className="text-[#1a2e5a]">ME</b> Meeting</span>
+                    <span><b className="text-orange-500">AE</b> Approaching</span>
+                    <span><b className="text-red-500">BE</b> Below</span>
+                  </div>
+                  {rubData.areas.map((area:any, ai:number) => (
+                    <div key={ai} className="border border-theme rounded-xl overflow-hidden">
+                      <div className="bg-surface-2 px-3 py-2 font-bold text-sm text-theme-heading">{area.learningArea}</div>
+                      <div className="divide-y divide-theme/30">
+                        {area.strands.map((st:any, si:number) => (
+                          <div key={si} className="px-3 py-2">
+                            <div className="text-xs font-semibold text-theme-muted mb-1">{st.strand}</div>
+                            {st.substrands.map((sub:any, ssi:number) => (
+                              <div key={ssi} className="flex items-center gap-2 py-1 text-sm">
+                                <span className="flex-1 text-theme-heading">{sub.name}</span>
+                                {sub.level && (
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                    sub.level.startsWith('EE')?'bg-green-100 text-green-700':
+                                    sub.level.startsWith('ME')?'bg-blue-100 text-[#1a2e5a]':
+                                    sub.level.startsWith('AE')?'bg-orange-100 text-orange-700':
+                                    'bg-red-100 text-red-700'}`}>{sub.level}</span>
+                                )}
+                                {sub.video && (
+                                  <a href={sub.video} target="_blank" rel="noopener noreferrer"
+                                    className="text-[11px] text-[#f5820a] hover:underline flex items-center gap-0.5 flex-shrink-0">
+                                    <Play size={11}/> Watch
+                                  </a>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-theme-muted">The “Watch” links open short videos your child can use at home to strengthen each area. This formative rubric supports learning and does not appear on the report card.</p>
+                </div>
               )}
             </div>
           </div>

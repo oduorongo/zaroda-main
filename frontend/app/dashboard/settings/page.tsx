@@ -35,12 +35,19 @@ function SettingsPage() {
     badgeBase64: '',
   });
 
+  const [termDates, setTermDates] = useState<any>({
+    term_1_close:'', term_1_reopen:'', term_2_close:'', term_2_reopen:'', term_3_close:'', term_3_reopen:'',
+  });
+
   // Load existing school settings (incl. report-card brand colours)
   useEffect(() => {
     apiClient.get('/schools/settings')
-      .then(r => setForm(f => ({ ...f, ...Object.fromEntries(
-        Object.entries(r.data || {}).filter(([, v]) => v != null && v !== '')
-      ) })))
+      .then(r => {
+        setForm(f => ({ ...f, ...Object.fromEntries(
+          Object.entries(r.data || {}).filter(([k, v]) => k !== 'termDates' && v != null && v !== '')
+        ) }));
+        if (r.data?.termDates) setTermDates((t:any) => ({ ...t, ...r.data.termDates }));
+      })
       .catch(() => {/* first-time / no settings yet */});
   }, []);
 
@@ -75,7 +82,7 @@ function SettingsPage() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true);
     try {
-      await apiClient.patch('/schools/settings', form);
+      await apiClient.patch('/schools/settings', { ...form, termDates });
       toast.success('Settings saved!');
     } catch { toast.error('Could not save settings'); }
     finally { setSaving(false); }
@@ -217,6 +224,22 @@ function SettingsPage() {
             <div className="px-4 py-2 text-xs text-theme-muted bg-surface">
               Header preview — this is how the report card banner will look.
             </div>
+          </div>
+        </div>
+
+        {/* Term opening & closing dates (shown below results on report cards) */}
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-3"><School size={16} className="text-[#1a2e5a]"/><h3 className="font-bold text-theme-heading">Term Dates</h3></div>
+          <p className="text-xs text-theme-muted mb-3">These appear below the results on report cards (term closing date and next term opening date).</p>
+          <div className="space-y-3">
+            {[{t:'term_1',l:'Term 1'},{t:'term_2',l:'Term 2'},{t:'term_3',l:'Term 3'}].map(({t,l}) => (
+              <div key={t} className="grid grid-cols-2 gap-3">
+                <div><label className="label">{l} closes</label>
+                  <input type="date" value={termDates[`${t}_close`]||''} onChange={e=>setTermDates((d:any)=>({...d,[`${t}_close`]:e.target.value}))} className="input"/></div>
+                <div><label className="label">Next term opens</label>
+                  <input type="date" value={termDates[`${t}_reopen`]||''} onChange={e=>setTermDates((d:any)=>({...d,[`${t}_reopen`]:e.target.value}))} className="input"/></div>
+              </div>
+            ))}
           </div>
         </div>
 

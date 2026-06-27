@@ -48,6 +48,7 @@ export class SchoolSettingsService {
       brandPrimaryDeep: s.brandPrimaryDeep || '#0f1c38',
       brandAccent:      s.brandAccent      || '#d4af37',
       badgeBase64:      s.badgeBase64      || '',
+      termDates:        s.termDates || {},
     };
   }
 
@@ -73,6 +74,10 @@ export class SchoolSettingsService {
     if (dto.email !== undefined)   settings.email   = dto.email;
     if (dto.address !== undefined) settings.address = dto.address;
     if (dto.schoolName !== undefined) settings.schoolName = dto.schoolName;
+    // Term opening/closing dates (shown below results on the report card).
+    if (dto.termDates !== undefined && typeof dto.termDates === 'object') {
+      settings.termDates = { ...(settings.termDates || {}), ...dto.termDates };
+    }
     (school as any).settings = settings;
 
     await this.schoolRepo.save(school);

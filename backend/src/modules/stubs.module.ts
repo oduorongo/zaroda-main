@@ -2047,6 +2047,10 @@ class PdfController {
       td.c,th.c{text-align:center}
       tr:nth-child(even) td{background:#f5f7fb}
       .rc-total{margin-top:10px;font-size:13px;font-weight:bold}
+      .rc-comment{margin-top:12px;border-left:3px solid #d4af37;padding:6px 10px;background:#fafafa}
+      .rc-comment-label{font-size:10px;font-weight:700;text-transform:uppercase;color:#1a2e5a;letter-spacing:.04em}
+      .rc-comment-text{font-size:12px;color:#333;margin-top:2px;line-height:1.45}
+      .rc-dates{margin-top:12px;display:flex;gap:24px;font-size:12px;border-top:1px dashed #ccc;padding-top:8px}
       .rc-foot{margin-top:18px;font-size:12px;display:flex;justify-content:space-between}
       .rc-powered{margin-top:auto;padding-top:16px;text-align:center;font-size:10px;color:#999;font-style:italic}
       @media print{
@@ -2129,6 +2133,60 @@ class PdfController {
     const headCols = cols.map((c: any) => `<th class="c">${esc(c.name)}</th>`).join('');
 
     const termLabel = (term || '').replace('term_', 'Term ');
+
+    // ── Auto class-teacher comment (CBC competency language, keyed to overall level) ──
+    const areaLevels = areaNames.map((area: string) => {
+      const vals = Object.values(byArea[area]);
+      const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+      return { area, level: lvl(avg) };
+    });
+    const overallAvg = areaNames.length
+      ? Math.round(areaNames.reduce((s, area) => {
+          const vals = Object.values(byArea[area]); return s + (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0);
+        }, 0) / areaNames.length)
+      : 0;
+    const overallFam = lvl(overallAvg).replace(/[0-9]/g, '').slice(0, 2) || 'BE';
+    const strong = areaLevels.filter(a => a.level.startsWith('EE')).map(a => a.area);
+    const meeting = areaLevels.filter(a => a.level.startsWith('ME')).map(a => a.area);
+    const support = areaLevels.filter(a => a.level.startsWith('AE') || a.level.startsWith('BE')).map(a => a.area);
+    const fn = lr.firstName || 'The learner';
+    const listN = (arr: string[]) => arr.slice(0, 3).join(', ');
+    const openers: Record<string, string> = {
+      EE: `${fn} has exceeded expectations this term, demonstrating strong mastery of competencies across most learning areas.`,
+      ME: `${fn} has met expectations this term, showing solid and consistent acquisition of the expected competencies.`,
+      AE: `${fn} is approaching expectations and is steadily developing the targeted competencies.`,
+      BE: `${fn} is working towards the expected competencies and will benefit from guided, scaffolded support.`,
+    };
+    const nextSteps: Record<string, string> = {
+      EE: ` To grow further, ${fn} should take on extended, open-ended tasks and peer-mentoring opportunities.`,
+      ME: ` With continued practice and active participation, ${fn} can move towards exceeding expectations.`,
+      AE: support.length ? ` Focused practice in ${listN(support)}, with teacher and parental support, will strengthen these competencies.` : ` Focused practice will strengthen these competencies.`,
+      BE: support.length ? ` A structured remediation plan in ${listN(support)}, supported at home and school, is recommended.` : ` A structured remediation plan, supported at home and school, is recommended.`,
+    };
+    let teacherComment = openers[overallFam] || openers.BE;
+    if (strong.length) teacherComment += ` Particular strength is evident in ${listN(strong)}.`;
+    else if (meeting.length) teacherComment += ` Competency is well demonstrated in ${listN(meeting)}.`;
+    teacherComment += nextSteps[overallFam] || '';
+    const hoiRemark: Record<string, string> = {
+      EE: `An excellent competency profile. ${fn} is encouraged to sustain this exemplary effort.`,
+      ME: `A commendable competency profile. ${fn} should keep building on these strengths each term.`,
+      AE: `${fn} is making steady progress. Consistent effort and support will move performance to the next level.`,
+      BE: `${fn} needs close support from both school and home to build the foundational competencies.`,
+    };
+    const hoiComment = hoiRemark[overallFam] || hoiRemark.BE;
+
+    // ── Term opening/closing dates from school settings (schools.settings.termDates) ──
+    const tdRows = await this.ds.query(
+      `SELECT settings->'termDates' AS td FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId],
+    ).catch(() => []);
+    const td = (tdRows[0]?.td) || {};
+    const closeDate = td[`${term}_close`] || td.close || '';
+    const reopenDate = td[`${term}_reopen`] || td.reopen || '';
+    const datesLine = (closeDate || reopenDate) ? `
+        <div class="rc-dates">
+          ${closeDate ? `<span><b>Term closes:</b> ${esc(closeDate)}</span>` : ''}
+          ${reopenDate ? `<span><b>Next term opens:</b> ${esc(reopenDate)}</span>` : ''}
+        </div>` : '';
     const logoTag = lr.logo ? `<img src="${lr.logo}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
     const contactBits = [lr.schoolAddress, lr.schoolPhone, lr.schoolEmail].filter(Boolean).map((x: string) => esc(x)).join(' · ');
     const contactLine = contactBits ? `<p style="font-size:11px;color:#555;margin:2px 0">${contactBits}</p>` : '';
@@ -2152,6 +2210,16 @@ class PdfController {
           <tbody>${body || `<tr><td colspan="${cols.length + 2}" class="c">No marks recorded this term.</td></tr>`}</tbody>
         </table>
         ${areaNames.length ? `<p class="rc-total">Performance-level total: ${totalPoints} / ${maxPoints} (${areaNames.length} learning areas)</p>` : ''}
+        ${areaNames.length ? `
+        <div class="rc-comment">
+          <div class="rc-comment-label">Class Teacher's Remark</div>
+          <div class="rc-comment-text">${esc(teacherComment)}</div>
+        </div>
+        <div class="rc-comment">
+          <div class="rc-comment-label">Head of Institution's Remark</div>
+          <div class="rc-comment-text">${esc(hoiComment)}</div>
+        </div>` : ''}
+        ${datesLine}
         <div class="rc-foot">
           <span>Class Teacher: __________________</span>
           <span>Checked by D.H.O.I. _______________</span>
