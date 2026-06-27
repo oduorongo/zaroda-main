@@ -1012,17 +1012,57 @@ class LibraryController {
   @Post('loans')
   async issueBook(@Request() req: any, @Body() dto: any) {
     if (!(await this.canIssueAsync(req.user))) throw new BadRequestException('You are not permitted to issue books. Ask an administrator.');
-    if (!dto?.bookId && !dto?.code) throw new BadRequestException('Select a book copy to issue.');
     await this.ensureTables();
     const tenantId = req.user.tenantId;
-    // Resolve the copy.
-    const bookRows = await this.ds.query(
-      `SELECT id, code, title, status FROM library_books WHERE tenant_id = $1 AND (${dto.bookId ? 'id::text = $2' : 'code = $2'}) LIMIT 1`,
-      [tenantId, dto.bookId || dto.code],
-    ).catch(() => []);
-    if (!bookRows.length) throw new BadRequestException('Book copy not found.');
-    const book = bookRows[0];
-    if (book.status === 'issued') throw new BadRequestException('That copy is already issued.');
+
+    let book: any = null;
+
+    // Path A: an existing catalogued copy (by id or code).
+    if (dto?.bookId || dto?.code) {
+      const bookRows = await this.ds.query(
+        `SELECT id, code, title, status FROM library_books WHERE tenant_id = $1 AND (${dto.bookId ? 'id::text = $2' : 'code = $2'}) LIMIT 1`,
+        [tenantId, dto.bookId || dto.code],
+      ).catch(() => []);
+      if (bookRows.length) {
+        book = bookRows[0];
+        if (book.status === 'issued') throw new BadRequestException('That copy is already issued.');
+      }
+    }
+
+    // Path B: book isn't catalogued yet — capture its details now and add it to the library,
+    // so schools with existing stock can issue without pre-cataloguing everything first.
+    if (!book) {
+      if (!dto?.title || !String(dto.title).trim()) {
+        throw new BadRequestException('Select an existing book, or enter the new book’s title to add and issue it.');
+      }
+      // Generate a code using the school's scheme (same as receiving).
+      const settings = await this.getLibrarySettings(tenantId);
+      const prefix = (settings.codePrefix || 'LIB').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 8) || 'LIB';
+      const useCategory = settings.codeIncludeCategory !== false;
+      const startAt = Math.max(1, Number(settings.codeStart) || 1);
+      const cat = String(dto.category || 'GEN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'GEN';
+      const codeLike = useCategory ? `${prefix}-${cat}-%` : `${prefix}-%`;
+      const seqRow = await this.ds.query(
+        `SELECT COALESCE(MAX( (regexp_replace(regexp_replace(code,'/[0-9]+$',''),'^.*-',''))::int ),0) AS maxn
+           FROM library_books WHERE tenant_id = $1 AND code LIKE $2
+             AND regexp_replace(regexp_replace(code,'/[0-9]+$',''),'^.*-','') ~ '^[0-9]+$'`,
+        [tenantId, codeLike],
+      ).catch(() => [{ maxn: 0 }]);
+      const nextSeq = Math.max(startAt, (Number(seqRow[0]?.maxn) || 0) + 1);
+      const code = (useCategory ? `${prefix}-${cat}-${String(nextSeq).padStart(5, '0')}` : `${prefix}-${String(nextSeq).padStart(5, '0')}`) + '/1';
+
+      const created = await this.ds.query(
+        `INSERT INTO library_books
+           (tenant_id, school_id, title, author, category, publisher, isbn, code, copy_no, total_copies, condition, status, received_by, received_on, notes, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1,1,$9,'available',$10,$11,$12,NOW(),NOW())
+         RETURNING id, code, title, status`,
+        [tenantId, req.user.schoolId || null, String(dto.title).trim(), dto.author || null,
+         dto.category || 'General', dto.publisher || null, dto.isbn || null, code,
+         dto.condition || 'Good', req.user.id, new Date().toISOString().slice(0, 10),
+         'Added during issue (existing school stock)'],
+      ).catch((e: any) => { throw new BadRequestException(`Could not add the book: ${e.message}`); });
+      book = created[0];
+    }
 
     const days = Math.max(1, Number(dto.loanDays) || 14);
     const due = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
@@ -1036,7 +1076,7 @@ class LibraryController {
        dto.issuedOn || new Date().toISOString().slice(0, 10), due],
     ).catch((e: any) => { throw new BadRequestException(`Could not issue: ${e.message}`); });
     await this.ds.query(`UPDATE library_books SET status = 'issued', updated_at = NOW() WHERE id = $1`, [book.id]).catch(() => null);
-    return loan[0];
+    return { ...loan[0], newlyCatalogued: !dto.bookId && !dto.code, bookCode: book.code };
   }
 
   @Get('loans')

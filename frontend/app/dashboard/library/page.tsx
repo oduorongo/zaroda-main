@@ -28,6 +28,8 @@ export default function LibraryPage() {
   const [rcv, setRcv] = useState({ title:'', author:'', category:'Textbook', publisher:'', isbn:'', copies:'1', condition:'New' });
   const [iss, setIss] = useState<any>({ code:'', borrowerType:'learner', borrowerId:'', borrowerName:'', borrowerClass:'', loanDays:'14' });
   const [lookup, setLookup] = useState<any>(null);
+  const [newBookMode, setNewBookMode] = useState(false);
+  const [nb, setNb] = useState({ title:'', author:'', category:'Textbook', condition:'Good' });
 
   // Borrower picker (from enrolment)
   const [streams, setStreams] = useState<any[]>([]);
@@ -91,13 +93,25 @@ export default function LibraryPage() {
 
   const issue = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!lookup) { toast.error('Look up a valid book code first'); return; }
-    if (!iss.borrowerName.trim()) { toast.error('Enter the borrower name'); return; }
+    if (newBookMode) {
+      if (!nb.title.trim()) { toast.error('Enter the book title'); return; }
+    } else if (!lookup) { toast.error('Look up a valid book code first'); return; }
+    if (!iss.borrowerName.trim()) { toast.error('Select the borrower'); return; }
     setSaving(true);
     try {
-      await apiClient.post('/library/loans', { code: lookup.code, borrowerType: iss.borrowerType, borrowerId: iss.borrowerId || null, borrowerName: iss.borrowerName, borrowerClass: iss.borrowerClass, loanDays: Number(iss.loanDays) });
-      toast.success(`"${lookup.title}" issued to ${iss.borrowerName}`);
-      setShowIssue(false); setLookup(null);
+      const payload: any = {
+        borrowerType: iss.borrowerType, borrowerId: iss.borrowerId || null,
+        borrowerName: iss.borrowerName, borrowerClass: iss.borrowerClass, loanDays: Number(iss.loanDays),
+      };
+      if (newBookMode) Object.assign(payload, { title: nb.title, author: nb.author, category: nb.category, condition: nb.condition });
+      else payload.code = lookup.code;
+
+      const { data } = await apiClient.post('/library/loans', payload);
+      toast.success(data?.newlyCatalogued
+        ? `Added & issued — coded ${data.bookCode}`
+        : `"${lookup?.title || nb.title}" issued to ${iss.borrowerName}`);
+      setShowIssue(false); setLookup(null); setNewBookMode(false);
+      setNb({ title:'', author:'', category:'Textbook', condition:'Good' });
       setIss({ code:'', borrowerType:'learner', borrowerId:'', borrowerName:'', borrowerClass:'', loanDays:'14' });
       load(); loadStats();
     } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not issue'); }
@@ -246,16 +260,40 @@ export default function LibraryPage() {
               <button onClick={()=>{setShowIssue(false);setLookup(null);}}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={issue} className="p-5 space-y-3 overflow-y-auto">
-              <div><label className="label">Book code *</label>
-                <div className="flex gap-2">
-                  <input value={iss.code} onChange={e=>{setIss({...iss,code:e.target.value});setLookup(null);}} className="input font-mono" placeholder="LIB-TEXT-00007/1"/>
-                  <button type="button" onClick={doLookup} className="btn-ghost px-3"><Search size={15}/></button>
-                </div>
+              <div className="flex gap-1 p-1 bg-surface-2 rounded-xl">
+                <button type="button" onClick={()=>{setNewBookMode(false);}}
+                  className={`flex-1 text-xs py-1.5 rounded-lg font-semibold ${!newBookMode?'bg-surface text-theme-heading shadow-sm':'text-theme-muted'}`}>From library (by code)</button>
+                <button type="button" onClick={()=>{setNewBookMode(true);setLookup(null);}}
+                  className={`flex-1 text-xs py-1.5 rounded-lg font-semibold ${newBookMode?'bg-surface text-theme-heading shadow-sm':'text-theme-muted'}`}>New book (enter details)</button>
               </div>
-              {lookup && (
-                <div className={`rounded-xl p-3 text-sm ${lookup.status==='issued'?'bg-red-50 text-red-700':'bg-green-50 text-green-700'}`}>
-                  <div className="font-semibold">{lookup.title}</div>
-                  <div className="text-xs">{lookup.author||'—'} · condition {lookup.condition} · {lookup.status}</div>
+
+              {!newBookMode ? (
+                <>
+                  <div><label className="label">Book code *</label>
+                    <div className="flex gap-2">
+                      <input value={iss.code} onChange={e=>{setIss({...iss,code:e.target.value});setLookup(null);}} className="input font-mono" placeholder="LIB-TEXT-00007/1"/>
+                      <button type="button" onClick={doLookup} className="btn-ghost px-3"><Search size={15}/></button>
+                    </div>
+                  </div>
+                  {lookup && (
+                    <div className={`rounded-xl p-3 text-sm ${lookup.status==='issued'?'bg-red-50 text-red-700':'bg-green-50 text-green-700'}`}>
+                      <div className="font-semibold">{lookup.title}</div>
+                      <div className="text-xs">{lookup.author||'—'} · condition {lookup.condition} · {lookup.status}</div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl border border-theme p-3 space-y-2 bg-surface-2/40">
+                  <p className="text-[11px] text-theme-muted">Issuing a book that isn’t catalogued yet — it will be added to the library automatically and given a code.</p>
+                  <div><label className="label">Book title *</label>
+                    <input value={nb.title} onChange={e=>setNb({...nb,title:e.target.value})} className="input" placeholder="e.g. KLB Top Scholar Mathematics G7"/></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="label">Author</label><input value={nb.author} onChange={e=>setNb({...nb,author:e.target.value})} className="input"/></div>
+                    <div><label className="label">Category</label>
+                      <select value={nb.category} onChange={e=>setNb({...nb,category:e.target.value})} className="input">{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
+                    <div className="col-span-2"><label className="label">Condition</label>
+                      <select value={nb.condition} onChange={e=>setNb({...nb,condition:e.target.value})} className="input">{CONDITIONS.map(c=><option key={c}>{c}</option>)}</select></div>
+                  </div>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
@@ -290,7 +328,7 @@ export default function LibraryPage() {
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={()=>{setShowIssue(false);setLookup(null);}} className="btn-ghost flex-1 justify-center">Cancel</button>
-                <button type="submit" disabled={saving || !lookup || lookup.status==='issued'} className="btn-primary flex-1 justify-center">{saving?<Loader2 size={14} className="animate-spin"/>:<ArrowLeftRight size={14}/>} Issue</button>
+                <button type="submit" disabled={saving || !iss.borrowerName || (newBookMode ? !nb.title.trim() : (!lookup || lookup.status==='issued'))} className="btn-primary flex-1 justify-center">{saving?<Loader2 size={14} className="animate-spin"/>:<ArrowLeftRight size={14}/>} Issue</button>
               </div>
             </form>
           </div>
