@@ -102,6 +102,14 @@ export default function LibraryPage() {
       toast.success('Book removed'); load(); loadStats();
     } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not delete'); }
   };
+
+  const removeByCode = async (code: string, title: string) => {
+    if (!confirm(`Delete this copy of "${title}" (${code})? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/library/books/${encodeURIComponent(code)}`);
+      toast.success('Copy removed'); load(); loadStats();
+    } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not delete'); }
+  };
   const load = () => {
     setLoading(true);
     const ep = tab === 'stock' ? `/library/books?search=${encodeURIComponent(search)}`
@@ -267,6 +275,9 @@ export default function LibraryPage() {
                   </div>
                 </div>
                 {l.status!=='returned' && <button onClick={()=>returnBook(l.id)} className="btn-ghost text-xs"><CheckCircle size={13}/> Return</button>}
+                {l.status==='returned' && admin && (
+                  <button onClick={()=>removeByCode(l.bookCode, l.bookTitle)} title="Delete this book copy" className="text-theme-muted hover:text-red-600 p-1.5"><Trash2 size={14}/></button>
+                )}
               </div>
             ))}
           </div>
