@@ -24,6 +24,7 @@ export class UpdateSchoolSettingsDto {
   @IsOptional() @IsString() brandPrimaryDeep?: string;  // logo text / deep shade
   @IsOptional() @IsString() brandAccent?: string;       // accent (gold by default)
   @IsOptional() @IsString() badgeBase64?: string;       // school badge/logo (data URL) for report cards
+  @IsOptional() termDates?: Record<string, string>;     // term opening/closing dates for report cards
 }
 
 @Injectable()
