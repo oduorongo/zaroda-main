@@ -924,7 +924,27 @@ class LibraryController {
     return { received: made.length, baseCode, copies: made };
   }
 
-  // Borrowers for the issue picker: learners (optionally by stream) or teachers — drawn from
+  // Delete a book copy (admin) — by id or exact code. Also clears any loan rows for it.
+  // Use to remove stray copies, e.g. ones created during a failed issue attempt.
+  @Delete('books/:idOrCode')
+  async deleteBook(@Request() req: any, @Param('idOrCode') idOrCode: string) {
+    if (!this.isAdmin(req.user.role)) throw new BadRequestException('Only an administrator can delete books.');
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    const rows = await this.ds.query(
+      `SELECT id FROM library_books WHERE tenant_id = $1
+         AND (id::text = $2 OR code = $2 OR regexp_replace(code,'/[0-9]+$','') = $2)`,
+      [tenantId, idOrCode],
+    ).catch(() => []);
+    const ids = rows.map((r: any) => r.id);
+    if (!ids.length) throw new BadRequestException('No book found with that id/code.');
+    for (const id of ids) {
+      await this.ds.query(`DELETE FROM library_loans WHERE tenant_id = $1 AND book_id = $2`, [tenantId, id]).catch(() => null);
+      await this.ds.query(`DELETE FROM library_books WHERE tenant_id = $1 AND id = $2`, [tenantId, id]).catch(() => null);
+    }
+    return { deleted: ids.length };
+  }
+
   // enrolment so the librarian selects rather than types.
   @Get('borrowers')
   async getBorrowers(@Request() req: any, @Query() q: any) {

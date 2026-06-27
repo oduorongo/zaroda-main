@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'library-fk-fix-2026-06-27', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'library-delete-book-2026-06-27', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -374,6 +374,37 @@ async function bootstrap() {
 
   // Browser-runnable: shows what learning areas exist in the rubric (assessment_templates)
   // per grade, so we can verify the rubric data. /rubric-check?key=...&grade=grade_7
+  httpAdapter.get('/library-books-check', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      // Optional cleanup: ?deleteCode=LIB-... removes that copy (and its loans).
+      let deleted = '';
+      if (req.query?.deleteCode) {
+        const r = await ds.query(`SELECT id FROM library_books WHERE code = $1`, [req.query.deleteCode]).catch(() => []);
+        for (const row of (r as any[])) {
+          await ds.query(`DELETE FROM library_loans WHERE book_id = $1`, [row.id]).catch(() => null);
+          await ds.query(`DELETE FROM library_books WHERE id = $1`, [row.id]).catch(() => null);
+        }
+        deleted = `\nDeleted ${(r as any[]).length} copy(ies) with code ${req.query.deleteCode}\n`;
+      }
+      const books = await ds.query(
+        `SELECT code, title, status, condition, notes,
+                (SELECT COUNT(*) FROM library_loans l WHERE l.book_id = b.id) AS loans
+           FROM library_books b ORDER BY created_at DESC LIMIT 100`,
+      ).catch((e: any) => ({ error: e.message }));
+      res.type('text/plain').send(
+        deleted +
+        `library_books (latest 100):\n` +
+        (Array.isArray(books) ? books.map((b: any) =>
+          `  ${String(b.code).padEnd(22)} ${String(b.status||'').padEnd(10)} loans:${b.loans}  ${String(b.title||'').slice(0,30)}${b.notes?'  ['+String(b.notes).slice(0,30)+']':''}`
+        ).join('\n') : JSON.stringify(books)) +
+        `\n\nTo delete a stray copy: add &deleteCode=THE-CODE to this URL.`,
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
   httpAdapter.get('/fixtures-check', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }

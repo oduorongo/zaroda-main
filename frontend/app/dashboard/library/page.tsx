@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Book, Plus, X, Loader2, Library as LibIcon, ArrowLeftRight, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Search, Book, Plus, X, Loader2, Library as LibIcon, ArrowLeftRight, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
@@ -55,6 +55,15 @@ export default function LibraryPage() {
   }, [showIssue, iss.borrowerType, pickStream]);
 
   const loadStats = () => apiClient.get('/library/stats').then(r => setStats(r.data || {})).catch(()=>{});
+
+  const removeBook = async (b: any) => {
+    const copies = b.copies > 1 ? ` and its ${b.copies} copies` : '';
+    if (!confirm(`Delete "${b.title}"${copies}? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/library/books/${encodeURIComponent(b.baseCode)}`);
+      toast.success('Book removed'); load(); loadStats();
+    } catch (err:any) { toast.error(err?.response?.data?.message || 'Could not delete'); }
+  };
   const load = () => {
     setLoading(true);
     const ep = tab === 'stock' ? `/library/books?search=${encodeURIComponent(search)}`
@@ -193,6 +202,10 @@ export default function LibraryPage() {
                   <div className="font-semibold text-green-600">{b.available} available</div>
                   <div className="text-theme-muted">{b.issued} out · {b.copies} total{b.damaged?` · ${b.damaged} damaged`:''}</div>
                 </div>
+                {admin && (
+                  <button onClick={()=>removeBook(b)} title="Delete this book"
+                    className="text-theme-muted hover:text-red-600 p-1.5 flex-shrink-0"><Trash2 size={15}/></button>
+                )}
               </div>
             ))}
           </div>
