@@ -795,43 +795,222 @@ class LibraryLoan {
 @Controller('library')
 @UseGuards(JwtAuthGuard)
 class LibraryController {
-  @Get('books')
-  getBooks(@Request() req: any, @Query() q: any) { return []; }
+  constructor(private readonly ds: DataSource) {}
 
-  @Get('books/lookup')
-  lookupBook(@Query('q') q: string) {
-    return { id: 'stub', title: 'Sample Book', author: 'Author', accessionNumber: q };
+  private async ensureTables() {
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS library_books (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['school_id','uuid'],['title','text'],['author','text'],['category','text'],['publisher','text'],['isbn','text'],['code','text'],['copy_no','integer'],['total_copies','integer'],['condition','text'],['status',"text DEFAULT 'available'"],['received_by','uuid'],['received_on','date'],['notes','text'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE library_books ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS library_loans (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['book_id','uuid'],['book_code','text'],['book_title','text'],['borrower_type','text'],['borrower_id','uuid'],['borrower_name','text'],['borrower_class','text'],['issued_by','uuid'],['issued_by_name','text'],['issued_on','date'],['due_on','date'],['returned_on','date'],['return_condition','text'],['status',"text DEFAULT 'issued'"],['notes','text'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE library_loans ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    for (const tbl of ['library_books', 'library_loans']) {
+      const nn = await this.ds.query(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tbl}' AND is_nullable = 'NO' AND column_default IS NULL`).catch(() => []);
+      for (const r of (nn as any[])) { if (!['id','tenant_id'].includes(r.column_name)) await this.ds.query(`ALTER TABLE ${tbl} ALTER COLUMN ${r.column_name} DROP NOT NULL`).catch(() => null); }
+    }
   }
 
+  private isAdmin(role: string) { return ['hoi','dhois','tenant_owner','school_admin'].includes(role); }
+  private canIssue(role: string) {
+    // School chooses issue model via setting; by default admins + any teacher may issue.
+    return this.isAdmin(role) || String(role).includes('teacher') || role === 'librarian';
+  }
+
+  // Receive a batch of a new book — creates N coded copies. Admin only.
   @Post('books')
-  addBook(@Request() req: any, @Body() dto: any) { return { id: 'stub', ...dto }; }
+  async receiveBooks(@Request() req: any, @Body() dto: any) {
+    if (!this.isAdmin(req.user.role) && req.user.role !== 'librarian') {
+      throw new BadRequestException('Only an administrator or librarian can receive new books.');
+    }
+    if (!dto?.title || !String(dto.title).trim()) throw new BadRequestException('Book title is required.');
+    const qty = Math.max(1, Math.min(500, Number(dto.copies) || 1));
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    const cat = String(dto.category || 'GEN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'GEN';
+
+    // Systematic code: LIB-<CAT>-<00001> per title, with /copyNo per physical copy.
+    const seqRow = await this.ds.query(
+      `SELECT COUNT(DISTINCT code) AS n FROM library_books WHERE tenant_id = $1 AND category = $2`,
+      [tenantId, dto.category || 'General'],
+    ).catch(() => [{ n: 0 }]);
+    const titleSeq = (Number(seqRow[0]?.n) || 0) + 1;
+    const baseCode = `LIB-${cat}-${String(titleSeq).padStart(5, '0')}`;
+
+    const made: any[] = [];
+    for (let c = 1; c <= qty; c++) {
+      const code = `${baseCode}/${c}`;
+      const rows = await this.ds.query(
+        `INSERT INTO library_books
+           (tenant_id, school_id, title, author, category, publisher, isbn, code, copy_no, total_copies, condition, status, received_by, received_on, notes, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'available',$12,$13,$14,NOW(),NOW())
+         RETURNING id, code, title, copy_no AS "copyNo"`,
+        [tenantId, req.user.schoolId || null, String(dto.title).trim(), dto.author || null,
+         dto.category || 'General', dto.publisher || null, dto.isbn || null, code, c, qty,
+         dto.condition || 'New', req.user.id, dto.receivedOn || new Date().toISOString().slice(0, 10), dto.notes || null],
+      ).catch((e: any) => { throw new BadRequestException(`Could not receive books: ${e.message}`); });
+      made.push(rows[0]);
+    }
+    return { received: made.length, baseCode, copies: made };
+  }
+
+  // Catalogue / stock — grouped by title with available/issued counts.
+  @Get('books')
+  async getBooks(@Request() req: any, @Query() q: any) {
+    await this.ensureTables();
+    const params: any[] = [req.user.tenantId];
+    let where = `tenant_id = $1`;
+    if (q.search) { params.push(`%${q.search}%`); where += ` AND (title ILIKE $${params.length} OR author ILIKE $${params.length} OR code ILIKE $${params.length})`; }
+    const rows = await this.ds.query(
+      `SELECT title, author, category, code,
+              COUNT(*)::int AS copies,
+              COUNT(*) FILTER (WHERE status = 'available')::int AS available,
+              COUNT(*) FILTER (WHERE status = 'issued')::int AS issued,
+              COUNT(*) FILTER (WHERE condition ILIKE 'damaged' OR condition ILIKE 'poor')::int AS damaged
+         FROM library_books WHERE ${where}
+        GROUP BY regexp_replace(code, '/[0-9]+$', ''), title, author, category, code
+        ORDER BY title`,
+      params,
+    ).catch(() => []);
+    // Collapse by base code (title-level).
+    const byTitle: Record<string, any> = {};
+    for (const r of rows) {
+      const base = String(r.code).replace(/\/[0-9]+$/, '');
+      if (!byTitle[base]) byTitle[base] = { baseCode: base, title: r.title, author: r.author, category: r.category, copies: 0, available: 0, issued: 0, damaged: 0 };
+      byTitle[base].copies += r.copies; byTitle[base].available += r.available; byTitle[base].issued += r.issued; byTitle[base].damaged += r.damaged;
+    }
+    return Object.values(byTitle);
+  }
+
+  // Individual copies for a title (to issue/inspect a specific copy).
+  @Get('books/copies')
+  async getCopies(@Request() req: any, @Query() q: any) {
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, code, title, copy_no AS "copyNo", condition, status FROM library_books
+        WHERE tenant_id = $1 AND code LIKE $2 ORDER BY copy_no`,
+      [req.user.tenantId, `${q.baseCode}/%`],
+    ).catch(() => []);
+  }
+
+  // Look up a single copy by its exact code (for quick issue).
+  @Get('books/lookup')
+  async lookupBook(@Request() req: any, @Query('q') code: string) {
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `SELECT id, code, title, author, condition, status FROM library_books
+        WHERE tenant_id = $1 AND code = $2 LIMIT 1`,
+      [req.user.tenantId, (code || '').trim()],
+    ).catch(() => []);
+    if (!rows.length) return { found: false };
+    return { found: true, ...rows[0] };
+  }
+
+  // Update a copy's condition / mark lost / withdraw.
+  @Patch('books/:id')
+  async updateCopy(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!this.isAdmin(req.user.role) && req.user.role !== 'librarian') throw new BadRequestException('Only an administrator can update stock.');
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    if (dto.condition !== undefined) { fields.push(`condition = $${i++}`); vals.push(dto.condition); }
+    if (dto.status !== undefined) { fields.push(`status = $${i++}`); vals.push(dto.status); }
+    if (dto.notes !== undefined) { fields.push(`notes = $${i++}`); vals.push(dto.notes); }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()'); vals.push(id, req.user.tenantId);
+    const rows = await this.ds.query(`UPDATE library_books SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i} RETURNING id, condition, status`, vals).catch((e: any) => { throw new BadRequestException(e.message); });
+    if (!rows.length) throw new BadRequestException('Copy not found.');
+    return rows[0];
+  }
+
+  // Issue a copy to a learner or teacher.
+  @Post('loans')
+  async issueBook(@Request() req: any, @Body() dto: any) {
+    if (!this.canIssue(req.user.role)) throw new BadRequestException('You are not permitted to issue books. Ask an administrator.');
+    if (!dto?.bookId && !dto?.code) throw new BadRequestException('Select a book copy to issue.');
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    // Resolve the copy.
+    const bookRows = await this.ds.query(
+      `SELECT id, code, title, status FROM library_books WHERE tenant_id = $1 AND (${dto.bookId ? 'id::text = $2' : 'code = $2'}) LIMIT 1`,
+      [tenantId, dto.bookId || dto.code],
+    ).catch(() => []);
+    if (!bookRows.length) throw new BadRequestException('Book copy not found.');
+    const book = bookRows[0];
+    if (book.status === 'issued') throw new BadRequestException('That copy is already issued.');
+
+    const days = Math.max(1, Number(dto.loanDays) || 14);
+    const due = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+    const loan = await this.ds.query(
+      `INSERT INTO library_loans
+         (tenant_id, book_id, book_code, book_title, borrower_type, borrower_id, borrower_name, borrower_class, issued_by, issued_by_name, issued_on, due_on, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'issued',NOW(),NOW())
+       RETURNING id, book_code AS "bookCode", book_title AS "bookTitle", borrower_name AS "borrowerName", due_on AS "dueOn"`,
+      [tenantId, book.id, book.code, book.title, dto.borrowerType || 'learner', dto.borrowerId || null,
+       dto.borrowerName || null, dto.borrowerClass || null, req.user.id, req.user.email || null,
+       dto.issuedOn || new Date().toISOString().slice(0, 10), due],
+    ).catch((e: any) => { throw new BadRequestException(`Could not issue: ${e.message}`); });
+    await this.ds.query(`UPDATE library_books SET status = 'issued', updated_at = NOW() WHERE id = $1`, [book.id]).catch(() => null);
+    return loan[0];
+  }
 
   @Get('loans')
-  getLoans(@Request() req: any, @Query() q: any) { return []; }
-
-  @Post('loans')
-  issueBook(@Request() req: any, @Body() dto: any) {
-    return { id: 'stub', ...dto, issuedDate: new Date(),
-      dueDate: new Date(Date.now() + 14*24*60*60*1000),
-      // No fines recorded — ever
-    };
+  async getLoans(@Request() req: any, @Query() q: any) {
+    await this.ensureTables();
+    const params: any[] = [req.user.tenantId];
+    let where = `tenant_id = $1`;
+    if (q.status === 'overdue') where += ` AND status = 'issued' AND due_on < CURRENT_DATE`;
+    else if (q.status === 'active' || q.status === 'issued') where += ` AND status = 'issued'`;
+    else if (q.status === 'returned') where += ` AND status = 'returned'`;
+    return this.ds.query(
+      `SELECT id, book_code AS "bookCode", book_title AS "bookTitle", borrower_type AS "borrowerType",
+              borrower_name AS "borrowerName", borrower_class AS "borrowerClass",
+              issued_by_name AS "issuedByName", issued_on AS "issuedOn", due_on AS "dueOn",
+              returned_on AS "returnedOn", return_condition AS "returnCondition", status,
+              (status = 'issued' AND due_on < CURRENT_DATE) AS overdue
+         FROM library_loans WHERE ${where} ORDER BY issued_on DESC`,
+      params,
+    ).catch(() => []);
   }
 
+  // Return a book; optionally record its condition on return.
   @Patch('loans/:id/return')
-  returnBook(@Param('id') id: string) {
-    return { id, status: 'returned', returnedDate: new Date() };
-    // No fine calculated — library is free
+  async returnBook(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!this.canIssue(req.user.role)) throw new BadRequestException('You are not permitted to receive returns.');
+    await this.ensureTables();
+    const loans = await this.ds.query(`SELECT book_id FROM library_loans WHERE id::text = $1 AND tenant_id = $2 LIMIT 1`, [id, req.user.tenantId]).catch(() => []);
+    if (!loans.length) throw new BadRequestException('Loan not found.');
+    await this.ds.query(
+      `UPDATE library_loans SET status = 'returned', returned_on = CURRENT_DATE, return_condition = $3, updated_at = NOW() WHERE id::text = $1 AND tenant_id = $2`,
+      [id, req.user.tenantId, dto?.condition || null],
+    ).catch(() => null);
+    // Free the copy; if a return condition was given, update the copy's condition too.
+    if (loans[0].book_id) {
+      await this.ds.query(`UPDATE library_books SET status = 'available'${dto?.condition ? ', condition = $2' : ''}, updated_at = NOW() WHERE id = $1`,
+        dto?.condition ? [loans[0].book_id, dto.condition] : [loans[0].book_id]).catch(() => null);
+    }
+    return { id, status: 'returned' };
   }
 
-  @Post('loans/:id/remind')
-  sendReminder(@Param('id') id: string) {
-    return { message: 'Reminder sent. KES 0 charged.' };
-    // No fine charged — ever
+  // Library stock summary.
+  @Get('stats')
+  async getStats(@Request() req: any) {
+    await this.ensureTables();
+    const s = await this.ds.query(
+      `SELECT COUNT(*)::int AS "totalCopies",
+              COUNT(DISTINCT regexp_replace(code,'/[0-9]+$',''))::int AS titles,
+              COUNT(*) FILTER (WHERE status='available')::int AS available,
+              COUNT(*) FILTER (WHERE status='issued')::int AS issued,
+              COUNT(*) FILTER (WHERE condition ILIKE 'damaged' OR condition ILIKE 'poor')::int AS damaged
+         FROM library_books WHERE tenant_id = $1`,
+      [req.user.tenantId],
+    ).catch(() => [{}]);
+    const overdue = await this.ds.query(`SELECT COUNT(*)::int AS n FROM library_loans WHERE tenant_id = $1 AND status='issued' AND due_on < CURRENT_DATE`, [req.user.tenantId]).catch(() => [{ n: 0 }]);
+    return { ...(s[0] || {}), overdue: overdue[0]?.n || 0 };
   }
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([LibraryBook, LibraryLoan])],
   controllers: [LibraryController],
 })
 export class LibraryModule {}
