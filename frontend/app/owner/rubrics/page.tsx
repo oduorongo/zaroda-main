@@ -58,6 +58,20 @@ export default function OwnerRubricsPage() {
     finally { setSaving(false); }
   };
 
+  const deleteArea = async () => {
+    if (!area || area === '__new__') { toast.error('Pick a learning area first'); return; }
+    if (!confirm(`Delete the ENTIRE "${area}" learning area for ${grade.replace('_',' ')} — all its strands and sub-strands across all terms? This cannot be undone.`)) return;
+    try {
+      const r = await apiClient.delete(`/assessment/area?gradeLevel=${grade}&learningArea=${encodeURIComponent(area)}`);
+      toast.success(`Removed "${area}"`);
+      // refresh the area list
+      const ar = await apiClient.get(`/assessment/learning-areas?gradeLevel=${grade}`);
+      const raw = ar.data?.areas || ar.data || [];
+      const names = raw.map((a: any) => typeof a === 'string' ? a : (a.learningArea || a.name || a.area)).filter(Boolean);
+      setAreas(names); setArea(names[0] || ''); setStrands([]);
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not delete area'); }
+  };
+
   const reload = () => {
     if (!grade || !area) return;
     apiClient.get(`/assessment/book?gradeLevel=${grade}&learningArea=${encodeURIComponent(area)}&term=${term}`)
@@ -132,6 +146,13 @@ export default function OwnerRubricsPage() {
               <option value="term_3">Term 3</option>
             </select>
           </div>
+          {area && area !== '__new__' && areas.includes(area) && (
+            <div className="flex items-end">
+              <button onClick={deleteArea} className="btn-ghost text-sm text-red-600 hover:bg-red-50" title="Delete this whole learning area">
+                <Trash2 size={14}/> Delete area
+              </button>
+            </div>
+          )}
         </div>
 
         {loading ? (

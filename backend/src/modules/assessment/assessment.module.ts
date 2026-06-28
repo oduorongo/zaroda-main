@@ -276,6 +276,27 @@ export class AssessmentService {
     return { deleted: true };
   }
 
+  // Delete a WHOLE learning area for a grade (its template + every strand + sub-strand, all terms).
+  async deleteArea(user: any, gradeLevel: string, learningArea: string) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    if (!gradeLevel || !learningArea) throw new BadRequestException('Need gradeLevel and learningArea.');
+    const tpls = await this.dataSource.query(
+      `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2`,
+      [gradeLevel, learningArea],
+    ).catch(() => []);
+    let removed = 0;
+    for (const tpl of tpls) {
+      const strandIds = (await this.dataSource.query(`SELECT id FROM assessment_strands WHERE template_id = $1`, [tpl.id]).catch(() => [])).map((r: any) => r.id);
+      if (strandIds.length) {
+        await this.dataSource.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [strandIds]).catch(() => null);
+        await this.dataSource.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [strandIds]).catch(() => null);
+      }
+      await this.dataSource.query(`DELETE FROM assessment_templates WHERE id = $1`, [tpl.id]).catch(() => null);
+      removed++;
+    }
+    return { deleted: removed, learningArea };
+  }
+
   // A learner's saved formative levels for a learning area + term
   async getScores(tenantId: string, learnerId: string, term: string, learningArea?: string) {
     const rows = await this.dataSource.query(
@@ -517,6 +538,9 @@ export class AssessmentController {
 
   @Delete('substrand/:id')
   deleteSubstrand(@Request() req: any, @Param('id') id: string) { return this.svc.deleteSubstrand(req.user, id); }
+
+  @Delete('area')
+  deleteArea(@Request() req: any, @Query() q: any) { return this.svc.deleteArea(req.user, q.gradeLevel, q.learningArea); }
 
   @Get('report-card')
   getReportCard(@Request() req: any, @Query() q: any) {
