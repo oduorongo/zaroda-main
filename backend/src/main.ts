@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'report-features-dtofix-2026-06-27', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-bulk-seed-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -305,6 +305,81 @@ async function bootstrap() {
   // Seed strands + sub-strands into the rubric for one grade/area/term. POST JSON:
   // { key, gradeLevel, learningArea, term, replace?: true, strands: [{ name, substrands:[".."] }] }
   // 'replace:true' first deletes existing strands for that area+term (use to correct bad data).
+  // Bulk seed the whole rubric from one JSON payload:
+  // { key, replace?, data: { grade_level: { term_x: { "Learning Area": [ {name, substrands:[]} ] } } } }
+  httpAdapter.post('/seed-rubric-bulk', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    const b = req.body || {};
+    if ((b.key || req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    let data = b.data;
+    const replace = b.replace !== false; // default true (idempotent reseed)
+    // If no data posted, load the bundled rubric_seed.json (so a simple GET-like POST seeds all).
+    if (!data) {
+      try {
+        const fs = eval('require')('fs');
+        const path = eval('require')('path');
+        const candidates = [
+          path.join(process.cwd(), 'rubric_seed.json'),
+          path.join(process.cwd(), 'src', 'seed', 'rubric_seed.json'),
+          path.join(__dirname, 'seed', 'rubric_seed.json'),
+          path.join(__dirname, '..', 'rubric_seed.json'),
+        ];
+        for (const p of candidates) {
+          try { if (fs.existsSync(p)) { data = JSON.parse(fs.readFileSync(p, 'utf8')); break; } } catch {}
+        }
+      } catch {}
+    }
+    if (!data || typeof data !== 'object') { res.status(400).type('text/plain').send('No data posted and bundled rubric_seed.json not found.'); return; }
+    try {
+      const ds = app.get(DataSource);
+      let tplCount = 0, strandCount = 0, subCount = 0;
+      const log: string[] = [];
+      for (const gradeLevel of Object.keys(data)) {
+        for (const term of Object.keys(data[gradeLevel])) {
+          const areas = data[gradeLevel][term];
+          for (const learningArea of Object.keys(areas)) {
+            const strands = areas[learningArea];
+            if (!Array.isArray(strands) || !strands.length) continue;
+            // template
+            let tpl = await ds.query(
+              `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
+              [gradeLevel, learningArea],
+            ).catch(() => []);
+            let templateId: string;
+            if (tpl.length) templateId = tpl[0].id;
+            else { const c = await ds.query(`INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,NULL) RETURNING id`, [gradeLevel, learningArea]); templateId = c[0].id; tplCount++; }
+            if (replace) {
+              const old = await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1 AND term = $2`, [templateId, term]).catch(() => []);
+              const ids = old.map((r: any) => r.id);
+              if (ids.length) {
+                await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [ids]).catch(() => null);
+                await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [ids]).catch(() => null);
+              }
+            }
+            let pos = 0;
+            for (const st of strands) {
+              if (!st?.name) continue;
+              pos++; strandCount++;
+              const sRow = await ds.query(`INSERT INTO assessment_strands (template_id, position, name, term) VALUES ($1,$2,$3,$4) RETURNING id`, [templateId, pos, st.name, term]);
+              const strandId = sRow[0].id;
+              let sp = 0;
+              for (const sub of (st.substrands || [])) {
+                const subName = typeof sub === 'string' ? sub : (sub?.name || '');
+                if (!subName) continue;
+                sp++; subCount++;
+                await ds.query(`INSERT INTO assessment_substrands (strand_id, position, name) VALUES ($1,$2,$3)`, [strandId, sp, subName]);
+              }
+            }
+            log.push(`${gradeLevel}/${term}/${learningArea}: ${strands.length} strands`);
+          }
+        }
+      }
+      res.type('text/plain').send(`OK — seeded rubric.\nNew templates: ${tplCount}\nStrands: ${strandCount}\nSub-strands: ${subCount}\n\n${log.join('\n')}`);
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
   httpAdapter.post('/seed-rubric', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     const b = req.body || {};
