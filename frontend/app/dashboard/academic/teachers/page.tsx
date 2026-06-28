@@ -268,6 +268,8 @@ export default function TeachersPage() {
                     <option value="class_teacher">Class Teacher</option>
                     <option value="overall_class_teacher">Overall Class Teacher</option>
                     <option value="dhois">Deputy HOI</option>
+                    <option value="games_dept">Games Department</option>
+                    <option value="bursar">Bursar</option>
                   </select>
                 </div>
               </div>
