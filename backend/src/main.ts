@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-reseed-selfclean-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-cleanup-leftovers-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -383,6 +383,29 @@ async function bootstrap() {
       const tpls = /indig|indeg/i.test(bad)
         ? await ds.query(`SELECT id FROM assessment_templates WHERE LOWER(learning_area) LIKE '%indig%' OR LOWER(learning_area) LIKE '%indeg%'`).catch(() => [])
         : await ds.query(`SELECT id FROM assessment_templates WHERE LOWER(learning_area) = LOWER($1)`, [bad]).catch(() => []);
+      for (const tpl of (tpls as any[])) {
+        const sids = (await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1`, [tpl.id]).catch(() => [])).map((r: any) => r.id);
+        if (sids.length) {
+          await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [sids]).catch(() => null);
+          await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [sids]).catch(() => null);
+        }
+        await ds.query(`DELETE FROM assessment_templates WHERE id = $1`, [tpl.id]).catch(() => null);
+      }
+    }
+
+    // Grade-specific leftover removals (an area that is valid for one band but not another).
+    // - Environmental Activities is kept for ECDE but must be removed from Grades 1-3.
+    // - "Religious Activities" is an old mis-named leftover (correct ECDE name is
+    //   "Religious Education Activities") — remove it wherever it appears.
+    const gradeSpecificBad: Array<{ grades: string[]; area: string }> = [
+      { grades: ['grade_1', 'grade_2', 'grade_3'], area: 'Environmental Activities' },
+      { grades: ['playgroup', 'pp1', 'pp2'], area: 'Religious Activities' },
+    ];
+    for (const { grades, area } of gradeSpecificBad) {
+      const tpls = await ds.query(
+        `SELECT id FROM assessment_templates WHERE LOWER(learning_area) = LOWER($1) AND grade_level = ANY($2::text[])`,
+        [area, grades],
+      ).catch(() => []);
       for (const tpl of (tpls as any[])) {
         const sids = (await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1`, [tpl.id]).catch(() => [])).map((r: any) => r.id);
         if (sids.length) {
