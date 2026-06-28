@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-corrected-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-remove-areas-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -307,6 +307,54 @@ async function bootstrap() {
   // 'replace:true' first deletes existing strands for that area+term (use to correct bad data).
   // Bulk seed the whole rubric from one JSON payload:
   // { key, replace?, data: { grade_level: { term_x: { "Learning Area": [ {name, substrands:[]} ] } } } }
+  // Remove specific rubric learning areas entirely (templates + their strands + sub-strands).
+  // /remove-rubric-areas?key=...&areas=Creative Activities,Mathematical Activities,Indigenous Language
+  // Matching is case-insensitive and also matches an optional " Activities" suffix variant.
+  httpAdapter.get('/remove-rubric-areas', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const raw = String(req.query?.areas || '').trim();
+    if (!raw) { res.status(400).type('text/plain').send('Provide ?areas=Name1,Name2 (comma-separated).'); return; }
+    const names = raw.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      const ds = app.get(DataSource);
+      const report: string[] = [];
+      let totalTpl = 0;
+      for (const name of names) {
+        // Match the exact area name, or with/without an " Activities" suffix (case-insensitive).
+        // Exact matching only — avoid prefix matches that could hit the wrong area
+        // (e.g. removing "Mathematical Activities" must NOT touch "Mathematics Activities").
+        // Indigenous Language is also stored misspelled ("Indeginous") in some books.
+        const isIndigenous = /indig|indeg/i.test(name);
+        const tpls = isIndigenous
+          ? await ds.query(
+              `SELECT id, grade_level, learning_area FROM assessment_templates
+                WHERE LOWER(learning_area) LIKE '%indig%' OR LOWER(learning_area) LIKE '%indeg%'`,
+            ).catch(() => [])
+          : await ds.query(
+              `SELECT id, grade_level, learning_area FROM assessment_templates
+                WHERE LOWER(learning_area) = LOWER($1)
+                   OR LOWER(learning_area) = LOWER($1 || ' Activities')
+                   OR LOWER(learning_area) = LOWER(REPLACE($1,' Activities',''))`,
+              [name],
+            ).catch(() => []);
+        for (const tpl of tpls) {
+          const strandIds = (await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1`, [tpl.id]).catch(() => [])).map((r: any) => r.id);
+          if (strandIds.length) {
+            await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [strandIds]).catch(() => null);
+            await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [strandIds]).catch(() => null);
+          }
+          await ds.query(`DELETE FROM assessment_templates WHERE id = $1`, [tpl.id]).catch(() => null);
+          report.push(`  removed: ${tpl.grade_level} / ${tpl.learning_area}`);
+          totalTpl++;
+        }
+      }
+      res.type('text/plain').send(`Removed ${totalTpl} learning-area template(s):\n${report.join('\n') || '  (none matched)'}`);
+    } catch (e: any) {
+      res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
+    }
+  });
+
   httpAdapter.post('/seed-rubric-bulk', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     const b = req.body || {};
