@@ -183,7 +183,7 @@ async function bootstrap() {
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-delete-area-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'rubric-reseed-selfclean-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -374,6 +374,25 @@ async function bootstrap() {
     }
     if (!data || typeof data !== 'object') return 'No data posted and bundled rubric_seed.json not found.';
     const ds = app.get(DataSource);
+
+    // First, remove known-bad leftover areas from earlier seeds that are NOT in the corrected
+    // data (these linger because re-seeding only replaces areas it knows about). Exact-match by
+    // name (plus Indigenous misspelling) so we never touch the good areas we're about to seed.
+    const badAreas = ['Creative Activities', 'Mathematical Activities', 'Indigenous Language', 'Indeginous Language', 'Learners Performance'];
+    for (const bad of badAreas) {
+      const tpls = /indig|indeg/i.test(bad)
+        ? await ds.query(`SELECT id FROM assessment_templates WHERE LOWER(learning_area) LIKE '%indig%' OR LOWER(learning_area) LIKE '%indeg%'`).catch(() => [])
+        : await ds.query(`SELECT id FROM assessment_templates WHERE LOWER(learning_area) = LOWER($1)`, [bad]).catch(() => []);
+      for (const tpl of (tpls as any[])) {
+        const sids = (await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1`, [tpl.id]).catch(() => [])).map((r: any) => r.id);
+        if (sids.length) {
+          await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [sids]).catch(() => null);
+          await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [sids]).catch(() => null);
+        }
+        await ds.query(`DELETE FROM assessment_templates WHERE id = $1`, [tpl.id]).catch(() => null);
+      }
+    }
+
     let tplCount = 0, strandCount = 0, subCount = 0;
     const log: string[] = [];
     for (const gradeLevel of Object.keys(data)) {
