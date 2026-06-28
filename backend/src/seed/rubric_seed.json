@@ -1,7 +1,7 @@
 {
  "playgroup": {
   "term_1": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Recognize Number 1-5",
      "substrands": [
@@ -25,7 +25,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Hold Writing Instruments",
      "substrands": [
@@ -44,7 +44,9 @@
       "Sing songs",
       "Bible stories"
      ]
-    },
+    }
+   ],
+   "Music Activities": [
     {
      "name": "Musical Rhythms",
      "substrands": [
@@ -81,7 +83,7 @@
    ]
   },
   "term_2": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Recognize Numbers 1-10",
      "substrands": [
@@ -107,7 +109,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Holding Writing Instrument",
      "substrands": [
@@ -127,7 +129,9 @@
       "Sing songs",
       "Memory verses"
      ]
-    },
+    }
+   ],
+   "Music Activities": [
     {
      "name": "Music Rhythms",
      "substrands": [
@@ -163,7 +167,7 @@
    ]
   },
   "term_3": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Recognize 1-10",
      "substrands": [
@@ -192,7 +196,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Holding Writing Instruments",
      "substrands": [
@@ -209,7 +213,9 @@
       "Memory verses",
       "Sing songs"
      ]
-    },
+    }
+   ],
+   "Music Activities": [
     {
      "name": "Music Rhythms",
      "substrands": [
@@ -241,12 +247,27 @@
       "Understand emotions both own and others"
      ]
     }
+   ],
+   "Learners Performance": [
+    {
+     "name": "Rating",
+     "substrands": [
+      "Exceeding expectation",
+      "Meeting expectation",
+      "Approaching Expectation",
+      "Below Expectation"
+     ]
+    },
+    {
+     "name": "Learning Are (S)",
+     "substrands": []
+    }
    ]
   }
  },
  "pp1": {
   "term_1": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Theme: Myself",
      "substrands": []
@@ -276,7 +297,7 @@
      ]
     }
    ],
-   "English": [
+   "Language Activities": [
     {
      "name": "Greetings And Farewell",
      "substrands": [
@@ -344,7 +365,7 @@
      ]
     }
    ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Creation",
      "substrands": [
@@ -364,7 +385,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Myself",
      "substrands": [
@@ -394,7 +415,7 @@
    ]
   },
   "term_2": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Theme: My Family",
      "substrands": [
@@ -423,7 +444,7 @@
      ]
     }
    ],
-   "English": [
+   "Language Activities": [
     {
      "name": "My Home",
      "substrands": [
@@ -498,7 +519,7 @@
      ]
     }
    ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "The Holy Bible",
      "substrands": [
@@ -526,7 +547,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "My Home",
      "substrands": [
@@ -550,7 +571,7 @@
    ]
   },
   "term_3": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Theme: My Home",
      "substrands": [
@@ -571,7 +592,7 @@
      ]
     }
    ],
-   "English": [
+   "Language Activities": [
     {
      "name": "My School",
      "substrands": [
@@ -607,7 +628,7 @@
      ]
     }
    ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Christian Values",
      "substrands": [
@@ -627,7 +648,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "My School",
      "substrands": [
@@ -642,12 +663,86 @@
       "Ability to recite simple rhymes as they dip hands and splash water for fine motor skills development"
      ]
     }
+   ],
+   "End Of Year Learner Skill Acquisition Summary": [
+    {
+     "name": "Basic Knowledge",
+     "substrands": [
+      "Knows how to recite full name",
+      "Knows birthday",
+      "Knows gender",
+      "Knows age",
+      "Knows parents\u2019 names",
+      "Knows right and left",
+      "Knows how to wash hands",
+      "Knows how to use a zipper",
+      "Knows how to tie shoe laces",
+      "Knows how to undress and dress",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Work Habits",
+     "substrands": [
+      "Listens and understands what to do",
+      "Appropriate attention span while doing a task",
+      "Follows 1 and 2 step instructions",
+      "Works independently",
+      "Completes tasks",
+      "Organized when doing a task",
+      "Cleans up",
+      "Cooperates in classroom activities and chores",
+      "Says please and thank you",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Emotional Development",
+     "substrands": [
+      "Separates from parents or caregiver without distress",
+      "Adjusts to new situations",
+      "Displays self-control",
+      "Shows self confidence",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Academic Development",
+     "substrands": [
+      "Recognizes first name",
+      "Recognizes last name",
+      "Writes first name",
+      "Writes last name",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Language",
+     "substrands": [
+      "Associates sounds with letters",
+      "Understands left to right movement for reading",
+      "Reads basic sight words",
+      "Identifies rhymes",
+      "Listens to stories attentively",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Colors, Shapes And Patterns",
+     "substrands": [
+      "Knows basic colors",
+      "Knows basic shapes",
+      "Knows same or different",
+      "Recognizes patterns",
+      "Comments:"
+     ]
+    }
    ]
   }
  },
  "pp2": {
   "term_1": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Theme: Our Neighbourhood",
      "substrands": []
@@ -678,7 +773,7 @@
      ]
     }
    ],
-   "English": [
+   "Language Activities": [
     {
      "name": "Greetings And Farewell",
      "substrands": [
@@ -747,7 +842,7 @@
      ]
     }
    ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Creation",
      "substrands": [
@@ -768,7 +863,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Neighbourhood",
      "substrands": [
@@ -795,7 +890,7 @@
    ]
   },
   "term_2": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Theme: Our School",
      "substrands": [
@@ -825,7 +920,7 @@
      ]
     }
    ],
-   "English": [
+   "Language Activities": [
     {
      "name": "Our Market",
      "substrands": [
@@ -922,7 +1017,7 @@
      ]
     }
    ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "The Life Of Jesus Christ",
      "substrands": [
@@ -945,7 +1040,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Our School",
      "substrands": [
@@ -966,7 +1061,7 @@
    ]
   },
   "term_3": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Theme: Our Market",
      "substrands": [
@@ -980,7 +1075,7 @@
      ]
     }
    ],
-   "English": [
+   "Language Activities": [
     {
      "name": "Time",
      "substrands": [
@@ -1012,7 +1107,7 @@
      ]
     }
    ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "The Church",
      "substrands": [
@@ -1023,7 +1118,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Animals",
      "substrands": [
@@ -1053,12 +1148,86 @@
       "Ability to sing a song while drawing materials used in squeezing water and bubbling for fine motor development."
      ]
     }
+   ],
+   "End Of Year Learner Skill Acquisition Summary": [
+    {
+     "name": "Basic Knowledge",
+     "substrands": [
+      "Knows how to recite full name",
+      "Knows birthday",
+      "Knows gender",
+      "Knows age",
+      "Knows parents\u2019 names",
+      "Knows right and left",
+      "Knows how to wash hands",
+      "Knows how to use a zipper",
+      "Knows how to tie shoe laces",
+      "Knows how to undress and dress",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Work Habits",
+     "substrands": [
+      "Listens and understands what to do",
+      "Appropriate attention span while doing a task",
+      "Follows 1 and 2 step instructions",
+      "Works independently",
+      "Completes tasks",
+      "Organized when doing a task",
+      "Cleans up",
+      "Cooperates in classroom activities and chores",
+      "Says please and thank you",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Emotional Development",
+     "substrands": [
+      "Separates from parents or caregiver without distress",
+      "Adjusts to new situations",
+      "Displays self-control",
+      "Shows self confidence",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Academic Development",
+     "substrands": [
+      "Recognizes first name",
+      "Recognizes last name",
+      "Writes first name",
+      "Writes last name",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Language",
+     "substrands": [
+      "Associates sounds with letters",
+      "Understands left to right movement for reading",
+      "Reads basic sight words",
+      "Identifies rhymes",
+      "Listens to stories attentively",
+      "Comments:"
+     ]
+    },
+    {
+     "name": "Colors, Shapes And Patterns",
+     "substrands": [
+      "Knows basic colors",
+      "Knows basic shapes",
+      "Knows same or different",
+      "Recognizes patterns",
+      "Comments:"
+     ]
+    }
    ]
   }
  },
  "grade_1": {
   "term_1": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -1093,7 +1262,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Welcome And Greetings",
      "substrands": [
@@ -1141,7 +1310,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Darasani",
      "substrands": [
@@ -1179,26 +1348,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Social Environment",
-     "substrands": [
-      "Cleaning my body",
-      "Materials for cleaning body parts",
-      "Cleaning different body parts.",
-      "Our home",
-      "Materials for cleaning the home",
-      "Common accidents at home",
-      "Cleaning the home",
-      "Family needs",
-      "Basic needs",
-      "Physical needs",
-      "Categories of foods from plants & animals",
-      "Selecting suitable foods"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Creation",
      "substrands": [
@@ -1224,7 +1374,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Creation And Executing",
      "substrands": [
@@ -1253,7 +1403,7 @@
    ]
   },
   "term_2": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -1288,7 +1438,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Weather & Our Environment",
      "substrands": [
@@ -1344,7 +1494,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Mimi Na Wenzangu",
      "substrands": [
@@ -1391,41 +1541,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Social Environment",
-     "substrands": [
-      "Our School",
-      "Physical features btwn home and school",
-      "Personal safety when going to school.",
-      "Our market",
-      "Roles of people in the market",
-      "Food items in the market",
-      "Categories of foods in the market"
-     ]
-    },
-    {
-     "name": "Natural Environment",
-     "substrands": [
-      "Weather and the sky",
-      "The sky at night and day time",
-      "Weather conditions in the locality",
-      "Recording weather conditions"
-     ]
-    },
-    {
-     "name": "Soil",
-     "substrands": [
-      "ways of playing with soil",
-      "modelling using soil",
-      "sound",
-      "sounds in the environment",
-      "creating sounds using objects",
-      "discriminating different sounds"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "The Holy Bible",
      "substrands": [
@@ -1449,7 +1565,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Creating And Executing",
      "substrands": [
@@ -1482,7 +1598,7 @@
    ]
   },
   "term_3": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -1517,7 +1633,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Living Together",
      "substrands": [
@@ -1555,7 +1671,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Michezo",
      "substrands": [
@@ -1575,25 +1691,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Resources In The Environment",
-     "substrands": [
-      "Water",
-      "Sources of water",
-      "Uses of water",
-      "Conserving water",
-      "Plants",
-      "Different parts of plants",
-      "Drawing parts of plants",
-      "Conserving plants",
-      "Animals",
-      "Identifying domestic animals",
-      "Basic care for small domestic animals"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Christian Values",
      "substrands": [
@@ -1611,7 +1709,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Performing And Display",
      "substrands": [
@@ -1641,7 +1739,7 @@
  },
  "grade_2": {
   "term_1": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -1672,7 +1770,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "School",
      "substrands": [
@@ -1720,7 +1818,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Shuleni",
      "substrands": [
@@ -1758,30 +1856,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Social Environment",
-     "substrands": [
-      "Our Home",
-      "Personal & common items at home",
-      "Cleaning Personal & common items",
-      "Family needs and wants",
-      "Places where family needs are met",
-      "Classification of family needs & wants",
-      "Our school",
-      "Ways of keeping the school clean",
-      "Common accidents at school",
-      "Cleaning the school",
-      "Our national flag",
-      "Colours of the national flag",
-      "Events in which national anthem is sung",
-      "Conducting flag raising and lowering",
-      "Our rights & responsibilities",
-      "Rights and responsibilities of children"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Creation",
      "substrands": [
@@ -1813,7 +1888,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Creating And Executing",
      "substrands": [
@@ -1842,7 +1917,7 @@
    ]
   },
   "term_2": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -1873,7 +1948,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Garden",
      "substrands": [
@@ -1920,7 +1995,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Mnyama Nimpendaye",
      "substrands": [
@@ -1958,34 +2033,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Social Environment",
-     "substrands": [
-      "Our market",
-      "Physical features on the way to market",
-      "Locating the market",
-      "Activities that take place in the market"
-     ]
-    },
-    {
-     "name": "Natural Environment",
-     "substrands": [
-      "Weather",
-      "Weather conditions during the day",
-      "Creating a weather record",
-      "Predicting weather conditions",
-      "soil",
-      "types of soil",
-      "classifying types of soil",
-      "light",
-      "sources of light",
-      "forming shadows",
-      "ways of conserving light"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "The Early Life Of Jesus Christ",
      "substrands": [
@@ -2008,7 +2056,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Performance And Display",
      "substrands": [
@@ -2039,7 +2087,7 @@
    ]
   },
   "term_3": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -2070,7 +2118,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Technology",
      "substrands": [
@@ -2108,7 +2156,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Hospitalini",
      "substrands": [
@@ -2128,26 +2176,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Natural Environment",
-     "substrands": [
-      "Water",
-      "Ways of storing water at home",
-      "Conserving water",
-      "Importance of keeping water safe",
-      "Plants",
-      "Ways of caring for plants",
-      "Caring for plants",
-      "Animals",
-      "Food items we get from animals",
-      "CAT1",
-      "Matching animals & food items",
-      "caring for animals"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Christian Values",
      "substrands": [
@@ -2165,7 +2194,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Performance And Displaying",
      "substrands": [
@@ -2191,7 +2220,7 @@
  },
  "grade_3": {
   "term_1": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -2222,7 +2251,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Activities At Home & School",
      "substrands": [
@@ -2270,7 +2299,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Uzalendo",
      "substrands": [
@@ -2308,30 +2337,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Social Environment",
-     "substrands": [
-      "Our living Environment",
-      "Materials used for beddings",
-      "Hygienic practices in the sleeping area",
-      "Family needs",
-      "Emotional needs",
-      "How people express feelings",
-      "Foods in our environment",
-      "Various food items",
-      "Classifying food items",
-      "Table manners",
-      "Our community",
-      "Ways if keeping safe",
-      "Safe and unsafe places in the community",
-      "Basic road signs",
-      "Cultural events",
-      "Cultural events in the community"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Creation",
      "substrands": [
@@ -2360,7 +2366,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Creation And Executing",
      "substrands": [
@@ -2387,7 +2393,7 @@
    ]
   },
   "term_2": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -2418,7 +2424,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Technology",
      "substrands": [
@@ -2466,7 +2472,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Usalama",
      "substrands": [
@@ -2504,32 +2510,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Social Environment",
-     "substrands": [
-      "Cultural events",
-      "Categories of cultural events"
-     ]
-    },
-    {
-     "name": "Natural Environment",
-     "substrands": [
-      "Weather",
-      "Favourable & unfavorable weather conditions",
-      "Dangers of unfavorable weather conditions",
-      "Responding to weather",
-      "soil",
-      "x-tics of soil",
-      "soil conservation activities",
-      "Heat",
-      "Sources of heat",
-      "Uses of heat in the environment",
-      "Conserving heat"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "The Holy Bible",
      "substrands": [
@@ -2549,7 +2530,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Performance And Display",
      "substrands": [
@@ -2578,7 +2559,7 @@
    ]
   },
   "term_3": {
-   "Mathematics": [
+   "Mathematics Activities": [
     {
      "name": "Numbers",
      "substrands": [
@@ -2609,7 +2590,7 @@
      ]
     }
    ],
-   "English": [
+   "English Language Activities": [
     {
      "name": "Food We Eat And Diseases",
      "substrands": [
@@ -2647,7 +2628,7 @@
      ]
     }
    ],
-   "Kiswahili": [
+   "Kiswahili Language Activities": [
     {
      "name": "Sokoni",
      "substrands": [
@@ -2667,27 +2648,7 @@
      ]
     }
    ],
-   "Environmental Activities": [
-    {
-     "name": "Resources In Our Environemt",
-     "substrands": [
-      "Water",
-      "Ways of water contamination",
-      "Activities for making water clean",
-      "Conserving water",
-      "Plants",
-      "Safety measures to observe when handling plants",
-      "Making a kitchen garden",
-      "Classifying plants",
-      "Animals",
-      "Importance of domestic animals",
-      "Caring for domestic animals",
-      "waste material",
-      "Waste materials for generating income"
-     ]
-    }
-   ],
-   "Religious Education": [
+   "Religious Education Activities": [
     {
      "name": "Christian Values",
      "substrands": [
@@ -2706,7 +2667,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts Activities": [
     {
      "name": "Perforiming And Diplay",
      "substrands": [
@@ -2926,6 +2887,37 @@
       "French rhythm names"
      ]
     }
+   ],
+   "Religious Education": [
+    {
+     "name": "Creation",
+     "substrands": [
+      "Self-awareness",
+      "Thoughts and feelings",
+      "Making choices",
+      "Family members",
+      "Relationship within the family",
+      "Attributes of God"
+     ]
+    },
+    {
+     "name": "The Holy Bible",
+     "substrands": [
+      "Respect for the bible",
+      "Bible stories",
+      "Zacchaeus the tax collector",
+      "Balaam\u2019s donkey",
+      "Samson kills a lion",
+      "Joseph interprets a dream",
+      "Bible patriarchs- Abraham"
+     ]
+    },
+    {
+     "name": "The Life Of Jesus Christ",
+     "substrands": [
+      "The birth of Jesus Christ - Annunciation"
+     ]
+    }
    ]
   },
   "term_2": {
@@ -3140,6 +3132,33 @@
       "Playing simple melodies on notes G A B"
      ]
     }
+   ],
+   "Religious Education": [
+    {
+     "name": "The Life Of Jesus Christ",
+     "substrands": [
+      "Birth of John the Baptist",
+      "Healing of the blind Bartimaeus",
+      "Healing of the 10 leapers",
+      "Jesus raises a widow son",
+      "Forgiveness",
+      "Helping the needy",
+      "The parable of the lost coin",
+      "Parable of the mustard seed",
+      "Nicodemus encounter with Jesus Christ"
+     ]
+    },
+    {
+     "name": "Christians",
+     "substrands": [
+      "Trust",
+      "Truthfulness",
+      "Obedience at home and school",
+      "Jesus Loves little children",
+      "Responsibility (personal & school property)",
+      "Holiness"
+     ]
+    }
    ]
   },
   "term_3": {
@@ -3310,6 +3329,26 @@
       "Making tacking stitcher",
       "Types of tacking stitches",
       "Making items using tacking stitches"
+     ]
+    }
+   ],
+   "Religious Education": [
+    {
+     "name": "The Church",
+     "substrands": [
+      "House of God",
+      "The early church",
+      "Standing firm in the faith",
+      "The Lord\u2019s prayer",
+      "Fruits of the Holy spirit",
+      "Self- control"
+     ]
+    },
+    {
+     "name": "Morality And Social Media",
+     "substrands": [
+      "Uses of social media",
+      "Appropriate ways of using social media"
      ]
     }
    ]
@@ -3517,6 +3556,37 @@
       "Making mosaic"
      ]
     }
+   ],
+   "Religious Education": [
+    {
+     "name": "Creation",
+     "substrands": [
+      "My purpose",
+      "Human beings a co-worker with God",
+      "The fall of man",
+      "Family unity"
+     ]
+    },
+    {
+     "name": "The Bible",
+     "substrands": [
+      "The bible as a guide",
+      "Bible stories",
+      "Courage: story of Peter & John",
+      "Wisdom: story of King Solomon",
+      "Respect for the elderly: the story of Noah and his sons",
+      "God Loves humility: the hand writing on a wall",
+      "Worship the true God: the Mt. Carmel contest",
+      "Gods\u2019 protection: the story of Moses",
+      "Service to God: the call of Moses"
+     ]
+    },
+    {
+     "name": "The Life Of Jesus Christ",
+     "substrands": [
+      "The birth of Jesus Christ - Annunciation"
+     ]
+    }
    ]
   },
   "term_2": {
@@ -3715,6 +3785,25 @@
       "Creating mosaic composition"
      ]
     }
+   ],
+   "Religious Education": [
+    {
+     "name": "The Life Of Jesus Christ",
+     "substrands": [
+      "John the Baptist",
+      "The baptism of Jesus Christ",
+      "God\u2019s power over nature",
+      "Feeding the four thousand",
+      "Healing the paralytic man",
+      "Teachings of Jesus Christ: parable of the lost sheep",
+      "Responsible living: sermon on the Mountain",
+      "The rich young ruler",
+      "Persistence in prayer",
+      "The Church",
+      "The early church",
+      "The Lords supper"
+     ]
+    }
    ]
   },
   "term_3": {
@@ -3742,17 +3831,6 @@
       "Reading",
       "Grammar in use",
       "Writing"
-     ]
-    }
-   ],
-   "Environmental Activities": [
-    {
-     "name": "Listening And Speaking",
-     "substrands": [
-      "Reading",
-      "Grammar in use",
-      "Writing",
-      "MONEY- SAVINGS & BANKING"
      ]
     }
    ],
@@ -3841,6 +3919,32 @@
       "Creating random repeat patterns based on notes G A B C\u2019 D\u2019",
       "indegenous kenyan games",
       "Counting games"
+     ]
+    },
+    {
+     "name": "Analysis Of Creative Arts Work",
+     "substrands": [
+      "Components of a folk dance; community, occasion, participants, songs, body movement, formations instruments, costumes, body adornment, ornament.",
+      "East African Community Anthem: message, values, occasion and etiquette in performance,"
+     ]
+    }
+   ],
+   "Religious Education": [
+    {
+     "name": "The Church",
+     "substrands": [
+      "The role of the Holy spirit",
+      "Intercessory prayer"
+     ]
+    },
+    {
+     "name": "Christian Living",
+     "substrands": [
+      "Friendship formation",
+      "Human sexuality",
+      "God the source of life",
+      "Good health practices",
+      "Appropriate use of social media"
      ]
     }
    ]
@@ -4035,6 +4139,32 @@
       "Interpreting rhythmic patterns",
       "Composing rhythmic patterns",
       "Improvising rhythms in 3 & beat patterns"
+     ]
+    }
+   ],
+   "Religious Education": [
+    {
+     "name": "Creation",
+     "substrands": [
+      "My purpose",
+      "Marriage and family",
+      "God\u2019s rest- leisure"
+     ]
+    },
+    {
+     "name": "The Holy Bible",
+     "substrands": [
+      "The bible as the inspired word of God",
+      "The ten commandments",
+      "Bible stories: God\u2019s power- Samson story",
+      "Faith in God: Elisha and the axe",
+      "Determination: story of Jacob"
+     ]
+    },
+    {
+     "name": "The Life Of Jesus Christ",
+     "substrands": [
+      "The call of the disciples"
      ]
     }
    ]
@@ -4248,6 +4378,27 @@
       "Creating a d\u00e9cor for classroom interior using papercraft technique"
      ]
     }
+   ],
+   "Religious Education": [
+    {
+     "name": "The Life Of Jesus Christ",
+     "substrands": [
+      "The temptation of Jesus Christ",
+      "Miracles of Jesus Christ: Roman servant",
+      "Faith in God: bleeding woman",
+      "Jesus power over death: raising Lazarus from the dead",
+      "The Kingdom of God: the parable of the hidden treasure",
+      "Attitude towards wealth: rich man Lazarus"
+     ]
+    },
+    {
+     "name": "The Church",
+     "substrands": [
+      "Apostles\u2019 creed",
+      "Christian suffering",
+      "Church unity"
+     ]
+    }
    ]
   },
   "term_3": {
@@ -4389,6 +4540,24 @@
       "Creating a catalogue",
       "Elements of music in songs",
       "Relating songs to experiences"
+     ]
+    }
+   ],
+   "Religious Education": [
+    {
+     "name": "The Church",
+     "substrands": [
+      "Good citizens",
+      "Interpersonal relationships among Christians"
+     ]
+    },
+    {
+     "name": "Christian Living",
+     "substrands": [
+      "Friendship formation",
+      "Human sexuality",
+      "Sanctity of life",
+      "Alcohol & substance abuse"
      ]
     }
    ]
@@ -4577,7 +4746,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Foundations Of Ca&S",
      "substrands": [
@@ -4926,7 +5095,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Creation & Performing Of Ca&S",
      "substrands": [
@@ -4949,7 +5118,9 @@
       "Pencil dive",
       "Backstroke"
      ]
-    },
+    }
+   ],
+   "Religious Education": [
     {
      "name": "The Early Life Of Jesus Christ",
      "substrands": [
@@ -5130,7 +5301,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Creating And Preforming",
      "substrands": [
@@ -5149,7 +5320,9 @@
       "Criteria for evaluation",
       "Analysis for each category"
      ]
-    },
+    }
+   ],
+   "Religious Education": [
     {
      "name": "Christian Living",
      "substrands": [
@@ -5342,7 +5515,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Foundations Of Ca&S",
      "substrands": [
@@ -5656,7 +5829,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Creation & Performing Of Ca&S",
      "substrands": [
@@ -5683,7 +5856,9 @@
       "Classification of folk dances: Community, gender and age of participants,",
       "Performing a folk dance"
      ]
-    },
+    }
+   ],
+   "Religious Education": [
     {
      "name": "Miracle Of Jesus",
      "substrands": [
@@ -5855,7 +6030,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "2.0",
      "substrands": [
@@ -5870,7 +6045,9 @@
       "Analysis of creative Arts & sports",
       "Artwork; drawing, painting and montage pictures, decorated fabric, basketry items)"
      ]
-    },
+    }
+   ],
+   "Religious Education": [
     {
      "name": "Christian Living",
      "substrands": [
@@ -6083,7 +6260,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Foundations Of Ca&S",
      "substrands": [
@@ -6376,7 +6553,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Creation & Performing Of Ca&S",
      "substrands": [
@@ -6386,7 +6563,9 @@
       "Basketball",
       "Play"
      ]
-    },
+    }
+   ],
+   "Religious Education": [
     {
      "name": "The Life & Ministry Of Jesus Christ",
      "substrands": [
@@ -6552,7 +6731,7 @@
      ]
     }
    ],
-   "Creative Arts": [
+   "Creative Arts and Sports": [
     {
      "name": "Performance And Display",
      "substrands": [
@@ -6565,7 +6744,9 @@
      "substrands": [
       "Analysis for each category"
      ]
-    },
+    }
+   ],
+   "Religious Education": [
     {
      "name": "Christian Living Today",
      "substrands": [
