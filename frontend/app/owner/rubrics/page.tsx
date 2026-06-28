@@ -3,7 +3,7 @@
 // add/edit the YouTube resource link on each sub-strand. Not tied to a stream or learner.
 'use client';
 import { useState, useEffect } from 'react';
-import { BookOpen, Loader2, Youtube, Save, X, Pencil } from 'lucide-react';
+import { BookOpen, Loader2, Youtube, Save, X, Pencil, Plus, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -39,7 +39,7 @@ export default function OwnerRubricsPage() {
   }, [grade]);
 
   useEffect(() => {
-    if (!grade || !area) return;
+    if (!grade || !area || area === '__new__') { if (area === '__new__') setStrands([]); return; }
     setLoading(true);
     apiClient.get(`/assessment/book?gradeLevel=${grade}&learningArea=${encodeURIComponent(area)}&term=${term}`)
       .then(r => setStrands(r.data?.strands || []))
@@ -58,6 +58,43 @@ export default function OwnerRubricsPage() {
     finally { setSaving(false); }
   };
 
+  const reload = () => {
+    if (!grade || !area) return;
+    apiClient.get(`/assessment/book?gradeLevel=${grade}&learningArea=${encodeURIComponent(area)}&term=${term}`)
+      .then(r => setStrands(r.data?.strands || [])).catch(() => {});
+  };
+
+  const addStrand = async () => {
+    const name = prompt('New strand name:'); if (!name?.trim()) return;
+    try { await apiClient.post('/assessment/strand', { gradeLevel: grade, learningArea: area, term, name }); toast.success('Strand added'); reload(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Could not add'); }
+  };
+  const renameStrand = async (s: any) => {
+    const name = prompt('Rename strand:', s.name); if (!name?.trim() || name === s.name) return;
+    try { await apiClient.patch(`/assessment/strand/${s.id}`, { name }); toast.success('Renamed'); reload(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Could not rename'); }
+  };
+  const deleteStrand = async (s: any) => {
+    if (!confirm(`Delete strand "${s.name}" and all its sub-strands? This cannot be undone.`)) return;
+    try { await apiClient.delete(`/assessment/strand/${s.id}`); toast.success('Strand deleted'); reload(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Could not delete'); }
+  };
+  const addSubstrand = async (s: any) => {
+    const name = prompt(`Add sub-strand to "${s.name}":`); if (!name?.trim()) return;
+    try { await apiClient.post('/assessment/substrand', { strandId: s.id, name }); toast.success('Sub-strand added'); reload(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Could not add'); }
+  };
+  const renameSubstrand = async (ss: any) => {
+    const name = prompt('Rename sub-strand:', ss.name); if (!name?.trim() || name === ss.name) return;
+    try { await apiClient.patch(`/assessment/substrand/${ss.id}`, { name }); toast.success('Renamed'); reload(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Could not rename'); }
+  };
+  const deleteSubstrand = async (ss: any) => {
+    if (!confirm(`Delete sub-strand "${ss.name}"?`)) return;
+    try { await apiClient.delete(`/assessment/substrand/${ss.id}`); toast.success('Deleted'); reload(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Could not delete'); }
+  };
+
   return (
     <div className="p-4 sm:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
@@ -65,7 +102,7 @@ export default function OwnerRubricsPage() {
           <BookOpen className="text-theme-muted" size={20}/>
           <h1 className="text-xl font-black text-theme-heading">Assessment Rubrics</h1>
         </div>
-        <p className="text-sm text-theme-muted">Add or edit the YouTube resource link on any sub-strand. These videos are watched by all teachers and learners.</p>
+        <p className="text-sm text-theme-muted">Edit the rubric for any grade, learning area and term — add, rename or delete strands and sub-strands, and attach YouTube resource links (watched by teachers and parents at home).</p>
 
         <div className="card p-4 flex flex-wrap gap-2">
           <div>
@@ -76,10 +113,16 @@ export default function OwnerRubricsPage() {
           </div>
           <div>
             <label className="label">Learning Area</label>
-            <select value={area} onChange={e => setArea(e.target.value)} className="input w-56">
-              {areas.length === 0 && <option value="">No areas</option>}
-              {areas.map((a: any) => { const name = typeof a === 'string' ? a : (a.learningArea || a.name); return <option key={name} value={name}>{name}</option>; })}
-            </select>
+            <div className="flex gap-1">
+              <select value={areas.includes(area)?area:''} onChange={e => setArea(e.target.value)} className="input w-48">
+                {areas.length === 0 && <option value="">No areas yet</option>}
+                {areas.map((a: any) => { const name = typeof a === 'string' ? a : (a.learningArea || a.name); return <option key={name} value={name}>{name}</option>; })}
+                <option value="__new__">➕ Type a new area…</option>
+              </select>
+            </div>
+            {(area === '__new__' || (!areas.includes(area) && area)) && (
+              <input autoFocus value={area==='__new__'?'':area} onChange={e=>setArea(e.target.value)} className="input mt-1 w-48" placeholder="New learning area name"/>
+            )}
           </div>
           <div>
             <label className="label">Term</label>
@@ -93,12 +136,20 @@ export default function OwnerRubricsPage() {
 
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="animate-spin text-theme-muted" size={24}/></div>
-        ) : strands.length === 0 ? (
-          <div className="card p-8 text-center text-theme-muted">No rubric found for this grade and learning area.</div>
-        ) : strands.map((s, si) => (
+        ) : (
+          <>
+          {strands.length === 0 ? (
+            <div className="card p-8 text-center text-theme-muted">No rubric for this grade, area and term yet. Use “Add strand” below to start building it.</div>
+          ) : strands.map((s, si) => (
           <div key={si} className="card p-4">
-            <div className="font-bold text-theme-heading mb-2">{s.name}</div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="font-bold text-theme-heading flex-1">{s.name}</div>
+              <button onClick={() => addSubstrand(s)} className="text-xs text-[#1a2e5a] hover:underline" title="Add sub-strand"><Plus size={13} className="inline"/> sub-strand</button>
+              <button onClick={() => renameStrand(s)} className="text-theme-muted hover:text-[#1a2e5a]" title="Rename strand"><Pencil size={13}/></button>
+              <button onClick={() => deleteStrand(s)} className="text-theme-muted hover:text-red-600" title="Delete strand"><Trash2 size={13}/></button>
+            </div>
             <div className="divide-y divide-theme">
+              {s.substrands.length === 0 && <div className="text-xs text-theme-muted py-2">No sub-strands. Click “+ sub-strand” to add.</div>}
               {s.substrands.map((ss: any) => (
                 <div key={ss.id} className="flex items-center gap-2 py-2">
                   <div className="flex-1 min-w-0 text-sm">{ss.name}</div>
@@ -106,14 +157,19 @@ export default function OwnerRubricsPage() {
                     <a href={ss.youtubeUrl} target="_blank" rel="noreferrer" className="text-red-600" title="Watch"><Youtube size={15}/></a>
                   )}
                   <button onClick={() => { setEditFor(ss); setUrl(ss.youtubeUrl || ''); }}
-                    className="text-theme-muted hover:text-red-600" title={ss.youtubeUrl ? 'Edit link' : 'Add link'}>
+                    className="text-theme-muted hover:text-red-600" title={ss.youtubeUrl ? 'Edit video link' : 'Add video link'}>
                     {ss.youtubeUrl ? <Pencil size={13}/> : <Youtube size={15}/>}
                   </button>
+                  <button onClick={() => renameSubstrand(ss)} className="text-theme-muted hover:text-[#1a2e5a]" title="Rename sub-strand"><Pencil size={12}/></button>
+                  <button onClick={() => deleteSubstrand(ss)} className="text-theme-muted hover:text-red-600" title="Delete sub-strand"><Trash2 size={12}/></button>
                 </div>
               ))}
             </div>
           </div>
-        ))}
+          ))}
+          <button onClick={addStrand} className="btn-ghost w-full justify-center"><Plus size={15}/> Add strand</button>
+          </>
+        )}
       </div>
 
       {editFor && (

@@ -1,4 +1,4 @@
-import { Module, Injectable, Controller, Get, Post, Body, Param, Query, Request, UseGuards, BadRequestException } from '@nestjs/common';
+import { Module, Injectable, Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, BadRequestException } from '@nestjs/common';
 import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -208,6 +208,72 @@ export class AssessmentService {
       out.push({ learningArea: a.learningArea, strands: Object.values(strands) });
     }
     return { learnerName: String(learner.name).trim(), term: termKey, areas: out };
+  }
+
+  // ── Owner rubric editing: add / rename / delete strands and sub-strands ──
+  private isOwner(role: string) { return ['super_admin','tenant_owner','hoi','dhois'].includes(role); }
+
+  private async templateId(gradeLevel: string, learningArea: string, tenantId: string): Promise<string> {
+    let tpl = await this.dataSource.query(
+      `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
+      [gradeLevel, learningArea],
+    ).catch(() => []);
+    if (tpl.length) return tpl[0].id;
+    const c = await this.dataSource.query(
+      `INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,NULL) RETURNING id`,
+      [gradeLevel, learningArea],
+    );
+    return c[0].id;
+  }
+
+  async addStrand(user: any, dto: any) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    if (!dto?.gradeLevel || !dto?.learningArea || !dto?.term || !dto?.name?.trim()) throw new BadRequestException('Need gradeLevel, learningArea, term and name.');
+    const tid = await this.templateId(dto.gradeLevel, dto.learningArea, user.tenantId);
+    const posRow = await this.dataSource.query(`SELECT COALESCE(MAX(position),0)+1 AS p FROM assessment_strands WHERE template_id = $1 AND term = $2`, [tid, dto.term]).catch(() => [{ p: 1 }]);
+    const r = await this.dataSource.query(
+      `INSERT INTO assessment_strands (template_id, position, name, term) VALUES ($1,$2,$3,$4) RETURNING id, name, position`,
+      [tid, posRow[0].p, dto.name.trim(), dto.term],
+    );
+    return { id: r[0].id, name: r[0].name, position: r[0].position, substrands: [] };
+  }
+
+  async renameStrand(user: any, strandId: string, name: string) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    if (!name?.trim()) throw new BadRequestException('Name required.');
+    await this.dataSource.query(`UPDATE assessment_strands SET name = $2 WHERE id = $1`, [strandId, name.trim()]);
+    return { id: strandId, name: name.trim() };
+  }
+
+  async deleteStrand(user: any, strandId: string) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    await this.dataSource.query(`DELETE FROM assessment_substrands WHERE strand_id = $1`, [strandId]).catch(() => null);
+    await this.dataSource.query(`DELETE FROM assessment_strands WHERE id = $1`, [strandId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  async addSubstrand(user: any, dto: any) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    if (!dto?.strandId || !dto?.name?.trim()) throw new BadRequestException('Need strandId and name.');
+    const posRow = await this.dataSource.query(`SELECT COALESCE(MAX(position),0)+1 AS p FROM assessment_substrands WHERE strand_id = $1`, [dto.strandId]).catch(() => [{ p: 1 }]);
+    const r = await this.dataSource.query(
+      `INSERT INTO assessment_substrands (strand_id, position, name) VALUES ($1,$2,$3) RETURNING id, name, position`,
+      [dto.strandId, posRow[0].p, dto.name.trim()],
+    );
+    return { id: r[0].id, name: r[0].name, position: r[0].position, youtubeUrl: null };
+  }
+
+  async renameSubstrand(user: any, substrandId: string, name: string) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    if (!name?.trim()) throw new BadRequestException('Name required.');
+    await this.dataSource.query(`UPDATE assessment_substrands SET name = $2 WHERE id = $1`, [substrandId, name.trim()]);
+    return { id: substrandId, name: name.trim() };
+  }
+
+  async deleteSubstrand(user: any, substrandId: string) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    await this.dataSource.query(`DELETE FROM assessment_substrands WHERE id = $1`, [substrandId]).catch(() => null);
+    return { deleted: true };
   }
 
   // A learner's saved formative levels for a learning area + term
@@ -432,6 +498,25 @@ export class AssessmentController {
   setResource(@Request() req: any, @Body() dto: any) {
     return this.svc.setResource(req.user, dto.substrandId, dto.youtubeUrl);
   }
+
+  // ── Owner rubric editing ──
+  @Post('strand')
+  addStrand(@Request() req: any, @Body() dto: any) { return this.svc.addStrand(req.user, dto); }
+
+  @Patch('strand/:id')
+  renameStrand(@Request() req: any, @Param('id') id: string, @Body() dto: any) { return this.svc.renameStrand(req.user, id, dto.name); }
+
+  @Delete('strand/:id')
+  deleteStrand(@Request() req: any, @Param('id') id: string) { return this.svc.deleteStrand(req.user, id); }
+
+  @Post('substrand')
+  addSubstrand(@Request() req: any, @Body() dto: any) { return this.svc.addSubstrand(req.user, dto); }
+
+  @Patch('substrand/:id')
+  renameSubstrand(@Request() req: any, @Param('id') id: string, @Body() dto: any) { return this.svc.renameSubstrand(req.user, id, dto.name); }
+
+  @Delete('substrand/:id')
+  deleteSubstrand(@Request() req: any, @Param('id') id: string) { return this.svc.deleteSubstrand(req.user, id); }
 
   @Get('report-card')
   getReportCard(@Request() req: any, @Query() q: any) {
