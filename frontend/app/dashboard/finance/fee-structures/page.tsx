@@ -20,10 +20,15 @@ export default function FeeStructuresPage() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving]   = useState(false);
-  const [form, setForm] = useState({
-    name: '', gradeLevel: '', term: 'term_1', academicYear: '2025/2026',
+  const [form, setForm] = useState<any>({
+    name: '', gradeLevel: '', gradeLevels: [] as string[], term: 'term_1', academicYear: '2025/2026',
     category: 'tuition', amount: 0, isMandatory: true,
   });
+  const toggleGrade = (val: string) =>
+    setForm((f: any) => ({ ...f, gradeLevels: f.gradeLevels.includes(val) ? f.gradeLevels.filter((g: string) => g !== val) : [...f.gradeLevels, val] }));
+  const allGradeValues = GRADE_LEVELS.map(g => g.value);
+  const toggleAllGrades = () =>
+    setForm((f: any) => ({ ...f, gradeLevels: f.gradeLevels.length === allGradeValues.length ? [] : [...allGradeValues] }));
 
   const load = () => {
     setLoading(true);
@@ -41,9 +46,12 @@ export default function FeeStructuresPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiClient.post('/finance/fee-structures', form);
-      toast.success('Fee structure created');
+      const payload = { ...form, gradeLevels: form.gradeLevels };
+      const r = await apiClient.post('/finance/fee-structures', payload);
+      const n = r?.data?.count || 1;
+      toast.success(n > 1 ? `Fee structure created for ${n} classes` : 'Fee structure created');
       setShowNew(false);
+      setForm((f: any) => ({ ...f, name: '', gradeLevels: [], amount: 0 }));
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Could not save fee structure');
@@ -106,18 +114,34 @@ export default function FeeStructuresPage() {
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
               <div><label className="label">Name *</label><input required value={form.name} onChange={set('name')} className="input" placeholder="Grade 4 Term 1 Tuition"/></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="label">Grade</label>
-                  <select value={form.gradeLevel} onChange={set('gradeLevel')} className="input">
-                    <option value="">All grades</option>
-                    {GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                  </select>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="label mb-0">Classes — tick all that this fee applies to</label>
+                  <button type="button" onClick={toggleAllGrades} className="text-xs text-[#1a2e5a] hover:underline">
+                    {form.gradeLevels.length === allGradeValues.length ? 'Clear all' : 'Select all'}
+                  </button>
                 </div>
-                <div><label className="label">Category</label>
-                  <select value={form.category} onChange={set('category')} className="input">
-                    {FEE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                  </select>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto border border-theme rounded-xl p-2">
+                  {GRADE_LEVELS.map(g => {
+                    const on = form.gradeLevels.includes(g.value);
+                    return (
+                      <button type="button" key={g.value} onClick={() => toggleGrade(g.value)}
+                        className={`text-left text-sm px-2 py-1.5 rounded-lg flex items-center gap-1.5 ${on ? 'bg-[#1a2e5a] text-white' : 'hover:bg-surface-2'}`}>
+                        <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px] ${on ? 'bg-white text-[#1a2e5a] border-white' : 'border-theme'}`}>{on ? '✓' : ''}</span>
+                        {g.label}
+                      </button>
+                    );
+                  })}
                 </div>
+                <p className="text-[11px] text-theme-muted mt-1">
+                  {form.gradeLevels.length === 0 ? 'None selected → applies school-wide (all classes).' : `${form.gradeLevels.length} class(es) selected — one fee item created for each.`}
+                </p>
+              </div>
+              <div>
+                <label className="label">Category</label>
+                <select value={form.category} onChange={set('category')} className="input">
+                  {FEE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Term</label>

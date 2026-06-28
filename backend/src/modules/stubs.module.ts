@@ -96,21 +96,35 @@ class FinanceController {
       throw new BadRequestException('Fee name is required.');
     }
     await this.ensureFeeItemsTable();
+    // Accept either a single gradeLevel or an array of gradeLevels (apply one fee per class).
+    // An empty/"all" selection means a single school-wide item (grade_level = null).
+    let grades: (string | null)[] = [];
+    if (Array.isArray(dto.gradeLevels) && dto.gradeLevels.length) {
+      grades = dto.gradeLevels.map((g: any) => (g && String(g).trim()) ? String(g).trim() : null);
+    } else {
+      grades = [dto.gradeLevel ? String(dto.gradeLevel).trim() : null];
+    }
+    // De-duplicate (and collapse a stray null alongside real grades into just the real ones).
+    grades = Array.from(new Set(grades.map(g => g === null ? '' : g))).map(g => g === '' ? null : g);
     try {
-      const rows = await this.ds.query(
-        `INSERT INTO fee_items
-           (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-         RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
-                   category, amount, is_mandatory AS "isMandatory"`,
-        [
-          req.user.tenantId, req.user.schoolId || null,
-          String(dto.name).trim(), dto.gradeLevel || null, dto.term || null,
-          dto.academicYear || null, dto.category || 'tuition',
-          Number(dto.amount) || 0, dto.isMandatory !== false,
-        ],
-      );
-      return rows[0];
+      const created: any[] = [];
+      for (const grade_level of grades) {
+        const rows = await this.ds.query(
+          `INSERT INTO fee_items
+             (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+           RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
+                     category, amount, is_mandatory AS "isMandatory"`,
+          [
+            req.user.tenantId, req.user.schoolId || null,
+            String(dto.name).trim(), grade_level, dto.term || null,
+            dto.academicYear || null, dto.category || 'tuition',
+            Number(dto.amount) || 0, dto.isMandatory !== false,
+          ],
+        );
+        created.push(rows[0]);
+      }
+      return { created, count: created.length, items: created };
     } catch (e: any) {
       throw new BadRequestException(`Could not save fee structure: ${e.message}`);
     }
