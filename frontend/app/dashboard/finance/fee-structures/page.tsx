@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award } from 'lucide-react';
+import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isBursar } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
@@ -41,6 +41,19 @@ export default function FeeStructuresPage() {
 
   const set = (k: string) => (e: any) =>
     setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+
+  const canManage = isBursar(user?.role || '');
+
+  const remove = async (s: any) => {
+    if (!confirm(`Delete the fee "${s.name}"${s.gradeLevel ? ' for ' + (GRADE_LEVELS.find(g=>g.value===s.gradeLevel)?.label || s.gradeLevel) : ''}? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/finance/fee-structures/${s.id}`);
+      toast.success('Fee deleted');
+      setStructures((prev: any[]) => prev.filter(x => x.id !== s.id));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not delete fee');
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +102,7 @@ export default function FeeStructuresPage() {
               <th className="px-4 py-3 text-left text-xs">Category</th>
               <th className="px-4 py-3 text-right text-xs">Amount</th>
               <th className="px-4 py-3 text-center text-xs hidden md:table-cell">Term</th>
+              {canManage && <th className="px-4 py-3 text-center text-xs">Action</th>}
             </tr></thead>
             <tbody>
               {structures.map((s: any, i: number) => (
@@ -98,6 +112,13 @@ export default function FeeStructuresPage() {
                   <td className="px-4 py-3"><span className="badge bg-surface-2 text-theme">{s.category}</span></td>
                   <td className="px-4 py-3 text-sm font-bold text-right text-theme-heading">{fmt(s.amount)}</td>
                   <td className="px-4 py-3 text-center text-sm text-theme-muted hidden md:table-cell">{s.term?.replace('_',' ')}</td>
+                  {canManage && (
+                    <td className="px-4 py-3 text-center">
+                      <button onClick={() => remove(s)} title="Delete this fee" className="text-theme-muted hover:text-red-600 p-1.5">
+                        <Trash2 size={15}/>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

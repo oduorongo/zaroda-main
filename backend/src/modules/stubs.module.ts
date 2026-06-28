@@ -132,6 +132,9 @@ class FinanceController {
 
   @Delete('fee-structures/:id')
   async deleteFeeStructure(@Request() req: any, @Param('id') id: string) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('Only the HOI, bursar or administrator can delete fee structures.');
+    }
     await this.ds.query(`DELETE FROM fee_items WHERE id = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
   }
