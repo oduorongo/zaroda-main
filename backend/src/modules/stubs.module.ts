@@ -2051,6 +2051,12 @@ class PdfController {
       .rc-comment-label{font-size:10px;font-weight:700;text-transform:uppercase;color:#1a2e5a;letter-spacing:.04em}
       .rc-comment-text{font-size:12px;color:#333;margin-top:2px;line-height:1.45}
       .rc-dates{margin-top:12px;display:flex;gap:24px;font-size:12px;border-top:1px dashed #ccc;padding-top:8px}
+      .rc-fee{margin-top:10px;display:flex;gap:20px;align-items:center;font-size:12px;padding:8px 12px;border-radius:8px;flex-wrap:wrap}
+      .rc-fee-due{background:#fdf3f2;border:1px solid #f3c9c4}
+      .rc-fee-clear{background:#f1faf3;border:1px solid #c7e9d2}
+      .rc-fee-bal{margin-left:auto}
+      .rc-fee-due .rc-fee-bal{color:#b3261e}
+      .rc-fee-clear .rc-fee-bal{color:#1a7f3c}
       .rc-foot{margin-top:18px;font-size:12px;display:flex;justify-content:space-between}
       .rc-powered{margin-top:auto;padding-top:16px;text-align:center;font-size:10px;color:#999;font-style:italic}
       @media print{
@@ -2187,6 +2193,35 @@ class PdfController {
           ${closeDate ? `<span><b>Term closes:</b> ${esc(closeDate)}</span>` : ''}
           ${reopenDate ? `<span><b>Next term opens:</b> ${esc(reopenDate)}</span>` : ''}
         </div>` : '';
+
+    // ── Fee balance (billed for this grade − total paid), same basis as the finance view ──
+    let feeLine = '';
+    try {
+      const paidRows = await this.ds.query(
+        `SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE tenant_id = $1 AND learner_id = $2`,
+        [tenantId, learnerId],
+      ).catch(() => [{ paid: 0 }]);
+      const billedRows = await this.ds.query(
+        `SELECT COALESCE(SUM(amount),0) AS billed FROM fee_items
+          WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)`,
+        [tenantId, lr.gradeLevel],
+      ).catch(() => [{ billed: 0 }]);
+      const paid = Number(paidRows[0]?.paid || 0);
+      const billed = Number(billedRows[0]?.billed || 0);
+      const balance = billed - paid;
+      const fmt = (n: number) => 'KES ' + Math.round(n).toLocaleString('en-KE');
+      // Only show the fee section if the school actually bills fees (billed > 0) or payments exist.
+      if (billed > 0 || paid > 0) {
+        const cls = balance > 0 ? 'rc-fee-due' : 'rc-fee-clear';
+        const statusTxt = balance > 0 ? `Balance: ${fmt(balance)}` : (balance < 0 ? `Overpaid: ${fmt(-balance)}` : 'Cleared');
+        feeLine = `
+        <div class="rc-fee ${cls}">
+          <span><b>Fees billed:</b> ${fmt(billed)}</span>
+          <span><b>Paid:</b> ${fmt(paid)}</span>
+          <span class="rc-fee-bal"><b>${statusTxt}</b></span>
+        </div>`;
+      }
+    } catch { /* fees optional — omit cleanly if unavailable */ }
     const logoTag = lr.logo ? `<img src="${lr.logo}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
     const contactBits = [lr.schoolAddress, lr.schoolPhone, lr.schoolEmail].filter(Boolean).map((x: string) => esc(x)).join(' · ');
     const contactLine = contactBits ? `<p style="font-size:11px;color:#555;margin:2px 0">${contactBits}</p>` : '';
@@ -2220,6 +2255,7 @@ class PdfController {
           <div class="rc-comment-text">${esc(hoiComment)}</div>
         </div>` : ''}
         ${datesLine}
+        ${feeLine}
         <div class="rc-foot">
           <span>Class Teacher: __________________</span>
           <span>Checked by D.H.O.I. _______________</span>
