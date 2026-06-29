@@ -55,7 +55,7 @@ export default function RetoolingReadPage() {
     <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-center gap-2">
         <GraduationCap className="text-theme-muted" size={20}/>
-        <h1 className="text-lg font-black text-theme-heading">Retooling & CPD</h1>
+        <h1 className="text-lg font-black text-theme-heading">Retooling</h1>
       </div>
       <p className="text-sm text-theme-muted">Professional-development articles and resources from ZARODA.</p>
 

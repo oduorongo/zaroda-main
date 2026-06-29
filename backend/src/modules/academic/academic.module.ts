@@ -1612,19 +1612,19 @@ export class AcademicService {
       this.learnerRepo.count({ where: { tenantId, isActive: true } }),
       this.streamRepo.count({ where: { tenantId } }),
       this.dataSource.query(
-        `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')`,
+        `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois','school_admin','tenant_owner','bursar','games_dept')`,
         [tenantId],
       ).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
       this.dataSource.query(`SELECT COUNT(*) FROM schemes_of_work WHERE tenant_id = $1 AND status = 'submitted'`, [tenantId]).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
       this.dataSource.query(`SELECT COUNT(*) FROM incidents WHERE tenant_id = $1 AND status = 'open'`, [tenantId]).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
     ]);
 
-    // Teacher gender split (for the dashboard teacher card).
+    // Staff gender split (for the dashboard staff card) — includes teaching staff and admins.
     const teacherGender = await this.dataSource.query(
       `SELECT COUNT(*) FILTER (WHERE LOWER(gender) IN ('male','m'))   AS "maleTeachers",
               COUNT(*) FILTER (WHERE LOWER(gender) IN ('female','f')) AS "femaleTeachers"
          FROM users WHERE tenant_id = $1
-           AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')`,
+           AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois','school_admin','tenant_owner','bursar','games_dept')`,
       [tenantId],
     ).then(r => ({ male: parseInt(r[0]?.maleTeachers||'0'), female: parseInt(r[0]?.femaleTeachers||'0') })).catch(() => ({ male: 0, female: 0 }));
     const maleTeachers = teacherGender.male;

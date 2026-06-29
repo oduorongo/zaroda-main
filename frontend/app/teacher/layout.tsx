@@ -21,7 +21,7 @@ const TEACHER_NAV = [
   { href: '/teacher/analytics',  icon: TrendingUp,  label: 'Performance Analytics' },
   { href: '/teacher/assessment', icon: ClipboardCheck, label: 'Assessment Rubric' },
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },
-  { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling & CPD' },
+  { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },
   { href: '/teacher/records',    icon: Sparkles,    label: 'Schemes & Records' },
   { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },

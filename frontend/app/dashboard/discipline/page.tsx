@@ -26,10 +26,23 @@ export default function DisciplinePage() {
   const [loading,  setLoading] = useState(true);
   const [showNew,  setShowNew] = useState(false);
   const [saving,   setSaving]  = useState(false);
-  const [form,     setForm]    = useState({
-    learnerQuery:'', category:'Late coming', severity:'minor',
+  const [form,     setForm]    = useState<any>({
+    learnerQuery:'', learnerId:'', learnerName:'', learnerClass:'',
+    category:'Late coming', severity:'minor',
     description:'', actionTaken:'', parentNotified:false,
   });
+
+  // Class-based learner picker
+  const [streams, setStreams] = useState<any[]>([]);
+  const [pickStream, setPickStream] = useState('');
+  const [learners, setLearners] = useState<any[]>([]);
+  const [learnerSearch, setLearnerSearch] = useState('');
+
+  useEffect(() => { apiClient.get('/academic/streams').then(r => setStreams(r.data||[])).catch(()=>{}); }, []);
+  useEffect(() => {
+    if (!showNew || !pickStream) { setLearners([]); return; }
+    apiClient.get(`/library/borrowers?type=learner&streamId=${pickStream}`).then(r => setLearners(r.data||[])).catch(()=>setLearners([]));
+  }, [showNew, pickStream]);
 
   const load = () => {
     setLoading(true);
@@ -42,16 +55,18 @@ export default function DisciplinePage() {
   useEffect(() => { load(); }, []);
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
-    setForm(f => ({ ...f, [k]: (e.target as HTMLInputElement).type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
+    setForm((f: any) => ({ ...f, [k]: (e.target as HTMLInputElement).type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.learnerName) { toast.error('Select the learner'); return; }
     setSaving(true);
     try {
       await apiClient.post('/discipline/incidents', form);
       toast.success('Incident recorded');
       setShowNew(false);
-      setForm({ learnerQuery:'', category:'Late coming', severity:'minor', description:'', actionTaken:'', parentNotified:false });
+      setForm({ learnerQuery:'', learnerId:'', learnerName:'', learnerClass:'', category:'Late coming', severity:'minor', description:'', actionTaken:'', parentNotified:false });
+      setPickStream(''); setLearners([]); setLearnerSearch('');
       load();
     } catch { toast.error('Could not record incident'); }
     finally { setSaving(false); }
@@ -179,7 +194,29 @@ export default function DisciplinePage() {
               <button onClick={() => setShowNew(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
-              <div><label className="label">Learner (name or admission no.) *</label><input required value={form.learnerQuery} onChange={set('learnerQuery')} className="input" placeholder="Search learner…"/></div>
+              <div><label className="label">Class *</label>
+                <select value={pickStream} onChange={e=>{setPickStream(e.target.value); setForm((f:any)=>({...f,learnerId:'',learnerName:'',learnerClass:''}));}} className="input">
+                  <option value="">Select class…</option>
+                  {streams.map((s:any)=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              {pickStream && (
+                <div><label className="label">Learner * <span className="text-theme-muted font-normal">(search within class)</span></label>
+                  <input value={learnerSearch} onChange={e=>setLearnerSearch(e.target.value)} className="input mb-1" placeholder="Type learner name or admission no…"/>
+                  <div className="max-h-44 overflow-y-auto border border-theme rounded-xl divide-y divide-theme/30">
+                    {learners.filter((l:any)=>{const q=learnerSearch.toLowerCase(); return !q || l.name.toLowerCase().includes(q) || (l.adm||'').toLowerCase().includes(q);}).length === 0 ? (
+                      <div className="p-3 text-sm text-theme-muted">No learners found</div>
+                    ) : learners.filter((l:any)=>{const q=learnerSearch.toLowerCase(); return !q || l.name.toLowerCase().includes(q) || (l.adm||'').toLowerCase().includes(q);}).slice(0,60).map((l:any)=>(
+                      <button type="button" key={l.id} onClick={()=>setForm((f:any)=>({...f,learnerId:l.id,learnerName:l.name,learnerClass:l.stream||l.sub||''}))}
+                        className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-surface-2 ${form.learnerId===l.id?'bg-surface-2 font-semibold':''}`}>
+                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] ${form.learnerId===l.id?'bg-[#1a2e5a] text-white border-[#1a2e5a]':'border-theme'}`}>{form.learnerId===l.id?'✓':''}</span>
+                        {l.name} <span className="text-theme-muted text-xs">{l.sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {form.learnerName && <p className="text-[11px] text-green-600 mt-1">Selected: {form.learnerName}</p>}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Category *</label>

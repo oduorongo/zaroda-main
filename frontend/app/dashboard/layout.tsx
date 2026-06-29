@@ -25,7 +25,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
-  { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling & CPD',      roles: 'staff' },
+  { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling',      roles: 'staff' },
   { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all' },
   { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
   { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'staff' },

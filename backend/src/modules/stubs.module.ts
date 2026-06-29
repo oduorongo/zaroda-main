@@ -1704,16 +1704,74 @@ class Incident {
 @Controller('discipline')
 @UseGuards(JwtAuthGuard)
 class DisciplineController {
+  constructor(private readonly ds: DataSource) {}
+
+  private async ensureTable() {
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS incidents (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['school_id','uuid'],['learner_id','uuid'],['learner_name','text'],['learner_class','text'],
+      ['category','text'],['severity',"text DEFAULT 'minor'"],['description','text'],['action_taken','text'],
+      ['status',"text DEFAULT 'open'"],['parent_notified','boolean DEFAULT false'],['reported_by','uuid'],
+      ['reported_by_name','text'],['reported_at','date'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE incidents ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    // Relax legacy NOT NULL / drop legacy CHECK & FK constraints (same self-healing pattern).
+    const nn = await this.ds.query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'incidents' AND is_nullable = 'NO' AND column_default IS NULL`).catch(() => []);
+    for (const r of (nn as any[])) { if (!['id','tenant_id'].includes(r.column_name)) await this.ds.query(`ALTER TABLE incidents ALTER COLUMN ${r.column_name} DROP NOT NULL`).catch(() => null); }
+    const cons = await this.ds.query(`SELECT con.conname FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid WHERE rel.relname = 'incidents' AND con.contype IN ('c','f')`).catch(() => []);
+    for (const c of (cons as any[])) await this.ds.query(`ALTER TABLE incidents DROP CONSTRAINT IF EXISTS "${c.conname}"`).catch(() => null);
+  }
+
   @Get('incidents')
-  getIncidents(@Request() req: any) { return []; }
+  async getIncidents(@Request() req: any) {
+    await this.ensureTable();
+    const rows = await this.ds.query(
+      `SELECT i.id, i.learner_id AS "learnerId", i.category, i.severity, i.description,
+              i.action_taken AS "actionTaken", i.status, i.parent_notified AS "parentNotified",
+              i.reported_at AS "reportedAt", i.reported_by_name AS "reportedByName",
+              COALESCE(i.learner_name, (l.first_name || ' ' || COALESCE(l.last_name,''))) AS "learnerFullName",
+              i.learner_class AS "learnerClass", l.first_name AS "firstName", l.last_name AS "lastName"
+         FROM incidents i LEFT JOIN learners l ON l.id::text = i.learner_id::text
+        WHERE i.tenant_id = $1 ORDER BY i.created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+    return (rows as any[]).map(r => ({ ...r, learner: { firstName: r.firstName || (r.learnerFullName||'').split(' ')[0], lastName: r.lastName || '' } }));
+  }
 
   @Post('incidents')
-  createIncident(@Request() req: any, @Body() dto: any) {
-    return { id: 'stub', ...dto, status: 'open', reportedAt: new Date() };
+  async createIncident(@Request() req: any, @Body() dto: any) {
+    await this.ensureTable();
+    const rows = await this.ds.query(
+      `INSERT INTO incidents
+         (tenant_id, school_id, learner_id, learner_name, learner_class, category, severity,
+          description, action_taken, status, parent_notified, reported_by, reported_by_name, reported_at, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,NOW(),NOW())
+       RETURNING id, learner_name AS "learnerName", category, severity, status, reported_at AS "reportedAt"`,
+      [req.user.tenantId, req.user.schoolId || null, dto.learnerId || null, dto.learnerName || dto.learnerQuery || null,
+       dto.learnerClass || null, dto.category || null, dto.severity || 'minor', dto.description || null,
+       dto.actionTaken || null, !!dto.parentNotified, req.user.id, req.user.email || null,
+       new Date().toISOString().slice(0,10)],
+    ).catch((e: any) => { throw new BadRequestException(`Could not record incident: ${e.message}`); });
+    return rows[0];
   }
 
   @Patch('incidents/:id')
-  updateIncident(@Param('id') id: string, @Body() dto: any) { return { id, ...dto }; }
+  async updateIncident(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    await this.ensureTable();
+    await this.ds.query(
+      `UPDATE incidents SET status = COALESCE($3, status), action_taken = COALESCE($4, action_taken),
+              parent_notified = COALESCE($5, parent_notified), updated_at = NOW()
+        WHERE id::text = $1 AND tenant_id = $2`,
+      [id, req.user.tenantId, dto.status || null, dto.actionTaken || null,
+       dto.parentNotified === undefined ? null : !!dto.parentNotified],
+    ).catch(() => null);
+    return { id, ...dto };
+  }
+
+  @Delete('incidents/:id')
+  async deleteIncident(@Request() req: any, @Param('id') id: string) {
+    await this.ds.query(`DELETE FROM incidents WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
 
   @Get('counselling')
   getCounselling(@Request() req: any) { return []; }
