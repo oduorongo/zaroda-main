@@ -454,9 +454,14 @@ export class AcademicService {
       // Senior: total points across subjects + average points; else points stay null
       totalPoints: usePoints ? e.totalPoints : null,
       averagePoints: usePoints && e.count ? Math.round((e.totalPoints / e.count) * 10) / 10 : null,
-    })).sort((a: any, b: any) =>
-      usePoints ? (b.totalPoints - a.totalPoints) : (b.averagePercent - a.averagePercent),
-    );
+    })).sort((a: any, b: any) => {
+      const primary = usePoints ? (b.totalPoints - a.totalPoints) : (b.averagePercent - a.averagePercent);
+      if (primary !== 0) return primary;
+      // Same deterministic tie-breakers as the PDF: average %, then total points, then name.
+      if (b.averagePercent !== a.averagePercent) return b.averagePercent - a.averagePercent;
+      if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
+      return `${a.firstName||''} ${a.lastName||''}`.trim().localeCompare(`${b.firstName||''} ${b.lastName||''}`.trim());
+    });
     list.forEach((e: any, i: number) => (e.rank = i + 1));
     return { gradeLevel, usePoints, learners: list };
   }

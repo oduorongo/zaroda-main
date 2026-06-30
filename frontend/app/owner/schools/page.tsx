@@ -53,21 +53,38 @@ export default function OwnerSchoolsPage() {
                     <th className="py-2 pr-3 font-medium">Status</th>
                     <th className="py-2 pr-3 font-medium">Tier</th>
                     <th className="py-2 pr-3 font-medium">Learners</th>
-                    <th className="py-2 pr-3 font-medium">Users</th>
                     <th className="py-2 pr-3 font-medium">County</th>
+                    <th className="py-2 pr-3 font-medium">Sub-county</th>
+                    <th className="py-2 pr-3 font-medium">Zone</th>
+                    <th className="py-2 pr-3 font-medium">Admin contact</th>
                   </tr>
                 </thead>
                 <tbody>
                   {schools.length === 0 ? (
-                    <tr><td colSpan={6} className="py-8 text-center text-theme-muted">No schools found</td></tr>
+                    <tr><td colSpan={8} className="py-8 text-center text-theme-muted">No schools found</td></tr>
                   ) : schools.map((s: any) => (
-                    <tr key={s.id} className="border-b border-theme/50">
+                    <tr key={s.id} className="border-b border-theme/50 align-top">
                       <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
                       <td className="py-2.5 pr-3"><span className={`badge ${badge(s.status)}`}>{s.status}</span></td>
                       <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>
                       <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
-                      <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>
                       <td className="py-2.5 pr-3 text-theme-muted">{s.county || '—'}</td>
+                      <td className="py-2.5 pr-3 text-theme-muted">{s.subCounty || '—'}</td>
+                      <td className="py-2.5 pr-3 text-theme-muted">{s.zone || '—'}</td>
+                      <td className="py-2.5 pr-3 text-theme-muted">
+                        {(s.adminName || s.adminPhone || s.adminEmail) ? (
+                          <div className="leading-tight">
+                            {s.adminName && <div className="text-theme-heading font-medium">{s.adminName.trim()}</div>}
+                            {s.adminPhone && <div className="text-xs">{s.adminPhone}</div>}
+                            {s.adminEmail && <div className="text-xs">{s.adminEmail}</div>}
+                          </div>
+                        ) : (s.phone || s.email) ? (
+                          <div className="leading-tight">
+                            {s.phone && <div className="text-xs">{s.phone}</div>}
+                            {s.email && <div className="text-xs">{s.email}</div>}
+                          </div>
+                        ) : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -2397,12 +2397,23 @@ class AdminController {
     const search = q.search ? `%${q.search}%` : null;
     const rows = await this.ds.query(
       `SELECT t.id, t.name, t.status, t.subscription_tier AS "subscriptionTier",
-              t.county, t.sub_county AS "subCounty", t.phone, t.email,
+              t.county, t.sub_county AS "subCounty", t.zone, t.phone, t.email,
               t.knec_code AS "knecCode", t.trial_ends_at AS "trialEndsAt", t.created_at AS "createdAt",
               (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
-              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount"
+              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount",
+              admin.admin_name  AS "adminName",
+              admin.admin_email AS "adminEmail",
+              admin.admin_phone AS "adminPhone"
          FROM tenants t
+         LEFT JOIN LATERAL (
+           SELECT (u.first_name || ' ' || COALESCE(u.last_name,'')) AS admin_name,
+                  u.email AS admin_email, u.phone AS admin_phone
+             FROM users u
+            WHERE u.tenant_id = t.id AND u.role IN ('hoi','tenant_owner','school_admin')
+            ORDER BY CASE u.role WHEN 'hoi' THEN 0 WHEN 'tenant_owner' THEN 1 ELSE 2 END
+            LIMIT 1
+         ) admin ON true
         WHERE ($1::text IS NULL OR t.name ILIKE $1)
         ORDER BY t.created_at DESC`,
       [search],

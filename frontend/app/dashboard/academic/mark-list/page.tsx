@@ -84,9 +84,13 @@ export default function MarkListPage() {
     if (pct >= 11) return 2; return 1;
   };
 
-  // Read-only ranking: average each subject's STORED percentage.
+  // Read-only ranking — MUST match the PDF exactly:
+  //   • Grades 7–12 (senior scale): rank by TOTAL performance-level points (KNEC 8-level).
+  //   • Playgroup–Grade 6: rank by average %.
+  // Points come from each subject's % via the same KNEC cutoffs the report PDF uses (pctToPoints).
   const ranked = useMemo(() => {
     const grade = stream?.gradeLevel || 'grade_4';
+    const seniorScale = isSeniorScale(grade);
     const rows = learners.map(l => {
       const meta = savedMeta[l.id] || {};
       const subjectPct: Record<string, number> = {};
@@ -95,10 +99,19 @@ export default function MarkListPage() {
       const pcts = Object.values(subjectPct);
       const hasScores = pcts.length > 0;
       const percent = hasScores ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
+      const totalPoints = pcts.reduce((sum, p) => sum + pctToPoints(p), 0);
       const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
-      return { learner: l, subjectPct, subjectLvl, percent, avgLevel, hasScores };
+      return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgLevel, hasScores };
     });
-    const withScores = rows.filter(r => r.hasScores).sort((a, b) => b.percent - a.percent);
+    // Same sort basis AND tie-breakers as the PDF, so on-screen rank matches the PDF exactly.
+    const fullName = (r: any) => `${r.learner?.firstName||''} ${r.learner?.lastName||''}`.trim();
+    const withScores = rows.filter(r => r.hasScores).sort((a, b) => {
+      const primary = seniorScale ? (b.totalPoints - a.totalPoints) : (b.percent - a.percent);
+      if (primary !== 0) return primary;
+      if (b.percent !== a.percent) return b.percent - a.percent;
+      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+      return fullName(a).localeCompare(fullName(b));
+    });
     withScores.forEach((r, i) => (r as any).rank = i + 1);
     return [...withScores, ...rows.filter(r => !r.hasScores)];
   }, [learners, savedMeta, subjects, stream]);

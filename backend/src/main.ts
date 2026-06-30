@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'sms-email-reset-2026-06-29', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-rank-tiebreak-2026-06-30', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.

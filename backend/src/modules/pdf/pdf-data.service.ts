@@ -420,7 +420,16 @@ export class PdfDataService {
       // Average performance level (Playgroup–Grade 6), from the learner's average %.
       const avgLevel    = (isLowerBand && e.count) ? pctToLvl4(avgPercent) : '';
       return { ...e, average: avgPercent, avgLevel, totalPoints, meanPoints, overallPL: meanPoints ? Math.round(meanPoints) : 0 };
-    }).sort((a: any, b: any) => (isJsSenior ? b.totalPoints - a.totalPoints : b.average - a.average));
+    }).sort((a: any, b: any) => {
+      // Primary: total points (senior) or average % (lower band).
+      const primary = isJsSenior ? (b.totalPoints - a.totalPoints) : (b.average - a.average);
+      if (primary !== 0) return primary;
+      // Deterministic tie-breakers so screen and PDF rank identically:
+      // higher average %, then higher total points, then name A→Z.
+      if (b.average !== a.average) return b.average - a.average;
+      if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
     learners.forEach((e: any, i: number) => (e.rank = i + 1));
 
     return {
