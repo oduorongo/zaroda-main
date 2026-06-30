@@ -182,8 +182,33 @@ async function bootstrap() {
 
   // ── Health check ─────────────────────────────────────────
   const httpAdapter = app.getHttpAdapter();
+  // Test messaging config: /messaging-check?key=...&email=you@x.com  or  &sms=07XXXXXXXX
+  httpAdapter.get('/messaging-check', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const out: string[] = [];
+    out.push(`GMAIL_USER set: ${!!process.env.GMAIL_USER}`);
+    out.push(`GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`);
+    out.push(`AT_API_KEY set: ${!!process.env.AT_API_KEY}`);
+    out.push(`AT_USERNAME set: ${!!process.env.AT_USERNAME}`);
+    out.push(`FRONTEND_URL: ${process.env.FRONTEND_URL || '(unset)'}`);
+    try {
+      const msg = eval('require')('./common/messaging');
+      if (req.query?.email) {
+        const r = await msg.sendEmail(req.query.email, 'ZARODA test email',
+          '<p>This is a ZARODA test email. If you received it, Gmail SMTP is working.</p>');
+        out.push(`\nEmail to ${req.query.email}: ${r.ok ? 'SENT ✓' : 'FAILED — ' + r.detail}`);
+      }
+      if (req.query?.sms) {
+        const r = await msg.sendSms([req.query.sms], 'ZARODA test SMS — your SMS integration is working.');
+        out.push(`\nSMS to ${req.query.sms}: sent=${r.sent} failed=${r.failed} ${r.detail ? '— ' + r.detail : ''}`);
+      }
+    } catch (e: any) { out.push(`\nERROR: ${e.message}`); }
+    res.type('text/plain').send(out.join('\n'));
+  });
+
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'dash-staff-retool-discipline-2026-06-28', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'sms-email-reset-2026-06-29', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.

@@ -20,6 +20,18 @@ export class AuthController {
     return this.authService.signup(dto);
   }
 
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  forgotPassword(@Body() dto: { email: string; appUrl?: string }) {
+    return this.authService.forgotPassword(dto.email, dto.appUrl);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Body() dto: { email: string; token: string; password: string }) {
+    return this.authService.resetPassword(dto.email, dto.token, dto.password);
+  }
+
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refresh(@Body() dto: { refreshToken: string }) {
