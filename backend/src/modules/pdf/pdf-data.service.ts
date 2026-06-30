@@ -386,6 +386,20 @@ export class PdfDataService {
       [tenantId, streamId, term, examType || ''],
     ).catch(() => []);
 
+    // Make sure every subject that actually has marks appears as a column — otherwise a mark
+    // entered under a name not in the rubric templates would count toward the average (correct)
+    // but have no column to display (confusing). Append any missing subject names, preserving
+    // the canonical rubric order first.
+    {
+      const have = new Set(subjects.map(s => s.toLowerCase().trim()));
+      const seenExtra = new Set<string>();
+      for (const m of (marks as any[])) {
+        const name = m.subject ? String(m.subject).trim() : '';
+        const key = name.toLowerCase();
+        if (name && !have.has(key) && !seenExtra.has(key)) { subjects.push(name); seenExtra.add(key); }
+      }
+    }
+
     const byLearner: Record<string, any> = {};
     for (const m of marks) {
       if (!byLearner[m.learnerId]) {
@@ -396,15 +410,17 @@ export class PdfDataService {
       }
       const key = String(m.subject || '').toLowerCase().trim();
       const matched = subjects.find(s => s.toLowerCase().trim() === key);
-      if (matched) {
-        byLearner[m.learnerId].scores[matched] = m.rawScore;
-        // Performance level points (1–8) per subject, from % where available.
+      // Column key: use the canonical rubric name where it matches, else the raw subject name
+      // so the mark is never dropped. The AVERAGE/RANK must count every mark the learner has —
+      // exactly the set the on-screen marklist uses — otherwise screen and PDF ranks diverge.
+      const col = matched || (m.subject ? String(m.subject) : null);
+      if (col) {
+        byLearner[m.learnerId].scores[col] = m.rawScore;
         const pts = m.percent != null ? percentToPoints(Number(m.percent)) : null;
-        if (pts != null) byLearner[m.learnerId].points[matched] = pts;
-        // 4-level performance level (EE/ME/AE/BE) per subject, for lower grades.
+        if (pts != null) byLearner[m.learnerId].points[col] = pts;
         if (m.percent != null) {
           const p = Number(m.percent);
-          byLearner[m.learnerId].levels[matched] = p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE';
+          byLearner[m.learnerId].levels[col] = p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE';
         }
         if (m.percent != null) { byLearner[m.learnerId].total += Number(m.percent); byLearner[m.learnerId].count++; }
       }
