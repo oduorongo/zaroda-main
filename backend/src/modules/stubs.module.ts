@@ -2027,7 +2027,6 @@ class PdfController {
         <tr>
           <td>${i+1}</td><td style="text-align:left">${esc(L.name)}</td><td>${esc(L.adm||'')}</td>
           ${subjects.map(s => { const m = L.marks[s]; return `<td>${m ? `${m.pct}% <b>${m.level}</b>` : '-'}</td>`; }).join('')}
-          <td><b>${L.count ? L.avgPct + '%' : '-'}</b></td>
           <td><b>${L.points}/${maxPoints}</b></td>
           <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
         </tr>`).join('');
@@ -2053,8 +2052,8 @@ class PdfController {
           ${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
-        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total %</th><th>Points</th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this assessment.</td></tr>`}</tbody></table>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points</th><th>Level</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}</tbody></table>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>

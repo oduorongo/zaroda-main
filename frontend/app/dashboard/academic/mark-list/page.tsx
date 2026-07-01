@@ -269,7 +269,6 @@ export default function MarkListPage() {
                     {s.length > 12 ? s.slice(0, 10) + '…' : s}
                   </th>
                 ))}
-                <th className="px-3 py-3 text-center">Total %</th>
                 <th className="px-3 py-3 text-center">Points</th>
                 <th className="px-3 py-3 text-center">Level</th>
               </tr>
@@ -301,9 +300,6 @@ export default function MarkListPage() {
                         </td>
                       );
                     })}
-                    <td className="px-3 py-2 text-center font-black text-theme-heading">
-                      {row.hasScores ? `${row.percent}%` : '—'}
-                    </td>
                     <td className="px-3 py-2 text-center font-black text-theme-heading">
                       {row.hasScores ? row.totalPoints : '—'}
                     </td>
