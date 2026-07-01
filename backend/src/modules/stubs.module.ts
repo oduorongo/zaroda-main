@@ -2009,11 +2009,12 @@ class PdfController {
       // Average over the FULL number of areas (gap-aware), and rank by Total % → Points → name,
       // IDENTICAL to the on-screen mark list.
       const learners = Object.values(byLearner).map((L: any) => {
-        L.avgPct = Math.round(L.pctSum / areaCount);
+        L.avgPctExact = L.pctSum / areaCount;          // precise, for ranking
+        L.avgPct = Math.round(L.avgPctExact);          // rounded, for display
         L.avgLevel = L.count ? lvl(L.avgPct) : '';
         return L;
       }).sort((a: any, b: any) => {
-        if (b.avgPct !== a.avgPct) return b.avgPct - a.avgPct;
+        if (b.avgPctExact !== a.avgPctExact) return b.avgPctExact - a.avgPctExact;
         if (b.points !== a.points) return b.points - a.points;
         return String(a.name||'').localeCompare(String(b.name||''));
       });

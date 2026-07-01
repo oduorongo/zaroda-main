@@ -473,14 +473,17 @@ export class AcademicService {
     }
     const list = Object.values(byLearner).map((e: any) => ({
       ...e,
-      // Average divides by the FULL number of learning areas in the class (missing marks = gap).
+      // Precise average (for ranking) divides by the FULL number of areas (missing marks = gap).
+      // Displayed value is rounded, but ranking uses the precise value so learners whose true
+      // averages differ (e.g. 74.4 vs 74.6) are never falsely tied by rounding.
+      averagePercentExact: e.totalPercent / areaCount,
       averagePercent: Math.round(e.totalPercent / areaCount),
       // Total points: 1-8 scale for senior, 1-4 for lower — computed for all classes.
       totalPoints: e.totalPoints,
       averagePoints: Math.round((e.totalPoints / areaCount) * 10) / 10,
     })).sort((a: any, b: any) => {
-      // Uniform ranking across ALL classes: total % first, then total points, then name.
-      if (b.averagePercent !== a.averagePercent) return b.averagePercent - a.averagePercent;
+      // Uniform ranking across ALL classes: precise total % first, then total points, then name.
+      if (b.averagePercentExact !== a.averagePercentExact) return b.averagePercentExact - a.averagePercentExact;
       if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
       return `${a.firstName||''} ${a.lastName||''}`.trim().localeCompare(`${b.firstName||''} ${b.lastName||''}`.trim());
     });
