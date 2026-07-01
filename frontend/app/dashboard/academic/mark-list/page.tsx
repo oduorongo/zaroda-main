@@ -269,7 +269,7 @@ export default function MarkListPage() {
                   </th>
                 ))}
                 <th className="px-3 py-3 text-center">Total %</th>
-                {isSenior && <th className="px-3 py-3 text-center">Points</th>}
+                <th className="px-3 py-3 text-center">Points</th>
                 <th className="px-3 py-3 text-center">Level</th>
               </tr>
             </thead>
@@ -303,11 +303,9 @@ export default function MarkListPage() {
                     <td className="px-3 py-2 text-center font-black text-theme-heading">
                       {row.hasScores ? `${row.percent}%` : '—'}
                     </td>
-                    {isSenior && (
-                      <td className="px-3 py-2 text-center font-black text-theme-heading">
-                        {row.hasScores ? row.totalPoints : '—'}
-                      </td>
-                    )}
+                    <td className="px-3 py-2 text-center font-black text-theme-heading">
+                      {row.hasScores ? row.totalPoints : '—'}
+                    </td>
                     <td className="px-3 py-2 text-center">
                       {lvl && (
                         <span className="badge text-white text-[10px] font-bold" style={{ backgroundColor: lvl.color }}>

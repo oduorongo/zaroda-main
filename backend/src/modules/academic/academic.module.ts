@@ -463,7 +463,11 @@ export class AcademicService {
         };
       }
       const e = byLearner[r.learnerId];
-      const pts = (usePoints && r.percent != null) ? this.percentToPoints(Number(r.percent)) : null;
+      // Points scale stays grade-appropriate: 1-8 for senior (Grade 7-12), 1-4 for lower bands.
+      const pts = (r.percent != null)
+        ? (usePoints ? this.percentToPoints(Number(r.percent))
+                     : (Number(r.percent) >= 76 ? 4 : Number(r.percent) >= 51 ? 3 : Number(r.percent) >= 26 ? 2 : 1))
+        : null;
       e.subjects[r.subject] = { percent: r.percent, level: r.level, rawScore: r.rawScore, points: pts };
       if (r.percent != null) { e.totalPercent += Number(r.percent); e.count++; if (pts != null) e.totalPoints += pts; }
     }
@@ -471,12 +475,11 @@ export class AcademicService {
       ...e,
       // Average divides by the FULL number of learning areas in the class (missing marks = gap).
       averagePercent: Math.round(e.totalPercent / areaCount),
-      totalPoints: usePoints ? e.totalPoints : null,
-      averagePoints: usePoints ? Math.round((e.totalPoints / areaCount) * 10) / 10 : null,
+      // Total points: 1-8 scale for senior, 1-4 for lower — computed for all classes.
+      totalPoints: e.totalPoints,
+      averagePoints: Math.round((e.totalPoints / areaCount) * 10) / 10,
     })).sort((a: any, b: any) => {
-      const primary = usePoints ? (b.totalPoints - a.totalPoints) : (b.averagePercent - a.averagePercent);
-      if (primary !== 0) return primary;
-      // Same deterministic tie-breakers as the PDF: average %, then total points, then name.
+      // Uniform ranking across ALL classes: total % first, then total points, then name.
       if (b.averagePercent !== a.averagePercent) return b.averagePercent - a.averagePercent;
       if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
       return `${a.firstName||''} ${a.lastName||''}`.trim().localeCompare(`${b.firstName||''} ${b.lastName||''}`.trim());

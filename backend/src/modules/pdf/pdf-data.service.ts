@@ -393,6 +393,13 @@ export class PdfDataService {
     const areaByKey = new Map(subjects.map(s => [s.toLowerCase().trim(), s]));
 
     const byLearner: Record<string, any> = {};
+    const isJsSenior = isSeniorGrade(gradeLevel) || /grade_(7|8|9|1[0-2])/.test(gradeLevel);
+    const isLowerBand = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6'].includes(gradeLevel);
+    const pctToLvl4 = (p: number): string => (p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE');
+    // Points scale stays grade-appropriate: 1-8 for senior, 1-4 for lower bands.
+    const pointsFor = (pct: number): number =>
+      isJsSenior ? percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
+
     for (const m of marks) {
       if (!byLearner[m.learnerId]) {
         byLearner[m.learnerId] = {
@@ -401,39 +408,30 @@ export class PdfDataService {
         };
       }
       const key = String(m.subject || '').toLowerCase().trim();
-      // Map the mark onto its canonical rubric column. If it doesn't match any rubric area it is
-      // ignored for the marklist (the rubric defines the columns) — consistent with the screen.
       const col = areaByKey.get(key);
       if (col) {
         byLearner[m.learnerId].scores[col] = m.rawScore;
-        const pts = m.percent != null ? percentToPoints(Number(m.percent)) : null;
+        const pts = m.percent != null ? pointsFor(Number(m.percent)) : null;
         if (pts != null) byLearner[m.learnerId].points[col] = pts;
         if (m.percent != null) {
           const p = Number(m.percent);
-          byLearner[m.learnerId].levels[col] = p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE';
+          byLearner[m.learnerId].levels[col] = pctToLvl4(p);
         }
         if (m.percent != null) { byLearner[m.learnerId].total += Number(m.percent); byLearner[m.learnerId].count++; }
       }
     }
-    const isJsSenior = isSeniorGrade(gradeLevel) || /grade_(7|8|9|1[0-2])/.test(gradeLevel);
-    const isLowerBand = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6'].includes(gradeLevel);
-    const pctToLvl4 = (p: number): string => (p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE');
     // Denominator = full number of learning areas in the class (missing marks count as a gap),
     // so screen and PDF averages match exactly.
     const areaCount = subjects.length || 1;
+    // Uniform summary across ALL classes: Total % (average over all areas), Total Points
+    // (sum of per-area performance points), and Level (from the average %). No points-average.
     const learners = Object.values(byLearner).map((e: any) => {
       const totalPoints = Object.values(e.points).reduce((n: number, p: any) => n + Number(p), 0);
       const avgPercent  = Math.round(e.total / areaCount);
-      const meanPoints  = Math.round((totalPoints / areaCount) * 100) / 100;
-      // Average performance level (Playgroup–Grade 6), from the learner's average %.
-      const avgLevel    = (isLowerBand && e.count) ? pctToLvl4(avgPercent) : '';
-      return { ...e, average: avgPercent, avgLevel, totalPoints, meanPoints, overallPL: meanPoints ? Math.round(meanPoints) : 0 };
+      const level       = e.count ? pctToLvl4(avgPercent) : '';
+      return { ...e, average: avgPercent, totalPoints, avgLevel: level };
     }).sort((a: any, b: any) => {
-      // Primary: total points (senior) or average % (lower band).
-      const primary = isJsSenior ? (b.totalPoints - a.totalPoints) : (b.average - a.average);
-      if (primary !== 0) return primary;
-      // Deterministic tie-breakers so screen and PDF rank identically:
-      // higher average %, then higher total points, then name A→Z.
+      // Rank basis is uniform: total % first, then total points, then level, then name.
       if (b.average !== a.average) return b.average - a.average;
       if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
       return String(a.name || '').localeCompare(String(b.name || ''));
@@ -445,7 +443,7 @@ export class PdfDataService {
         brand: { primary: (school as any)?.settings?.brandPrimary, accent: (school as any)?.settings?.brandAccent } },
       stream: stream[0]?.name || 'Class', gradeLevel, term, examType, academicYear,
       subjects, learners, isJsSenior, isLowerBand,
-      maxPoints: subjects.length * 8,
+      maxPoints: subjects.length * (isJsSenior ? 8 : 4),
     };
   }
 

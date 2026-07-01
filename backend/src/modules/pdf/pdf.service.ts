@@ -509,9 +509,9 @@ export class PdfService {
           <th rowspan="2">Adm No</th>
           <th rowspan="2" style="text-align:left">Candidate</th>
           ${data.subjects.map(s => `<th colspan="2">${esc(abbrevArea(s))}${codeFor(s) ? ` - ${codeFor(s)}` : ''}</th>`).join('')}
+          <th rowspan="2">Total %</th>
           <th rowspan="2">Points<br/><span style="font-weight:400">/ ${maxPoints}</span></th>
-          <th rowspan="2">Mean %</th>
-          <th rowspan="2">Overall<br/>PL</th>
+          <th rowspan="2">Level</th>
         </tr>
         <tr>
           ${data.subjects.map(() => `<th>Score</th><th>PL</th>`).join('')}
@@ -524,9 +524,9 @@ export class PdfService {
           ${data.subjects.map(s => `
             <td style="text-align:center">${l.scores[s] ?? ''}</td>
             <td style="text-align:center;font-weight:600;color:${primary}">${l.points?.[s] ?? ''}</td>`).join('')}
+          <td style="text-align:center;font-weight:700">${l.average ? l.average + '%' : ''}</td>
           <td style="text-align:center;font-weight:700">${l.totalPoints ?? ''}</td>
-          <td style="text-align:center">${l.average ? l.average + '%' : ''}</td>
-          <td style="text-align:center;font-weight:700;color:${primary}">${l.overallPL ?? ''}</td>
+          <td style="text-align:center;font-weight:700;color:${primary}">${esc((l as any).avgLevel || '')}</td>
         </tr>`).join('');
       const cols = data.subjects.length * 2 + 6;
       return `<!doctype html><html><head><meta charset="utf-8"/><style>
@@ -571,9 +571,10 @@ export class PdfService {
           <td style="text-align:center">${l.scores[s] ?? ''}</td>
           <td style="text-align:center;font-weight:700;color:${primary}">${esc(l.levels?.[s] || '')}</td>`).join('')}
         <td style="text-align:center;font-weight:700;color:${primary}">${l.average}%</td>
+        <td style="text-align:center;font-weight:700">${l.totalPoints ?? ''}</td>
         <td style="text-align:center;font-weight:700;color:${primary}">${esc(l.avgLevel || '')}</td>
       </tr>`).join('');
-    const lowerCols = data.subjects.length * 2 + 5;
+    const lowerCols = data.subjects.length * 2 + 6;
 
     const html = `<!doctype html><html><head><meta charset="utf-8"/><style>
       *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
@@ -605,7 +606,7 @@ export class PdfService {
           <tr>
             <th rowspan="2" style="width:24px">#</th><th rowspan="2">Adm No</th><th rowspan="2" style="text-align:left">Learner</th>
             ${data.subjects.map(s => `<th colspan="2">${esc(abbrevArea(s))}</th>`).join('')}
-            <th rowspan="2">Avg %</th><th rowspan="2">Avg Level</th>
+            <th rowspan="2">Total %</th><th rowspan="2">Points</th><th rowspan="2">Level</th>
           </tr>
           <tr>${data.subjects.map(() => `<th>Score</th><th>PL</th>`).join('')}</tr>
         </thead>
