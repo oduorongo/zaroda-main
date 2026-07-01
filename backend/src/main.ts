@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-shared-criteria-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-diag-v2-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -806,12 +806,27 @@ async function bootstrap() {
       const rubricLC = new Set(rubric.map((x: string) => x.toLowerCase().trim()));
       const lines = (marksQ as any[]).map(m =>
         `  ${rubricLC.has(String(m.subject).toLowerCase().trim()) ? '✓' : '✗ NO-MATCH'}  "${m.subject}"  (${m.n} marks)`);
+
+      // Also list every stream of this grade and how many marks each has — helps find where
+      // marks actually live when a named stream shows "(none)".
+      const streamsOfGrade = await ds.query(
+        `SELECT s.id, s.name,
+                (SELECT COUNT(*) FROM assessment_results ar WHERE ar.stream_id::text = s.id::text) AS marks,
+                (SELECT COUNT(*) FROM learners l WHERE l.stream_id::text = s.id::text AND l.is_active = true) AS learners
+           FROM streams s WHERE s.grade_level = $1 ORDER BY s.name`, [grade],
+      ).catch(() => []);
+      const streamLines = (streamsOfGrade as any[]).map(s =>
+        `  ${s.name}: ${s.marks} marks · ${s.learners} learners${streamId && s.id === streamId ? '   ← queried' : ''}`);
+
       res.type('text/plain').send(
         `Grade: ${grade}${streamName ? ' · ' + streamName : ''}\n\n` +
         `RUBRIC AREAS (${rubric.length}):\n${rubric.map((a: string) => '  • ' + a).join('\n')}\n\n` +
-        `SUBJECTS IN MARKS:\n${lines.join('\n') || '  (none)'}\n\n` +
-        `✗ NO-MATCH rows are marks whose subject name isn't a rubric column — they won't show/rank correctly. ` +
-        `Fix with /rename-mark-subject or /align-mark-subjects.`,
+        `ALL ${grade} STREAMS:\n${streamLines.join('\n') || '  (none)'}\n\n` +
+        `SUBJECTS IN MARKS${streamId ? ' (this stream)' : ' (whole grade)'}:\n${lines.join('\n') || '  (none)'}\n\n` +
+        `Notes:\n` +
+        `  • ✗ NO-MATCH = mark subject isn't a rubric column (fix with /align-mark-subjects or /rename-mark-subject).\n` +
+        `  • If a rubric area shouldn't be there (e.g. Indigenous Language), remove it with /remove-rubric-areas.\n` +
+        `  • If your class shows 0 marks but another stream has them, marks were entered on the other stream.`,
       );
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
