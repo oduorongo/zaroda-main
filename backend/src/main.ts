@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'reseed-env-lower-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-diag-bytes-fix-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -852,8 +852,55 @@ async function bootstrap() {
             `SELECT DISTINCT ar.subject, COUNT(*)::int n FROM assessment_results ar JOIN streams s ON s.id::text=ar.stream_id::text
               WHERE s.grade_level=$1 GROUP BY ar.subject ORDER BY ar.subject`, [grade]).catch(() => []);
       const rubricLC = new Set(rubric.map((x: string) => x.toLowerCase().trim()));
-      const lines = (marksQ as any[]).map(m =>
-        `  ${rubricLC.has(String(m.subject).toLowerCase().trim()) ? '✓' : '✗ NO-MATCH'}  "${m.subject}"  (${m.n} marks)`);
+      const rubricArr = rubric.map((x: string) => x.toLowerCase().trim());
+      const lines = (marksQ as any[]).map(m => {
+        const key = String(m.subject).toLowerCase().trim();
+        const ok = rubricLC.has(key);
+        let extra = '';
+        if (!ok) {
+          // Show the closest rubric name + a byte dump to reveal hidden differences
+          // (trailing spaces, non-breaking spaces, casing, ampersand vs 'and', etc.).
+          const near = rubricArr.find((r: string) => r.replace(/[^a-z]/g, '') === key.replace(/[^a-z]/g, ''));
+          const bytes = Array.from(String(m.subject)).map(c => {
+            const code = c.charCodeAt(0);
+            return (code < 32 || code > 126) ? `[${code}]` : c;
+          }).join('');
+          extra = near
+            ? `  ← letters match a rubric area but punctuation/spacing differ. raw="${bytes}"`
+            : `  ← no similar rubric area. raw="${bytes}"`;
+        }
+        return `  ${ok ? '✓' : '✗ NO-MATCH'}  "${m.subject}"  (${m.n} marks)${extra}`;
+      });
+
+      // Optional auto-heal: rename mark subjects whose LETTERS match a rubric area but whose
+      // spacing/punctuation differs, so they land on the rubric column. /marklist-diag?...&fix=1
+      let fixLog = '';
+      if (req.query?.fix) {
+        const letters = (x: string) => x.toLowerCase().replace(/[^a-z]/g, '');
+        const rubricByLetters = new Map(rubric.map((r: string) => [letters(r), r]));
+        for (const m of (marksQ as any[])) {
+          const key = String(m.subject).toLowerCase().trim();
+          if (rubricLC.has(key)) continue;               // already matches
+          const target = rubricByLetters.get(letters(String(m.subject)));
+          if (target && target !== m.subject) {
+            if (streamId) {
+              await ds.query(`UPDATE assessment_results SET subject = $1 WHERE stream_id::text = $2 AND subject = $3`, [target, streamId, m.subject]).catch(() => null);
+            } else {
+              await ds.query(
+                `UPDATE assessment_results ar SET subject = $1 FROM streams s
+                  WHERE s.id::text = ar.stream_id::text AND s.grade_level = $2 AND ar.subject = $3`,
+                [target, grade, m.subject]).catch(() => null);
+            }
+            fixLog += `\n  fixed "${m.subject}" → "${target}" (${m.n} marks)`;
+          }
+        }
+        fixLog = fixLog ? `\nAUTO-HEAL applied:${fixLog}\n(re-run without &fix=1 to confirm all ✓)\n` : '\nAUTO-HEAL: nothing to fix (no letter-matching mismatches).\n';
+      }
+
+      const rubricDump = rubric.map((a: string) => {
+        const bytes = Array.from(a).map(c => { const code = c.charCodeAt(0); return (code < 32 || code > 126) ? `[${code}]` : c; }).join('');
+        return `  • ${a}${bytes !== a ? `   raw="${bytes}"` : ''}`;
+      });
 
       // Also list every stream of this grade and how many marks each has — helps find where
       // marks actually live when a named stream shows "(none)".
@@ -867,14 +914,14 @@ async function bootstrap() {
         `  ${s.name}: ${s.marks} marks · ${s.learners} learners${streamId && s.id === streamId ? '   ← queried' : ''}`);
 
       res.type('text/plain').send(
-        `Grade: ${grade}${streamName ? ' · ' + streamName : ''}\n\n` +
-        `RUBRIC AREAS (${rubric.length}):\n${rubric.map((a: string) => '  • ' + a).join('\n')}\n\n` +
+        `Grade: ${grade}${streamName ? ' · ' + streamName : ''}\n` + fixLog + `\n` +
+        `RUBRIC AREAS (${rubric.length}):\n${rubricDump.join('\n')}\n\n` +
         `ALL ${grade} STREAMS:\n${streamLines.join('\n') || '  (none)'}\n\n` +
         `SUBJECTS IN MARKS${streamId ? ' (this stream)' : ' (whole grade)'}:\n${lines.join('\n') || '  (none)'}\n\n` +
         `Notes:\n` +
-        `  • ✗ NO-MATCH = mark subject isn't a rubric column (fix with /align-mark-subjects or /rename-mark-subject).\n` +
-        `  • If a rubric area shouldn't be there (e.g. Indigenous Language), remove it with /remove-rubric-areas.\n` +
-        `  • If your class shows 0 marks but another stream has them, marks were entered on the other stream.`,
+        `  • ✗ NO-MATCH = mark subject isn't a rubric column. If letters match but spacing/punctuation\n` +
+        `    differ, add &fix=1 to auto-rename them onto the rubric column.\n` +
+        `  • Otherwise fix with /align-mark-subjects or /rename-mark-subject.`,
       );
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
