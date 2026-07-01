@@ -2006,11 +2006,16 @@ class PdfController {
         }
       }
       const maxPoints = subjects.length * (senior ? 8 : 4);
-      // Average over the FULL number of areas (gap-aware), and rank by Total % → Points → name,
-      // IDENTICAL to the on-screen mark list.
+      // Average over the FULL number of areas (gap-aware). Points are ALSO gap-consistent:
+      // an area with no mark counts as the lowest point (1), so points is computed over the
+      // same full set of areas as the % average. This keeps Points and Total % moving together
+      // — a higher % can never end up with fewer points — so ranking never contradicts the
+      // Points column. Rank by Total % → Points → name, identical to the on-screen mark list.
       const learners = Object.values(byLearner).map((L: any) => {
-        L.avgPctExact = L.pctSum / areaCount;          // precise, for ranking
-        L.avgPct = Math.round(L.avgPctExact);          // rounded, for display
+        const missing = areaCount - L.count;                 // areas with no mark
+        L.points = L.points + (missing > 0 ? missing * 1 : 0); // each missing area = 1 point
+        L.avgPctExact = L.pctSum / areaCount;                 // precise, for ranking
+        L.avgPct = Math.round(L.avgPctExact);                 // rounded, for display
         L.avgLevel = L.count ? lvl(L.avgPct) : '';
         return L;
       }).sort((a: any, b: any) => {

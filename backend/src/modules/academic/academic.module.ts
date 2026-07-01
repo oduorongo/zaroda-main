@@ -471,17 +471,24 @@ export class AcademicService {
       e.subjects[r.subject] = { percent: r.percent, level: r.level, rawScore: r.rawScore, points: pts };
       if (r.percent != null) { e.totalPercent += Number(r.percent); e.count++; if (pts != null) e.totalPoints += pts; }
     }
-    const list = Object.values(byLearner).map((e: any) => ({
-      ...e,
-      // Precise average (for ranking) divides by the FULL number of areas (missing marks = gap).
-      // Displayed value is rounded, but ranking uses the precise value so learners whose true
-      // averages differ (e.g. 74.4 vs 74.6) are never falsely tied by rounding.
-      averagePercentExact: e.totalPercent / areaCount,
-      averagePercent: Math.round(e.totalPercent / areaCount),
-      // Total points: 1-8 scale for senior, 1-4 for lower — computed for all classes.
-      totalPoints: e.totalPoints,
-      averagePoints: Math.round((e.totalPoints / areaCount) * 10) / 10,
-    })).sort((a: any, b: any) => {
+    const list = Object.values(byLearner).map((e: any) => {
+      // Points are gap-consistent: each learning area with NO mark counts as the lowest point
+      // (1), so points is computed over the same full set of areas as the % average. This keeps
+      // Points and Total % monotonic — a higher % can never show fewer points — so the Points
+      // column never contradicts the ranking.
+      const missing = areaCount - e.count;
+      const totalPoints = e.totalPoints + (missing > 0 ? missing * 1 : 0);
+      return {
+        ...e,
+        // Precise average (for ranking) divides by the FULL number of areas (missing marks = gap).
+        // Displayed value is rounded, but ranking uses the precise value so learners whose true
+        // averages differ (e.g. 74.4 vs 74.6) are never falsely tied by rounding.
+        averagePercentExact: e.totalPercent / areaCount,
+        averagePercent: Math.round(e.totalPercent / areaCount),
+        totalPoints,
+        averagePoints: Math.round((totalPoints / areaCount) * 10) / 10,
+      };
+    }).sort((a: any, b: any) => {
       // Uniform ranking across ALL classes: precise total % first, then total points, then name.
       if (b.averagePercentExact !== a.averagePercentExact) return b.averagePercentExact - a.averagePercentExact;
       if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
