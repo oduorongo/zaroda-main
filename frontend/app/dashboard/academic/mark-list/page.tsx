@@ -97,9 +97,10 @@ export default function MarkListPage() {
     if (pct >= 11) return 2; return 1;
   };
 
-  // Read-only ranking — MUST match the PDF exactly:
-  //   • Grades 7–12 (senior scale): rank by TOTAL performance-level points (KNEC 8-level).
-  //   • Playgroup–Grade 6: rank by average %.
+  // Read-only ranking — MUST match the PDF exactly. Ranking basis is the TOTAL PERFORMANCE
+  // LEVEL (sum of each learning area's performance points) for ALL classes, so the Points
+  // column always agrees with the rank. Average % breaks ties only. The screen consumes the
+  // API's computed rank directly (single source of truth).
   // Points come from each subject's % via the same KNEC cutoffs the report PDF uses (pctToPoints).
   const ranked = useMemo(() => {
     const grade = stream?.gradeLevel || 'grade_4';

@@ -472,26 +472,25 @@ export class AcademicService {
       if (r.percent != null) { e.totalPercent += Number(r.percent); e.count++; if (pts != null) e.totalPoints += pts; }
     }
     const list = Object.values(byLearner).map((e: any) => {
-      // Points are gap-consistent: each learning area with NO mark counts as the lowest point
-      // (1), so points is computed over the same full set of areas as the % average. This keeps
-      // Points and Total % monotonic — a higher % can never show fewer points — so the Points
-      // column never contradicts the ranking.
-      const missing = areaCount - e.count;
-      const totalPoints = e.totalPoints + (missing > 0 ? missing * 1 : 0);
+      // Total performance level = sum of each learning area's performance points (missing area
+      // contributes 0 — no evidence, no points). This SUM is the ranking basis, so the Points
+      // column IS the rank and can never contradict it.
+      const totalPoints = e.totalPoints;
       return {
         ...e,
-        // Precise average (for ranking) divides by the FULL number of areas (missing marks = gap).
-        // Displayed value is rounded, but ranking uses the precise value so learners whose true
-        // averages differ (e.g. 74.4 vs 74.6) are never falsely tied by rounding.
+        // Average % is shown for information and used only as a tie-breaker when two learners
+        // have the exact same total points. Precise value used for the tiebreak; display rounds.
         averagePercentExact: e.totalPercent / areaCount,
         averagePercent: Math.round(e.totalPercent / areaCount),
         totalPoints,
         averagePoints: Math.round((totalPoints / areaCount) * 10) / 10,
       };
     }).sort((a: any, b: any) => {
-      // Uniform ranking across ALL classes: precise total % first, then total points, then name.
-      if (b.averagePercentExact !== a.averagePercentExact) return b.averagePercentExact - a.averagePercentExact;
+      // Rank by TOTAL PERFORMANCE POINTS (sum of per-area levels) first — this is what the
+      // Points column shows, so the column always agrees with the rank. Ties broken by the
+      // precise average %, then by name for a fully stable order.
       if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
+      if (b.averagePercentExact !== a.averagePercentExact) return b.averagePercentExact - a.averagePercentExact;
       return `${a.firstName||''} ${a.lastName||''}`.trim().localeCompare(`${b.firstName||''} ${b.lastName||''}`.trim());
     });
     list.forEach((e: any, i: number) => (e.rank = i + 1));

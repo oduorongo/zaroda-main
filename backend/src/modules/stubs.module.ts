@@ -2006,21 +2006,18 @@ class PdfController {
         }
       }
       const maxPoints = subjects.length * (senior ? 8 : 4);
-      // Average over the FULL number of areas (gap-aware). Points are ALSO gap-consistent:
-      // an area with no mark counts as the lowest point (1), so points is computed over the
-      // same full set of areas as the % average. This keeps Points and Total % moving together
-      // — a higher % can never end up with fewer points — so ranking never contradicts the
-      // Points column. Rank by Total % → Points → name, identical to the on-screen mark list.
+      // Total performance level = sum of each area's performance points (missing area = 0). This
+      // SUM is the ranking basis, so the Points column IS the rank and can't contradict it.
+      // Average % is shown for information and only breaks ties. Rank: Points → avg % → name,
+      // IDENTICAL to the on-screen mark list.
       const learners = Object.values(byLearner).map((L: any) => {
-        const missing = areaCount - L.count;                 // areas with no mark
-        L.points = L.points + (missing > 0 ? missing * 1 : 0); // each missing area = 1 point
-        L.avgPctExact = L.pctSum / areaCount;                 // precise, for ranking
+        L.avgPctExact = L.pctSum / areaCount;                 // precise, for tie-break + display
         L.avgPct = Math.round(L.avgPctExact);                 // rounded, for display
         L.avgLevel = L.count ? lvl(L.avgPct) : '';
         return L;
       }).sort((a: any, b: any) => {
-        if (b.avgPctExact !== a.avgPctExact) return b.avgPctExact - a.avgPctExact;
         if (b.points !== a.points) return b.points - a.points;
+        if (b.avgPctExact !== a.avgPctExact) return b.avgPctExact - a.avgPctExact;
         return String(a.name||'').localeCompare(String(b.name||''));
       });
 
