@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-diag-v2-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'dedupe-streams-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -781,6 +781,54 @@ async function bootstrap() {
   // Diagnose marklist mismatches: shows the rubric areas for a class vs the DISTINCT subject
   // names actually stored in marks, so we can see which marks don't match a rubric column.
   // /marklist-diag?key=...&stream=Grade 5 A   (or &grade=grade_5)
+  // Find duplicate streams (same name + grade) and optionally delete the EMPTY duplicate
+  // (0 learners AND 0 marks). /dedupe-streams?key=...          → report only
+  //                          /dedupe-streams?key=...&delete=1  → delete empty duplicates
+  httpAdapter.get('/dedupe-streams', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const doDelete = !!req.query?.delete;
+    try {
+      const ds = app.get(DataSource);
+      // All streams with their learner + mark counts.
+      const rows = await ds.query(
+        `SELECT s.id, s.name, s.grade_level AS grade, s.tenant_id,
+                (SELECT COUNT(*) FROM learners l WHERE l.stream_id::text = s.id::text AND l.is_active = true) AS learners,
+                (SELECT COUNT(*) FROM assessment_results ar WHERE ar.stream_id::text = s.id::text) AS marks
+           FROM streams s ORDER BY s.grade_level, LOWER(s.name)`,
+      ).catch(() => []);
+      // Group by tenant+grade+normalised name.
+      const groups: Record<string, any[]> = {};
+      for (const r of (rows as any[])) {
+        const k = `${r.tenant_id}|${r.grade}|${String(r.name).toLowerCase().replace(/\s+/g, ' ').trim()}`;
+        (groups[k] = groups[k] || []).push(r);
+      }
+      const report: string[] = [];
+      let deleted = 0;
+      for (const k of Object.keys(groups)) {
+        const g = groups[k];
+        if (g.length < 2) continue; // not a duplicate
+        report.push(`\nDUPLICATE: "${g[0].name}" (${g[0].grade}) — ${g.length} copies:`);
+        for (const s of g) report.push(`   ${s.id}  learners:${s.learners}  marks:${s.marks}`);
+        // Delete only the EMPTY copies, and only if at least one non-empty copy remains.
+        const nonEmpty = g.filter(s => Number(s.learners) > 0 || Number(s.marks) > 0);
+        const empties = g.filter(s => Number(s.learners) === 0 && Number(s.marks) === 0);
+        if (nonEmpty.length >= 1 && empties.length) {
+          for (const s of empties) {
+            if (doDelete) { await ds.query(`DELETE FROM streams WHERE id = $1`, [s.id]).catch(() => null); deleted++; }
+            report.push(`   → ${doDelete ? 'DELETED' : 'would delete'} empty copy ${s.id}`);
+          }
+        } else {
+          report.push(`   (no safe empty copy to remove — resolve manually)`);
+        }
+      }
+      res.type('text/plain').send(
+        (report.length ? report.join('\n') : 'No duplicate streams found.') +
+        `\n\n${doDelete ? `Deleted ${deleted} empty duplicate stream(s).` : 'REPORT ONLY — add &delete=1 to remove the empty duplicates.'}`,
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
   httpAdapter.get('/marklist-diag', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
