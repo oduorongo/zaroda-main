@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-avg-allmarks-2026-06-30', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'align-mark-subjects-2026-06-30', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -774,6 +774,64 @@ async function bootstrap() {
   //   /rename-mark-subject?key=...&name=Grade 5 A&from=Integrated Science&to=Science %26 Technology
   // Only touches assessment_results.subject — moves marks from one subject label to the
   // correct one so they reappear in the rubric/report. No marks are deleted.
+  // Bulk-align existing marks to the canonical seeded rubric names, band-scoped by grade.
+  // Fixes historical marks entered under old names (e.g. "Mathematical Activities" →
+  // "Mathematics Activities") so mark list, PDF and report card columns read uniformly.
+  // /align-mark-subjects?key=...   (add &dry=1 to preview counts without changing anything)
+  httpAdapter.get('/align-mark-subjects', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    const dry = !!req.query?.dry;
+    // grade bands → [ [from, to], ... ] canonical renames.
+    const ECDE = ['playgroup', 'pp1', 'pp2'];
+    const LOWER = ['grade_1', 'grade_2', 'grade_3'];
+    const renames: Array<{ grades: string[]; from: string; to: string }> = [
+      // ECDE
+      { grades: ECDE, from: 'Mathematical Activities', to: 'Mathematics Activities' },
+      { grades: ECDE, from: 'Creative Activities', to: 'Creative Arts Activities' },
+      { grades: ECDE, from: 'Religious Activities', to: 'Religious Education Activities' },
+      // Lower Primary (Grade 1-3)
+      { grades: LOWER, from: 'Mathematical Activities', to: 'Mathematics Activities' },
+      { grades: LOWER, from: 'Creative Activities', to: 'Creative Arts Activities' },
+      { grades: LOWER, from: 'Religious Activities', to: 'Religious Education Activities' },
+      { grades: LOWER, from: 'Christian Religious Education Activities', to: 'Religious Education Activities' },
+      // Junior (Grade 7-9): CA → CAS
+      { grades: ['grade_7', 'grade_8', 'grade_9'], from: 'Creative Arts', to: 'Creative Arts and Sports' },
+    ];
+    try {
+      const ds = app.get(DataSource);
+      const log: string[] = [];
+      let total = 0;
+      for (const { grades, from, to } of renames) {
+        // Count first (marks whose stream is in the band and subject = from).
+        const cnt = await ds.query(
+          `SELECT COUNT(*)::int AS n FROM assessment_results ar
+             JOIN streams s ON s.id::text = ar.stream_id::text
+            WHERE s.grade_level = ANY($1::text[]) AND ar.subject = $2`,
+          [grades, from],
+        ).catch(() => [{ n: 0 }]);
+        const n = Number(cnt[0]?.n || 0);
+        if (n === 0) continue;
+        if (!dry) {
+          await ds.query(
+            `UPDATE assessment_results ar SET subject = $3
+               FROM streams s
+              WHERE s.id::text = ar.stream_id::text
+                AND s.grade_level = ANY($1::text[]) AND ar.subject = $2`,
+            [grades, from, to],
+          ).catch((e: any) => { throw e; });
+        }
+        log.push(`  ${grades[0].replace('grade_','G').replace('playgroup','PG')}…: "${from}" → "${to}"  (${n} marks)`);
+        total += n;
+      }
+      res.type('text/plain').send(
+        `${dry ? 'DRY RUN — no changes made.\n' : 'Aligned mark subjects to canonical rubric names.\n'}` +
+        `Total marks ${dry ? 'that would be ' : ''}updated: ${total}\n${log.join('\n') || '  (nothing to change — already aligned)'}` +
+        `\n\nAfter running (without &dry=1), reload the mark list / report card.`,
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
   httpAdapter.get('/rename-mark-subject', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }

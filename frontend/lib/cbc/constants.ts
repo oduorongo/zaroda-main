@@ -162,17 +162,16 @@ export function performanceTotal(
 // Junior School (Grade 7-9): 9 compulsory · Senior School: 7 (selectable)
 // ─────────────────────────────────────────────────────────────
 export const LEARNING_AREAS: Record<string, string[]> = {
-  // Canonical KICD names (official LEARNING_AREAS document) — must match the
-  // assessment rubric exactly so marks flow Enter Marks → mark list → report card.
+  // Canonical KICD names — MUST match the seeded assessment rubric exactly so marks flow
+  // Enter Marks → mark list → report card with uniform column names across all grades.
   'ECDE': [
-    'Language Activities', 'Mathematical Activities', 'Creative Activities',
-    'Environmental Activities', 'Religious Activities',
+    'Language Activities', 'Mathematics Activities', 'Creative Arts Activities',
+    'Environmental Activities', 'Religious Education Activities',
   ],
   'Lower Primary': [
-    'Kiswahili Language Activities',
-    'English Language Activities', 'Mathematical Activities',
-    'Religious Education Activities', 'Environmental Activities',
-    'Creative Activities',
+    'English Language Activities', 'Kiswahili Language Activities',
+    'Mathematics Activities', 'Religious Education Activities',
+    'Creative Arts Activities',
   ],
   'Upper Primary': [
     'English', 'Kiswahili', 'Mathematics', 'Religious Education',
