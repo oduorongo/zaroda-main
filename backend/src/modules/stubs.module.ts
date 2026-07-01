@@ -1977,30 +1977,46 @@ class PdfController {
       ).catch(() => []);
 
       const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
-      const lvl = (p: number) => senior
-        ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
-        : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      const lvl = (p: number) => (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
       const pts = (p: number) => senior
         ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
         : (p>=76?4:p>=51?3:p>=26?2:1);
 
-      // Pivot: learner → subject → {percent, level}
-      const subjectList: string[] = rows.map((r: any) => String(r.subject));
-      const subjects: string[] = Array.from(new Set<string>(subjectList)).sort();
+      // Authoritative column list = the seeded rubric areas for this grade (SAME as the on-screen
+      // mark list), NOT just the subjects that happen to have marks. This guarantees identical
+      // columns and an identical average denominator (missing marks count as a gap).
+      const rubricRows = await this.ds.query(
+        `SELECT DISTINCT learning_area AS area FROM assessment_templates
+          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2) ORDER BY learning_area`,
+        [stream.gradeLevel, tenantId],
+      ).catch(() => []);
+      let subjects: string[] = Array.from(new Set<string>((rubricRows as any[]).map(r => String(r.area)).filter(Boolean)))
+        .filter(a => !/indigenous|indeg/i.test(a));
+      if (!subjects.length) subjects = Array.from(new Set<string>(rows.map((r: any) => String(r.subject)))).sort();
+      const areaByKey = new Map(subjects.map(s => [s.toLowerCase().trim(), s]));
+      const areaCount = subjects.length || 1;
+
+      // Pivot: learner → subject → {percent, level}; match marks onto canonical rubric columns.
       const byLearner: Record<string, any> = {};
       for (const r of rows) {
         const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0, pctSum: 0, count: 0 });
-        if (r.percent != null) { L.marks[r.subject] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); L.pctSum += Number(r.percent); L.count++; }
+        if (r.percent != null) {
+          const col = areaByKey.get(String(r.subject).toLowerCase().trim());
+          if (col) { L.marks[col] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); L.pctSum += Number(r.percent); L.count++; }
+        }
       }
-      const learners = Object.values(byLearner).sort((a: any, b: any) => b.points - a.points);
       const maxPoints = subjects.length * (senior ? 8 : 4);
-      // Points average expressed as a performance level: avg the per-subject points, and
-      // map the average percentage back to a level code.
-      for (const L of learners as any[]) {
-        L.avgPoints = L.count ? (L.points / L.count) : 0;
-        L.avgPct = L.count ? Math.round(L.pctSum / L.count) : 0;
+      // Average over the FULL number of areas (gap-aware), and rank by Total % → Points → name,
+      // IDENTICAL to the on-screen mark list.
+      const learners = Object.values(byLearner).map((L: any) => {
+        L.avgPct = Math.round(L.pctSum / areaCount);
         L.avgLevel = L.count ? lvl(L.avgPct) : '';
-      }
+        return L;
+      }).sort((a: any, b: any) => {
+        if (b.avgPct !== a.avgPct) return b.avgPct - a.avgPct;
+        if (b.points !== a.points) return b.points - a.points;
+        return String(a.name||'').localeCompare(String(b.name||''));
+      });
 
       const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
       const head = subjects.map(s => `<th>${esc(s)}</th>`).join('');
@@ -2008,8 +2024,9 @@ class PdfController {
         <tr>
           <td>${i+1}</td><td style="text-align:left">${esc(L.name)}</td><td>${esc(L.adm||'')}</td>
           ${subjects.map(s => { const m = L.marks[s]; return `<td>${m ? `${m.pct}% <b>${m.level}</b>` : '-'}</td>`; }).join('')}
+          <td><b>${L.count ? L.avgPct + '%' : '-'}</b></td>
           <td><b>${L.points}/${maxPoints}</b></td>
-          <td><b>${L.count ? `${L.avgPoints.toFixed(1)} ${L.avgLevel}` : '-'}</b></td>
+          <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
         </tr>`).join('');
 
       const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
@@ -2033,8 +2050,8 @@ class PdfController {
           ${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
-        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total</th><th>Points Avg (level)</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+4}">No marks found for this assessment.</td></tr>`}</tbody></table>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Total %</th><th>Points</th><th>Level</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this assessment.</td></tr>`}</tbody></table>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
