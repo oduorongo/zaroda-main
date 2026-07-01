@@ -386,19 +386,10 @@ export class PdfDataService {
       [tenantId, streamId, term, examType || ''],
     ).catch(() => []);
 
-    // Make sure every subject that actually has marks appears as a column — otherwise a mark
-    // entered under a name not in the rubric templates would count toward the average (correct)
-    // but have no column to display (confusing). Append any missing subject names, preserving
-    // the canonical rubric order first.
-    {
-      const have = new Set(subjects.map(s => s.toLowerCase().trim()));
-      const seenExtra = new Set<string>();
-      for (const m of (marks as any[])) {
-        const name = m.subject ? String(m.subject).trim() : '';
-        const key = name.toLowerCase();
-        if (name && !have.has(key) && !seenExtra.has(key)) { subjects.push(name); seenExtra.add(key); }
-      }
-    }
+    // Authoritative learning-area set = the seeded rubric (already in `subjects`). Do NOT append
+    // stray subject names from marks — the mark list (screen) and PDF must show the SAME columns,
+    // and the average must divide by this full set so a missing mark counts as a gap.
+    const areaByKey = new Map(subjects.map(s => [s.toLowerCase().trim(), s]));
 
     const byLearner: Record<string, any> = {};
     for (const m of marks) {
@@ -409,11 +400,9 @@ export class PdfDataService {
         };
       }
       const key = String(m.subject || '').toLowerCase().trim();
-      const matched = subjects.find(s => s.toLowerCase().trim() === key);
-      // Column key: use the canonical rubric name where it matches, else the raw subject name
-      // so the mark is never dropped. The AVERAGE/RANK must count every mark the learner has —
-      // exactly the set the on-screen marklist uses — otherwise screen and PDF ranks diverge.
-      const col = matched || (m.subject ? String(m.subject) : null);
+      // Map the mark onto its canonical rubric column. If it doesn't match any rubric area it is
+      // ignored for the marklist (the rubric defines the columns) — consistent with the screen.
+      const col = areaByKey.get(key);
       if (col) {
         byLearner[m.learnerId].scores[col] = m.rawScore;
         const pts = m.percent != null ? percentToPoints(Number(m.percent)) : null;
@@ -428,11 +417,13 @@ export class PdfDataService {
     const isJsSenior = isSeniorGrade(gradeLevel) || /grade_(7|8|9|1[0-2])/.test(gradeLevel);
     const isLowerBand = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6'].includes(gradeLevel);
     const pctToLvl4 = (p: number): string => (p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE');
+    // Denominator = full number of learning areas in the class (missing marks count as a gap),
+    // so screen and PDF averages match exactly.
+    const areaCount = subjects.length || 1;
     const learners = Object.values(byLearner).map((e: any) => {
       const totalPoints = Object.values(e.points).reduce((n: number, p: any) => n + Number(p), 0);
-      const subjCount   = Object.keys(e.points).length;
-      const avgPercent  = e.count ? Math.round(e.total / e.count) : 0;
-      const meanPoints  = subjCount ? Math.round((totalPoints / subjCount) * 100) / 100 : 0;
+      const avgPercent  = Math.round(e.total / areaCount);
+      const meanPoints  = Math.round((totalPoints / areaCount) * 100) / 100;
       // Average performance level (Playgroup–Grade 6), from the learner's average %.
       const avgLevel    = (isLowerBand && e.count) ? pctToLvl4(avgPercent) : '';
       return { ...e, average: avgPercent, avgLevel, totalPoints, meanPoints, overallPL: meanPoints ? Math.round(meanPoints) : 0 };

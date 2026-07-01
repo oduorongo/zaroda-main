@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'align-mark-subjects-2026-06-30', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-full-areas-avg-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -797,6 +797,9 @@ async function bootstrap() {
       { grades: LOWER, from: 'Christian Religious Education Activities', to: 'Religious Education Activities' },
       // Junior (Grade 7-9): CA → CAS
       { grades: ['grade_7', 'grade_8', 'grade_9'], from: 'Creative Arts', to: 'Creative Arts and Sports' },
+      // Upper Primary (Grade 4-6): recover marks wrongly saved as CAS back to "Creative Arts"
+      // (a recurring Grade 5 bug where the column name drifted to the Junior name).
+      { grades: ['grade_4', 'grade_5', 'grade_6'], from: 'Creative Arts and Sports', to: 'Creative Arts' },
     ];
     try {
       const ds = app.get(DataSource);

@@ -25,6 +25,7 @@ export default function MarkListPage() {
   const [maxScore,  setMaxScore]  = useState(100);
   const [scores,    setScores]    = useState<Record<string, Record<string, number>>>({});
   const [savedMeta, setSavedMeta] = useState<Record<string, Record<string, { percent: number; level: string }>>>({});
+  const [apiAreas, setApiAreas] = useState<string[]>([]);
   const [loading,   setLoading]   = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [search,    setSearch]    = useState('');
@@ -58,6 +59,8 @@ export default function MarkListPage() {
       apiClient.get('/academic/mark-list', { params: { streamId, term, examId } }).catch(() => ({ data: [] })),
     ]).then(([lrn, ml]) => {
       setLearners(lrn.data);
+      // Authoritative learning-area list from the API (seeded rubric) — same set the PDF uses.
+      setApiAreas(Array.isArray(ml.data?.areas) ? ml.data.areas : []);
       // Read-only: capture each subject's STORED percent/level (from entry time).
       const meta: Record<string, Record<string, { percent: number; level: string }>> = {};
       const mlLearners = Array.isArray(ml.data) ? ml.data : (ml.data?.learners || []);
@@ -72,8 +75,13 @@ export default function MarkListPage() {
       .finally(() => setLoading(false));
   }, [streamId, term, examId]);
 
-  // Determine learning areas for this specific grade (KICD-accurate)
-  const subjects = useMemo(() => learningAreasFor(stream?.gradeLevel || 'grade_4').filter(a => !/indigenous/i.test(a)), [stream]);
+  // Learning-area columns: use the API's authoritative rubric list; fall back to the KICD
+  // constant only if the rubric isn't seeded for this grade.
+  const subjects = useMemo(() => {
+    const fromApi = (apiAreas || []).filter(a => !/indigenous|indeg/i.test(a));
+    if (fromApi.length) return fromApi;
+    return learningAreasFor(stream?.gradeLevel || 'grade_4').filter(a => !/indigenous/i.test(a));
+  }, [apiAreas, stream]);
   const band = useMemo(() => levelBandLabel(stream?.gradeLevel || 'grade_4'), [stream]);
 
   // Points apply only to grades 7-12 (8-point KNEC scale)
@@ -91,14 +99,25 @@ export default function MarkListPage() {
   const ranked = useMemo(() => {
     const grade = stream?.gradeLevel || 'grade_4';
     const seniorScale = isSeniorScale(grade);
+    // Denominator = the FULL number of learning areas in the class (missing marks = a gap),
+    // identical to the PDF. Match each saved mark onto its canonical column (case-insensitive).
+    const areaCount = subjects.length || 1;
+    const areaKey = (x: string) => String(x || '').toLowerCase().trim();
+    const colByKey = new Map(subjects.map(s => [areaKey(s), s]));
     const rows = learners.map(l => {
       const meta = savedMeta[l.id] || {};
       const subjectPct: Record<string, number> = {};
       const subjectLvl: Record<string, string> = {};
-      Object.entries(meta).forEach(([s, m]: any) => { if (!isNaN(Number(m.percent))) { subjectPct[s] = Number(m.percent); subjectLvl[s] = m.level; } });
+      Object.entries(meta).forEach(([s, m]: any) => {
+        if (isNaN(Number(m.percent))) return;
+        const col = colByKey.get(areaKey(s)) || s;   // land on the canonical column
+        subjectPct[col] = Number(m.percent); subjectLvl[col] = m.level;
+      });
       const pcts = Object.values(subjectPct);
       const hasScores = pcts.length > 0;
-      const percent = hasScores ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
+      const sumPct = pcts.reduce((a, b) => a + b, 0);
+      // Divide by the total number of areas, not just the ones with marks.
+      const percent = Math.round(sumPct / areaCount);
       const totalPoints = pcts.reduce((sum, p) => sum + pctToPoints(p), 0);
       const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
       return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgLevel, hasScores };

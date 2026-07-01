@@ -418,6 +418,19 @@ export class AcademicService {
     const gradeLevel = sgrade[0]?.grade_level || '';
     const usePoints = this.isSenior(gradeLevel);
 
+    // Authoritative learning-area list for this class — the SAME set the PDF uses (seeded
+    // rubric). Averages divide by the FULL number of areas, so a missing mark counts as a gap
+    // and screen + PDF always agree. Fall back to whatever subjects have marks if the rubric
+    // isn't seeded for this grade.
+    const areaRows = await this.dataSource.query(
+      `SELECT DISTINCT learning_area AS area FROM assessment_templates
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)
+        ORDER BY learning_area`,
+      [gradeLevel, tenantId],
+    ).catch(() => []);
+    let areas: string[] = (areaRows as any[]).map(r => String(r.area)).filter(Boolean)
+      .filter(a => !/indigenous|indeg/i.test(a));
+
     const rows = await this.dataSource.query(
       `SELECT ar.learner_id AS "learnerId",
               l.first_name AS "firstName", l.last_name AS "lastName",
@@ -434,7 +447,13 @@ export class AcademicService {
       [tenantId, streamId, term || null, examType || null, examId || null],
     ).catch(() => []);
 
-    // Group by learner → subjects, compute average % and (for senior) total points
+    // If the rubric has no areas seeded, derive the area set from the marks present.
+    if (!areas.length) {
+      areas = Array.from(new Set((rows as any[]).map(r => String(r.subject)).filter(Boolean)));
+    }
+    const areaCount = areas.length || 1;
+
+    // Group by learner → subjects.
     const byLearner: Record<string, any> = {};
     for (const r of rows) {
       if (!byLearner[r.learnerId]) {
@@ -450,10 +469,10 @@ export class AcademicService {
     }
     const list = Object.values(byLearner).map((e: any) => ({
       ...e,
-      averagePercent: e.count ? Math.round(e.totalPercent / e.count) : 0,
-      // Senior: total points across subjects + average points; else points stay null
+      // Average divides by the FULL number of learning areas in the class (missing marks = gap).
+      averagePercent: Math.round(e.totalPercent / areaCount),
       totalPoints: usePoints ? e.totalPoints : null,
-      averagePoints: usePoints && e.count ? Math.round((e.totalPoints / e.count) * 10) / 10 : null,
+      averagePoints: usePoints ? Math.round((e.totalPoints / areaCount) * 10) / 10 : null,
     })).sort((a: any, b: any) => {
       const primary = usePoints ? (b.totalPoints - a.totalPoints) : (b.averagePercent - a.averagePercent);
       if (primary !== 0) return primary;
@@ -463,7 +482,7 @@ export class AcademicService {
       return `${a.firstName||''} ${a.lastName||''}`.trim().localeCompare(`${b.firstName||''} ${b.lastName||''}`.trim());
     });
     list.forEach((e: any, i: number) => (e.rank = i + 1));
-    return { gradeLevel, usePoints, learners: list };
+    return { gradeLevel, usePoints, areas, learners: list };
   }
 
   // ── Stream performance analytics ─────────────────────────────
