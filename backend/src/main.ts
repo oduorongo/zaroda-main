@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'dedupe-streams-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'reseed-env-lower-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -419,11 +419,11 @@ async function bootstrap() {
     }
 
     // Grade-specific leftover removals (an area that is valid for one band but not another).
-    // - Environmental Activities is kept for ECDE but must be removed from Grades 1-3.
+    // - Environmental Activities is a VALID Grade 1-3 area (in the official KICD books, and
+    //   schools have marks for it) so it is NOT removed — it is kept for ECDE and Grades 1-3.
     // - "Religious Activities" is an old mis-named leftover (correct ECDE name is
     //   "Religious Education Activities") — remove it wherever it appears.
     const gradeSpecificBad: Array<{ grades: string[]; area: string }> = [
-      { grades: ['grade_1', 'grade_2', 'grade_3'], area: 'Environmental Activities' },
       { grades: ['playgroup', 'pp1', 'pp2'], area: 'Religious Activities' },
     ];
     for (const { grades, area } of gradeSpecificBad) {

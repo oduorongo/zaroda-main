@@ -1237,6 +1237,25 @@
       "Echoing melodic pattern"
      ]
     }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Social Environment",
+     "substrands": [
+      "Cleaning my body",
+      "Materials for cleaning body parts",
+      "Cleaning different body parts.",
+      "Our home",
+      "Materials for cleaning the home",
+      "Common accidents at home",
+      "Cleaning the home",
+      "Family needs",
+      "Basic needs",
+      "Physical needs",
+      "Categories of foods from plants & animals",
+      "Selecting suitable foods"
+     ]
+    }
    ]
   },
   "term_2": {
@@ -1432,6 +1451,40 @@
       "Performance techniques,\u2019 accuracy of tune and rhythm"
      ]
     }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Social Environment",
+     "substrands": [
+      "Our School",
+      "Physical features btwn home and school",
+      "Personal safety when going to school.",
+      "Our market",
+      "Roles of people in the market",
+      "Food items in the market",
+      "Categories of foods in the market"
+     ]
+    },
+    {
+     "name": "Natural Environment",
+     "substrands": [
+      "Weather and the sky",
+      "The sky at night and day time",
+      "Weather conditions in the locality",
+      "Recording weather conditions"
+     ]
+    },
+    {
+     "name": "Soil",
+     "substrands": [
+      "ways of playing with soil",
+      "modelling using soil",
+      "sound",
+      "sounds in the environment",
+      "creating sounds using objects",
+      "discriminating different sounds"
+     ]
+    }
    ]
   },
   "term_3": {
@@ -1569,6 +1622,24 @@
       "Water safety awareness",
       "Water dangers( drowing , injuries and death",
       "Montage"
+     ]
+    }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Resources In The Environment",
+     "substrands": [
+      "Water",
+      "Sources of water",
+      "Uses of water",
+      "Conserving water",
+      "Plants",
+      "Different parts of plants",
+      "Drawing parts of plants",
+      "Conserving plants",
+      "Animals",
+      "Identifying domestic animals",
+      "Basic care for small domestic animals"
      ]
     }
    ]
@@ -1751,6 +1822,29 @@
       "Pasting material"
      ]
     }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Social Environment",
+     "substrands": [
+      "Our Home",
+      "Personal & common items at home",
+      "Cleaning Personal & common items",
+      "Family needs and wants",
+      "Places where family needs are met",
+      "Classification of family needs & wants",
+      "Our school",
+      "Ways of keeping the school clean",
+      "Common accidents at school",
+      "Cleaning the school",
+      "Our national flag",
+      "Colours of the national flag",
+      "Events in which national anthem is sung",
+      "Conducting flag raising and lowering",
+      "Our rights & responsibilities",
+      "Rights and responsibilities of children"
+     ]
+    }
    ]
   },
   "term_2": {
@@ -1921,6 +2015,33 @@
       "Swan balance"
      ]
     }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Social Environment",
+     "substrands": [
+      "Our market",
+      "Physical features on the way to market",
+      "Locating the market",
+      "Activities that take place in the market"
+     ]
+    },
+    {
+     "name": "Natural Environment",
+     "substrands": [
+      "Weather",
+      "Weather conditions during the day",
+      "Creating a weather record",
+      "Predicting weather conditions",
+      "soil",
+      "types of soil",
+      "classifying types of soil",
+      "light",
+      "sources of light",
+      "forming shadows",
+      "ways of conserving light"
+     ]
+    }
    ]
   },
   "term_3": {
@@ -2050,6 +2171,25 @@
       "Songs used in African style singing games",
       "Roles of the performers in the African style singing game",
       "Props, costumes used in African style singing game"
+     ]
+    }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Natural Environment",
+     "substrands": [
+      "Water",
+      "Ways of storing water at home",
+      "Conserving water",
+      "Importance of keeping water safe",
+      "Plants",
+      "Ways of caring for plants",
+      "Caring for plants",
+      "Animals",
+      "Food items we get from animals",
+      "CAT1",
+      "Matching animals & food items",
+      "caring for animals"
      ]
     }
    ]
@@ -2227,6 +2367,29 @@
       "Cutting"
      ]
     }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Social Environment",
+     "substrands": [
+      "Our living Environment",
+      "Materials used for beddings",
+      "Hygienic practices in the sleeping area",
+      "Family needs",
+      "Emotional needs",
+      "How people express feelings",
+      "Foods in our environment",
+      "Various food items",
+      "Classifying food items",
+      "Table manners",
+      "Our community",
+      "Ways if keeping safe",
+      "Safe and unsafe places in the community",
+      "Basic road signs",
+      "Cultural events",
+      "Cultural events in the community"
+     ]
+    }
    ]
   },
   "term_2": {
@@ -2393,6 +2556,31 @@
       "Making of makers"
      ]
     }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Social Environment",
+     "substrands": [
+      "Cultural events",
+      "Categories of cultural events"
+     ]
+    },
+    {
+     "name": "Natural Environment",
+     "substrands": [
+      "Weather",
+      "Favourable & unfavorable weather conditions",
+      "Dangers of unfavorable weather conditions",
+      "Responding to weather",
+      "soil",
+      "x-tics of soil",
+      "soil conservation activities",
+      "Heat",
+      "Sources of heat",
+      "Uses of heat in the environment",
+      "Conserving heat"
+     ]
+    }
    ]
   },
   "term_3": {
@@ -2524,6 +2712,26 @@
      "substrands": [
       ". Water safety awareness",
       "Objects that can sink In water"
+     ]
+    }
+   ],
+   "Environmental Activities": [
+    {
+     "name": "Resources In Our Environemt",
+     "substrands": [
+      "Water",
+      "Ways of water contamination",
+      "Activities for making water clean",
+      "Conserving water",
+      "Plants",
+      "Safety measures to observe when handling plants",
+      "Making a kitchen garden",
+      "Classifying plants",
+      "Animals",
+      "Importance of domestic animals",
+      "Caring for domestic animals",
+      "waste material",
+      "Waste materials for generating income"
      ]
     }
    ]

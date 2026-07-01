@@ -171,7 +171,7 @@ export const LEARNING_AREAS: Record<string, string[]> = {
   'Lower Primary': [
     'English Language Activities', 'Kiswahili Language Activities',
     'Mathematics Activities', 'Religious Education Activities',
-    'Creative Arts Activities',
+    'Environmental Activities', 'Creative Arts Activities',
   ],
   'Upper Primary': [
     'English', 'Kiswahili', 'Mathematics', 'Religious Education',
