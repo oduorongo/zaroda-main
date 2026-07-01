@@ -358,7 +358,8 @@ export class PdfDataService {
         ORDER BY learning_area`,
       [gradeLevel, tenantId],
     ).catch(() => []);
-    let subjects: string[] = Array.from(new Set(rubricRows.map((r: any) => r.area).filter(Boolean)));
+    let subjects: string[] = Array.from(new Set(rubricRows.map((r: any) => r.area).filter(Boolean)))
+      .filter((a: string) => !/indigenous|indeg/i.test(a));
 
     // Senior School (Grades 10–12): columns = 4 core areas + every elective taken by
     // any learner in this class (each learner has their own elective choice).

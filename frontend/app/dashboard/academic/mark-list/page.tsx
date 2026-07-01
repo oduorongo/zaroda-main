@@ -26,6 +26,7 @@ export default function MarkListPage() {
   const [scores,    setScores]    = useState<Record<string, Record<string, number>>>({});
   const [savedMeta, setSavedMeta] = useState<Record<string, Record<string, { percent: number; level: string }>>>({});
   const [apiAreas, setApiAreas] = useState<string[]>([]);
+  const [apiComputed, setApiComputed] = useState<Record<string, { rank: number; averagePercent: number; totalPoints: number | null }>>({});
   const [loading,   setLoading]   = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [search,    setSearch]    = useState('');
@@ -61,16 +62,20 @@ export default function MarkListPage() {
       setLearners(lrn.data);
       // Authoritative learning-area list from the API (seeded rubric) — same set the PDF uses.
       setApiAreas(Array.isArray(ml.data?.areas) ? ml.data.areas : []);
-      // Read-only: capture each subject's STORED percent/level (from entry time).
+      // Read-only: capture each subject's STORED percent/level (from entry time), PLUS the
+      // API's own computed rank & average % so the screen shows EXACTLY what the PDF ranks on.
       const meta: Record<string, Record<string, { percent: number; level: string }>> = {};
+      const computed: Record<string, { rank: number; averagePercent: number; totalPoints: number | null }> = {};
       const mlLearners = Array.isArray(ml.data) ? ml.data : (ml.data?.learners || []);
       mlLearners.forEach((row: any) => {
         meta[row.learnerId] = {};
         Object.entries(row.subjects || {}).forEach(([subj, v]: any) => {
           if (v.percent != null) meta[row.learnerId][subj] = { percent: Number(v.percent), level: v.level };
         });
+        computed[row.learnerId] = { rank: row.rank, averagePercent: row.averagePercent, totalPoints: row.totalPoints ?? null };
       });
       setSavedMeta(meta);
+      setApiComputed(computed);
     }).catch(() => toast.error('Could not load class mark list'))
       .finally(() => setLoading(false));
   }, [streamId, term, examId]);
@@ -98,10 +103,6 @@ export default function MarkListPage() {
   // Points come from each subject's % via the same KNEC cutoffs the report PDF uses (pctToPoints).
   const ranked = useMemo(() => {
     const grade = stream?.gradeLevel || 'grade_4';
-    const seniorScale = isSeniorScale(grade);
-    // Denominator = the FULL number of learning areas in the class (missing marks = a gap),
-    // identical to the PDF. Match each saved mark onto its canonical column (case-insensitive).
-    const areaCount = subjects.length || 1;
     const areaKey = (x: string) => String(x || '').toLowerCase().trim();
     const colByKey = new Map(subjects.map(s => [areaKey(s), s]));
     const rows = learners.map(l => {
@@ -113,27 +114,19 @@ export default function MarkListPage() {
         const col = colByKey.get(areaKey(s)) || s;   // land on the canonical column
         subjectPct[col] = Number(m.percent); subjectLvl[col] = m.level;
       });
-      const pcts = Object.values(subjectPct);
-      const hasScores = pcts.length > 0;
-      const sumPct = pcts.reduce((a, b) => a + b, 0);
-      // Divide by the total number of areas, not just the ones with marks.
-      const percent = Math.round(sumPct / areaCount);
-      const totalPoints = pcts.reduce((sum, p) => sum + pctToPoints(p), 0);
+      const hasScores = Object.keys(subjectPct).length > 0;
+      // Use the API's own computed values so the on-screen average, points and RANK are
+      // byte-for-byte the same criteria the PDF uses (total %, points, performance level).
+      const c = apiComputed[l.id] || { rank: 0, averagePercent: 0, totalPoints: null };
+      const percent = c.averagePercent || 0;
+      const totalPoints = c.totalPoints ?? 0;
       const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
-      return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgLevel, hasScores };
+      return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgLevel, hasScores, rank: c.rank };
     });
-    // Same sort basis AND tie-breakers as the PDF, so on-screen rank matches the PDF exactly.
-    const fullName = (r: any) => `${r.learner?.firstName||''} ${r.learner?.lastName||''}`.trim();
-    const withScores = rows.filter(r => r.hasScores).sort((a, b) => {
-      const primary = seniorScale ? (b.totalPoints - a.totalPoints) : (b.percent - a.percent);
-      if (primary !== 0) return primary;
-      if (b.percent !== a.percent) return b.percent - a.percent;
-      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-      return fullName(a).localeCompare(fullName(b));
-    });
-    withScores.forEach((r, i) => (r as any).rank = i + 1);
+    // Order by the API rank (already computed with the shared criteria + tie-breakers).
+    const withScores = rows.filter(r => r.hasScores).sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
     return [...withScores, ...rows.filter(r => !r.hasScores)];
-  }, [learners, savedMeta, subjects, stream]);
+  }, [learners, savedMeta, subjects, stream, apiComputed]);
 
   const printMarkList = async () => {
     const win = window.open('', '_blank');
@@ -312,7 +305,7 @@ export default function MarkListPage() {
                     </td>
                     {isSenior && (
                       <td className="px-3 py-2 text-center font-black text-theme-heading">
-                        {row.hasScores ? pctToPoints(row.percent) : '—'}
+                        {row.hasScores ? row.totalPoints : '—'}
                       </td>
                     )}
                     <td className="px-3 py-2 text-center">

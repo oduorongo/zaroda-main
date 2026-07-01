@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-full-areas-avg-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'marklist-shared-criteria-2026-07-01', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -778,6 +778,44 @@ async function bootstrap() {
   // Fixes historical marks entered under old names (e.g. "Mathematical Activities" →
   // "Mathematics Activities") so mark list, PDF and report card columns read uniformly.
   // /align-mark-subjects?key=...   (add &dry=1 to preview counts without changing anything)
+  // Diagnose marklist mismatches: shows the rubric areas for a class vs the DISTINCT subject
+  // names actually stored in marks, so we can see which marks don't match a rubric column.
+  // /marklist-diag?key=...&stream=Grade 5 A   (or &grade=grade_5)
+  httpAdapter.get('/marklist-diag', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const streamName = String(req.query?.stream || '').trim();
+      let grade = String(req.query?.grade || '').trim();
+      let streamId: string | null = null;
+      if (streamName) {
+        const st = (await ds.query(`SELECT id, grade_level FROM streams WHERE LOWER(REGEXP_REPLACE(name,'\\s+',' ','g')) = $1 LIMIT 1`,
+          [streamName.toLowerCase().replace(/\s+/g, ' ')]).catch(() => []))[0];
+        if (st) { streamId = st.id; grade = st.grade_level; }
+      }
+      if (!grade) { res.type('text/plain').send('Provide ?grade=grade_5 or ?stream=Grade 5 A'); return; }
+      const rubric = (await ds.query(
+        `SELECT DISTINCT learning_area AS a FROM assessment_templates WHERE grade_level = $1 ORDER BY a`, [grade],
+      ).catch(() => [])).map((r: any) => r.a);
+      const marksQ = streamId
+        ? await ds.query(`SELECT DISTINCT subject, COUNT(*)::int n FROM assessment_results WHERE stream_id::text=$1 GROUP BY subject ORDER BY subject`, [streamId]).catch(() => [])
+        : await ds.query(
+            `SELECT DISTINCT ar.subject, COUNT(*)::int n FROM assessment_results ar JOIN streams s ON s.id::text=ar.stream_id::text
+              WHERE s.grade_level=$1 GROUP BY ar.subject ORDER BY ar.subject`, [grade]).catch(() => []);
+      const rubricLC = new Set(rubric.map((x: string) => x.toLowerCase().trim()));
+      const lines = (marksQ as any[]).map(m =>
+        `  ${rubricLC.has(String(m.subject).toLowerCase().trim()) ? '✓' : '✗ NO-MATCH'}  "${m.subject}"  (${m.n} marks)`);
+      res.type('text/plain').send(
+        `Grade: ${grade}${streamName ? ' · ' + streamName : ''}\n\n` +
+        `RUBRIC AREAS (${rubric.length}):\n${rubric.map((a: string) => '  • ' + a).join('\n')}\n\n` +
+        `SUBJECTS IN MARKS:\n${lines.join('\n') || '  (none)'}\n\n` +
+        `✗ NO-MATCH rows are marks whose subject name isn't a rubric column — they won't show/rank correctly. ` +
+        `Fix with /rename-mark-subject or /align-mark-subjects.`,
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
   httpAdapter.get('/align-mark-subjects', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
