@@ -276,7 +276,7 @@ export default function MarkListPage() {
                 <th className="px-3 py-3 text-center">
                   Points
                   <div className="text-[10px] font-normal opacity-90 mt-0.5">
-                    Class: {ranked.filter((r:any)=>r.hasScores).reduce((s:number,r:any)=>s+(r.totalPoints||0),0)}
+                    out of {(subjects.length || 0) * (isSenior ? 8 : 4)}
                   </div>
                 </th>
                 <th className="px-3 py-3 text-center">Level</th>
@@ -310,7 +310,7 @@ export default function MarkListPage() {
                       );
                     })}
                     <td className="px-3 py-2 text-center font-black text-theme-heading">
-                      {row.hasScores ? row.totalPoints : '—'}
+                      {row.hasScores ? `${row.totalPoints}/${(subjects.length || 0) * (isSenior ? 8 : 4)}` : '—'}
                     </td>
                     <td className="px-3 py-2 text-center">
                       {lvl && (

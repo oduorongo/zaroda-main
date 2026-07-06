@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'level-from-points-total-2026-07-06', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'points-total-display-diag-2026-07-06', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -825,6 +825,61 @@ async function bootstrap() {
       res.type('text/plain').send(
         (report.length ? report.join('\n') : 'No duplicate streams found.') +
         `\n\n${doDelete ? `Deleted ${deleted} empty duplicate stream(s).` : 'REPORT ONLY — add &delete=1 to remove the empty duplicates.'}`,
+      );
+    } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
+  });
+
+  httpAdapter.get('/learner-points', async (req: any, res: any) => {
+    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
+    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    try {
+      const ds = app.get(DataSource);
+      const name = String(req.query?.name || '').trim();
+      if (!name) { res.type('text/plain').send('Add &name=David to inspect a learner.'); return; }
+      const senior8 = (p: number) => (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1);
+      const lower4  = (p: number) => (p>=76?4:p>=51?3:p>=26?2:1);
+      const rows = await ds.query(
+        `SELECT l.first_name || ' ' || l.last_name AS name, s.grade_level AS grade,
+                ar.subject, ar.raw_score AS raw, ar.max_score AS max, ar.percent
+           FROM assessment_results ar
+           JOIN learners l ON l.id::text = ar.learner_id::text
+           JOIN streams  s ON s.id::text = ar.stream_id::text
+          WHERE lower(l.first_name || ' ' || l.last_name) LIKE lower($1)
+          ORDER BY l.first_name, l.last_name, ar.subject`,
+        [`%${name}%`],
+      ).catch(() => []);
+      if (!(rows as any[]).length) { res.type('text/plain').send(`No marks found for a learner matching "${name}".`); return; }
+
+      const byLearner: Record<string, any> = {};
+      for (const r of (rows as any[])) {
+        const g = String(r.grade || '');
+        const senior = /grade_(7|8|9|1[0-2])/.test(g);
+        const L = (byLearner[r.name] = byLearner[r.name] || { grade: g, senior, lines: [], rawTotal: 0, pctTotal: 0, points: 0, count: 0 });
+        const pct = Number(r.percent);
+        const p = senior ? senior8(pct) : lower4(pct);
+        L.rawTotal += Number(r.raw || 0);
+        L.pctTotal += pct;
+        L.points += p;
+        L.count++;
+        L.lines.push(`    ${String(r.subject).padEnd(28)} raw=${String(r.raw ?? '').padStart(4)}  max=${String(r.max ?? '').padStart(4)}  pct=${String(Math.round(pct)).padStart(3)}%  -> ${p} pts`);
+      }
+      const out: string[] = [];
+      for (const [nm, L] of Object.entries(byLearner) as any) {
+        const maxPts = L.count * (L.senior ? 8 : 4);
+        out.push(
+          `${nm}  (${L.grade}${L.senior ? ', senior 1-8' : ', lower 1-4'})\n` +
+          L.lines.join('\n') + '\n' +
+          `    ${'-'.repeat(40)}\n` +
+          `    Subjects with marks : ${L.count}\n` +
+          `    RAW marks total     : ${L.rawTotal}\n` +
+          `    Average %           : ${Math.round(L.pctTotal / L.count)}%\n` +
+          `    TOTAL POINTS (sum)  : ${L.points} / ${maxPts}\n`,
+        );
+      }
+      res.type('text/plain').send(
+        out.join('\n') +
+        `\nNOTE: "TOTAL POINTS (sum)" is the sum of each subject's performance points - this is the ranking basis.\n` +
+        `Raw marks total is NOT comparable across learners who sat a different number of subjects.\n`,
       );
     } catch (e: any) { res.status(500).type('text/plain').send(`ERROR: ${e.message}`); }
   });
