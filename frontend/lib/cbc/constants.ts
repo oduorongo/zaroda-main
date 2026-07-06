@@ -150,6 +150,18 @@ export function overallLevelByMode(codes: string[], gradeLevel: string): PerfLev
   return best;
 }
 
+// Overall level from the POINTS TOTAL: express the total as a fraction of the maximum possible
+// (areas × max-per-area) and map that fraction to the band's level using the standard cutoffs.
+// This guarantees the overall level tracks the Points column exactly — the SAME total always
+// gives the SAME level, and the level never contradicts the ranking.
+export function levelFromPointsTotal(totalPoints: number, areaCount: number, gradeLevel: string): PerfLevel {
+  const scale = levelsFor(gradeLevel);
+  const maxPerArea = scale[0].points;                 // 8 senior, 4 lower
+  const max = Math.max(1, areaCount * maxPerArea);
+  const pct = (totalPoints / max) * 100;
+  return scale.find(l => pct >= l.min && pct <= l.max) || scale[scale.length - 1];
+}
+
 // Overall performance level derived from the AVERAGE POINTS per learning area (kept for other
 // callers). avgPoints is rounded to the nearest whole point and mapped to that band's level code.
 export function levelFromAvgPoints(avgPoints: number, gradeLevel: string): PerfLevel {

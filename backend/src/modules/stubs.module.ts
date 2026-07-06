@@ -2374,27 +2374,20 @@ class PdfController {
       // SUM is the ranking basis, so the Points column IS the rank and can't contradict it.
       // Average % is shown for information and only breaks ties. Rank: Points → avg % → name,
       // IDENTICAL to the on-screen mark list.
-      // Overall level = the level the learner achieves in the MOST learning areas (mode of the
-      // per-subject levels); on a tie the higher level wins. Identical to the on-screen mark list.
-      const scaleOrder = senior
-        ? ['EE1','EE2','ME1','ME2','AE1','AE2','BE1','BE2']   // best → worst
-        : ['EE','ME','AE','BE'];
-      const modeLevel = (marks: Record<string, any>) => {
-        const codes = Object.values(marks).map((m: any) => m.level).filter(Boolean);
-        if (!codes.length) return '';
-        const count: Record<string, number> = {};
-        for (const c of codes) count[c] = (count[c] || 0) + 1;
-        let best = ''; let bestN = -1;
-        for (const code of scaleOrder) {          // walk best → worst, tie → higher level
-          const n = count[code] || 0;
-          if (n > bestN) { bestN = n; best = code; }
-        }
-        return best;
+      // Overall level = the points total mapped directly to a level: express the total as a
+      // fraction of the max (areas × max-per-area) and map to the band scale. Same points ⇒ same
+      // level, and the level always tracks the Points column. Identical to the on-screen list.
+      const maxTotal = Math.max(1, areaCount * (senior ? 8 : 4));
+      const levelFromTotal = (total: number) => {
+        const p = (total / maxTotal) * 100;
+        return senior
+          ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+          : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
       };
       const learners = Object.values(byLearner).map((L: any) => {
         L.avgPctExact = L.pctSum / areaCount;                 // precise, for tie-break + display
         L.avgPct = Math.round(L.avgPctExact);                 // rounded, for display
-        L.avgLevel = L.count ? modeLevel(L.marks) : '';
+        L.avgLevel = L.count ? levelFromTotal(L.points) : '';
         return L;
       }).sort((a: any, b: any) => {
         if (b.points !== a.points) return b.points - a.points;
@@ -2403,6 +2396,7 @@ class PdfController {
       });
 
       const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+      const classTotalPoints = learners.reduce((s: number, L: any) => s + (L.count ? Number(L.points || 0) : 0), 0);
       const head = subjects.map(s => `<th>${esc(s)}</th>`).join('');
       const body = learners.map((L: any, i: number) => `
         <tr>
@@ -2433,7 +2427,7 @@ class PdfController {
           ${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
-        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points</th><th>Level</th></tr></thead>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">Class: ${classTotalPoints}</span></th><th>Level</th></tr></thead>
         <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}</tbody></table>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>

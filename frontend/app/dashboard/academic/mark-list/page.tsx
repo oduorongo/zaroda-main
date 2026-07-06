@@ -5,7 +5,7 @@ import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import {
-  LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor, overallLevelByMode,
+  LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor, levelFromPointsTotal,
   learningAreasFor, levelBandLabel,
 } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
@@ -122,10 +122,10 @@ export default function MarkListPage() {
       const c = apiComputed[l.id] || { rank: 0, averagePercent: 0, totalPoints: null };
       const percent = c.averagePercent || 0;
       const totalPoints = c.totalPoints ?? 0;
-      // Overall level = the level the learner achieves in the MOST learning areas (mode of the
-      // per-subject levels), ties broken toward the higher level.
-      const modeLevel = hasScores ? overallLevelByMode(Object.values(subjectLvl), grade) : null;
-      const avgLevel = modeLevel ? modeLevel.code : '';
+      // Overall level = the points total mapped directly to a level (total ÷ max, mapped to the
+      // band scale). Same points ⇒ same level, and the level always tracks the Points column.
+      const areaCount = subjects.length || 1;
+      const avgLevel = hasScores ? levelFromPointsTotal(totalPoints, areaCount, grade).code : '';
       return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgLevel, hasScores, rank: c.rank };
     });
     // Order by the API rank (already computed with the shared criteria + tie-breakers).
@@ -273,7 +273,12 @@ export default function MarkListPage() {
                     {s.length > 12 ? s.slice(0, 10) + '…' : s}
                   </th>
                 ))}
-                <th className="px-3 py-3 text-center">Points</th>
+                <th className="px-3 py-3 text-center">
+                  Points
+                  <div className="text-[10px] font-normal opacity-90 mt-0.5">
+                    Class: {ranked.filter((r:any)=>r.hasScores).reduce((s:number,r:any)=>s+(r.totalPoints||0),0)}
+                  </div>
+                </th>
                 <th className="px-3 py-3 text-center">Level</th>
               </tr>
             </thead>
