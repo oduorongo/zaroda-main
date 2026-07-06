@@ -2374,10 +2374,27 @@ class PdfController {
       // SUM is the ranking basis, so the Points column IS the rank and can't contradict it.
       // Average % is shown for information and only breaks ties. Rank: Points → avg % → name,
       // IDENTICAL to the on-screen mark list.
+      // Overall level = the level the learner achieves in the MOST learning areas (mode of the
+      // per-subject levels); on a tie the higher level wins. Identical to the on-screen mark list.
+      const scaleOrder = senior
+        ? ['EE1','EE2','ME1','ME2','AE1','AE2','BE1','BE2']   // best → worst
+        : ['EE','ME','AE','BE'];
+      const modeLevel = (marks: Record<string, any>) => {
+        const codes = Object.values(marks).map((m: any) => m.level).filter(Boolean);
+        if (!codes.length) return '';
+        const count: Record<string, number> = {};
+        for (const c of codes) count[c] = (count[c] || 0) + 1;
+        let best = ''; let bestN = -1;
+        for (const code of scaleOrder) {          // walk best → worst, tie → higher level
+          const n = count[code] || 0;
+          if (n > bestN) { bestN = n; best = code; }
+        }
+        return best;
+      };
       const learners = Object.values(byLearner).map((L: any) => {
         L.avgPctExact = L.pctSum / areaCount;                 // precise, for tie-break + display
         L.avgPct = Math.round(L.avgPctExact);                 // rounded, for display
-        L.avgLevel = L.count ? lvl(L.avgPct) : '';
+        L.avgLevel = L.count ? modeLevel(L.marks) : '';
         return L;
       }).sort((a: any, b: any) => {
         if (b.points !== a.points) return b.points - a.points;

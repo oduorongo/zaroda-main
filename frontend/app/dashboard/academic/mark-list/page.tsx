@@ -5,7 +5,7 @@ import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import {
-  LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor,
+  LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor, overallLevelByMode,
   learningAreasFor, levelBandLabel,
 } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
@@ -113,15 +113,19 @@ export default function MarkListPage() {
       Object.entries(meta).forEach(([s, m]: any) => {
         if (isNaN(Number(m.percent))) return;
         const col = colByKey.get(areaKey(s)) || s;   // land on the canonical column
-        subjectPct[col] = Number(m.percent); subjectLvl[col] = m.level;
+        subjectPct[col] = Number(m.percent);
+        // Recompute each subject's level from its % with the band-aware scale (so senior uses
+        // the 8-level codes), rather than trusting a possibly-stale stored level.
+        subjectLvl[col] = percentToLevel(Number(m.percent), grade).code;
       });
       const hasScores = Object.keys(subjectPct).length > 0;
-      // Use the API's own computed values so the on-screen average, points and RANK are
-      // byte-for-byte the same criteria the PDF uses (total %, points, performance level).
       const c = apiComputed[l.id] || { rank: 0, averagePercent: 0, totalPoints: null };
       const percent = c.averagePercent || 0;
       const totalPoints = c.totalPoints ?? 0;
-      const avgLevel = hasScores ? percentToLevel(percent, grade).code : '';
+      // Overall level = the level the learner achieves in the MOST learning areas (mode of the
+      // per-subject levels), ties broken toward the higher level.
+      const modeLevel = hasScores ? overallLevelByMode(Object.values(subjectLvl), grade) : null;
+      const avgLevel = modeLevel ? modeLevel.code : '';
       return { learner: l, subjectPct, subjectLvl, percent, totalPoints, avgLevel, hasScores, rank: c.rank };
     });
     // Order by the API rank (already computed with the shared criteria + tie-breakers).
@@ -275,7 +279,7 @@ export default function MarkListPage() {
             </thead>
             <tbody>
               {ranked.filter((row:any)=>matchesLearner(row.learner, search)).map((row, i) => {
-                const lvl = row.hasScores ? percentToLevel(row.percent, stream?.gradeLevel || 'grade_4') : null;
+                const lvl = row.hasScores && row.avgLevel ? levelsFor(stream?.gradeLevel || 'grade_4').find(l => l.code === row.avgLevel) : null;
                 return (
                   <tr key={row.learner.id} className={`border-b border-theme ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-2'}`}>
                     <td className="px-3 py-2 sticky left-0 bg-inherit">

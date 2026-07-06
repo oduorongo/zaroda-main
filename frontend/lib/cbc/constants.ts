@@ -131,6 +131,34 @@ export function percentToLevel(percent: number, gradeLevel: string): PerfLevel {
   return scale.find(l => percent >= l.min && percent <= l.max) || scale[scale.length - 1];
 }
 
+// Overall performance level = the level the learner achieves in the MOST learning areas (the
+// mode of their per-area levels). This guarantees the overall level reflects actual per-subject
+// performance. Ties are broken toward the HIGHER level. `codes` is the list of per-area level
+// codes the learner earned (one per area with a mark).
+export function overallLevelByMode(codes: string[], gradeLevel: string): PerfLevel | null {
+  const scale = levelsFor(gradeLevel);           // ordered best → worst
+  if (!codes.length) return null;
+  const count: Record<string, number> = {};
+  for (const c of codes) count[c] = (count[c] || 0) + 1;
+  let best: PerfLevel | null = null;
+  let bestCount = -1;
+  // Walk the scale best → worst; on a tie the earlier (higher) level wins.
+  for (const lvl of scale) {
+    const n = count[lvl.code] || 0;
+    if (n > bestCount) { bestCount = n; best = lvl; }
+  }
+  return best;
+}
+
+// Overall performance level derived from the AVERAGE POINTS per learning area (kept for other
+// callers). avgPoints is rounded to the nearest whole point and mapped to that band's level code.
+export function levelFromAvgPoints(avgPoints: number, gradeLevel: string): PerfLevel {
+  const scale = levelsFor(gradeLevel);
+  const maxPts = scale[0].points;
+  const idx = Math.max(1, Math.min(maxPts, Math.round(avgPoints)));
+  return scale.find(l => l.points === idx) || scale[scale.length - 1];
+}
+
 // Points for a level code on a grade's scale (EE1=8 … BE2=1; EE=4 … BE=1).
 export function pointsForLevel(code: string, gradeLevel: string): number {
   const scale = levelsFor(gradeLevel);
