@@ -2338,7 +2338,10 @@ class PdfController {
       ).catch(() => []);
 
       const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
-      const lvl = (p: number) => (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      // Level code must match the grade band: 8-level (EE1…BE2) for Grade 7-12, 4-level (EE/ME/AE/BE) below.
+      const lvl = (p: number) => senior
+        ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+        : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
       const pts = (p: number) => senior
         ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
         : (p>=76?4:p>=51?3:p>=26?2:1);
