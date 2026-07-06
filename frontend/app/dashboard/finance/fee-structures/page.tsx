@@ -22,7 +22,7 @@ export default function FeeStructuresPage() {
   const [saving, setSaving]   = useState(false);
   const [form, setForm] = useState<any>({
     name: '', gradeLevel: '', gradeLevels: [] as string[], term: 'term_1', academicYear: '2025/2026',
-    category: 'tuition', amount: 0, isMandatory: true,
+    category: 'tuition', amount: 0, isMandatory: true, priority: 100,
   });
   const toggleGrade = (val: string) =>
     setForm((f: any) => ({ ...f, gradeLevels: f.gradeLevels.includes(val) ? f.gradeLevels.filter((g: string) => g !== val) : [...f.gradeLevels, val] }));
@@ -101,6 +101,7 @@ export default function FeeStructuresPage() {
               <th className="px-4 py-3 text-left text-xs hidden sm:table-cell">Grade</th>
               <th className="px-4 py-3 text-left text-xs">Category</th>
               <th className="px-4 py-3 text-right text-xs">Amount</th>
+              <th className="px-4 py-3 text-center text-xs hidden md:table-cell">Priority</th>
               <th className="px-4 py-3 text-center text-xs hidden md:table-cell">Term</th>
               {canManage && <th className="px-4 py-3 text-center text-xs">Action</th>}
             </tr></thead>
@@ -111,6 +112,7 @@ export default function FeeStructuresPage() {
                   <td className="px-4 py-3 text-sm text-theme-muted hidden sm:table-cell">{GRADE_LEVELS.find(g=>g.value===s.gradeLevel)?.label || 'All'}</td>
                   <td className="px-4 py-3"><span className="badge bg-surface-2 text-theme">{s.category}</span></td>
                   <td className="px-4 py-3 text-sm font-bold text-right text-theme-heading">{fmt(s.amount)}</td>
+                  <td className="px-4 py-3 text-center text-sm text-theme-muted hidden md:table-cell">{s.priority ?? 100}</td>
                   <td className="px-4 py-3 text-center text-sm text-theme-muted hidden md:table-cell">{s.term?.replace('_',' ')}</td>
                   {canManage && (
                     <td className="px-4 py-3 text-center">
@@ -171,6 +173,11 @@ export default function FeeStructuresPage() {
                   </select>
                 </div>
                 <div><label className="label">Amount (KES)</label><input type="number" value={form.amount} onChange={set('amount')} className="input"/></div>
+              </div>
+              <div>
+                <label className="label">Payment priority <span className="text-theme-muted font-normal">(lower = paid first when a lump sum is split)</span></label>
+                <input type="number" min={1} value={form.priority} onChange={set('priority')} className="input" placeholder="e.g. 10 for tuition, 90 for optional fees"/>
+                <p className="text-[11px] text-theme-muted mt-1">When a parent pays a lump sum, it fills the lowest-priority vote heads first. For example, set Tuition to 10 and Lunch to 50 so tuition is cleared before lunch.</p>
               </div>
               <label className="flex items-center gap-2 text-sm text-theme cursor-pointer">
                 <input type="checkbox" checked={form.isMandatory} onChange={set('isMandatory')} className="accent-[#1a2e5a]"/> Mandatory fee

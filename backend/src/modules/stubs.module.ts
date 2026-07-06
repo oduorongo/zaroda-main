@@ -40,8 +40,9 @@ class FinanceController {
     await this.ensureFeeItemsTable();
     return this.ds.query(
       `SELECT id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
-              category, amount, is_mandatory AS "isMandatory", created_at AS "createdAt"
-         FROM fee_items WHERE tenant_id = $1 ORDER BY created_at DESC`,
+              category, amount, is_mandatory AS "isMandatory", COALESCE(priority,100) AS priority,
+              created_at AS "createdAt"
+         FROM fee_items WHERE tenant_id = $1 ORDER BY COALESCE(priority,100) ASC, created_at DESC`,
       [req.user.tenantId],
     ).catch(() => []);
   }
@@ -65,6 +66,7 @@ class FinanceController {
       ['category', 'text'],
       ['amount', 'numeric'],
       ['is_mandatory', 'boolean DEFAULT true'],
+      ['priority', 'integer DEFAULT 100'],
       ['created_at', 'timestamptz DEFAULT NOW()'],
     ];
     for (const [name, type] of cols) {
@@ -111,15 +113,16 @@ class FinanceController {
       for (const grade_level of grades) {
         const rows = await this.ds.query(
           `INSERT INTO fee_items
-             (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+             (tenant_id, school_id, name, grade_level, term, academic_year, category, amount, is_mandatory, priority, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
            RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
-                     category, amount, is_mandatory AS "isMandatory"`,
+                     category, amount, is_mandatory AS "isMandatory", priority`,
           [
             req.user.tenantId, req.user.schoolId || null,
             String(dto.name).trim(), grade_level, dto.term || null,
             dto.academicYear || null, dto.category || 'tuition',
             Number(dto.amount) || 0, dto.isMandatory !== false,
+            dto.priority != null ? Number(dto.priority) : 100,
           ],
         );
         created.push(rows[0]);
@@ -139,20 +142,256 @@ class FinanceController {
     return { deleted: true };
   }
 
+  // ── Vote-head (fee category) priority: controls the order a lump sum auto-fills balances ──
+  @Patch('fee-structures/:id/priority')
+  async setFeePriority(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('Only the bursar or an administrator can set priority.');
+    }
+    await this.ensureFeeItemsTable();
+    await this.ds.query(
+      `UPDATE fee_items SET priority = $3 WHERE id = $1 AND tenant_id = $2`,
+      [id, req.user.tenantId, Number(dto.priority) || 100],
+    ).catch(() => null);
+    return { ok: true };
+  }
+
+  // Bulk reorder: accepts an ordered array of fee-item ids; assigns priority 1,2,3… in that order.
+  @Patch('fee-structures/reorder')
+  async reorderFees(@Request() req: any, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('Only the bursar or an administrator can reorder vote heads.');
+    }
+    await this.ensureFeeItemsTable();
+    const ids: string[] = Array.isArray(dto.ids) ? dto.ids : [];
+    for (let i = 0; i < ids.length; i++) {
+      await this.ds.query(`UPDATE fee_items SET priority = $3 WHERE id = $1 AND tenant_id = $2`,
+        [ids[i], req.user.tenantId, i + 1]).catch(() => null);
+    }
+    return { ok: true, count: ids.length };
+  }
+
+  // Records which payment paid how much toward which vote head (fee item). This is what makes
+  // per-vote-head balances possible — a lump sum is split into several allocation rows.
+  private async ensureAllocationsTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS payment_allocations (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, payment_id uuid, learner_id uuid,
+         fee_item_id uuid, vote_head text, amount numeric,
+         term text, academic_year text, created_at timestamptz DEFAULT NOW())`,
+    ).catch(() => null);
+    for (const [n, t] of [['payment_id','uuid'],['learner_id','uuid'],['fee_item_id','uuid'],
+      ['vote_head','text'],['amount','numeric'],['term','text'],['academic_year','text']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE payment_allocations ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+  }
+
+  // The vote heads that apply to a learner (their class's fee items), each with billed amount,
+  // amount already paid (from allocations), and outstanding balance — ordered by priority.
+  @Get('vote-heads/:learnerId')
+  async learnerVoteHeads(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
+    await this.ensureFeeItemsTable();
+    await this.ensureAllocationsTable();
+    const tenantId = req.user.tenantId;
+    const grade = await this.ds.query(
+      `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [learnerId],
+    ).then((r: any[]) => r[0]?.g || null).catch(() => null);
+    const term = q.term || null;
+    // Vote heads (fee items) for this learner's class (or school-wide), ordered by priority.
+    const heads = await this.ds.query(
+      `SELECT id, name, category, amount, COALESCE(priority,100) AS priority
+         FROM fee_items
+        WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
+          AND ($3::text IS NULL OR term = $3)
+        ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
+      [tenantId, grade, term],
+    ).catch(() => []);
+    // Amount paid per fee item so far.
+    const paidRows = await this.ds.query(
+      `SELECT fee_item_id, COALESCE(SUM(amount),0) AS paid
+         FROM payment_allocations WHERE tenant_id = $1 AND learner_id = $2
+         GROUP BY fee_item_id`,
+      [tenantId, learnerId],
+    ).catch(() => []);
+    const paidByItem: Record<string, number> = {};
+    for (const r of (paidRows as any[])) paidByItem[r.fee_item_id] = Number(r.paid || 0);
+    const result = (heads as any[]).map(h => {
+      const billed = Number(h.amount || 0);
+      const paid = paidByItem[h.id] || 0;
+      return { feeItemId: h.id, name: h.name, category: h.category, priority: h.priority,
+               billed, paid, balance: Math.max(0, billed - paid) };
+    });
+    const totalBilled = result.reduce((s, h) => s + h.billed, 0);
+    const totalPaid = result.reduce((s, h) => s + h.paid, 0);
+    return { voteHeads: result, totalBilled, totalPaid, totalBalance: Math.max(0, totalBilled - totalPaid) };
+  }
+
   @Get('invoices')
-  getInvoices(@Request() req: any, @Query() q: any) {
-    // TODO: implement invoice query with learner join
-    return [];
+  async getInvoices(@Request() req: any, @Query() q: any) {
+    // An "invoice" here is a learner's current statement: what they've been billed across vote
+    // heads vs paid. Returns one row per learner with balances, filterable by class/term.
+    await this.ensureFeeItemsTable();
+    await this.ensureAllocationsTable();
+    const tenantId = req.user.tenantId;
+    const learners = await this.ds.query(
+      `SELECT l.id, (l.first_name || ' ' || COALESCE(l.last_name,'')) AS name,
+              l.admission_number AS "admissionNumber", l.grade_level AS "gradeLevel", l.stream_id AS "streamId"
+         FROM learners l WHERE l.tenant_id::text = $1 AND l.is_active = true
+           AND ($2::text IS NULL OR l.grade_level = $2)
+        ORDER BY l.first_name`,
+      [tenantId, q.gradeLevel || null],
+    ).catch(() => []);
+    // Billed per grade (sum of fee items), and paid per learner (sum of allocations).
+    const billedRows = await this.ds.query(
+      `SELECT grade_level AS g, COALESCE(SUM(amount),0) AS billed FROM fee_items
+        WHERE tenant_id = $1 GROUP BY grade_level`, [tenantId],
+    ).catch(() => []);
+    const billedByGrade: Record<string, number> = {};
+    let schoolWide = 0;
+    for (const r of (billedRows as any[])) { if (r.g === null) schoolWide += Number(r.billed); else billedByGrade[r.g] = Number(r.billed); }
+    const paidRows = await this.ds.query(
+      `SELECT learner_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
+        WHERE tenant_id = $1 GROUP BY learner_id`, [tenantId],
+    ).catch(() => []);
+    const paidByLearner: Record<string, number> = {};
+    for (const r of (paidRows as any[])) paidByLearner[r.learner_id] = Number(r.paid || 0);
+    return (learners as any[]).map(l => {
+      const billed = (billedByGrade[l.gradeLevel] || 0) + schoolWide;
+      const paid = paidByLearner[l.id] || 0;
+      return { learnerId: l.id, name: l.name, admissionNumber: l.admissionNumber,
+               gradeLevel: l.gradeLevel, billed, paid, balance: Math.max(0, billed - paid) };
+    });
   }
 
   @Get('invoices/:id')
-  getInvoice(@Param('id') id: string) { return null; }
+  async getInvoice(@Request() req: any, @Param('id') learnerId: string, @Query() q: any) {
+    // Full statement for one learner: vote-head breakdown + payment history.
+    return this.learnerVoteHeads(req, learnerId, q);
+  }
 
   @Post('invoices')
   createInvoice(@Request() req: any, @Body() dto: any) { return { id: 'stub', ...dto }; }
 
   @Get('receipts')
-  getReceipts(@Request() req: any) { return []; }
+  async getReceipts(@Request() req: any, @Query() q: any) {
+    await this.ensurePaymentsTable();
+    return this.ds.query(
+      `SELECT id, receipt_number AS "receiptNumber", learner_name AS "learnerName",
+              admission_number AS "admissionNumber", amount, method, reference,
+              term, academic_year AS "academicYear", paid_on AS "paidOn", created_at AS "createdAt"
+         FROM payments WHERE tenant_id = $1
+         ORDER BY COALESCE(paid_on, created_at::date) DESC LIMIT 500`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  // Accounting reports as printable HTML (the browser prints to PDF). Real data from payments,
+  // allocations, expenses, and fee items. key ∈ cashbook|ledger|trial_balance|income|fee_statement
+  @Get('reports/:key')
+  async financeReport(@Request() req: any, @Param('key') key: string, @Query() q: any, @Res() res: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      res.status(403).send('<p>Not authorised.</p>'); return;
+    }
+    await this.ensurePaymentsTable();
+    await this.ensureAllocationsTable();
+    await this.ensureFeeItemsTable();
+    await this.ensureExpensesTable().catch(() => null);
+    const tenantId = req.user.tenantId;
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const ksh = (n: any) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 0 });
+    const school = await this.ds.query(`SELECT name FROM schools WHERE tenant_id = $1 LIMIT 1`, [tenantId]).then((r: any[]) => r[0]?.name || 'School').catch(() => 'School');
+    const today = new Date().toISOString().slice(0, 10);
+
+    const payments = await this.ds.query(
+      `SELECT receipt_number, learner_name, admission_number, amount, method, reference,
+              COALESCE(paid_on, created_at::date) AS d
+         FROM payments WHERE tenant_id = $1 ORDER BY d ASC`, [tenantId],
+    ).catch(() => []);
+    const expenses = await this.ds.query(
+      `SELECT description, category, amount, COALESCE(spent_on, created_at::date) AS d
+         FROM expenses WHERE tenant_id = $1 ORDER BY d ASC`, [tenantId],
+    ).catch(() => []);
+    const totalIn = (payments as any[]).reduce((s, p) => s + Number(p.amount || 0), 0);
+    const totalOut = (expenses as any[]).reduce((s, e) => s + Number(e.amount || 0), 0);
+
+    const wrap = (title: string, inner: string) => `<!doctype html><html><head><meta charset="utf-8">
+      <title>${esc(title)}</title><style>
+      body{font-family:Arial,sans-serif;margin:24px;color:#1a2e5a}
+      .head{text-align:center;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:16px}
+      .head h1{margin:0;font-size:20px}.head h2{margin:4px 0 0;font-size:14px;font-weight:400;color:#555}
+      table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+      th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+      th{background:#1a2e5a;color:#fff}
+      td.n,th.n{text-align:right}
+      tfoot td{font-weight:bold;background:#f0f2f8}
+      .print{margin:16px 0;text-align:center}
+      button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
+      @media print{.print{display:none}}
+      </style></head><body>
+      <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)} · as at ${esc(today)}</h2></div>
+      <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+      ${inner}</body></html>`;
+
+    let inner = '';
+    if (key === 'cashbook') {
+      const rowsIn = (payments as any[]).map(p => `<tr><td>${esc(p.d)}</td><td>${esc(p.receipt_number)}</td><td>${esc(p.learner_name || '')}</td><td>${esc(p.method || '')}</td><td class="n">${ksh(p.amount)}</td><td class="n"></td></tr>`).join('');
+      const rowsOut = (expenses as any[]).map(e => `<tr><td>${esc(e.d)}</td><td></td><td>${esc(e.description || '')}</td><td>${esc(e.category || '')}</td><td class="n"></td><td class="n">${ksh(e.amount)}</td></tr>`).join('');
+      inner = `<table><thead><tr><th>Date</th><th>Ref</th><th>Details</th><th>Type</th><th class="n">Receipts (In)</th><th class="n">Payments (Out)</th></tr></thead>
+        <tbody>${rowsIn}${rowsOut || ''}</tbody>
+        <tfoot><tr><td colspan="4">Totals</td><td class="n">${ksh(totalIn)}</td><td class="n">${ksh(totalOut)}</td></tr>
+        <tr><td colspan="4">Balance (Cash in hand)</td><td class="n" colspan="2">${ksh(totalIn - totalOut)}</td></tr></tfoot></table>`;
+    } else if (key === 'income') {
+      // Income statement: revenue by vote head − expenses by category.
+      const rev = await this.ds.query(
+        `SELECT COALESCE(vote_head,'Unallocated') AS head, COALESCE(SUM(amount),0) AS total
+           FROM payment_allocations WHERE tenant_id = $1 GROUP BY vote_head ORDER BY total DESC`, [tenantId],
+      ).catch(() => []);
+      const exp = await this.ds.query(
+        `SELECT COALESCE(category,'Other') AS cat, COALESCE(SUM(amount),0) AS total
+           FROM expenses WHERE tenant_id = $1 GROUP BY category ORDER BY total DESC`, [tenantId],
+      ).catch(() => []);
+      const revRows = (rev as any[]).map(r => `<tr><td>${esc(r.head)}</td><td class="n">${ksh(r.total)}</td></tr>`).join('') || '<tr><td>No revenue recorded</td><td class="n">KES 0</td></tr>';
+      const expRows = (exp as any[]).map(r => `<tr><td>${esc(r.cat)}</td><td class="n">${ksh(r.total)}</td></tr>`).join('') || '<tr><td>No expenses recorded</td><td class="n">KES 0</td></tr>';
+      inner = `<h3>Revenue (Fee Collections by Vote Head)</h3>
+        <table><tbody>${revRows}</tbody><tfoot><tr><td>Total Revenue</td><td class="n">${ksh(totalIn)}</td></tr></tfoot></table>
+        <h3>Expenditure</h3>
+        <table><tbody>${expRows}</tbody><tfoot><tr><td>Total Expenditure</td><td class="n">${ksh(totalOut)}</td></tr></tfoot></table>
+        <h3>Surplus / (Deficit)</h3>
+        <table><tfoot><tr><td>Net</td><td class="n">${ksh(totalIn - totalOut)}</td></tr></tfoot></table>`;
+    } else if (key === 'trial_balance') {
+      inner = `<table><thead><tr><th>Account</th><th class="n">Debit</th><th class="n">Credit</th></tr></thead>
+        <tbody>
+          <tr><td>Cash / Bank</td><td class="n">${ksh(totalIn - totalOut)}</td><td class="n"></td></tr>
+          <tr><td>Fee Income</td><td class="n"></td><td class="n">${ksh(totalIn)}</td></tr>
+          <tr><td>Expenses</td><td class="n">${ksh(totalOut)}</td><td class="n"></td></tr>
+        </tbody>
+        <tfoot><tr><td>Totals</td><td class="n">${ksh((totalIn - totalOut) + totalOut)}</td><td class="n">${ksh(totalIn)}</td></tr></tfoot></table>
+        <p style="font-size:11px;color:#666">A simplified trial balance from cash movements. For full double-entry ledgers, record opening balances and asset accounts.</p>`;
+    } else if (key === 'ledger') {
+      const alloc = await this.ds.query(
+        `SELECT COALESCE(vote_head,'Unallocated') AS head, learner_id, amount,
+                (SELECT learner_name FROM payments p WHERE p.id = a.payment_id) AS learner
+           FROM payment_allocations a WHERE tenant_id = $1 ORDER BY vote_head, created_at`, [tenantId],
+      ).catch(() => []);
+      const rows = (alloc as any[]).map(r => `<tr><td>${esc(r.head)}</td><td>${esc(r.learner || '')}</td><td class="n">${ksh(r.amount)}</td></tr>`).join('') || '<tr><td colspan="3">No transactions</td></tr>';
+      inner = `<table><thead><tr><th>Vote Head</th><th>Learner</th><th class="n">Amount</th></tr></thead><tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="2">Total</td><td class="n">${ksh(totalIn)}</td></tr></tfoot></table>`;
+    } else if (key === 'fee_statement') {
+      const invoices = await this.getInvoices(req, q);
+      const rows = (invoices as any[]).map(i => `<tr><td>${esc(i.admissionNumber || '')}</td><td>${esc(i.name)}</td><td>${esc(i.gradeLevel || '')}</td><td class="n">${ksh(i.billed)}</td><td class="n">${ksh(i.paid)}</td><td class="n">${ksh(i.balance)}</td></tr>`).join('') || '<tr><td colspan="6">No learners</td></tr>';
+      const tb = (invoices as any[]).reduce((s, i) => s + i.billed, 0);
+      const tp = (invoices as any[]).reduce((s, i) => s + i.paid, 0);
+      inner = `<table><thead><tr><th>Adm No</th><th>Learner</th><th>Class</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Balance</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="3">Totals</td><td class="n">${ksh(tb)}</td><td class="n">${ksh(tp)}</td><td class="n">${ksh(tb - tp)}</td></tr></tfoot></table>`;
+    } else {
+      res.status(400).send('<p>Unknown report.</p>'); return;
+    }
+    res.set('Content-Type', 'text/html').send(wrap(
+      ({ cashbook:'Cashbook', income:'Income Statement', trial_balance:'Trial Balance', ledger:'General Ledger', fee_statement:'Fee Statements' } as any)[key] || 'Report',
+      inner));
+  }
 
   // Parent-safe: a parent's OWN child's balance + payment history (read-only). Verifies the
   // learner's guardian_email matches the requesting parent's account email.
@@ -215,11 +454,73 @@ class FinanceController {
     try {
       const rows = await this.ds.query(
         `UPDATE payments SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i}
-         RETURNING id, amount, method, receipt_number AS "receiptNumber", paid_on AS "paidOn"`,
+         RETURNING id, learner_id AS "learnerId", amount, method, term, academic_year AS "academicYear",
+                   receipt_number AS "receiptNumber", paid_on AS "paidOn"`,
         vals,
       );
       if (!rows.length) throw new BadRequestException('Payment not found.');
-      return rows[0];
+      const payment = rows[0];
+
+      // If the amount (or term/year, which change the vote-head set) was edited, the old
+      // allocations are stale. Rebuild them: clear this payment's allocations and re-split the
+      // new amount across the learner's vote heads — honouring an explicit override if supplied,
+      // otherwise auto-filling by priority (same rules as recording a fresh payment).
+      const amountChanged = dto.amount !== undefined || dto.term !== undefined || dto.academicYear !== undefined || dto.allocations !== undefined;
+      if (amountChanged && payment.learnerId) {
+        await this.ensureAllocationsTable();
+        await this.ds.query(`DELETE FROM payment_allocations WHERE payment_id = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+        const amount = Number(payment.amount);
+        const term = payment.term || null;
+        const academicYear = payment.academicYear || null;
+
+        const grade = await this.ds.query(
+          `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [payment.learnerId],
+        ).then((r: any[]) => r[0]?.g || null).catch(() => null);
+        const heads = await this.ds.query(
+          `SELECT id, name, amount, COALESCE(priority,100) AS priority FROM fee_items
+            WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
+              AND ($3::text IS NULL OR term = $3)
+            ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
+          [req.user.tenantId, grade, term],
+        ).catch(() => []);
+        // Amount already paid to each vote head by OTHER payments (exclude this one, just cleared).
+        const paidRows = await this.ds.query(
+          `SELECT fee_item_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
+            WHERE tenant_id = $1 AND learner_id = $2 GROUP BY fee_item_id`,
+          [req.user.tenantId, payment.learnerId],
+        ).catch(() => []);
+        const paidByItem: Record<string, number> = {};
+        for (const r of (paidRows as any[])) paidByItem[r.fee_item_id] = Number(r.paid || 0);
+
+        let allocations: { feeItemId: string; name: string; amount: number }[] = [];
+        const overrides = Array.isArray(dto.allocations) ? dto.allocations.filter((a: any) => a && a.feeItemId && Number(a.amount) > 0) : [];
+        if (overrides.length) {
+          const nameById: Record<string, string> = {};
+          for (const h of (heads as any[])) nameById[h.id] = h.name;
+          allocations = overrides.map((a: any) => ({ feeItemId: a.feeItemId, name: nameById[a.feeItemId] || 'Fee', amount: Number(a.amount) }));
+        } else {
+          let remaining = amount;
+          for (const h of (heads as any[])) {
+            if (remaining <= 0) break;
+            const outstanding = Math.max(0, Number(h.amount || 0) - (paidByItem[h.id] || 0));
+            if (outstanding <= 0) continue;
+            const put = Math.min(outstanding, remaining);
+            allocations.push({ feeItemId: h.id, name: h.name, amount: put });
+            remaining -= put;
+          }
+          if (remaining > 0) allocations.push({ feeItemId: '', name: 'Credit / Overpayment', amount: remaining });
+        }
+        for (const a of allocations) {
+          await this.ds.query(
+            `INSERT INTO payment_allocations
+               (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [req.user.tenantId, id, payment.learnerId, a.feeItemId || null, a.name, a.amount, term, academicYear],
+          ).catch(() => null);
+        }
+        return { ...payment, allocations };
+      }
+      return payment;
     } catch (e: any) {
       throw new BadRequestException(`Could not update payment: ${e.message}`);
     }
@@ -231,6 +532,9 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
       throw new BadRequestException('Only the bursar or an administrator can delete payments.');
     }
+    // Remove the payment AND its vote-head allocations, so vote-head balances stay correct.
+    await this.ensureAllocationsTable();
+    await this.ds.query(`DELETE FROM payment_allocations WHERE payment_id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
     await this.ds.query(`DELETE FROM payments WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
   }
@@ -273,6 +577,8 @@ class FinanceController {
     const amount = Number(dto.amount);
     if (!amount || amount <= 0) throw new BadRequestException('Enter a valid amount.');
     await this.ensurePaymentsTable();
+    await this.ensureAllocationsTable();
+    await this.ensureFeeItemsTable();
 
     // Receipt number: ZRD-<short tenant>-<YYMMDD>-<random>
     const receiptNumber = `ZRD-${String(req.user.tenantId).slice(0, 4).toUpperCase()}-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random()*9000)}`;
@@ -293,7 +599,62 @@ class FinanceController {
           dto.paidOn || new Date().toISOString().slice(0, 10),
         ],
       );
-      return rows[0];
+      const payment = rows[0];
+
+      // ── Allocate this payment across vote heads ──
+      // If the bursar supplied an explicit split (dto.allocations = [{feeItemId, amount}]), use it.
+      // Otherwise auto-fill each vote head's outstanding balance in PRIORITY order until the
+      // money runs out.
+      const grade = await this.ds.query(
+        `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [dto.learnerId],
+      ).then((r: any[]) => r[0]?.g || null).catch(() => null);
+      const heads = await this.ds.query(
+        `SELECT id, name, amount, COALESCE(priority,100) AS priority FROM fee_items
+          WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
+            AND ($3::text IS NULL OR term = $3)
+          ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
+        [req.user.tenantId, grade, dto.term || null],
+      ).catch(() => []);
+      const paidRows = await this.ds.query(
+        `SELECT fee_item_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
+          WHERE tenant_id = $1 AND learner_id = $2 GROUP BY fee_item_id`,
+        [req.user.tenantId, dto.learnerId],
+      ).catch(() => []);
+      const paidByItem: Record<string, number> = {};
+      for (const r of (paidRows as any[])) paidByItem[r.fee_item_id] = Number(r.paid || 0);
+
+      let allocations: { feeItemId: string; name: string; amount: number }[] = [];
+      const overrides = Array.isArray(dto.allocations) ? dto.allocations.filter((a: any) => a && a.feeItemId && Number(a.amount) > 0) : [];
+      if (overrides.length) {
+        // Bursar-specified split. Match names for the receipt.
+        const nameById: Record<string, string> = {};
+        for (const h of (heads as any[])) nameById[h.id] = h.name;
+        allocations = overrides.map((a: any) => ({ feeItemId: a.feeItemId, name: nameById[a.feeItemId] || 'Fee', amount: Number(a.amount) }));
+      } else {
+        // Auto-fill by priority.
+        let remaining = amount;
+        for (const h of (heads as any[])) {
+          if (remaining <= 0) break;
+          const outstanding = Math.max(0, Number(h.amount || 0) - (paidByItem[h.id] || 0));
+          if (outstanding <= 0) continue;
+          const put = Math.min(outstanding, remaining);
+          allocations.push({ feeItemId: h.id, name: h.name, amount: put });
+          remaining -= put;
+        }
+        // Any money left after all balances are cleared → record as an overpayment/credit.
+        if (remaining > 0) allocations.push({ feeItemId: '', name: 'Credit / Overpayment', amount: remaining });
+      }
+
+      for (const a of allocations) {
+        await this.ds.query(
+          `INSERT INTO payment_allocations
+             (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [req.user.tenantId, payment.id, dto.learnerId, a.feeItemId || null, a.name, a.amount, dto.term || null, dto.academicYear || null],
+        ).catch(() => null);
+      }
+
+      return { ...payment, allocations };
     } catch (e: any) {
       throw new BadRequestException(`Could not record payment: ${e.message}`);
     }

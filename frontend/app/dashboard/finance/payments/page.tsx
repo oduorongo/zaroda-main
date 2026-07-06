@@ -27,6 +27,9 @@ export default function RecordPaymentPage() {
   const [search, setSearch]     = useState('');
   const [learner, setLearner]   = useState<any>(null);
   const [bal, setBal]           = useState<any>(null);
+  const [voteHeads, setVoteHeads] = useState<any[]>([]);
+  const [override, setOverride] = useState<Record<string, string>>({}); // feeItemId -> amount (manual split)
+  const [useOverride, setUseOverride] = useState(false);
   const [loadingBal, setLoadingBal] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [lastReceipt, setLastReceipt] = useState<any>(null);
@@ -65,12 +68,27 @@ export default function RecordPaymentPage() {
   }, [streamId]);
 
   const pickLearner = async (l: any) => {
-    setLearner(l); setBal(null); setLastReceipt(null); setLoadingBal(true);
+    setLearner(l); setBal(null); setVoteHeads([]); setOverride({}); setUseOverride(false); setLastReceipt(null); setLoadingBal(true);
     try {
-      const r = await apiClient.get(`/finance/payments/learner/${l.id}`);
-      setBal(r.data);
+      const [balR, vhR] = await Promise.all([
+        apiClient.get(`/finance/payments/learner/${l.id}`),
+        apiClient.get(`/finance/vote-heads/${l.id}`, { params: { term: form.term || undefined } }),
+      ]);
+      setBal(balR.data);
+      setVoteHeads(vhR.data?.voteHeads || []);
     } catch { setBal(null); }
     finally { setLoadingBal(false); }
+  };
+
+  // Auto-allocation preview: fill each vote head's balance in priority order until the amount runs out.
+  const previewAllocation = () => {
+    let remaining = Number(form.amount) || 0;
+    const rows = voteHeads.map(vh => {
+      const take = remaining > 0 ? Math.min(remaining, vh.balance) : 0;
+      remaining -= take;
+      return { ...vh, willPay: take };
+    });
+    return { rows, leftover: Math.max(0, remaining) };
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -78,6 +96,9 @@ export default function RecordPaymentPage() {
     if (!learner) { toast.error('Select a learner first'); return; }
     setSaving(true);
     try {
+      const allocations = useOverride
+        ? Object.entries(override).filter(([, v]) => Number(v) > 0).map(([feeItemId, v]) => ({ feeItemId, amount: Number(v) }))
+        : undefined;
       const { data } = await apiClient.post('/finance/payments', {
         learnerId: learner.id,
         learnerName: `${learner.firstName || ''} ${learner.lastName || ''}`.trim(),
@@ -85,6 +106,7 @@ export default function RecordPaymentPage() {
         amount: Number(form.amount),
         method: form.method, reference: form.reference, note: form.note,
         term: form.term || null, academicYear: form.academicYear, paidOn: form.paidOn,
+        allocations,
       });
       toast.success('Payment recorded');
       setLastReceipt(data);
@@ -176,7 +198,24 @@ export default function RecordPaymentPage() {
             </div>
           </div>
 
-          {/* Step 2: payment form */}
+          {/* Vote-head balances */}
+          {voteHeads.length > 0 && (
+            <div className="card p-5">
+              <h2 className="font-bold text-theme-heading mb-3">Fee vote heads <span className="text-xs font-normal text-theme-muted">(in payment priority order)</span></h2>
+              <div className="space-y-1.5">
+                {voteHeads.map((vh, i) => (
+                  <div key={vh.feeItemId} className="flex items-center gap-3 text-sm">
+                    <span className="w-5 h-5 rounded-full bg-surface-2 text-[11px] flex items-center justify-center font-bold text-theme-muted">{i+1}</span>
+                    <span className="flex-1 font-medium text-theme-heading">{vh.name}</span>
+                    <span className="text-theme-muted">{ksh(vh.paid)} / {ksh(vh.billed)}</span>
+                    <span className={`w-28 text-right font-bold ${vh.balance > 0 ? 'text-[#f5820a]' : 'text-green-600'}`}>
+                      {vh.balance > 0 ? ksh(vh.balance) + ' due' : 'Cleared'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <form onSubmit={submit} className="card p-5 space-y-4">
             <h2 className="font-bold text-theme-heading">2 · Payment details</h2>
             <div className="grid sm:grid-cols-2 gap-3">
@@ -197,6 +236,59 @@ export default function RecordPaymentPage() {
               <div><label className="label">Note</label>
                 <input value={form.note} onChange={set('note')} className="input" placeholder="Optional"/></div>
             </div>
+
+            {/* Allocation: how this amount fills the vote heads */}
+            {voteHeads.length > 0 && Number(form.amount) > 0 && (
+              <div className="rounded-xl border border-theme p-3 bg-surface-2/40">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold text-theme-heading">How this payment is applied</span>
+                  <label className="text-xs flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={useOverride} onChange={e => {
+                      setUseOverride(e.target.checked);
+                      if (e.target.checked) {
+                        const seed: Record<string, string> = {};
+                        previewAllocation().rows.forEach(r => { if (r.willPay > 0) seed[r.feeItemId] = String(r.willPay); });
+                        setOverride(seed);
+                      }
+                    }}/>
+                    Adjust manually
+                  </label>
+                </div>
+                {!useOverride ? (
+                  <div className="space-y-1">
+                    {previewAllocation().rows.filter(r => r.willPay > 0).map(r => (
+                      <div key={r.feeItemId} className="flex justify-between text-sm">
+                        <span className="text-theme-heading">{r.name}</span>
+                        <span className="font-bold text-green-600">{ksh(r.willPay)}</span>
+                      </div>
+                    ))}
+                    {previewAllocation().leftover > 0 && (
+                      <div className="flex justify-between text-sm text-[#f5820a]">
+                        <span>Overpayment / credit</span><span className="font-bold">{ksh(previewAllocation().leftover)}</span>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-theme-muted pt-1">Auto-filled by priority order. Tick "Adjust manually" to change the split.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {voteHeads.map(vh => (
+                      <div key={vh.feeItemId} className="flex items-center gap-2 text-sm">
+                        <span className="flex-1 text-theme-heading">{vh.name} <span className="text-theme-muted text-xs">({ksh(vh.balance)} due)</span></span>
+                        <input type="number" min={0} value={override[vh.feeItemId] || ''} onChange={e => setOverride(o => ({ ...o, [vh.feeItemId]: e.target.value }))}
+                          className="input w-28 py-1 text-sm" placeholder="0"/>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-xs pt-1 border-t border-theme">
+                      <span className="text-theme-muted">Allocated</span>
+                      <span className={`font-bold ${Object.values(override).reduce((s: number, v) => s + Number(v||0), 0) === Number(form.amount) ? 'text-green-600' : 'text-[#f5820a]'}`}>
+                        {ksh(Object.values(override).reduce((s: number, v) => s + Number(v||0), 0))} / {ksh(Number(form.amount))}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <button type="submit" disabled={saving} className="btn-primary w-full justify-center">
               {saving ? <Loader2 className="animate-spin" size={16}/> : <DollarSign size={16}/>} Record Payment
             </button>
@@ -263,6 +355,9 @@ export default function RecordPaymentPage() {
                 <input value={editPay.reference || ''} onChange={e => setEditPay({ ...editPay, reference: e.target.value })} className="input"/></div>
               <div><label className="label">Note</label>
                 <input value={editPay.note || ''} onChange={e => setEditPay({ ...editPay, note: e.target.value })} className="input"/></div>
+              <p className="text-[11px] text-theme-muted bg-surface-2/60 rounded-lg px-3 py-2">
+                Changing the amount re-applies this payment across the learner's fee vote heads by priority order. The vote-head balances update automatically.
+              </p>
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setEditPay(null)} className="btn-ghost flex-1 justify-center">Cancel</button>
                 <button onClick={saveEdit} className="btn-primary flex-1 justify-center">Save changes</button>
