@@ -208,7 +208,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'level-points-total-nogap-2026-07-06', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'seed-autoalign-marks-2026-07-07', features: ['mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
@@ -381,6 +381,48 @@ async function bootstrap() {
   });
 
   // Shared rubric-seeding routine. Loads bundled rubric_seed.json when no data is given.
+  // Canonical mark-subject renames — the single source of truth used BOTH by the
+  // /align-mark-subjects endpoint AND automatically at the end of every rubric re-seed, so a
+  // re-seed can never again strand marks (e.g. Grade 5 "Creative Arts and Sports" → "Creative Arts").
+  const MARK_RENAMES: Array<{ grades: string[]; from: string; to: string }> = [
+    { grades: ['playgroup', 'pp1', 'pp2'], from: 'Mathematical Activities', to: 'Mathematics Activities' },
+    { grades: ['playgroup', 'pp1', 'pp2'], from: 'Creative Activities', to: 'Creative Arts Activities' },
+    { grades: ['playgroup', 'pp1', 'pp2'], from: 'Religious Activities', to: 'Religious Education Activities' },
+    { grades: ['grade_1', 'grade_2', 'grade_3'], from: 'Mathematical Activities', to: 'Mathematics Activities' },
+    { grades: ['grade_1', 'grade_2', 'grade_3'], from: 'Creative Activities', to: 'Creative Arts Activities' },
+    { grades: ['grade_1', 'grade_2', 'grade_3'], from: 'Religious Activities', to: 'Religious Education Activities' },
+    { grades: ['grade_1', 'grade_2', 'grade_3'], from: 'Christian Religious Education Activities', to: 'Religious Education Activities' },
+    { grades: ['grade_7', 'grade_8', 'grade_9'], from: 'Creative Arts', to: 'Creative Arts and Sports' },
+    { grades: ['grade_4', 'grade_5', 'grade_6'], from: 'Creative Arts and Sports', to: 'Creative Arts' },
+  ];
+
+  // Rename any marks saved under an old/mismatched subject name onto the canonical rubric name,
+  // scoped to the correct grade band. Returns the number of marks moved. Safe to run repeatedly.
+  const alignMarkSubjects = async (): Promise<{ total: number; log: string[] }> => {
+    const ds = app.get(DataSource);
+    const log: string[] = [];
+    let total = 0;
+    for (const { grades, from, to } of MARK_RENAMES) {
+      const cnt = await ds.query(
+        `SELECT COUNT(*)::int AS n FROM assessment_results ar
+           JOIN streams s ON s.id::text = ar.stream_id::text
+          WHERE s.grade_level = ANY($1::text[]) AND ar.subject = $2`,
+        [grades, from],
+      ).catch(() => [{ n: 0 }]);
+      const n = Number(cnt[0]?.n || 0);
+      if (n === 0) continue;
+      await ds.query(
+        `UPDATE assessment_results ar SET subject = $3 FROM streams s
+          WHERE s.id::text = ar.stream_id::text
+            AND s.grade_level = ANY($1::text[]) AND ar.subject = $2`,
+        [grades, from, to],
+      ).catch(() => null);
+      log.push(`  ${grades[0].replace('grade_', 'G').replace('playgroup', 'PG')}…: "${from}" → "${to}"  (${n} marks)`);
+      total += n;
+    }
+    return { total, log };
+  };
+
   const runRubricSeed = async (data: any, replace: boolean): Promise<string> => {
     if (!data) {
       try {
@@ -482,7 +524,16 @@ async function bootstrap() {
         }
       }
     }
-    return `OK — seeded rubric.\nNew templates: ${tplCount}\nStrands: ${strandCount}\nSub-strands: ${subCount}\n\n${log.join('\n')}`;
+    // Automatically re-align any marks that a re-seed could have stranded (recurring Grade 5
+    // "Creative Arts" case). This makes the seed self-healing — marks are never lost by re-seeding.
+    let alignNote = '';
+    try {
+      const aligned = await alignMarkSubjects();
+      alignNote = aligned.total
+        ? `\n\nAuto-recovered ${aligned.total} mark(s) onto canonical names:\n${aligned.log.join('\n')}`
+        : '\n\nMark alignment: nothing to recover (all marks already on canonical names).';
+    } catch { alignNote = '\n\n(Mark auto-alignment skipped.)'; }
+    return `OK — seeded rubric.\nNew templates: ${tplCount}\nStrands: ${strandCount}\nSub-strands: ${subCount}\n\n${log.join('\n')}${alignNote}`;
   };
 
   // GET twin — runnable from the browser address bar (no console paste needed):
@@ -985,25 +1036,7 @@ async function bootstrap() {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
     const dry = !!req.query?.dry;
-    // grade bands → [ [from, to], ... ] canonical renames.
-    const ECDE = ['playgroup', 'pp1', 'pp2'];
-    const LOWER = ['grade_1', 'grade_2', 'grade_3'];
-    const renames: Array<{ grades: string[]; from: string; to: string }> = [
-      // ECDE
-      { grades: ECDE, from: 'Mathematical Activities', to: 'Mathematics Activities' },
-      { grades: ECDE, from: 'Creative Activities', to: 'Creative Arts Activities' },
-      { grades: ECDE, from: 'Religious Activities', to: 'Religious Education Activities' },
-      // Lower Primary (Grade 1-3)
-      { grades: LOWER, from: 'Mathematical Activities', to: 'Mathematics Activities' },
-      { grades: LOWER, from: 'Creative Activities', to: 'Creative Arts Activities' },
-      { grades: LOWER, from: 'Religious Activities', to: 'Religious Education Activities' },
-      { grades: LOWER, from: 'Christian Religious Education Activities', to: 'Religious Education Activities' },
-      // Junior (Grade 7-9): CA → CAS
-      { grades: ['grade_7', 'grade_8', 'grade_9'], from: 'Creative Arts', to: 'Creative Arts and Sports' },
-      // Upper Primary (Grade 4-6): recover marks wrongly saved as CAS back to "Creative Arts"
-      // (a recurring Grade 5 bug where the column name drifted to the Junior name).
-      { grades: ['grade_4', 'grade_5', 'grade_6'], from: 'Creative Arts and Sports', to: 'Creative Arts' },
-    ];
+    const renames = MARK_RENAMES;   // single source of truth (shared with the auto-align on re-seed)
     try {
       const ds = app.get(DataSource);
       const log: string[] = [];
