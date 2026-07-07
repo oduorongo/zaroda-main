@@ -159,7 +159,10 @@ export function levelFromPointsTotal(totalPoints: number, areaCount: number, gra
   const maxPerArea = scale[0].points;                 // 8 senior, 4 lower
   const max = Math.max(1, areaCount * maxPerArea);
   const pct = (totalPoints / max) * 100;
-  return scale.find(l => pct >= l.min && pct <= l.max) || scale[scale.length - 1];
+  // Walk best → worst and take the first band whose minimum the percentage reaches. Using only
+  // the lower bound (>= min) avoids the gaps between integer band maxima (e.g. 40.3% would fall
+  // between AE1's max of 40 and ME2's min of 41 if we also checked <= max).
+  return scale.find(l => pct >= l.min) || scale[scale.length - 1];
 }
 
 // Overall performance level derived from the AVERAGE POINTS per learning area (kept for other
