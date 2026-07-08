@@ -6,7 +6,7 @@ import { ArrowLeft, Trophy, Sparkles, Check, Loader2, Send, UserPlus } from 'luc
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
-const SPORTS = ['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis','Cross Country'];
+const SPORTS = ['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Basketball Boys JS','Basketball Girls JS','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis','Cross Country','Chess Boys Primary','Chess Girls Primary','Chess Boys JS','Chess Girls JS'];
 
 export default function SchoolTeamPage() {
   const [sport, setSport]           = useState('Football');

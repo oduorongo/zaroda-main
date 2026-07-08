@@ -38,7 +38,7 @@ export default function SportsPage() {
     setShowNew(true);
   };
 
-  const SPORTS = ['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis'];
+  const SPORTS = ['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Basketball Boys JS','Basketball Girls JS','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis','Chess Boys Primary','Chess Girls Primary','Chess Boys JS','Chess Girls JS'];
   const AGE_CATS = ['Under 11','Under 13','Under 15','Under 17','Under 19','Open'];
 
   // Ball/court games field "players"; track, field & swimming field "athletes".

@@ -147,7 +147,7 @@ export default function FixturesPage() {
             <form onSubmit={submit} className="p-5 space-y-4">
               <div><label className="label">Discipline / Event</label>
                 <select value={form.discipline} onChange={set('discipline')} className="input">
-                  {['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis','Cross Country'].map(s=><option key={s}>{s}</option>)}
+                  {['Football','Netball','Volleyball','Handball','Rugby','Hockey','Basketball','Basketball Boys JS','Basketball Girls JS','Athletics (Track)','Athletics (Field)','Swimming','Badminton','Table Tennis','Lawn Tennis','Cross Country','Chess Boys Primary','Chess Girls Primary','Chess Boys JS','Chess Girls JS'].map(s=><option key={s}>{s}</option>)}
                 </select>
               </div>
               {!/athletics|swimming|cross country/i.test(form.discipline) ? (
