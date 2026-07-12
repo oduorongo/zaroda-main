@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import {
   BookOpen, DollarSign, MessageSquare, FileText, Library,
-  Trophy, Scale, Smartphone, Sparkles, ShieldCheck, MapPin,
+  Trophy, Scale, Zap, Sparkles, ShieldCheck, MapPin,
   ArrowRight, Check, Phone,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -16,7 +16,7 @@ const MODULES = [
   { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns. Completely free — no fines, ever.', color: 'bg-cyan-600', badge: 'FREE' },
   { icon: Trophy,        title: 'Sports & Championships', desc: 'School teams, AI talent analytics, and a bridge to ZARODA Sports for cross-school championships — free.', color: 'bg-amber-500' },
   { icon: Scale,         title: 'Discipline & Guidance', desc: 'Incident recording, confidential counselling, behaviour assessments, and QASO-ready reports.', color: 'bg-red-500' },
-  { icon: Smartphone,    title: 'Mobile Apps',          desc: 'Dedicated apps for Teachers, Heads, Parents, and Learners — attendance, results, and fees on the go.', color: 'bg-[#f5820a]' },
+  { icon: Zap,           title: 'Easy Self-Onboarding', desc: 'No IT team needed — a class teacher can onboard a single stream and start enjoying the service in minutes. The rest of the school follows at its own pace.', color: 'bg-[#f5820a]' },
 ];
 
 const PRICING = [
