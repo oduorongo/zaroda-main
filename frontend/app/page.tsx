@@ -9,7 +9,7 @@ import {
 import { useAuth } from '@/lib/hooks/useAuth';
 
 const MODULES = [
-  { icon: BookOpen,      title: 'Academic Core',        desc: 'Learners, streams, attendance, CBC report cards, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
+  { icon: BookOpen,      title: 'Academic Core',        desc: 'Teachers enter marks online — mark lists and CBC report cards generate automatically, with real-time analytics. Learners, streams, attendance, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
   { icon: DollarSign,    title: 'Finance & Fees',       desc: 'M-Pesa STK push collection, auto-reconciliation, FPE/FDJSE/FDSSE fund tracking, and payroll with statutory deductions.', color: 'bg-green-600' },
   { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600' },
   { icon: MessageSquare, title: 'Communication',        desc: 'SMS via Africa\'s Talking, email, WhatsApp, and push notifications. Personalised bulk fee reminders to parents.', color: 'bg-blue-600' },

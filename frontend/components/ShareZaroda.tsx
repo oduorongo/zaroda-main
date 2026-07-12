@@ -53,7 +53,7 @@ export function ShareZaroda({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState<string>('');
 
   const signupUrl =
-    (typeof window !== 'undefined' ? window.location.origin : 'https://zaroda-web.onrender.com') + '/auth/signup';
+    (typeof window !== 'undefined' ? window.location.origin : 'https://zaroda-web.onrender.com') + '/';
 
   useEffect(() => {
     apiClient.get('/schools/settings')
