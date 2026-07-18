@@ -1954,6 +1954,14 @@ export class AcademicService {
     return { message: 'Subjects allocated', pathway: dto.pathway, track: dto.track, count: (dto.subjects||[]).length };
   }
 
+  async getSubjectAllocations(tenantId: string) {
+    return this.dataSource.query(
+      `SELECT pathway, track, subject FROM subject_allocations
+        WHERE tenant_id = $1 ORDER BY pathway, track, subject`,
+      [tenantId],
+    ).catch(() => []);
+  }
+
   // ── Teacher allocation ───────────────────────────────────
   async getAllocations(tenantId: string) {
     return this.dataSource.query(
@@ -2267,6 +2275,11 @@ export class AcademicController {
   @Post('subject-allocations')
   allocateSubjects(@Request() req: any, @Body() dto: any) {
     return this.academicService.allocateSubjects(req.user.tenantId, dto);
+  }
+
+  @Get('subject-allocations')
+  getSubjectAllocations(@Request() req: any) {
+    return this.academicService.getSubjectAllocations(req.user.tenantId);
   }
 
   // ── Teacher allocation ───────────────────────────────────

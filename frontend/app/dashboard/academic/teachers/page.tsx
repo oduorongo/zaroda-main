@@ -6,8 +6,10 @@ import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { LEARNING_AREAS, learningAreasFor } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
-// Senior pathway subjects + all CBC learning areas → one big de-duplicated list
-const ALL_SUBJECTS = Array.from(new Set([
+// Fallback senior pathway subjects + all CBC learning areas → one big de-duplicated list.
+// Actual school-selected senior school learning areas (from Subject Allocation) are
+// fetched at runtime and merged in — see loadSubjectAllocations().
+const FALLBACK_SUBJECTS = Array.from(new Set([
   ...Object.values(LEARNING_AREAS).flat(),
   'Biology','Chemistry','Physics','Computer Science','Business Studies','Economics',
   'History & Citizenship','Geography','Literature in English','Fasihi ya Kiswahili',
@@ -103,12 +105,19 @@ export default function TeachersPage() {
     streamSubjects: [{ streamId:'', subjects:[] as string[] }],
   });
 
+  const [allSubjects, setAllSubjects] = useState<string[]>(FALLBACK_SUBJECTS);
+
   const load = () => {
     setLoading(true);
     Promise.all([
       apiClient.get('/academic/teachers').catch(()=>({data:[]})),
       apiClient.get('/academic/streams').catch(()=>({data:[]})),
-    ]).then(([t,s])=>{ setTeachers(t.data); setStreams(s.data); }).finally(()=>setLoading(false));
+      apiClient.get('/academic/subject-allocations').catch(()=>({data:[]})),
+    ]).then(([t,s,sa])=>{
+      setTeachers(t.data); setStreams(s.data);
+      const allocated = (sa.data||[]).map((r:any)=>r.subject);
+      setAllSubjects(Array.from(new Set([...FALLBACK_SUBJECTS, ...allocated])).sort());
+    }).finally(()=>setLoading(false));
   };
   useEffect(()=>{ load(); }, []);
 
@@ -117,7 +126,16 @@ export default function TeachersPage() {
     setForm((f:any)=>({ ...f, subjects: f.subjects.includes(s) ? f.subjects.filter((x:string)=>x!==s) : [...f.subjects, s] }));
 
   // Per-stream assignment helpers
-  const areasForGrade = (grade:string) => learningAreasFor(grade || 'grade_4');
+  // Senior school grades only have 4 compulsory subjects baked into learningAreasFor;
+  // the pathway-specific electives a school actually selected (subject_allocations) must
+  // be merged in, otherwise only the compulsory subjects show up for allocation.
+  const areasForGrade = (grade:string) => {
+    const base = learningAreasFor(grade || 'grade_4');
+    if (['grade_10','grade_11','grade_12'].includes(grade)) {
+      return Array.from(new Set([...base, ...allSubjects])).sort();
+    }
+    return base;
+  };
   const addStreamRow = () => setForm((f:any)=>({ ...f, streamSubjects: [...(f.streamSubjects||[]), { streamId:'', subjects:[] }] }));
   const removeStreamRow = (idx:number) => setForm((f:any)=>({ ...f, streamSubjects: f.streamSubjects.filter((_:any,i:number)=>i!==idx) }));
   const updateStreamRow = (idx:number, key:string, val:any) => setForm((f:any)=>({
@@ -279,7 +297,7 @@ export default function TeachersPage() {
                 <label className="label">Learning Areas They Teach *</label>
                 <p className="text-[11px] text-theme-muted mb-2">Tick the learning areas this teacher takes.</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {ALL_SUBJECTS.map((s:string)=>(
+                  {allSubjects.map((s:string)=>(
                     <button type="button" key={s} onClick={()=>toggleSubject(s)}
                       className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors
                         ${form.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
