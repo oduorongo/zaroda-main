@@ -3,19 +3,17 @@ import { useState, useEffect } from 'react';
 import { UserPlus, X, Loader2, GraduationCap, Search, BookOpen, Phone, Mail, KeyRound, Copy, Trash2, Pencil, Crown, UserX, UserCheck, Share2, MessageCircle, Check, RefreshCw } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
-import { LEARNING_AREAS, learningAreasFor } from '@/lib/cbc/constants';
+import { learningAreasFor, GRADE_LEVELS, EDUCATION_BANDS, bandsForSchoolLevels } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
-// Fallback senior pathway subjects + all CBC learning areas → one big de-duplicated list.
-// Actual school-selected senior school learning areas (from Subject Allocation) are
-// fetched at runtime and merged in — see loadSubjectAllocations().
-const FALLBACK_SUBJECTS = Array.from(new Set([
-  ...Object.values(LEARNING_AREAS).flat(),
+// Fallback senior school electives, used only if a school hasn't run Subject
+// Allocation yet — once they have, their actual selections take over instead.
+const FALLBACK_SENIOR_ELECTIVES = [
   'Biology','Chemistry','Physics','Computer Science','Business Studies','Economics',
   'History & Citizenship','Geography','Literature in English','Fasihi ya Kiswahili',
   'Christian Religious Education','Islamic Religious Education','French','German','Music',
   'Sports & Recreation','Fine Art','Agriculture','Home Science','Pre-Technical Studies',
-])).sort();
+];
 
 export default function TeachersPage() {
   const { user } = useAuth();
@@ -105,12 +103,13 @@ export default function TeachersPage() {
     streamSubjects: [{ streamId:'', subjects:[] as string[] }],
   });
 
-  // Full fallback list — used only for the flat "Learning Areas They Teach" chip picker,
-  // which intentionally spans all bands since one teacher can span grades.
-  const [allSubjects, setAllSubjects] = useState<string[]>(FALLBACK_SUBJECTS);
   // Just the senior-school electives this school actually selected via Subject
-  // Allocation — used to scope the per-stream picker to grade 10-12 only.
+  // Allocation — used to scope the grade-based picker to grade 10-12 only.
   const [seniorAllocatedSubjects, setSeniorAllocatedSubjects] = useState<string[]>([]);
+  // Grade the "Onboard Teacher" learning-area picker is scoped to — chosen up front
+  // so the chip list shows only that grade's subjects instead of every band at once.
+  const [teachGrade, setTeachGrade] = useState('');
+  const allowedBands = bandsForSchoolLevels(user?.schoolLevels);
 
   const load = () => {
     setLoading(true);
@@ -121,7 +120,6 @@ export default function TeachersPage() {
     ]).then(([t,s,sa])=>{
       setTeachers(t.data); setStreams(s.data);
       const allocated = (sa.data||[]).map((r:any)=>r.subject);
-      setAllSubjects(Array.from(new Set([...FALLBACK_SUBJECTS, ...allocated])).sort());
       setSeniorAllocatedSubjects(Array.from(new Set(allocated)).sort());
     }).finally(()=>setLoading(false));
   };
@@ -139,7 +137,8 @@ export default function TeachersPage() {
   const areasForGrade = (grade:string) => {
     const base = learningAreasFor(grade || 'grade_4');
     if (['grade_10','grade_11','grade_12'].includes(grade)) {
-      return Array.from(new Set([...base, ...seniorAllocatedSubjects])).sort();
+      const electives = seniorAllocatedSubjects.length > 0 ? seniorAllocatedSubjects : FALLBACK_SENIOR_ELECTIVES;
+      return Array.from(new Set([...base, ...electives])).sort();
     }
     return base;
   };
@@ -167,6 +166,7 @@ export default function TeachersPage() {
       toast.success(`${firstName} ${lastName} onboarded`);
       setShowNew(false);
       setForm({ fullName:'', email:'', phone:'', gender:'', idNumber:'', tscNumber:'', role:'subject_teacher', streamId:'', streamName:'', subjects:[], streamSubjects:[{ streamId:'', subjects:[] }] });
+      setTeachGrade('');
       if (creds) setNewCreds({ name: `${res.data.teacher.firstName} ${res.data.teacher.lastName}`, ...creds });
       load();
     } catch (err:any) {
@@ -269,7 +269,7 @@ export default function TeachersPage() {
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between p-5 border-b border-theme sticky top-0 bg-surface">
               <h3 className="text-lg font-bold text-theme-heading">Onboard Teacher</h3>
-              <button onClick={()=>setShowNew(false)}><X size={20} className="text-theme-muted"/></button>
+              <button onClick={()=>{setShowNew(false); setTeachGrade('');}}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -299,23 +299,41 @@ export default function TeachersPage() {
                 </div>
               </div>
 
-              {/* Learning areas the teacher takes — simple chip picker (matches self-onboarding) */}
+              {/* Learning areas the teacher takes — scoped to one grade at a time so the
+                  chip list doesn't dump every subject from ECD through Senior School. */}
               <div>
-                <label className="label">Learning Areas They Teach *</label>
-                <p className="text-[11px] text-theme-muted mb-2">Tick the learning areas this teacher takes.</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {allSubjects.map((s:string)=>(
-                    <button type="button" key={s} onClick={()=>toggleSubject(s)}
-                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors
-                        ${form.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
-                      {form.subjects.includes(s) && '✓ '}{s}
-                    </button>
+                <label className="label">Grade / Class Level *</label>
+                <select value={teachGrade}
+                  onChange={e=>{ setTeachGrade(e.target.value); setForm((f:any)=>({...f, subjects:[]})); }}
+                  className="input">
+                  <option value="">Select grade…</option>
+                  {EDUCATION_BANDS.filter(band=>allowedBands.includes(band)).map(band=>(
+                    <optgroup key={band} label={band}>
+                      {GRADE_LEVELS.filter(g=>g.band===band).map(g=>(
+                        <option key={g.value} value={g.value}>{g.label}</option>
+                      ))}
+                    </optgroup>
                   ))}
-                </div>
+                </select>
               </div>
+              {teachGrade && (
+                <div>
+                  <label className="label">Learning Areas They Teach *</label>
+                  <p className="text-[11px] text-theme-muted mb-2">Tick the learning areas this teacher takes for {GRADE_LEVELS.find(g=>g.value===teachGrade)?.label}.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {areasForGrade(teachGrade).map((s:string)=>(
+                      <button type="button" key={s} onClick={()=>toggleSubject(s)}
+                        className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors
+                          ${form.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
+                        {form.subjects.includes(s) && '✓ '}{s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={()=>setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="button" onClick={()=>{setShowNew(false); setTeachGrade('');}} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">
                   {saving ? <><Loader2 size={14} className="animate-spin"/> Onboarding…</> : 'Onboard Teacher'}
                 </button>
