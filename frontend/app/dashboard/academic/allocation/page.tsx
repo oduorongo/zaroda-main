@@ -8,11 +8,15 @@ import { useAuth, runsSenior } from '@/lib/hooks/useAuth';
 import { SENIOR_PATHWAYS, learningAreasFor } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
-// Senior school subject menu by pathway (CBC senior school learning areas)
+// Compulsory for every senior-school learner regardless of pathway — never offered
+// as a selectable elective, so they can't be picked (and duplicated) here.
+const SENIOR_COMPULSORY = ['English', 'Kiswahili', 'Core Mathematics', 'Community Service Learning'];
+
+// Senior school subject menu by pathway (CBC senior school learning areas — electives only)
 const PATHWAY_SUBJECTS: Record<string, string[]> = {
   'STEM': ['Mathematics','Biology','Chemistry','Physics','General Science','Agriculture','Computer Science','Home Science','Drawing & Design','Aviation Technology','Building & Construction','Electrical Technology','Metal Technology','Power Mechanics','Woodwork','Media Technology','Marine & Fisheries'],
   'Arts & Sports Science': ['Sports & Recreation','Physical Education','Music & Dance','Theatre & Film','Fine Art','Sculpture','Textile & Fashion Design','Crafts'],
-  'Social Sciences': ['English','Literature in English','Kiswahili','Fasihi ya Kiswahili','Kenya Sign Language','Arabic','French','German','Mandarin','History & Citizenship','Geography','Christian Religious Education','Islamic Religious Education','Hindu Religious Education','Business Studies','Economics'],
+  'Social Sciences': ['Literature in English','Fasihi ya Kiswahili','Kenya Sign Language','Arabic','French','German','Mandarin','History & Citizenship','Geography','Christian Religious Education','Islamic Religious Education','Hindu Religious Education','Business Studies','Economics'],
 };
 
 export default function AllocationPage() {
@@ -51,7 +55,9 @@ export default function AllocationPage() {
   useEffect(()=>{ load(); }, []);
 
   const tracks = SENIOR_PATHWAYS.find(p=>p.pathway===pathway)?.tracks || [];
-  const availableSubjects = pathway ? (PATHWAY_SUBJECTS[pathway]||[]) : [];
+  const availableSubjects = pathway
+    ? (PATHWAY_SUBJECTS[pathway]||[]).filter(s=>!SENIOR_COMPULSORY.includes(s))
+    : [];
 
   // Teacher Allocation modal: subjects scoped to whatever grade the selected stream
   // is — compulsory subjects for that grade, plus (for senior grades) the electives

@@ -1941,9 +1941,14 @@ export class AcademicService {
   }
 
   // ── Subject allocation (senior school) ───────────────────
+  // Every senior-school learner takes these regardless of pathway — never
+  // allowed into the elective allocation table, however the request got here.
+  private readonly SENIOR_COMPULSORY = ['English', 'Kiswahili', 'Core Mathematics', 'Community Service Learning'];
+
   async allocateSubjects(tenantId: string, dto: any) {
     // Persist which subjects belong to a pathway/track for this school
-    for (const subject of (dto.subjects || [])) {
+    const subjects = (dto.subjects || []).filter((s: string) => !this.SENIOR_COMPULSORY.includes(s));
+    for (const subject of subjects) {
       await this.dataSource.query(
         `INSERT INTO subject_allocations (tenant_id, pathway, track, subject, created_at)
          VALUES ($1, $2, $3, $4, NOW())
@@ -1951,7 +1956,7 @@ export class AcademicService {
         [tenantId, dto.pathway, dto.track, subject],
       ).catch(() => null);
     }
-    return { message: 'Subjects allocated', pathway: dto.pathway, track: dto.track, count: (dto.subjects||[]).length };
+    return { message: 'Subjects allocated', pathway: dto.pathway, track: dto.track, count: subjects.length };
   }
 
   async getSubjectAllocations(tenantId: string) {
