@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, runsSenior } from '@/lib/hooks/useAuth';
-import { SENIOR_PATHWAYS, LEARNING_AREAS, GRADE_LEVELS } from '@/lib/cbc/constants';
+import { SENIOR_PATHWAYS, learningAreasFor } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
 // Senior school subject menu by pathway (CBC senior school learning areas)
@@ -52,6 +52,22 @@ export default function AllocationPage() {
 
   const tracks = SENIOR_PATHWAYS.find(p=>p.pathway===pathway)?.tracks || [];
   const availableSubjects = pathway ? (PATHWAY_SUBJECTS[pathway]||[]) : [];
+
+  // Teacher Allocation modal: subjects scoped to whatever grade the selected stream
+  // is — compulsory subjects for that grade, plus (for senior grades) the electives
+  // this school actually allocated, so the picker matches what's really offered
+  // instead of every learning area from ECD through Senior School.
+  const allocStreamGrade = streams.find((s:any)=>s.id===alloc.streamId)?.gradeLevel || '';
+  const allocSubjectOptions = (() => {
+    if (!allocStreamGrade) return [];
+    const base = learningAreasFor(allocStreamGrade);
+    if (['grade_10','grade_11','grade_12'].includes(allocStreamGrade)) {
+      const allocated = Array.from(new Set(subjectAllocations.map((a:any)=>a.subject)));
+      const electives = allocated.length ? allocated : Object.values(PATHWAY_SUBJECTS).flat();
+      return Array.from(new Set([...base, ...electives])).sort();
+    }
+    return base;
+  })();
 
   // Subjects already allocated for the currently selected pathway/track — used to
   // pre-tick the chip picker so opening a track shows what's already offered.
@@ -279,18 +295,19 @@ export default function AllocationPage() {
                 {teachers.length===0 && <p className="text-xs text-amber-600 mt-1">No teachers found — add teachers first.</p>}
               </div>
               <div>
-                <label className="label">Subject *</label>
-                <input required value={alloc.subject} onChange={e=>setAlloc(a=>({...a,subject:e.target.value}))} className="input" placeholder="e.g. Mathematics" list="subj-list"/>
-                <datalist id="subj-list">
-                  {Object.values(PATHWAY_SUBJECTS).flat().concat(Object.values(LEARNING_AREAS).flat())
-                    .filter((v,i,arr)=>arr.indexOf(v)===i).map(s=><option key={s} value={s}/>)}
-                </datalist>
-              </div>
-              <div>
                 <label className="label">Stream *</label>
-                <select required value={alloc.streamId} onChange={e=>setAlloc(a=>({...a,streamId:e.target.value}))} className="input">
+                <select required value={alloc.streamId}
+                  onChange={e=>setAlloc(a=>({...a,streamId:e.target.value,subject:''}))} className="input">
                   <option value="">Select stream</option>
                   {streams.map((s:any)=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Subject *</label>
+                <select required value={alloc.subject} disabled={!alloc.streamId}
+                  onChange={e=>setAlloc(a=>({...a,subject:e.target.value}))} className="input">
+                  <option value="">{alloc.streamId ? 'Select subject' : 'Select a stream first'}</option>
+                  {allocSubjectOptions.map(s=><option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div className="flex gap-3">
