@@ -30,6 +30,8 @@ export default function AllocationPage() {
   const [pathway, setPathway] = useState('');
   const [track, setTrack]     = useState('');
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  // What's actually saved for this school — { id, pathway, track, subject }[]
+  const [subjectAllocations, setSubjectAllocations] = useState<any[]>([]);
 
   // Teacher allocation form
   const [showAlloc, setShowAlloc] = useState(false);
@@ -42,7 +44,8 @@ export default function AllocationPage() {
       apiClient.get('/academic/streams').catch(()=>({data:[]})),
       apiClient.get('/academic/teachers').catch(()=>({data:[]})),
       apiClient.get('/academic/allocations').catch(()=>({data:[]})),
-    ]).then(([s,t,a])=>{ setStreams(s.data); setTeachers(t.data); setAllocations(a.data); })
+      apiClient.get('/academic/subject-allocations').catch(()=>({data:[]})),
+    ]).then(([s,t,a,sa])=>{ setStreams(s.data); setTeachers(t.data); setAllocations(a.data); setSubjectAllocations(sa.data||[]); })
       .finally(()=>setLoading(false));
   };
   useEffect(()=>{ load(); }, []);
@@ -50,18 +53,42 @@ export default function AllocationPage() {
   const tracks = SENIOR_PATHWAYS.find(p=>p.pathway===pathway)?.tracks || [];
   const availableSubjects = pathway ? (PATHWAY_SUBJECTS[pathway]||[]) : [];
 
+  // Subjects already allocated for the currently selected pathway/track — used to
+  // pre-tick the chip picker so opening a track shows what's already offered.
+  const allocatedForCurrent = subjectAllocations.filter(a => a.pathway===pathway && a.track===track);
+
+  // Re-sync the chip picker whenever the pathway/track selection changes, so it
+  // reflects what's actually saved (lets HOI see + edit the existing allocation).
+  useEffect(() => {
+    if (pathway && track) setSelectedSubjects(allocatedForCurrent.map(a => a.subject));
+    else setSelectedSubjects([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathway, track, subjectAllocations]);
+
   const toggleSubject = (s: string) =>
     setSelectedSubjects(cur => cur.includes(s) ? cur.filter(x=>x!==s) : [...cur, s]);
 
   const saveSubjects = async () => {
-    if (!pathway || !track || selectedSubjects.length===0) { toast.error('Select pathway, track and subjects'); return; }
+    if (!pathway || !track) { toast.error('Select pathway and track'); return; }
     setSaving(true);
     try {
-      await apiClient.post('/academic/subject-allocations', { pathway, track, subjects: selectedSubjects });
-      toast.success(`${selectedSubjects.length} subjects allocated to ${track}`);
-      setSelectedSubjects([]);
+      const existing = allocatedForCurrent.map(a => a.subject);
+      const toAdd    = selectedSubjects.filter(s => !existing.includes(s));
+      const toRemove = allocatedForCurrent.filter(a => !selectedSubjects.includes(a.subject));
+      if (toAdd.length) await apiClient.post('/academic/subject-allocations', { pathway, track, subjects: toAdd });
+      await Promise.all(toRemove.map(a => apiClient.delete(`/academic/subject-allocations/${a.id}`)));
+      toast.success(`${track} now offers ${selectedSubjects.length} subject${selectedSubjects.length===1?'':'s'}`);
+      load();
     } catch { toast.error('Could not save allocation'); }
     finally { setSaving(false); }
+  };
+
+  const removeAllocation = async (id: string) => {
+    try {
+      await apiClient.delete(`/academic/subject-allocations/${id}`);
+      setSubjectAllocations(cur => cur.filter(a => a.id !== id));
+      toast.success('Subject removed');
+    } catch { toast.error('Could not remove subject'); }
   };
 
   const saveTeacherAlloc = async (e: React.FormEvent) => {
@@ -135,12 +162,58 @@ export default function AllocationPage() {
                     </button>
                   ))}
                 </div>
-                <button onClick={saveSubjects} disabled={saving || selectedSubjects.length===0} className="btn-primary">
-                  {saving ? <><Loader2 size={14} className="animate-spin"/> Saving…</> : <><Plus size={14}/> Allocate {selectedSubjects.length} Subjects</>}
+                <button onClick={saveSubjects} disabled={saving} className="btn-primary">
+                  {saving ? <><Loader2 size={14} className="animate-spin"/> Saving…</> : <><Plus size={14}/> Save {selectedSubjects.length} Subject{selectedSubjects.length===1?'':'s'} for {track}</>}
                 </button>
               </>
             )}
             {!pathway && <p className="text-sm text-theme-muted text-center py-6">Select a pathway and track to allocate learning areas</p>}
+          </div>
+
+          {/* ── What's currently offered — view + edit ── */}
+          <div className="card p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <BookOpen size={18} className="text-theme-heading"/>
+              <h2 className="font-bold text-theme-heading">Learning Areas Currently Offered</h2>
+            </div>
+            {subjectAllocations.length === 0 ? (
+              <p className="text-sm text-theme-muted text-center py-6">No learning areas allocated yet — pick a pathway and track above to get started.</p>
+            ) : (
+              <div className="space-y-4">
+                {SENIOR_PATHWAYS.map(p => {
+                  const rows = subjectAllocations.filter(a => a.pathway === p.pathway);
+                  if (rows.length === 0) return null;
+                  const byTrack: Record<string, any[]> = {};
+                  rows.forEach(r => { (byTrack[r.track] = byTrack[r.track] || []).push(r); });
+                  return (
+                    <div key={p.pathway}>
+                      <p className="text-xs font-bold text-theme-heading uppercase tracking-wide mb-2">{p.pathway}</p>
+                      <div className="space-y-2">
+                        {Object.entries(byTrack).map(([trk, subs]) => (
+                          <div key={trk} className="p-3 bg-surface-2 rounded-xl">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-semibold text-theme">{trk}</span>
+                              <button onClick={()=>{ setPathway(p.pathway); setTrack(trk); }}
+                                className="text-[11px] text-[#1a2e5a] font-semibold hover:underline">Edit</button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {subs.map((s:any)=>(
+                                <span key={s.id} className="flex items-center gap-1 text-[11px] bg-surface text-theme border border-theme rounded-full pl-2.5 pr-1 py-0.5">
+                                  {s.subject}
+                                  <button onClick={()=>removeAllocation(s.id)} title="Remove" className="text-theme-muted hover:text-red-600 p-0.5">
+                                    <X size={11}/>
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="card p-4 bg-surface-2">

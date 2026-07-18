@@ -1956,10 +1956,18 @@ export class AcademicService {
 
   async getSubjectAllocations(tenantId: string) {
     return this.dataSource.query(
-      `SELECT pathway, track, subject FROM subject_allocations
+      `SELECT id, pathway, track, subject FROM subject_allocations
         WHERE tenant_id = $1 ORDER BY pathway, track, subject`,
       [tenantId],
     ).catch(() => []);
+  }
+
+  async removeSubjectAllocation(tenantId: string, id: string) {
+    await this.dataSource.query(
+      `DELETE FROM subject_allocations WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, id],
+    ).catch(() => null);
+    return { message: 'Subject removed' };
   }
 
   // ── Teacher allocation ───────────────────────────────────
@@ -2280,6 +2288,11 @@ export class AcademicController {
   @Get('subject-allocations')
   getSubjectAllocations(@Request() req: any) {
     return this.academicService.getSubjectAllocations(req.user.tenantId);
+  }
+
+  @Delete('subject-allocations/:id')
+  removeSubjectAllocation(@Request() req: any, @Param('id') id: string) {
+    return this.academicService.removeSubjectAllocation(req.user.tenantId, id);
   }
 
   // ── Teacher allocation ───────────────────────────────────
