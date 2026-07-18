@@ -4,19 +4,31 @@ import { useState, useEffect } from 'react';
 import { Building2, Search, Loader2, ChevronRight } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 
+const LEVEL_TABS = [
+  { key: '',           label: 'All' },
+  { key: 'primary_js', label: 'Primary / JS' },
+  { key: 'senior',     label: 'Senior School' },
+];
+
 export default function OwnerSchoolsPage() {
   const [schools, setSchools] = useState<any[]>([]);
   const [search, setSearch]   = useState('');
+  const [level, setLevel]     = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = () => {
     setLoading(true);
-    apiClient.get('/admin/tenants', { params: { search } })
+    apiClient.get('/admin/tenants', { params: { search, level: level || undefined } })
       .then(r => setSchools(r.data?.data || []))
       .catch(() => setSchools([]))
       .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [level]);
+
+  const levelLabel = (levels: string[]) => {
+    if (!levels || levels.length === 0) return '—';
+    return levels.map(l => l === 'senior' ? 'Senior' : 'Primary/JS').join(' + ');
+  };
 
   const badge = (st: string) => ({
     active: 'bg-green-100 text-green-700', trial: 'bg-amber-100 text-amber-700',
@@ -42,6 +54,16 @@ export default function OwnerSchoolsPage() {
             <button onClick={load} className="btn-primary">Search</button>
           </div>
 
+          <div className="flex gap-1 mb-3 border-b border-theme">
+            {LEVEL_TABS.map(t => (
+              <button key={t.key} onClick={() => setLevel(t.key)}
+                className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-all
+                  ${level === t.key ? 'border-[#1a2e5a] text-theme-heading' : 'border-transparent text-theme-muted hover:text-theme-heading'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="animate-spin text-theme-muted" size={24}/></div>
           ) : (
@@ -50,6 +72,7 @@ export default function OwnerSchoolsPage() {
                 <thead>
                   <tr className="text-left text-theme-muted border-b border-theme">
                     <th className="py-2 pr-3 font-medium">School</th>
+                    <th className="py-2 pr-3 font-medium">Level</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
                     <th className="py-2 pr-3 font-medium">Tier</th>
                     <th className="py-2 pr-3 font-medium">Learners</th>
@@ -61,10 +84,11 @@ export default function OwnerSchoolsPage() {
                 </thead>
                 <tbody>
                   {schools.length === 0 ? (
-                    <tr><td colSpan={8} className="py-8 text-center text-theme-muted">No schools found</td></tr>
+                    <tr><td colSpan={9} className="py-8 text-center text-theme-muted">No schools found</td></tr>
                   ) : schools.map((s: any) => (
                     <tr key={s.id} className="border-b border-theme/50 align-top">
                       <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
+                      <td className="py-2.5 pr-3 text-theme-muted">{levelLabel(s.schoolLevels)}</td>
                       <td className="py-2.5 pr-3"><span className={`badge ${badge(s.status)}`}>{s.status}</span></td>
                       <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>
                       <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>

@@ -58,6 +58,13 @@ export default function SignupPage() {
     email: '', password: '', confirmPassword: '', phone: '',
   });
 
+  // Which bands this school runs — drives whether senior-school pathway/elective
+  // features (and the reverse: primary/JS learning areas) show up later, so schools
+  // running only one band don't see the other's setup screens.
+  const [schoolLevels, setSchoolLevels] = useState<string[]>([]);
+  const toggleLevel = (lvl: string) =>
+    setSchoolLevels(cur => cur.includes(lvl) ? cur.filter(x => x !== lvl) : [...cur, lvl]);
+
   // KNEC lookup state
   const [knecStatus, setKnecStatus] = useState<'idle'|'searching'|'found'|'notfound'>('idle');
   const [schoolAutoFilled, setSchoolAutoFilled] = useState(false);
@@ -162,6 +169,9 @@ export default function SignupPage() {
     if (form.password.length < 8) {
       toast.error('Password must be at least 8 characters'); return;
     }
+    if (schoolLevels.length === 0) {
+      toast.error('Select which school level(s) you run'); return;
+    }
     setStep(2);
   };
 
@@ -174,7 +184,7 @@ export default function SignupPage() {
       const res = await fetch(`${API}/auth/signup`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...form, ...location }),
+        body:    JSON.stringify({ ...form, ...location, schoolLevels }),
       });
 
       const data = await res.json();
@@ -255,6 +265,24 @@ export default function SignupPage() {
               <input required value={form.schoolName} onChange={set('schoolName')}
                 placeholder="Starlight Primary School"
                 className={`input ${schoolAutoFilled ? 'bg-green-50 border-green-200 text-[#1a2e5a]' : ''}`}/>
+            </div>
+            <div>
+              <label className="label">School Level(s) *</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'primary_js', label: 'Primary / Junior School' },
+                  { key: 'senior',     label: 'Senior School' },
+                ].map(l => (
+                  <button key={l.key} type="button" onClick={() => toggleLevel(l.key)}
+                    className={`text-left text-xs px-3 py-2.5 rounded-xl border transition-all
+                      ${schoolLevels.includes(l.key)
+                        ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]'
+                        : 'bg-white text-[#1a2e5a] border-[#e2e6f0] hover:border-[#1a2e5a]'}`}>
+                    {schoolLevels.includes(l.key) && <span className="mr-1">✓</span>}{l.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[#7a82a8] mt-1">Select both if your school runs both bands.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

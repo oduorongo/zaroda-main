@@ -2788,10 +2788,15 @@ class AdminController {
   async getTenants(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
     const search = q.search ? `%${q.search}%` : null;
+    // 'primary_js' | 'senior' | null (no filter). Tenants with school_levels = '{}'
+    // (unset/legacy) are always included regardless of filter, since we can't yet
+    // tell which band they run.
+    const level = ['primary_js', 'senior'].includes(q.level) ? q.level : null;
     const rows = await this.ds.query(
       `SELECT t.id, t.name, t.status, t.subscription_tier AS "subscriptionTier",
               t.county, t.sub_county AS "subCounty", t.zone, t.phone, t.email,
               t.knec_code AS "knecCode", t.trial_ends_at AS "trialEndsAt", t.created_at AS "createdAt",
+              t.school_levels AS "schoolLevels",
               (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
               (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount",
@@ -2808,8 +2813,9 @@ class AdminController {
             LIMIT 1
          ) admin ON true
         WHERE ($1::text IS NULL OR t.name ILIKE $1)
+          AND ($2::text IS NULL OR t.school_levels = '{}' OR $2 = ANY(t.school_levels))
         ORDER BY t.created_at DESC`,
-      [search],
+      [search, level],
     ).catch(() => []);
     return { data: rows };
   }

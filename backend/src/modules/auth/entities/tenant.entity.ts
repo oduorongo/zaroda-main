@@ -50,6 +50,11 @@ export class Tenant {
   @Column({ name: 'location_verified', default: false })
   locationVerified: boolean;
 
+  // Which bands this school runs — 'primary_js' and/or 'senior'. Empty array
+  // means unset/legacy (treat as "show everything" for backward compatibility).
+  @Column({ name: 'school_levels', type: 'text', array: true, default: () => "'{}'" })
+  schoolLevels: string[];
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

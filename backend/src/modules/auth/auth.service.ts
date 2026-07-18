@@ -110,6 +110,7 @@ export class AuthService {
         status:        'trial',
         trialEndsAt:   new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         subscriptionTier: 'trial',
+        schoolLevels:  Array.isArray(dto.schoolLevels) ? dto.schoolLevels.filter(l => ['primary_js','senior'].includes(l)) : [],
       });
       const savedTenant = await queryRunner.manager.save(Tenant, tenant);
 

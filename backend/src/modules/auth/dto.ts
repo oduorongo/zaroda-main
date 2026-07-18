@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsArray } from 'class-validator';
 
 export class SignupDto {
   @IsString()  schoolName:      string;
@@ -15,6 +15,9 @@ export class SignupDto {
   @IsOptional() @IsString() county?:      string;
   @IsOptional() @IsString() subCounty?:   string;
   @IsOptional() @IsString() zone?:        string;
+
+  // Which bands the school runs — 'primary_js' and/or 'senior'.
+  @IsOptional() @IsArray() schoolLevels?: string[];
 }
 
 export class LoginDto {
