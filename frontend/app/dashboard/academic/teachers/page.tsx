@@ -105,7 +105,12 @@ export default function TeachersPage() {
     streamSubjects: [{ streamId:'', subjects:[] as string[] }],
   });
 
+  // Full fallback list — used only for the flat "Learning Areas They Teach" chip picker,
+  // which intentionally spans all bands since one teacher can span grades.
   const [allSubjects, setAllSubjects] = useState<string[]>(FALLBACK_SUBJECTS);
+  // Just the senior-school electives this school actually selected via Subject
+  // Allocation — used to scope the per-stream picker to grade 10-12 only.
+  const [seniorAllocatedSubjects, setSeniorAllocatedSubjects] = useState<string[]>([]);
 
   const load = () => {
     setLoading(true);
@@ -117,6 +122,7 @@ export default function TeachersPage() {
       setTeachers(t.data); setStreams(s.data);
       const allocated = (sa.data||[]).map((r:any)=>r.subject);
       setAllSubjects(Array.from(new Set([...FALLBACK_SUBJECTS, ...allocated])).sort());
+      setSeniorAllocatedSubjects(Array.from(new Set(allocated)).sort());
     }).finally(()=>setLoading(false));
   };
   useEffect(()=>{ load(); }, []);
@@ -128,11 +134,12 @@ export default function TeachersPage() {
   // Per-stream assignment helpers
   // Senior school grades only have 4 compulsory subjects baked into learningAreasFor;
   // the pathway-specific electives a school actually selected (subject_allocations) must
-  // be merged in, otherwise only the compulsory subjects show up for allocation.
+  // be merged in — but only those, not the full cross-band fallback list, otherwise
+  // ECD/primary subjects leak into the senior school picker.
   const areasForGrade = (grade:string) => {
     const base = learningAreasFor(grade || 'grade_4');
     if (['grade_10','grade_11','grade_12'].includes(grade)) {
-      return Array.from(new Set([...base, ...allSubjects])).sort();
+      return Array.from(new Set([...base, ...seniorAllocatedSubjects])).sort();
     }
     return base;
   };
