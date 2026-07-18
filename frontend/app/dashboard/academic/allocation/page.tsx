@@ -4,7 +4,7 @@ import {
   BookOpen, UserCheck, Plus, X, Loader2, Layers, GraduationCap, Trash2,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, runsSenior } from '@/lib/hooks/useAuth';
 import { SENIOR_PATHWAYS, LEARNING_AREAS, GRADE_LEVELS } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
@@ -17,7 +17,10 @@ const PATHWAY_SUBJECTS: Record<string, string[]> = {
 
 export default function AllocationPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'subjects'|'teachers'>('subjects');
+  // Senior-school pathway/track allocation is meaningless for a school that
+  // doesn't run Senior School — default straight to Teacher Allocation for them.
+  const showSeniorTab = runsSenior(user?.schoolLevels);
+  const [tab, setTab] = useState<'subjects'|'teachers'>(showSeniorTab ? 'subjects' : 'teachers');
   const [streams, setStreams]   = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [allocations, setAllocations] = useState<any[]>([]);
@@ -81,7 +84,9 @@ export default function AllocationPage() {
       </div>
 
       <div className="flex border-b border-theme gap-1">
-        {[{k:'subjects',l:'Subject Allocation'},{k:'teachers',l:'Teacher Allocation'}].map(t=>(
+        {[{k:'subjects',l:'Subject Allocation'},{k:'teachers',l:'Teacher Allocation'}]
+          .filter(t => t.k!=='subjects' || showSeniorTab)
+          .map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${tab===t.k?'border-[#1a2e5a] text-theme-heading':'border-transparent text-theme-muted hover:text-theme-heading'}`}>
             {t.k==='subjects'?'📚 Subject Allocation':'🧑‍🏫 Teacher Allocation'}
@@ -90,7 +95,7 @@ export default function AllocationPage() {
       </div>
 
       {/* ── SUBJECT ALLOCATION (senior school) ── */}
-      {tab==='subjects' && (
+      {tab==='subjects' && showSeniorTab && (
         <div className="space-y-4">
           <div className="card p-5">
             <div className="flex items-center gap-2 mb-4">

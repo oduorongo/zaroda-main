@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight, Pencil } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
-import { GRADE_LEVELS, EDUCATION_BANDS } from '@/lib/cbc/constants';
+import { GRADE_LEVELS, EDUCATION_BANDS, bandsForSchoolLevels } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
 export default function StreamsPage() {
   const { user } = useAuth();
+  const allowedBands = bandsForSchoolLevels(user?.schoolLevels);
   const [streams,  setStreams]  = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -154,7 +155,7 @@ export default function StreamsPage() {
                 <label className="label">Grade Level *</label>
                 <select value={gradeLevel} onChange={e => setGradeLevel(e.target.value)} className="input">
                   <option value="">Select grade</option>
-                  {EDUCATION_BANDS.map(band => (
+                  {EDUCATION_BANDS.filter(band => allowedBands.includes(band)).map(band => (
                     <optgroup key={band} label={band}>
                       {GRADE_LEVELS.filter(g => g.band === band).map(g => (
                         <option key={g.value} value={g.value}>{g.label}</option>

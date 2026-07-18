@@ -7,7 +7,7 @@ import {
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import {
-  GRADE_LEVELS, EDUCATION_BANDS, SENIOR_PATHWAYS, isSeniorScale,
+  GRADE_LEVELS, EDUCATION_BANDS, SENIOR_PATHWAYS, isSeniorScale, bandsForSchoolLevels,
 } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
@@ -15,6 +15,7 @@ const STEPS = ['Learner Details', 'Placement', 'Guardian', 'Review'];
 
 export default function AdmissionsPage() {
   const { user } = useAuth();
+  const allowedBands = bandsForSchoolLevels(user?.schoolLevels);
   const [view,    setView]    = useState<'list'|'new'>('list');
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [streams, setStreams] = useState<any[]>([]);
@@ -207,7 +208,7 @@ export default function AdmissionsPage() {
               <label className="label">Grade Level *</label>
               <select value={form.gradeLevel} onChange={e=>{set('gradeLevel')(e); setForm((f:any)=>({...f,streamId:'',pathway:'',track:''}));}} className="input">
                 <option value="">Select grade</option>
-                {EDUCATION_BANDS.map(band=>(
+                {EDUCATION_BANDS.filter(band=>allowedBands.includes(band)).map(band=>(
                   <optgroup key={band} label={band}>
                     {GRADE_LEVELS.filter(g=>g.band===band).map(g=>(
                       <option key={g.value} value={g.value}>{g.label}</option>

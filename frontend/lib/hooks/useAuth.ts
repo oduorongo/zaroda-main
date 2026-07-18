@@ -15,6 +15,9 @@ export interface AppUser {
   streamId?:   string;
   streamName?: string;
   subjects?:   string[];
+  // Which bands the school runs — 'primary_js' and/or 'senior'. Empty/undefined
+  // means unset (legacy tenant) — treat as "show everything".
+  schoolLevels?: string[];
 }
 
 interface AuthState {
@@ -77,3 +80,8 @@ export const isBursar   = (role: string) => ['bursar','hoi','tenant_owner'].incl
 export const isAdmin    = (role: string) => ['school_admin','tenant_owner','super_admin'].includes(role);
 export const isParent   = (role: string) => role === 'parent';
 export const isLearner  = (role: string) => role === 'learner';
+
+// School-level helpers — a school with no schoolLevels set (legacy/unknown) is
+// treated as running both bands so nothing disappears unexpectedly.
+export const runsSenior    = (levels?: string[]) => !levels || levels.length === 0 || levels.includes('senior');
+export const runsPrimaryJs = (levels?: string[]) => !levels || levels.length === 0 || levels.includes('primary_js');

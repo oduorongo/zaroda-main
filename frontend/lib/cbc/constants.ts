@@ -30,6 +30,17 @@ export const GRADE_LEVELS: GradeLevel[] = [
 
 export const EDUCATION_BANDS = ['ECDE', 'Primary', 'Junior School', 'Senior School'] as const;
 
+// Restrict the ECDE/Primary/Junior/Senior bands to what a school actually runs
+// (schoolLevels: 'primary_js' and/or 'senior'). Unset/empty means legacy/unknown
+// tenant — show every band rather than hiding grades a real school might need.
+export function bandsForSchoolLevels(levels?: string[]): readonly string[] {
+  if (!levels || levels.length === 0) return EDUCATION_BANDS;
+  const out: string[] = [];
+  if (levels.includes('primary_js')) out.push('ECDE', 'Primary', 'Junior School');
+  if (levels.includes('senior')) out.push('Senior School');
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────
 // SENIOR SCHOOL (Grades 10–12): 4 CORE areas + 3–4 electives per learner
 // ─────────────────────────────────────────────────────────────
