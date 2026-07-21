@@ -13,6 +13,7 @@ export default function OwnerDashboard() {
   const [stats, setStats]     = useState<any>(null);
   const [schools, setSchools] = useState<any[]>([]);
   const [search, setSearch]   = useState('');
+  const [ownershipFilter, setOwnershipFilter] = useState<''|'public'|'private'>('');
   const [loading, setLoading] = useState(true);
   const [detail, setDetail]   = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -88,13 +89,13 @@ export default function OwnerDashboard() {
     setLoading(true);
     Promise.all([
       apiClient.get('/admin/stats').catch(() => ({ data: {} })),
-      apiClient.get('/admin/tenants', { params: { search } }).catch(() => ({ data: { data: [] } })),
+      apiClient.get('/admin/tenants', { params: { search, ownership: ownershipFilter || undefined } }).catch(() => ({ data: { data: [] } })),
     ]).then(([s, t]) => {
       setStats(s.data || {});
       setSchools(t.data?.data || []);
     }).finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [ownershipFilter]);
 
   const openSchool = async (id: string) => {
     setDetailLoading(true); setDetail({ id });
@@ -211,6 +212,11 @@ export default function OwnerDashboard() {
                     placeholder="Search schools by name…"
                     className="input pl-9 w-full"/>
                 </div>
+                <select value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value as any)} className="input w-40">
+                  <option value="">All ownership</option>
+                  <option value="public">Public only</option>
+                  <option value="private">Private only</option>
+                </select>
                 <button onClick={load} className="btn-primary">Search</button>
               </div>
 
@@ -219,6 +225,7 @@ export default function OwnerDashboard() {
                   <thead>
                     <tr className="text-left text-theme-muted border-b border-theme">
                       <th className="py-2 pr-3 font-medium">School</th>
+                      <th className="py-2 pr-3 font-medium">Ownership</th>
                       <th className="py-2 pr-3 font-medium">Status</th>
                       <th className="py-2 pr-3 font-medium">Tier</th>
                       <th className="py-2 pr-3 font-medium">Learners</th>
@@ -229,10 +236,11 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {schools.length === 0 ? (
-                      <tr><td colSpan={7} className="py-8 text-center text-theme-muted">No schools found</td></tr>
+                      <tr><td colSpan={8} className="py-8 text-center text-theme-muted">No schools found</td></tr>
                     ) : schools.map((s: any) => (
                       <tr key={s.id} className="border-b border-theme/50 hover:bg-surface-2 cursor-pointer" onClick={() => openSchool(s.id)}>
                         <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
+                        <td className="py-2.5 pr-3 capitalize">{s.ownership || 'public'}</td>
                         <td className="py-2.5 pr-3"><span className={`badge ${statusBadge(s.status)}`}>{s.status}</span></td>
                         <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>
                         <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
