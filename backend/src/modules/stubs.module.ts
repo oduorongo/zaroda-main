@@ -187,6 +187,79 @@ class FinanceController {
     }
   }
 
+  // One-time repair for payments that were mis-split before the term-matching fix below: a
+  // fee item with no term set (applies to any term) was being wrongly excluded whenever the
+  // payment itself had a specific term, so the whole payment fell through to an unattributed
+  // "Credit / Overpayment" allocation instead of paying down the learner's real vote heads.
+  // This re-runs the (now-fixed) auto-fill for every such orphaned allocation, in place.
+  @Post('vote-heads/reconcile')
+  async reconcileVoteHeads(@Request() req: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('Only the bursar or an administrator can reconcile balances.');
+    }
+    await this.ensureFeeItemsTable();
+    await this.ensureAllocationsTable();
+    const tenantId = req.user.tenantId;
+    const orphans = await this.ds.query(
+      `SELECT id, payment_id AS "paymentId", learner_id AS "learnerId", amount, term, academic_year AS "academicYear"
+         FROM payment_allocations
+        WHERE tenant_id = $1 AND fee_item_id IS NULL`,
+      [tenantId],
+    ).catch(() => []);
+    let reconciled = 0, stillCredited = 0;
+    for (const o of (orphans as any[])) {
+      const grade = await this.ds.query(
+        `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [o.learnerId],
+      ).then((r: any[]) => r[0]?.g || null).catch(() => null);
+      const heads = await this.ds.query(
+        `SELECT id, name, amount, COALESCE(priority,100) AS priority FROM fee_items
+          WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
+            AND ($3::text IS NULL OR term = $3 OR term IS NULL)
+          ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
+        [tenantId, grade, o.term || null],
+      ).catch(() => []);
+      if (!(heads as any[]).length) { stillCredited++; continue; }
+      const paidRows = await this.ds.query(
+        `SELECT fee_item_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
+          WHERE tenant_id = $1 AND learner_id = $2 AND fee_item_id IS NOT NULL GROUP BY fee_item_id`,
+        [tenantId, o.learnerId],
+      ).catch(() => []);
+      const paidByItem: Record<string, number> = {};
+      for (const r of (paidRows as any[])) paidByItem[r.fee_item_id] = Number(r.paid || 0);
+      let remaining = Number(o.amount);
+      const fills: { feeItemId: string; name: string; amount: number }[] = [];
+      for (const h of (heads as any[])) {
+        if (remaining <= 0) break;
+        const outstanding = Math.max(0, Number(h.amount || 0) - (paidByItem[h.id] || 0));
+        if (outstanding <= 0) continue;
+        const put = Math.min(outstanding, remaining);
+        fills.push({ feeItemId: h.id, name: h.name, amount: put });
+        remaining -= put;
+      }
+      if (!fills.length) { stillCredited++; continue; }
+      await this.ds.query(`DELETE FROM payment_allocations WHERE id = $1`, [o.id]).catch(() => null);
+      for (const f of fills) {
+        await this.ds.query(
+          `INSERT INTO payment_allocations
+             (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [tenantId, o.paymentId, o.learnerId, f.feeItemId, f.name, f.amount, o.term, o.academicYear],
+        ).catch(() => null);
+      }
+      if (remaining > 0) {
+        await this.ds.query(
+          `INSERT INTO payment_allocations
+             (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
+           VALUES ($1,$2,$3,NULL,'Credit / Overpayment',$4,$5,$6)`,
+          [tenantId, o.paymentId, o.learnerId, remaining, o.term, o.academicYear],
+        ).catch(() => null);
+        stillCredited++;
+      }
+      reconciled++;
+    }
+    return { reconciled, stillCredited, total: (orphans as any[]).length };
+  }
+
   // School-wide total received per vote head (all learners), optionally filtered by
   // term/academic year. Declared before the ':learnerId' route below so "summary" isn't
   // captured as a learner id.
@@ -226,7 +299,7 @@ class FinanceController {
       `SELECT id, name, category, amount, COALESCE(priority,100) AS priority
          FROM fee_items
         WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
-          AND ($3::text IS NULL OR term = $3)
+          AND ($3::text IS NULL OR term = $3 OR term IS NULL)
         ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
       [tenantId, grade, term],
     ).catch(() => []);
@@ -277,8 +350,8 @@ class FinanceController {
     const billedRows = await this.ds.query(
       `SELECT grade_level AS g, COALESCE(SUM(amount),0) AS billed FROM fee_items
         WHERE tenant_id = $1
-          AND ($2::text IS NULL OR term = $2)
-          AND ($3::text IS NULL OR academic_year = $3)
+          AND ($2::text IS NULL OR term = $2 OR term IS NULL)
+          AND ($3::text IS NULL OR academic_year = $3 OR academic_year IS NULL)
         GROUP BY grade_level`,
       [tenantId, term, academicYear],
     ).catch(() => []);
@@ -533,7 +606,7 @@ class FinanceController {
         const heads = await this.ds.query(
           `SELECT id, name, amount, COALESCE(priority,100) AS priority FROM fee_items
             WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
-              AND ($3::text IS NULL OR term = $3)
+              AND ($3::text IS NULL OR term = $3 OR term IS NULL)
             ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
           [req.user.tenantId, grade, term],
         ).catch(() => []);
@@ -665,7 +738,7 @@ class FinanceController {
       const heads = await this.ds.query(
         `SELECT id, name, amount, COALESCE(priority,100) AS priority FROM fee_items
           WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
-            AND ($3::text IS NULL OR term = $3)
+            AND ($3::text IS NULL OR term = $3 OR term IS NULL)
           ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
         [req.user.tenantId, grade, dto.term || null],
       ).catch(() => []);

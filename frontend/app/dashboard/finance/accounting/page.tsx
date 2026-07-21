@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { BookOpen, FileSpreadsheet, Scale, FileText, Download, Landmark } from 'lucide-react';
+import { BookOpen, FileSpreadsheet, Scale, FileText, Download, Landmark, Wrench, Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -19,13 +19,30 @@ export default function AccountingPage() {
   const [voteHeads, setVoteHeads] = useState<any[]>([]);
   const [totalReceived, setTotalReceived] = useState(0);
   const [loadingVoteHeads, setLoadingVoteHeads] = useState(true);
+  const [reconciling, setReconciling] = useState(false);
 
-  useEffect(() => {
+  const loadVoteHeads = () => {
+    setLoadingVoteHeads(true);
     apiClient.get('/finance/vote-heads/summary')
       .then(r => { setVoteHeads(r.data?.voteHeads || []); setTotalReceived(Number(r.data?.totalReceived || 0)); })
       .catch(() => toast.error('Could not load vote head totals'))
       .finally(() => setLoadingVoteHeads(false));
-  }, []);
+  };
+  useEffect(loadVoteHeads, []);
+
+  // One-time repair for payments that were mis-split before a term-matching fix: money that
+  // fell into an unattributed "Credit / Overpayment" bucket instead of paying down a learner's
+  // real vote heads. Safe to run more than once — only touches unattributed allocations.
+  const reconcile = async () => {
+    setReconciling(true);
+    try {
+      const { data } = await apiClient.post('/finance/vote-heads/reconcile');
+      toast.success(`Reconciled ${data.reconciled} of ${data.total} unattributed payment(s)`);
+      loadVoteHeads();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not reconcile balances');
+    } finally { setReconciling(false); }
+  };
 
   const generate = async (key: string, label: string) => {
     setGenerating(key);
@@ -52,9 +69,14 @@ export default function AccountingPage() {
       </div>
 
       <div className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Landmark size={18} className="text-[#d4af37]"/>
-          <div className="font-bold text-theme-heading">Total Received per Vote Head</div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Landmark size={18} className="text-[#d4af37]"/>
+            <div className="font-bold text-theme-heading">Total Received per Vote Head</div>
+          </div>
+          <button onClick={reconcile} disabled={reconciling} className="btn-ghost text-xs" title="Fix payments that were recorded but not applied to the correct vote head">
+            {reconciling ? <Loader2 size={13} className="animate-spin"/> : <Wrench size={13}/>} Reconcile balances
+          </button>
         </div>
         {loadingVoteHeads ? (
           <div className="h-32 shimmer rounded-xl"/>
