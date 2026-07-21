@@ -185,49 +185,68 @@ class FinanceController {
       ['vote_head','text'],['amount','numeric'],['term','text'],['academic_year','text']] as [string,string][]) {
       await this.ds.query(`ALTER TABLE payment_allocations ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
     }
+    // Self-heal against a pre-existing table shape with a NOT NULL fee_item_id (or any other
+    // column we don't populate): an overpayment/credit row deliberately has fee_item_id = NULL,
+    // and a NOT NULL constraint there would make that insert fail silently (callers .catch it),
+    // so the money would vanish from payment_allocations entirely with no trace to reconcile.
+    const keep = new Set(['id', 'tenant_id']);
+    const notNullCols = await this.ds.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'payment_allocations' AND is_nullable = 'NO' AND column_default IS NULL`,
+    ).catch(() => []);
+    for (const row of (notNullCols as any[])) {
+      const c = row.column_name;
+      if (keep.has(c)) continue;
+      await this.ds.query(`ALTER TABLE payment_allocations ALTER COLUMN ${c} DROP NOT NULL`).catch(() => null);
+    }
   }
 
-  // One-time repair for payments that were mis-split before the term-matching fix below: a
-  // fee item with no term set (applies to any term) was being wrongly excluded whenever the
-  // payment itself had a specific term, so the whole payment fell through to an unattributed
-  // "Credit / Overpayment" allocation instead of paying down the learner's real vote heads.
-  // This re-runs the (now-fixed) auto-fill for every such orphaned allocation, in place.
+  // One-time repair for payments whose full amount never made it into payment_allocations —
+  // either because a term-agnostic fee item was wrongly excluded once the payment had a
+  // specific term (now fixed below), or because the resulting "Credit / Overpayment" insert
+  // (fee_item_id = NULL) silently failed against a stricter legacy table shape and the error
+  // was swallowed. Either way the symptom is the same: sum(payment_allocations) for a payment
+  // is less than what was actually paid, so this compares every payment against its own
+  // allocations and tops up any shortfall using the (now-fixed) priority auto-fill.
   @Post('vote-heads/reconcile')
   async reconcileVoteHeads(@Request() req: any) {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('Only the bursar or an administrator can reconcile balances.');
     }
+    await this.ensurePaymentsTable();
     await this.ensureFeeItemsTable();
     await this.ensureAllocationsTable();
     const tenantId = req.user.tenantId;
-    const orphans = await this.ds.query(
-      `SELECT id, payment_id AS "paymentId", learner_id AS "learnerId", amount, term, academic_year AS "academicYear"
-         FROM payment_allocations
-        WHERE tenant_id = $1 AND fee_item_id IS NULL`,
+    const shortfalls = await this.ds.query(
+      `SELECT * FROM (
+         SELECT p.id, p.learner_id AS "learnerId", p.amount, p.term, p.academic_year AS "academicYear",
+                p.amount - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a WHERE a.payment_id = p.id), 0) AS shortfall
+           FROM payments p
+          WHERE p.tenant_id = $1 AND p.learner_id IS NOT NULL
+       ) x WHERE shortfall > 0.01`,
       [tenantId],
     ).catch(() => []);
     let reconciled = 0, stillCredited = 0;
-    for (const o of (orphans as any[])) {
+    for (const s of (shortfalls as any[])) {
       const grade = await this.ds.query(
-        `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [o.learnerId],
+        `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [s.learnerId],
       ).then((r: any[]) => r[0]?.g || null).catch(() => null);
       const heads = await this.ds.query(
         `SELECT id, name, amount, COALESCE(priority,100) AS priority FROM fee_items
           WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
             AND ($3::text IS NULL OR term = $3 OR term IS NULL)
           ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
-        [tenantId, grade, o.term || null],
+        [tenantId, grade, s.term || null],
       ).catch(() => []);
-      if (!(heads as any[]).length) { stillCredited++; continue; }
       const paidRows = await this.ds.query(
         `SELECT fee_item_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
           WHERE tenant_id = $1 AND learner_id = $2 AND fee_item_id IS NOT NULL GROUP BY fee_item_id`,
-        [tenantId, o.learnerId],
+        [tenantId, s.learnerId],
       ).catch(() => []);
       const paidByItem: Record<string, number> = {};
       for (const r of (paidRows as any[])) paidByItem[r.fee_item_id] = Number(r.paid || 0);
-      let remaining = Number(o.amount);
-      const fills: { feeItemId: string; name: string; amount: number }[] = [];
+      let remaining = Number(s.shortfall);
+      const fills: { feeItemId: string | null; name: string; amount: number }[] = [];
       for (const h of (heads as any[])) {
         if (remaining <= 0) break;
         const outstanding = Math.max(0, Number(h.amount || 0) - (paidByItem[h.id] || 0));
@@ -236,28 +255,18 @@ class FinanceController {
         fills.push({ feeItemId: h.id, name: h.name, amount: put });
         remaining -= put;
       }
-      if (!fills.length) { stillCredited++; continue; }
-      await this.ds.query(`DELETE FROM payment_allocations WHERE id = $1`, [o.id]).catch(() => null);
+      if (remaining > 0) { fills.push({ feeItemId: null, name: 'Credit / Overpayment', amount: remaining }); stillCredited++; }
       for (const f of fills) {
         await this.ds.query(
           `INSERT INTO payment_allocations
              (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [tenantId, o.paymentId, o.learnerId, f.feeItemId, f.name, f.amount, o.term, o.academicYear],
-        ).catch(() => null);
-      }
-      if (remaining > 0) {
-        await this.ds.query(
-          `INSERT INTO payment_allocations
-             (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
-           VALUES ($1,$2,$3,NULL,'Credit / Overpayment',$4,$5,$6)`,
-          [tenantId, o.paymentId, o.learnerId, remaining, o.term, o.academicYear],
-        ).catch(() => null);
-        stillCredited++;
+          [tenantId, s.id, s.learnerId, f.feeItemId, f.name, f.amount, s.term, s.academicYear],
+        );
       }
       reconciled++;
     }
-    return { reconciled, stillCredited, total: (orphans as any[]).length };
+    return { reconciled, stillCredited, total: (shortfalls as any[]).length };
   }
 
   // School-wide total received per vote head (all learners), optionally filtered by
