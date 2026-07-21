@@ -152,9 +152,13 @@ export default function TeachersPage() {
       ? { ...r, subjects: r.subjects.includes(s) ? r.subjects.filter((x:string)=>x!==s) : [...r.subjects, s] } : r),
   }));
 
+  // These roles don't teach a learning area, so the grade/subjects picker doesn't apply.
+  const NON_TEACHING_ROLES = ['tenant_owner', 'bursar'];
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.subjects || form.subjects.length === 0) { toast.error('Select at least one learning area they teach'); return; }
+    const isTeaching = !NON_TEACHING_ROLES.includes(form.role);
+    if (isTeaching && (!form.subjects || form.subjects.length === 0)) { toast.error('Select at least one learning area they teach'); return; }
     const parts = (form.fullName || '').trim().split(/\s+/);
     if (parts.length < 2) { toast.error('Enter first and last name'); return; }
     const firstName = parts.shift() as string;
@@ -295,41 +299,48 @@ export default function TeachersPage() {
                     <option value="dhois">Deputy HOI</option>
                     <option value="games_dept">Games Department</option>
                     <option value="bursar">Bursar</option>
+                    <option value="tenant_owner">School Owner (non-teaching)</option>
                   </select>
                 </div>
               </div>
 
               {/* Learning areas the teacher takes — scoped to one grade at a time so the
-                  chip list doesn't dump every subject from ECD through Senior School. */}
-              <div>
-                <label className="label">Grade / Class Level *</label>
-                <select value={teachGrade}
-                  onChange={e=>{ setTeachGrade(e.target.value); setForm((f:any)=>({...f, subjects:[]})); }}
-                  className="input">
-                  <option value="">Select grade…</option>
-                  {EDUCATION_BANDS.filter(band=>allowedBands.includes(band)).map(band=>(
-                    <optgroup key={band} label={band}>
-                      {GRADE_LEVELS.filter(g=>g.band===band).map(g=>(
-                        <option key={g.value} value={g.value}>{g.label}</option>
+                  chip list doesn't dump every subject from ECD through Senior School.
+                  Skipped for non-teaching roles (school owner, bursar), who aren't
+                  assigned a class or subject and won't appear in academic pickers. */}
+              {!NON_TEACHING_ROLES.includes(form.role) && (
+                <>
+                  <div>
+                    <label className="label">Grade / Class Level *</label>
+                    <select value={teachGrade}
+                      onChange={e=>{ setTeachGrade(e.target.value); setForm((f:any)=>({...f, subjects:[]})); }}
+                      className="input">
+                      <option value="">Select grade…</option>
+                      {EDUCATION_BANDS.filter(band=>allowedBands.includes(band)).map(band=>(
+                        <optgroup key={band} label={band}>
+                          {GRADE_LEVELS.filter(g=>g.band===band).map(g=>(
+                            <option key={g.value} value={g.value}>{g.label}</option>
+                          ))}
+                        </optgroup>
                       ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-              {teachGrade && (
-                <div>
-                  <label className="label">Learning Areas They Teach *</label>
-                  <p className="text-[11px] text-theme-muted mb-2">Tick the learning areas this teacher takes for {GRADE_LEVELS.find(g=>g.value===teachGrade)?.label}.</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {areasForGrade(teachGrade).map((s:string)=>(
-                      <button type="button" key={s} onClick={()=>toggleSubject(s)}
-                        className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors
-                          ${form.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
-                        {form.subjects.includes(s) && '✓ '}{s}
-                      </button>
-                    ))}
+                    </select>
                   </div>
-                </div>
+                  {teachGrade && (
+                    <div>
+                      <label className="label">Learning Areas They Teach *</label>
+                      <p className="text-[11px] text-theme-muted mb-2">Tick the learning areas this teacher takes for {GRADE_LEVELS.find(g=>g.value===teachGrade)?.label}.</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {areasForGrade(teachGrade).map((s:string)=>(
+                          <button type="button" key={s} onClick={()=>toggleSubject(s)}
+                            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors
+                              ${form.subjects.includes(s) ? 'bg-[#1a2e5a] text-white border-transparent' : 'border-theme text-theme-muted hover:bg-surface-2'}`}>
+                            {form.subjects.includes(s) && '✓ '}{s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="flex gap-3 pt-1">

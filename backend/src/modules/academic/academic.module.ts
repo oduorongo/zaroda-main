@@ -1417,6 +1417,10 @@ export class AcademicService {
     if (!this.isHoiRole(actorRole)) {
       throw new BadRequestException('Only a school administrator can edit teachers.');
     }
+    const privilegedRoles = ['hoi', 'tenant_owner', 'school_admin'];
+    if (dto.role !== undefined && privilegedRoles.includes(dto.role) && !['hoi', 'tenant_owner', 'school_admin', 'super_admin'].includes(actorRole)) {
+      throw new BadRequestException('Only the HOI or school owner can grant another owner/administrator account.');
+    }
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     // users has no full_name column — split into first_name / last_name.
     if (dto.fullName !== undefined) {
@@ -1846,7 +1850,18 @@ export class AcademicService {
   }
 
   // Onboard a teacher with the subjects they teach
-  async createTeacher(tenantId: string, schoolId: string, dto: any) {
+  async createTeacher(tenantId: string, schoolId: string, dto: any, actorRole: string) {
+    // This endpoint had no role guard at all — any authenticated user in the tenant could
+    // call it and, since dto.role is inserted as-is, hand themselves 'hoi'/'tenant_owner'.
+    if (!this.isHoiRole(actorRole)) {
+      throw new BadRequestException('Only a school administrator can add staff.');
+    }
+    // Creating another owner/administrator account is further restricted to existing
+    // owners/admins — a deputy HOI shouldn't be able to create a co-owner.
+    const privilegedRoles = ['hoi', 'tenant_owner', 'school_admin'];
+    if (privilegedRoles.includes(dto.role) && !['hoi', 'tenant_owner', 'school_admin', 'super_admin'].includes(actorRole)) {
+      throw new BadRequestException('Only the HOI or school owner can create another owner/administrator account.');
+    }
     if (!dto.email || !dto.email.trim()) {
       throw new BadRequestException('Email is required — it becomes the teacher\'s login username.');
     }
@@ -2273,7 +2288,7 @@ export class AcademicController {
 
   @Post('teachers')
   createTeacher(@Request() req: any, @Body() dto: any) {
-    return this.academicService.createTeacher(req.user.tenantId, req.user.schoolId, dto);
+    return this.academicService.createTeacher(req.user.tenantId, req.user.schoolId, dto, req.user.role);
   }
 
   @Delete('teachers/:id')
