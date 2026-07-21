@@ -6,7 +6,7 @@ import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import {
   LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor, levelFromPointsTotal,
-  learningAreasFor, levelBandLabel,
+  learningAreasFor, levelBandLabel, matchLearningArea,
 } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
@@ -104,15 +104,15 @@ export default function MarkListPage() {
   // Points come from each subject's % via the same KNEC cutoffs the report PDF uses (pctToPoints).
   const ranked = useMemo(() => {
     const grade = stream?.gradeLevel || 'grade_4';
-    const areaKey = (x: string) => String(x || '').toLowerCase().trim();
-    const colByKey = new Map(subjects.map(s => [areaKey(s), s]));
     const rows = learners.map(l => {
       const meta = savedMeta[l.id] || {};
       const subjectPct: Record<string, number> = {};
       const subjectLvl: Record<string, string> = {};
       Object.entries(meta).forEach(([s, m]: any) => {
         if (isNaN(Number(m.percent))) return;
-        const col = colByKey.get(areaKey(s)) || s;   // land on the canonical column
+        // Saved subject names and rubric column names can differ (e.g. after a rubric
+        // rename) — reconcile tolerantly so no mark is silently dropped from the table.
+        const col = matchLearningArea(s, subjects) || s;
         subjectPct[col] = Number(m.percent);
         // Recompute each subject's level from its % with the band-aware scale (so senior uses
         // the 8-level codes), rather than trusting a possibly-stale stored level.
