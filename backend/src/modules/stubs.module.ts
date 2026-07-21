@@ -295,23 +295,27 @@ class FinanceController {
     ).catch(() => []);
     const paidByLearner: Record<string, number> = {};
     for (const r of (paidRows as any[])) paidByLearner[r.learner_id] = Number(r.paid || 0);
-    return (learners as any[]).map(l => {
-      const totalAmount = (billedByGrade[l.gradeLevel] || 0) + schoolWide;
-      const amountPaid = paidByLearner[l.id] || 0;
-      const balance = totalAmount - amountPaid;
-      const status = totalAmount === 0 ? 'unpaid'
-        : balance > 0 ? (amountPaid > 0 ? 'partial' : 'unpaid')
-        : balance < 0 ? 'overpaid' : 'paid';
-      return {
-        id: l.id,
-        invoiceNumber: `INV-${String(l.admissionNumber || l.id).slice(0, 8).toUpperCase()}`,
-        totalAmount, amountPaid, status,
-        learner: {
-          firstName: l.firstName, lastName: l.lastName, admissionNumber: l.admissionNumber,
-          guardianPhone: l.guardianPhone, stream: { name: l.streamName },
-        },
-      };
-    });
+    return (learners as any[])
+      // A learner with nothing billed for this term/year has no invoice at all — showing them
+      // as "unpaid" would falsely inflate the unpaid count and clutter the list with every
+      // learner in the school whenever a fee structure is only set for some classes.
+      .filter(l => (billedByGrade[l.gradeLevel] || 0) + schoolWide > 0)
+      .map(l => {
+        const totalAmount = (billedByGrade[l.gradeLevel] || 0) + schoolWide;
+        const amountPaid = paidByLearner[l.id] || 0;
+        const balance = totalAmount - amountPaid;
+        const status = balance > 0 ? (amountPaid > 0 ? 'partial' : 'unpaid')
+          : balance < 0 ? 'overpaid' : 'paid';
+        return {
+          id: l.id,
+          invoiceNumber: `INV-${String(l.admissionNumber || l.id).slice(0, 8).toUpperCase()}`,
+          totalAmount, amountPaid, status,
+          learner: {
+            firstName: l.firstName, lastName: l.lastName, admissionNumber: l.admissionNumber,
+            guardianPhone: l.guardianPhone, stream: { name: l.streamName },
+          },
+        };
+      });
   }
 
   @Get('invoices/:id')

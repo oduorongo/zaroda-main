@@ -5,6 +5,7 @@ import { DollarSign, Search, CreditCard, Loader2, FileText, CheckCircle, AlertCi
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { InvoiceButton, ReceiptButton } from '@/components/pdf/pdf-buttons';
+import { GRADE_LEVELS } from '@/lib/cbc/constants';
 
 export default function FinancePage() {
   const [tab,       setTab]      = useState<'invoices'|'receipts'|'payroll'>('invoices');
@@ -15,18 +16,20 @@ export default function FinancePage() {
   const [mpezaLoading, setMpezaLoading] = useState(false);
   const [term,      setTerm]     = useState('term_1');
   const [year,      setYear]     = useState('2025/2026');
+  const [gradeLevel, setGradeLevel] = useState('');
 
   const load = () => {
     setLoading(true);
     const p = new URLSearchParams({ term, academicYear: year });
     if (search) p.set('search', search);
+    if (gradeLevel) p.set('gradeLevel', gradeLevel);
     apiClient.get(`/finance/invoices?${p}`)
       .then(r => setInvoices(r.data))
       .catch(() => toast.error('Could not load invoices'))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [search, term, year]);
+  useEffect(() => { load(); }, [search, term, year, gradeLevel]);
 
   const fmt = (n: number) => `KES ${(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 })}`;
 
@@ -99,6 +102,10 @@ export default function FinancePage() {
             <select value={year} onChange={e => setYear(e.target.value)} className="input w-36">
               <option value="2025/2026">2025/2026</option>
               <option value="2024/2025">2024/2025</option>
+            </select>
+            <select value={gradeLevel} onChange={e => setGradeLevel(e.target.value)} className="input w-36">
+              <option value="">All classes</option>
+              {GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
             </select>
           </div>
 
