@@ -253,37 +253,64 @@ class FinanceController {
   @Get('invoices')
   async getInvoices(@Request() req: any, @Query() q: any) {
     // An "invoice" here is a learner's current statement: what they've been billed across vote
-    // heads vs paid. Returns one row per learner with balances, filterable by class/term.
+    // heads vs paid. Returns one row per learner with balances, filterable by class/term/search.
+    // Shape matches what the Finance "Fee Invoices" screen renders (totalAmount/amountPaid/
+    // status/invoiceNumber/learner.{firstName,lastName,admissionNumber,guardianPhone,stream}).
     await this.ensureFeeItemsTable();
     await this.ensureAllocationsTable();
     const tenantId = req.user.tenantId;
+    const term = q.term || null;
+    const academicYear = q.academicYear || null;
     const learners = await this.ds.query(
-      `SELECT l.id, (l.first_name || ' ' || COALESCE(l.last_name,'')) AS name,
-              l.admission_number AS "admissionNumber", l.grade_level AS "gradeLevel", l.stream_id AS "streamId"
-         FROM learners l WHERE l.tenant_id::text = $1 AND l.is_active = true
-           AND ($2::text IS NULL OR l.grade_level = $2)
+      `SELECT l.id, l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber", l.grade_level AS "gradeLevel",
+              l.guardian_phone AS "guardianPhone", s.name AS "streamName"
+         FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.tenant_id::text = $1 AND l.is_active = true
+          AND ($2::text IS NULL OR l.grade_level = $2)
+          AND ($3::text IS NULL OR (l.first_name || ' ' || COALESCE(l.last_name,'')) ILIKE '%' || $3 || '%')
         ORDER BY l.first_name`,
-      [tenantId, q.gradeLevel || null],
+      [tenantId, q.gradeLevel || null, q.search || null],
     ).catch(() => []);
-    // Billed per grade (sum of fee items), and paid per learner (sum of allocations).
+    // Billed per grade (sum of fee items for the selected term/year), and paid per learner
+    // (sum of allocations for the same term/year) — so switching term/year updates the totals.
     const billedRows = await this.ds.query(
       `SELECT grade_level AS g, COALESCE(SUM(amount),0) AS billed FROM fee_items
-        WHERE tenant_id = $1 GROUP BY grade_level`, [tenantId],
+        WHERE tenant_id = $1
+          AND ($2::text IS NULL OR term = $2)
+          AND ($3::text IS NULL OR academic_year = $3)
+        GROUP BY grade_level`,
+      [tenantId, term, academicYear],
     ).catch(() => []);
     const billedByGrade: Record<string, number> = {};
     let schoolWide = 0;
     for (const r of (billedRows as any[])) { if (r.g === null) schoolWide += Number(r.billed); else billedByGrade[r.g] = Number(r.billed); }
     const paidRows = await this.ds.query(
       `SELECT learner_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
-        WHERE tenant_id = $1 GROUP BY learner_id`, [tenantId],
+        WHERE tenant_id = $1
+          AND ($2::text IS NULL OR term = $2)
+          AND ($3::text IS NULL OR academic_year = $3)
+        GROUP BY learner_id`,
+      [tenantId, term, academicYear],
     ).catch(() => []);
     const paidByLearner: Record<string, number> = {};
     for (const r of (paidRows as any[])) paidByLearner[r.learner_id] = Number(r.paid || 0);
     return (learners as any[]).map(l => {
-      const billed = (billedByGrade[l.gradeLevel] || 0) + schoolWide;
-      const paid = paidByLearner[l.id] || 0;
-      return { learnerId: l.id, name: l.name, admissionNumber: l.admissionNumber,
-               gradeLevel: l.gradeLevel, billed, paid, balance: Math.max(0, billed - paid) };
+      const totalAmount = (billedByGrade[l.gradeLevel] || 0) + schoolWide;
+      const amountPaid = paidByLearner[l.id] || 0;
+      const balance = totalAmount - amountPaid;
+      const status = totalAmount === 0 ? 'unpaid'
+        : balance > 0 ? (amountPaid > 0 ? 'partial' : 'unpaid')
+        : balance < 0 ? 'overpaid' : 'paid';
+      return {
+        id: l.id,
+        invoiceNumber: `INV-${String(l.admissionNumber || l.id).slice(0, 8).toUpperCase()}`,
+        totalAmount, amountPaid, status,
+        learner: {
+          firstName: l.firstName, lastName: l.lastName, admissionNumber: l.admissionNumber,
+          guardianPhone: l.guardianPhone, stream: { name: l.streamName },
+        },
+      };
     });
   }
 

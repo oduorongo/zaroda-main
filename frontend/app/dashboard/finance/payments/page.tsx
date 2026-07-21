@@ -80,6 +80,18 @@ export default function RecordPaymentPage() {
     finally { setLoadingBal(false); }
   };
 
+  const [savingPriority, setSavingPriority] = useState('');
+  const changePriority = async (feeItemId: string, priority: number) => {
+    setSavingPriority(feeItemId);
+    try {
+      await apiClient.patch(`/finance/fee-structures/${feeItemId}/priority`, { priority });
+      toast.success('Vote head priority updated');
+      if (learner) await pickLearner(learner); // refresh order + auto-allocation preview
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not update priority');
+    } finally { setSavingPriority(''); }
+  };
+
   // Auto-allocation preview: fill each vote head's balance in priority order until the amount runs out.
   const previewAllocation = () => {
     let remaining = Number(form.amount) || 0;
@@ -201,11 +213,24 @@ export default function RecordPaymentPage() {
           {/* Vote-head balances */}
           {voteHeads.length > 0 && (
             <div className="card p-5">
-              <h2 className="font-bold text-theme-heading mb-3">Fee vote heads <span className="text-xs font-normal text-theme-muted">(in payment priority order)</span></h2>
+              <h2 className="font-bold text-theme-heading mb-1">Fee vote heads <span className="text-xs font-normal text-theme-muted">(in payment priority order)</span></h2>
+              <p className="text-[11px] text-theme-muted mb-3">A lump-sum payment auto-fills these in order, lowest number first. Change the number to reorder.</p>
               <div className="space-y-1.5">
                 {voteHeads.map((vh, i) => (
                   <div key={vh.feeItemId} className="flex items-center gap-3 text-sm">
-                    <span className="w-5 h-5 rounded-full bg-surface-2 text-[11px] flex items-center justify-center font-bold text-theme-muted">{i+1}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      defaultValue={vh.priority}
+                      key={`${vh.feeItemId}-${vh.priority}`}
+                      disabled={savingPriority === vh.feeItemId}
+                      onBlur={e => {
+                        const val = Number(e.target.value);
+                        if (val && val !== vh.priority) changePriority(vh.feeItemId, val);
+                      }}
+                      title="Priority (lower = filled first)"
+                      className="input w-14 py-1 text-center text-xs"
+                    />
                     <span className="flex-1 font-medium text-theme-heading">{vh.name}</span>
                     <span className="text-theme-muted">{ksh(vh.paid)} / {ksh(vh.billed)}</span>
                     <span className={`w-28 text-right font-bold ${vh.balance > 0 ? 'text-[#f5820a]' : 'text-green-600'}`}>
