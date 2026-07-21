@@ -64,8 +64,17 @@ export default function AccountingPage() {
     } catch (e: any) { toast.error(err(e, label, key)); }
     finally { setGenerating(''); }
   };
-  const err = (e: any, label: string, key: string) =>
-    e?.response?.status === 404 ? `${label} report not available yet` : `Could not generate ${label}`;
+  const err = (e: any, label: string, key: string) => {
+    if (e?.response?.status === 404) return `${label} report not available yet`;
+    // The backend now returns a readable HTML error body on failure — surface its text
+    // instead of a generic message, so the real cause is visible without checking server logs.
+    const body = e?.response?.data;
+    if (typeof body === 'string') {
+      const text = body.replace(/<[^>]+>/g, '').trim();
+      if (text) return `Could not generate ${label}: ${text}`;
+    }
+    return `Could not generate ${label}`;
+  };
 
   return (
     <div className="space-y-5">

@@ -426,6 +426,17 @@ class FinanceController {
   // allocations, expenses, and fee items. key ∈ cashbook|ledger|trial_balance|income|fee_statement
   @Get('reports/:key')
   async financeReport(@Request() req: any, @Param('key') key: string, @Query() q: any, @Res() res: any) {
+    try {
+      await this.financeReportInner(req, key, q, res);
+    } catch (e: any) {
+      // Any unexpected failure here previously bubbled up as a bare 500 with no body, which
+      // axios (and the "View / Print" button) surfaced only as a generic "Could not generate"
+      // toast — impossible to debug from the UI. Return a readable error page instead.
+      res.status(500).set('Content-Type', 'text/html').send(`<p>Could not generate this report: ${String(e?.message || e).replace(/[<>&]/g, '')}</p>`);
+    }
+  }
+
+  private async financeReportInner(req: any, key: string, q: any, res: any) {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       res.status(403).send('<p>Not authorised.</p>'); return;
     }
@@ -506,9 +517,9 @@ class FinanceController {
         <p style="font-size:11px;color:#666">A simplified trial balance from cash movements. For full double-entry ledgers, record opening balances and asset accounts.</p>`;
     } else if (key === 'ledger') {
       const alloc = await this.ds.query(
-        `SELECT COALESCE(vote_head,'Unallocated') AS head, learner_id, amount,
-                (SELECT learner_name FROM payments p WHERE p.id = a.payment_id) AS learner
-           FROM payment_allocations a WHERE tenant_id = $1 ORDER BY vote_head, created_at`, [tenantId],
+        `SELECT COALESCE(a.vote_head,'Unallocated') AS head, a.learner_id, a.amount, p.learner_name AS learner
+           FROM payment_allocations a LEFT JOIN payments p ON p.id::text = a.payment_id::text
+          WHERE a.tenant_id = $1 ORDER BY a.vote_head, a.created_at`, [tenantId],
       ).catch(() => []);
       const rows = (alloc as any[]).map(r => `<tr><td>${esc(r.head)}</td><td>${esc(r.learner || '')}</td><td class="n">${ksh(r.amount)}</td></tr>`).join('') || '<tr><td colspan="3">No transactions</td></tr>';
       inner = `<table><thead><tr><th>Vote Head</th><th>Learner</th><th class="n">Amount</th></tr></thead><tbody>${rows}</tbody>
@@ -937,34 +948,6 @@ class FinanceController {
        dto.description || null, Number(dto.amount), dto.spentOn || new Date().toISOString().slice(0, 10)],
     ).catch((e: any) => { throw new BadRequestException(e.message); });
     return rows[0];
-  }
-
-  @Get('reports/:key')
-  async getReport(@Request() req: any, @Param('key') key: string, @Res() res: any) {
-    // Lightweight CSV report so the Accounting tab works without a heavy PDF engine.
-    const tenantId = req.user.tenantId;
-    let title = key, header = 'Item,Amount', lines: string[] = [];
-    try {
-      if (key === 'income') {
-        const rows = await this.ds.query(
-          `SELECT name AS item, amount FROM fee_items WHERE tenant_id = $1 ORDER BY created_at DESC`, [tenantId],
-        ).catch(() => []);
-        title = 'Income (Fee Items)'; lines = rows.map((r: any) => `${String(r.item).replace(/,/g,' ')},${r.amount}`);
-      } else if (key === 'expenses') {
-        const rows = await this.ds.query(
-          `SELECT category, description, amount FROM expenses WHERE tenant_id = $1 ORDER BY created_at DESC`, [tenantId],
-        ).catch(() => []);
-        title = 'Expenses'; header = 'Category,Description,Amount';
-        lines = rows.map((r: any) => `${String(r.category||'').replace(/,/g,' ')},${String(r.description||'').replace(/,/g,' ')},${r.amount}`);
-      } else {
-        title = 'Report'; lines = [];
-      }
-      const csv = `${title}\n${header}\n${lines.join('\n')}\n`;
-      res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${key}-report.csv"` });
-      res.send(csv);
-    } catch (e: any) {
-      res.status(200).set({ 'Content-Type': 'text/csv' }).send(`${title}\n${header}\n`);
-    }
   }
 
   @Get('dashboard')
