@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { BookOpen, FileSpreadsheet, Scale, FileText, Download, Landmark, Wrench, Loader2 } from 'lucide-react';
+import { BookOpen, FileSpreadsheet, Scale, FileText, Printer, Landmark, Wrench, Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -44,15 +44,23 @@ export default function AccountingPage() {
     } finally { setReconciling(false); }
   };
 
+  // The backend renders each report as printable HTML (with its own "Print / Save as PDF"
+  // button), not CSV — open it in a new tab rather than downloading the markup as a
+  // mislabeled .csv file (which showed raw tags and garbled encoding when opened in Excel).
   const generate = async (key: string, label: string) => {
     setGenerating(key);
     try {
-      const { data } = await apiClient.get(`/finance/reports/${key}`, { responseType: 'blob' });
-      const url = URL.createObjectURL(data);
-      const a = document.createElement('a'); a.href = url; a.download = `${key}-report.csv`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-      toast.success(`${label} downloaded (CSV)`);
+      const res = await apiClient.get(`/finance/reports/${key}`, { responseType: 'text' });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      const blob = new Blob([html], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      const w = window.open(blobUrl, '_blank');
+      if (!w) {
+        const a = document.createElement('a');
+        a.href = blobUrl; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } catch (e: any) { toast.error(err(e, label, key)); }
     finally { setGenerating(''); }
   };
@@ -125,7 +133,7 @@ export default function AccountingPage() {
               <div className="text-xs text-theme-muted mt-0.5 mb-4">{r.desc}</div>
               <button onClick={() => generate(r.key, r.label)} disabled={generating === r.key}
                 className="btn-ghost w-full justify-center text-xs">
-                <Download size={13}/> {generating === r.key ? 'Generating…' : 'Download CSV'}
+                <Printer size={13}/> {generating === r.key ? 'Opening…' : 'View / Print'}
               </button>
             </div>
           );

@@ -515,9 +515,9 @@ class FinanceController {
         <tfoot><tr><td colspan="2">Total</td><td class="n">${ksh(totalIn)}</td></tr></tfoot></table>`;
     } else if (key === 'fee_statement') {
       const invoices = await this.getInvoices(req, q);
-      const rows = (invoices as any[]).map(i => `<tr><td>${esc(i.admissionNumber || '')}</td><td>${esc(i.name)}</td><td>${esc(i.gradeLevel || '')}</td><td class="n">${ksh(i.billed)}</td><td class="n">${ksh(i.paid)}</td><td class="n">${ksh(i.balance)}</td></tr>`).join('') || '<tr><td colspan="6">No learners</td></tr>';
-      const tb = (invoices as any[]).reduce((s, i) => s + i.billed, 0);
-      const tp = (invoices as any[]).reduce((s, i) => s + i.paid, 0);
+      const rows = (invoices as any[]).map(i => `<tr><td>${esc(i.learner?.admissionNumber || '')}</td><td>${esc(`${i.learner?.firstName || ''} ${i.learner?.lastName || ''}`.trim())}</td><td>${esc(i.learner?.stream?.name || '')}</td><td class="n">${ksh(i.totalAmount)}</td><td class="n">${ksh(i.amountPaid)}</td><td class="n">${ksh(i.totalAmount - i.amountPaid)}</td></tr>`).join('') || '<tr><td colspan="6">No learners</td></tr>';
+      const tb = (invoices as any[]).reduce((s, i) => s + i.totalAmount, 0);
+      const tp = (invoices as any[]).reduce((s, i) => s + i.amountPaid, 0);
       inner = `<table><thead><tr><th>Adm No</th><th>Learner</th><th>Class</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Balance</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr><td colspan="3">Totals</td><td class="n">${ksh(tb)}</td><td class="n">${ksh(tp)}</td><td class="n">${ksh(tb - tp)}</td></tr></tfoot></table>`;
