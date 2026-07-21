@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { BookOpen, FileSpreadsheet, Scale, FileText, Download } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { BookOpen, FileSpreadsheet, Scale, FileText, Download, Landmark } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -12,8 +12,20 @@ const REPORTS = [
   { key: 'fee_statement', icon: FileText,         label: 'Fee Statements',   desc: 'Per-learner fee account' },
 ];
 
+const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
+
 export default function AccountingPage() {
   const [generating, setGenerating] = useState('');
+  const [voteHeads, setVoteHeads] = useState<any[]>([]);
+  const [totalReceived, setTotalReceived] = useState(0);
+  const [loadingVoteHeads, setLoadingVoteHeads] = useState(true);
+
+  useEffect(() => {
+    apiClient.get('/finance/vote-heads/summary')
+      .then(r => { setVoteHeads(r.data?.voteHeads || []); setTotalReceived(Number(r.data?.totalReceived || 0)); })
+      .catch(() => toast.error('Could not load vote head totals'))
+      .finally(() => setLoadingVoteHeads(false));
+  }, []);
 
   const generate = async (key: string, label: string) => {
     setGenerating(key);
@@ -37,6 +49,46 @@ export default function AccountingPage() {
           <h1 className="text-2xl font-black text-theme-heading">Accounting & Reports</h1>
           <p className="text-sm text-theme-muted">Kenyan accounting workflows — cashbook, ledger, trial balance, statements</p>
         </div>
+      </div>
+
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Landmark size={18} className="text-[#d4af37]"/>
+          <div className="font-bold text-theme-heading">Total Received per Vote Head</div>
+        </div>
+        {loadingVoteHeads ? (
+          <div className="h-32 shimmer rounded-xl"/>
+        ) : voteHeads.length === 0 ? (
+          <div className="text-sm text-theme-muted">No payments recorded yet</div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-theme-muted text-xs uppercase tracking-wide">
+                  <th className="py-2 pr-4">Vote Head</th>
+                  <th className="py-2 pr-4 text-right">Payments</th>
+                  <th className="py-2 text-right">Total Received</th>
+                </tr>
+              </thead>
+              <tbody>
+                {voteHeads.map((v: any) => (
+                  <tr key={v.voteHead} className="border-t border-theme">
+                    <td className="py-2 pr-4 font-medium text-theme-heading">{v.voteHead}</td>
+                    <td className="py-2 pr-4 text-right text-theme-muted">{v.paymentCount}</td>
+                    <td className="py-2 text-right font-bold text-theme-heading">{ksh(v.totalReceived)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-theme">
+                  <td className="py-2 pr-4 font-bold text-theme-heading">Total</td>
+                  <td/>
+                  <td className="py-2 text-right font-black text-theme-heading">{ksh(totalReceived)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

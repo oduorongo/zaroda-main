@@ -187,6 +187,29 @@ class FinanceController {
     }
   }
 
+  // School-wide total received per vote head (all learners), optionally filtered by
+  // term/academic year. Declared before the ':learnerId' route below so "summary" isn't
+  // captured as a learner id.
+  @Get('vote-heads/summary')
+  async voteHeadSummary(@Request() req: any, @Query() q: any) {
+    await this.ensureAllocationsTable();
+    const tenantId = req.user.tenantId;
+    const rows = await this.ds.query(
+      `SELECT COALESCE(vote_head,'Unallocated') AS "voteHead",
+              COALESCE(SUM(amount),0) AS "totalReceived",
+              COUNT(DISTINCT payment_id) AS "paymentCount"
+         FROM payment_allocations
+        WHERE tenant_id = $1
+          AND ($2::text IS NULL OR term = $2)
+          AND ($3::text IS NULL OR academic_year = $3)
+        GROUP BY vote_head
+        ORDER BY "totalReceived" DESC`,
+      [tenantId, q.term || null, q.academicYear || null],
+    ).catch(() => []);
+    const totalReceived = (rows as any[]).reduce((s, r) => s + Number(r.totalReceived || 0), 0);
+    return { voteHeads: rows, totalReceived };
+  }
+
   // The vote heads that apply to a learner (their class's fee items), each with billed amount,
   // amount already paid (from allocations), and outstanding balance — ordered by priority.
   @Get('vote-heads/:learnerId')
