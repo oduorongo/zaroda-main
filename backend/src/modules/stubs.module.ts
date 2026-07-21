@@ -3106,6 +3106,26 @@ class AdminController {
     return { id, updated: true };
   }
 
+  // Recovery tool: promote an existing staff member to HOI for their own tenant. Needed
+  // when a school ends up with no administrator at all (e.g. its HOI account was removed) —
+  // there was previously no way to fix this short of a direct database edit. Demotes any
+  // other 'hoi' row in the same tenant to class_teacher, mirroring transferHoi()'s
+  // single-HOI invariant.
+  @Post('users/:id/promote-hoi')
+  async promoteToHoi(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const target = await this.ds.query(
+      `SELECT tenant_id AS "tenantId", email FROM users WHERE id = $1 LIMIT 1`, [id],
+    ).catch(() => []);
+    if (!target.length) return { error: 'User not found.' };
+    const tenantId = target[0].tenantId;
+    await this.ds.query(
+      `UPDATE users SET role = 'class_teacher' WHERE tenant_id = $1 AND role = 'hoi'`, [tenantId],
+    ).catch(() => null);
+    await this.ds.query(`UPDATE users SET role = 'hoi' WHERE id = $1`, [id]).catch((e: any) => { throw e; });
+    return { promoted: true, email: target[0].email };
+  }
+
   // Reset a school user's password (e.g. an HOI who is locked out). Returns the new
   // temporary password once; the user is asked to change it on next login.
   @Post('users/:id/reset-password')

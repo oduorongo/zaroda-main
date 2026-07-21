@@ -1209,9 +1209,21 @@ export class AcademicService {
     if (teacherId === actorId) {
       throw new BadRequestException('You cannot delete your own account.');
     }
+    // The HOI is the school's sole administrator. Deleting them here (this endpoint used
+    // to allow it) leaves the school with nobody able to manage it, invite staff, or view
+    // billing — with no way to recover short of platform-owner intervention. Require
+    // transferHoi() first, which demotes the current HOI to a regular teacher before
+    // anyone can delete that account.
+    const target = await this.dataSource.query(
+      `SELECT role FROM users WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+      [teacherId, tenantId],
+    ).catch(() => []);
+    if (target[0]?.role === 'hoi') {
+      throw new BadRequestException('You cannot delete the Head of Institution directly. Transfer the HOI role to another teacher first.');
+    }
     const rows = await this.dataSource.query(
       `DELETE FROM users WHERE id = $1 AND tenant_id = $2
-         AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')
+         AND role IN ('class_teacher','subject_teacher','overall_class_teacher','dhois')
        RETURNING id`,
       [teacherId, tenantId],
     ).catch(() => []);

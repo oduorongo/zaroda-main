@@ -60,6 +60,18 @@ export default function OwnerDashboard() {
     } catch { alert('Could not reset password'); }
     finally { setActing(false); }
   };
+  // Recovery action for a school left with no administrator (e.g. its HOI account was
+  // removed) — promotes an existing staff member to HOI, demoting any other current HOI.
+  const promoteToHoi = async (userId: string, name: string) => {
+    if (!confirm(`Make ${name} the Head of Institution for this school? Any existing HOI will be demoted to class teacher.`)) return;
+    setActing(true);
+    try {
+      const r = await apiClient.post(`/admin/users/${userId}/promote-hoi`);
+      if (r.data?.promoted) { await refreshAfterAction(detail.tenant.id); }
+      else alert(r.data?.error || 'Could not promote to HOI');
+    } catch { alert('Could not promote to HOI'); }
+    finally { setActing(false); }
+  };
 
   // Guard: only the platform owner may view this page.
   useEffect(() => {
@@ -259,11 +271,24 @@ export default function OwnerDashboard() {
                   </div>
                   <div>
                     <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">Staff ({detail.users?.length || 0})</div>
+                    {!(detail.users || []).some((u: any) => ['hoi','tenant_owner','school_admin'].includes(u.role)) && (detail.users || []).length > 0 && (
+                      <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2 mb-2">
+                        This school has no administrator. Use "Make HOI" below to give one of its staff admin access.
+                      </div>
+                    )}
                     <div className="space-y-1 max-h-52 overflow-y-auto">
                       {(detail.users || []).map((u: any) => (
                         <div key={u.id} className="flex items-center justify-between text-sm py-1 gap-2">
                           <span className="truncate">{u.firstName} {u.lastName}</span>
                           <span className="text-theme-muted text-xs capitalize ml-auto">{u.role?.replace('_',' ')}</span>
+                          {u.role !== 'hoi' && (
+                            <button
+                              disabled={acting}
+                              onClick={() => promoteToHoi(u.id, `${u.firstName} ${u.lastName}`)}
+                              className="text-[11px] text-[#1a2e5a] hover:underline whitespace-nowrap"
+                              title="Make this user the Head of Institution"
+                            >Make HOI</button>
+                          )}
                           <button
                             disabled={acting}
                             onClick={() => resetPassword(u.id, `${u.firstName} ${u.lastName}`)}
