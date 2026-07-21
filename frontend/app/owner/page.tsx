@@ -49,6 +49,12 @@ export default function OwnerDashboard() {
     catch { alert('Could not change subscription'); }
     finally { setActing(false); }
   };
+  const setOwnership = async (id: string, ownership: string) => {
+    setActing(true);
+    try { await apiClient.patch(`/admin/tenants/${id}`, { ownership }); await refreshAfterAction(id); }
+    catch { alert('Could not change ownership'); }
+    finally { setActing(false); }
+  };
   const resetPassword = async (userId: string, name: string) => {
     if (!confirm(`Reset the password for ${name}? A new temporary password will be generated.`)) return;
     setActing(true);
@@ -264,6 +270,18 @@ export default function OwnerDashboard() {
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between"><span className="text-theme-muted">Status</span><span className={`badge ${statusBadge(detail.tenant.status)}`}>{detail.tenant.status}</span></div>
                     <div className="flex justify-between"><span className="text-theme-muted">Tier</span><span className="capitalize">{detail.tenant.subscription_tier || '—'}</span></div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-theme-muted">Ownership</span>
+                      <div className="flex items-center gap-2">
+                        <span className="capitalize">{detail.tenant.ownership || 'public'}</span>
+                        <button
+                          disabled={acting}
+                          onClick={() => setOwnership(detail.tenant.id, detail.tenant.ownership === 'private' ? 'public' : 'private')}
+                          className="text-[11px] text-[#1a2e5a] hover:underline"
+                          title="Private schools may onboard a non-teaching School Owner account"
+                        >Switch to {detail.tenant.ownership === 'private' ? 'Public' : 'Private'}</button>
+                      </div>
+                    </div>
                     <div className="flex justify-between"><span className="text-theme-muted">KNEC Code</span><span>{detail.tenant.knec_code || '—'}</span></div>
                     <div className="flex justify-between"><span className="text-theme-muted">County</span><span>{detail.tenant.county || '—'}</span></div>
                     <div className="flex justify-between"><span className="text-theme-muted">Phone</span><span>{detail.tenant.phone || '—'}</span></div>

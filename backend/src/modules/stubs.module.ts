@@ -3099,6 +3099,12 @@ class AdminController {
     for (const [k, col] of Object.entries(map)) {
       if (dto[k] !== undefined) { sets.push(`${col} = $${i++}`); vals.push(dto[k]); }
     }
+    // Ownership (public/private) gates whether the school can onboard a non-teaching
+    // School Owner account. Validated here since it feeds a CHECK constraint.
+    if (dto.ownership !== undefined) {
+      if (!['public', 'private'].includes(dto.ownership)) return { error: 'ownership must be "public" or "private".' };
+      sets.push(`ownership = $${i++}`); vals.push(dto.ownership);
+    }
     if (!sets.length) return { error: 'Nothing to update.' };
     sets.push('updated_at = NOW()');
     await this.ds.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $1`, vals)

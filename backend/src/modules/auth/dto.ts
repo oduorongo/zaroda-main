@@ -18,6 +18,10 @@ export class SignupDto {
 
   // Which bands the school runs — 'primary_js' and/or 'senior'.
   @IsOptional() @IsArray() schoolLevels?: string[];
+
+  // 'public' | 'private' — private schools may onboard a non-teaching School Owner
+  // account; defaults to 'public' if not sent (older clients, KNEC-registry schools).
+  @IsOptional() @IsString() ownership?: string;
 }
 
 export class LoginDto {

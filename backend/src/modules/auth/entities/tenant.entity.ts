@@ -55,6 +55,11 @@ export class Tenant {
   @Column({ name: 'school_levels', type: 'text', array: true, default: () => "'{}'" })
   schoolLevels: string[];
 
+  // 'public' | 'private' — private schools may have a non-teaching School Owner
+  // (tenant_owner) account; public schools are run by an HOI only.
+  @Column({ default: 'public' })
+  ownership: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

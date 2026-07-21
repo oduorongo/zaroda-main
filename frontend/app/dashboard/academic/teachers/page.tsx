@@ -299,7 +299,11 @@ export default function TeachersPage() {
                     <option value="dhois">Deputy HOI</option>
                     <option value="games_dept">Games Department</option>
                     <option value="bursar">Bursar</option>
-                    <option value="tenant_owner">School Owner (non-teaching)</option>
+                    {/* Private schools may have a non-teaching proprietor account;
+                        public schools are run by an HOI only. */}
+                    {user?.ownership === 'private' && (
+                      <option value="tenant_owner">School Owner (non-teaching)</option>
+                    )}
                   </select>
                 </div>
               </div>

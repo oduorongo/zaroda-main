@@ -65,6 +65,10 @@ export default function SignupPage() {
   const toggleLevel = (lvl: string) =>
     setSchoolLevels(cur => cur.includes(lvl) ? cur.filter(x => x !== lvl) : [...cur, lvl]);
 
+  // Public schools are run by an HOI only. Private schools may later onboard a
+  // separate, non-teaching School Owner account — gated on this at signup.
+  const [ownership, setOwnership] = useState<'public'|'private'|''>('');
+
   // KNEC lookup state
   const [knecStatus, setKnecStatus] = useState<'idle'|'searching'|'found'|'notfound'>('idle');
   const [schoolAutoFilled, setSchoolAutoFilled] = useState(false);
@@ -172,6 +176,9 @@ export default function SignupPage() {
     if (schoolLevels.length === 0) {
       toast.error('Select which school level(s) you run'); return;
     }
+    if (!ownership) {
+      toast.error('Select whether the school is public or private'); return;
+    }
     setStep(2);
   };
 
@@ -184,7 +191,7 @@ export default function SignupPage() {
       const res = await fetch(`${API}/auth/signup`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...form, ...location, schoolLevels }),
+        body:    JSON.stringify({ ...form, ...location, schoolLevels, ownership }),
       });
 
       const data = await res.json();
@@ -283,6 +290,24 @@ export default function SignupPage() {
                 ))}
               </div>
               <p className="text-xs text-[#7a82a8] mt-1">Select both if your school runs both bands.</p>
+            </div>
+            <div>
+              <label className="label">School Type *</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'public',  label: 'Public School' },
+                  { key: 'private', label: 'Private School' },
+                ].map(o => (
+                  <button key={o.key} type="button" onClick={() => setOwnership(o.key as 'public'|'private')}
+                    className={`text-left text-xs px-3 py-2.5 rounded-xl border transition-all
+                      ${ownership === o.key
+                        ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]'
+                        : 'bg-white text-[#1a2e5a] border-[#e2e6f0] hover:border-[#1a2e5a]'}`}>
+                    {ownership === o.key && <span className="mr-1">✓</span>}{o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[#7a82a8] mt-1">Private schools can later add a non-teaching School Owner account.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

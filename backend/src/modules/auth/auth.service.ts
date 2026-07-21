@@ -49,14 +49,16 @@ export class AuthService {
     // (super_admin) has no tenant and is never blocked. Also fetch school_levels here
     // so the frontend can gate senior-school-only UI without a second round trip.
     let schoolLevels: string[] = [];
+    let ownership = 'public';
     if (user.role !== 'super_admin' && user.tenantId) {
       const t = await this.dataSource.query(
-        `SELECT status, school_levels AS "schoolLevels" FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
+        `SELECT status, school_levels AS "schoolLevels", ownership FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
       ).catch(() => []);
       if (t.length && t[0].status === 'suspended') {
         throw new UnauthorizedException('This school account has been suspended. Please contact ZARODA support.');
       }
       schoolLevels = (t.length && t[0].schoolLevels) || [];
+      ownership = (t.length && t[0].ownership) || 'public';
     }
 
     await this.userRepo.update(user.id, { lastLoginAt: new Date() });
@@ -77,6 +79,7 @@ export class AuthService {
         streamName: user.streamName,
         subjects:   user.subjects || [],
         schoolLevels,
+        ownership,
       },
     };
   }
@@ -115,6 +118,7 @@ export class AuthService {
         trialEndsAt:   new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         subscriptionTier: 'trial',
         schoolLevels:  Array.isArray(dto.schoolLevels) ? dto.schoolLevels.filter(l => ['primary_js','senior'].includes(l)) : [],
+        ownership:     dto.ownership === 'private' ? 'private' : 'public',
       });
       const savedTenant = await queryRunner.manager.save(Tenant, tenant);
 
@@ -160,6 +164,7 @@ export class AuthService {
           tenantId:  savedTenant.id,
           schoolId:  savedSchool.id,
           schoolLevels: savedTenant.schoolLevels || [],
+          ownership: savedTenant.ownership || 'public',
         },
       };
     } catch (err) {

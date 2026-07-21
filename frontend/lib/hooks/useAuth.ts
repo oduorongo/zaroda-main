@@ -18,6 +18,9 @@ export interface AppUser {
   // Which bands the school runs — 'primary_js' and/or 'senior'. Empty/undefined
   // means unset (legacy tenant) — treat as "show everything".
   schoolLevels?: string[];
+  // 'public' | 'private' — only private schools may onboard a non-teaching
+  // School Owner (tenant_owner) account.
+  ownership?: string;
 }
 
 interface AuthState {

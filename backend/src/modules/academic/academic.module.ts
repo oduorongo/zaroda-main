@@ -1421,6 +1421,14 @@ export class AcademicService {
     if (dto.role !== undefined && privilegedRoles.includes(dto.role) && !['hoi', 'tenant_owner', 'school_admin', 'super_admin'].includes(actorRole)) {
       throw new BadRequestException('Only the HOI or school owner can grant another owner/administrator account.');
     }
+    if (dto.role === 'tenant_owner') {
+      const t = await this.dataSource.query(
+        `SELECT ownership FROM tenants WHERE id::text = $1 LIMIT 1`, [tenantId],
+      ).catch(() => []);
+      if (t[0]?.ownership !== 'private') {
+        throw new BadRequestException('The School Owner role is only available to private schools.');
+      }
+    }
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     // users has no full_name column — split into first_name / last_name.
     if (dto.fullName !== undefined) {
@@ -1861,6 +1869,16 @@ export class AcademicService {
     const privilegedRoles = ['hoi', 'tenant_owner', 'school_admin'];
     if (privilegedRoles.includes(dto.role) && !['hoi', 'tenant_owner', 'school_admin', 'super_admin'].includes(actorRole)) {
       throw new BadRequestException('Only the HOI or school owner can create another owner/administrator account.');
+    }
+    // The non-teaching "School Owner" role only makes sense for a privately-owned school —
+    // a public school is run by its HOI. Checked server-side too, not just hidden in the UI.
+    if (dto.role === 'tenant_owner') {
+      const t = await this.dataSource.query(
+        `SELECT ownership FROM tenants WHERE id::text = $1 LIMIT 1`, [tenantId],
+      ).catch(() => []);
+      if (t[0]?.ownership !== 'private') {
+        throw new BadRequestException('The School Owner role is only available to private schools.');
+      }
     }
     if (!dto.email || !dto.email.trim()) {
       throw new BadRequestException('Email is required — it becomes the teacher\'s login username.');
