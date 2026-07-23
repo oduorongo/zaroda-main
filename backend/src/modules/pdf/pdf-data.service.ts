@@ -379,7 +379,8 @@ export class PdfDataService {
 
     const marks = await this.dataSource.query(
       `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
-              l.admission_number AS "admissionNumber", ar.subject, ar.raw_score AS "rawScore", ar.percent
+              l.admission_number AS "admissionNumber", ar.subject, ar.raw_score AS "rawScore",
+              ar.max_score AS "maxScore", ar.percent
          FROM assessment_results ar
          JOIN learners l ON l.id = ar.learner_id
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
@@ -400,24 +401,39 @@ export class PdfDataService {
     const pointsFor = (pct: number): number =>
       isJsSenior ? percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
 
+    // A subject with Paper 1 & Paper 2 has TWO rows for the same learner (different `paper`
+    // marker) — sum their raw/max before computing the combined percent, so it shows as one
+    // mark-list column, matching the screen mark list's aggregation.
+    const combos: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const m of marks) {
+      const key = String(m.subject || '').toLowerCase().trim();
+      const col = areaByKey.get(key);
+      if (!col) continue;
+      const acc = (combos[m.learnerId] ||= {});
+      const c = (acc[col] ||= { rawSum: 0, maxSum: 0, any: false });
+      if (m.rawScore != null && m.maxScore != null) {
+        c.rawSum += Number(m.rawScore); c.maxSum += Number(m.maxScore); c.any = true;
+      }
+    }
+
+    for (const m of marks) {
+      const key = String(m.subject || '').toLowerCase().trim();
+      const col = areaByKey.get(key);
+      if (!col) continue;
       if (!byLearner[m.learnerId]) {
         byLearner[m.learnerId] = {
           learnerId: m.learnerId, name: `${m.firstName} ${m.lastName}`.trim(),
           admissionNumber: m.admissionNumber, scores: {}, points: {}, levels: {}, total: 0, count: 0,
         };
       }
-      const key = String(m.subject || '').toLowerCase().trim();
-      const col = areaByKey.get(key);
-      if (col) {
-        byLearner[m.learnerId].scores[col] = m.rawScore;
-        const pts = m.percent != null ? pointsFor(Number(m.percent)) : null;
-        if (pts != null) byLearner[m.learnerId].points[col] = pts;
-        if (m.percent != null) {
-          const p = Number(m.percent);
-          byLearner[m.learnerId].levels[col] = pctToLvl4(p);
-        }
-        if (m.percent != null) { byLearner[m.learnerId].total += Number(m.percent); byLearner[m.learnerId].count++; }
+      if (col in byLearner[m.learnerId].scores) continue; // already combined below
+      const combo = combos[m.learnerId][col];
+      const percent = combo.any ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
+      byLearner[m.learnerId].scores[col] = combo.any ? combo.rawSum : null;
+      if (percent != null) {
+        byLearner[m.learnerId].points[col] = pointsFor(percent);
+        byLearner[m.learnerId].levels[col] = pctToLvl4(percent);
+        byLearner[m.learnerId].total += percent; byLearner[m.learnerId].count++;
       }
     }
     // Denominator = full number of learning areas in the class (missing marks count as a gap),

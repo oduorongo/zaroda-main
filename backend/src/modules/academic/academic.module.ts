@@ -95,6 +95,7 @@ export class AssessmentResult {
   @Column({ name: 'exam_id', nullable: true })   examId:   string;
   @Column({ nullable: true })     strand:       string;
   @Column({ nullable: true })     level:        string;  // EE/ME/AE/BE
+  @Column({ nullable: true })     paper:        string;  // NULL = single paper; '1'/'2' = which paper (summed on the mark list)
   @Column({ nullable: true })     term:         string;
   @Column({ name: 'academic_year', nullable: true }) academicYear: string;
   @Column({ name: 'teacher_comment', nullable: true }) teacherComment: string;
@@ -136,6 +137,46 @@ export class AcademicService {
        ORDER BY s.name`,
       [tenantId],
     ).catch(() => this.streamRepo.find({ where: { tenantId }, order: { name: 'ASC' } }));
+  }
+
+  // ── Paper 1 / Paper 2 subject config ─────────────────────
+  // Returns { [learningAreaLowercased]: paperCount } for a grade level, tenant override
+  // (if any) taking precedence over the global default row.
+  async getSubjectPaperConfig(tenantId: string, gradeLevel: string): Promise<Record<string, number>> {
+    if (!gradeLevel) return {};
+    const rows = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [gradeLevel, tenantId],
+    ).catch(() => []);
+    const out: Record<string, number> = {};
+    // Global rows first, then tenant-specific rows overwrite them.
+    for (const r of rows.filter((r: any) => !r.tenantId)) out[String(r.learningArea).toLowerCase()] = r.paperCount;
+    for (const r of rows.filter((r: any) => r.tenantId)) out[String(r.learningArea).toLowerCase()] = r.paperCount;
+    return out;
+  }
+
+  async setSubjectPaperConfig(user: any, dto: any) {
+    if (!this.isHoiRole(user.role)) {
+      throw new BadRequestException('Only administrators can change paper configuration.');
+    }
+    const tenantId = user.tenantId;
+    const gradeLevel = dto.gradeLevel;
+    const learningArea = dto.learningArea;
+    const paperCount = Number(dto.paperCount) || 1;
+    if (!gradeLevel || !learningArea) throw new BadRequestException('gradeLevel and learningArea are required.');
+    await this.dataSource.query(
+      `DELETE FROM subject_paper_config WHERE tenant_id::text = $1 AND grade_level = $2 AND learning_area = $3`,
+      [tenantId, gradeLevel, learningArea],
+    );
+    if (paperCount > 1) {
+      await this.dataSource.query(
+        `INSERT INTO subject_paper_config (tenant_id, grade_level, learning_area, paper_count) VALUES ($1,$2,$3,$4)`,
+        [tenantId, gradeLevel, learningArea, paperCount],
+      );
+    }
+    return { message: 'Saved', gradeLevel, learningArea, paperCount };
   }
 
   // ── Assessment results / mark list ───────────────────────
@@ -253,24 +294,28 @@ export class AcademicService {
         continue;
       }
 
-      // Replace any existing result for the same learner/subject/term/exam, then insert
+      // Replace any existing result for the same learner/subject/paper/term/exam, then insert.
+      // Matching on `paper` too means saving Paper 1 never wipes out an already-saved Paper 2
+      // (and vice-versa) for the same learning area.
+      const paper = r.paper != null ? String(r.paper) : null;
       await this.dataSource.query(
         `DELETE FROM assessment_results
          WHERE tenant_id::text = $1 AND learner_id::text = $2 AND subject = $3
-           AND COALESCE(term,'') = COALESCE($4,'') AND COALESCE(exam_type,'') = COALESCE($5,'')`,
-        [tenantId, r.learnerId, r.subject, r.term || null, r.examType || null],
+           AND COALESCE(term,'') = COALESCE($4,'') AND COALESCE(exam_type,'') = COALESCE($5,'')
+           AND COALESCE(paper,'') = COALESCE($6,'')`,
+        [tenantId, r.learnerId, r.subject, r.term || null, r.examType || null, paper],
       ).catch(() => null);
 
       await this.dataSource.query(
         `INSERT INTO assessment_results
            (tenant_id, learner_id, stream_id, grade_level, subject, raw_score, max_score, percent,
-            level, exam_type, exam_id, term, academic_year, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())`,
+            level, exam_type, exam_id, term, academic_year, paper, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())`,
         [
           tenantId, r.learnerId, streamId, gradeLevel, r.subject,
           r.rawScore ?? null, r.maxScore ?? null, r.percent ?? null,
           r.level || null, r.examType || null, r.examId || null,
-          r.term || null, r.academicYear || null,
+          r.term || null, r.academicYear || null, paper,
         ],
       ).then(() => { saved++; }).catch((e: any) => {
         lastError = e.message || String(e);
@@ -453,7 +498,19 @@ export class AcademicService {
     }
     const areaCount = areas.length || 1;
 
-    // Group by learner → subjects.
+    // Group by learner → subjects. A subject with Paper 1 & Paper 2 has TWO rows here
+    // (same learner+subject, different `paper`) — sum their raw/max scores into one
+    // combined score for the subject before computing percent/level/points, so a
+    // multi-paper learning area still shows as a single mark-list column.
+    const bySubject: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
+    for (const r of rows) {
+      const acc = (bySubject[r.learnerId] ||= {});
+      const s = (acc[r.subject] ||= { rawSum: 0, maxSum: 0, any: false });
+      if (r.rawScore != null && r.maxScore != null) {
+        s.rawSum += Number(r.rawScore); s.maxSum += Number(r.maxScore); s.any = true;
+      }
+    }
+
     const byLearner: Record<string, any> = {};
     for (const r of rows) {
       if (!byLearner[r.learnerId]) {
@@ -463,13 +520,17 @@ export class AcademicService {
         };
       }
       const e = byLearner[r.learnerId];
+      if (e.subjects[r.subject]) continue; // already combined below for this subject
+      const combo = bySubject[r.learnerId][r.subject];
+      const percent = combo.any ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
+      const level = percent != null ? this.percentToLevelCode(percent, usePoints) : null;
       // Points scale stays grade-appropriate: 1-8 for senior (Grade 7-12), 1-4 for lower bands.
-      const pts = (r.percent != null)
-        ? (usePoints ? this.percentToPoints(Number(r.percent))
-                     : (Number(r.percent) >= 76 ? 4 : Number(r.percent) >= 51 ? 3 : Number(r.percent) >= 26 ? 2 : 1))
+      const pts = (percent != null)
+        ? (usePoints ? this.percentToPoints(percent)
+                     : (percent >= 76 ? 4 : percent >= 51 ? 3 : percent >= 26 ? 2 : 1))
         : null;
-      e.subjects[r.subject] = { percent: r.percent, level: r.level, rawScore: r.rawScore, points: pts };
-      if (r.percent != null) { e.totalPercent += Number(r.percent); e.count++; if (pts != null) e.totalPoints += pts; }
+      e.subjects[r.subject] = { percent, level, rawScore: combo.any ? combo.rawSum : null, points: pts };
+      if (percent != null) { e.totalPercent += percent; e.count++; if (pts != null) e.totalPoints += pts; }
     }
     const list = Object.values(byLearner).map((e: any) => {
       // Total performance level = sum of each learning area's performance points (missing area
@@ -2161,6 +2222,18 @@ export class AcademicController {
   @Get('mark-list')
   getMarkList(@Request() req: any, @Query() q: any) {
     return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType, q.examId);
+  }
+
+  // Which learning areas at a grade level are split into Paper 1 / Paper 2.
+  @Get('subject-paper-config')
+  getSubjectPaperConfig(@Request() req: any, @Query() q: any) {
+    return this.academicService.getSubjectPaperConfig(req.user.tenantId, q.gradeLevel);
+  }
+
+  // Admin/HOI: flag a learning area as multi-paper (paperCount) or single-paper (1) for a grade.
+  @Post('subject-paper-config')
+  setSubjectPaperConfig(@Request() req: any, @Body() dto: any) {
+    return this.academicService.setSubjectPaperConfig(req.user, dto);
   }
 
   @Get('analytics/stream')

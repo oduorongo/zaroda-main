@@ -37,10 +37,22 @@ export default function AdminEnterMarksPage() {
   // By-area mode: chosen learning area + { learnerId: rawScore }
   const [area, setArea]         = useState('');
   const [areaScores, setAreaScores] = useState<Record<string, string>>({});
+  const [areaScoresP2, setAreaScoresP2] = useState<Record<string, string>>({});  // Paper 2, only used when hasPapers(area)
 
   // By-learner mode: chosen learner + { subject: rawScore }
   const [learnerId, setLearnerId]   = useState('');
   const [learnerScores, setLearnerScores] = useState<Record<string, string>>({});
+  const [learnerScoresP2, setLearnerScoresP2] = useState<Record<string, string>>({});  // Paper 2, keyed by subject
+
+  // Learning areas that are examined as Paper 1 + Paper 2 for this class's grade (e.g.
+  // English, Kiswahili in Junior/Senior School) — entered separately, summed on the mark list.
+  const [paperConfig, setPaperConfig] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!stream?.gradeLevel) { setPaperConfig({}); return; }
+    apiClient.get('/academic/subject-paper-config', { params: { gradeLevel: stream.gradeLevel } })
+      .then(r => setPaperConfig(r.data || {})).catch(() => setPaperConfig({}));
+  }, [stream?.gradeLevel]);
+  const hasPapers = (a: string) => (paperConfig[a.toLowerCase()] || 1) >= 2;
 
   const areas = useMemo(() => stream ? learningAreasFor(stream.gradeLevel) : [], [stream]);
   const termExams = exams.filter(e => !term || e.term === term);
@@ -110,23 +122,39 @@ export default function AdminEnterMarksPage() {
 
   const senior = stream ? isSeniorScale(stream.gradeLevel) : false;
 
-  const buildRecord = (lid: string, subject: string, raw: string) => {
+  const buildRecord = (lid: string, subject: string, raw: string, paper?: '1' | '2') => {
     const n = Number(raw);
     if (raw === '' || isNaN(n)) return null;
     const percent = Math.round((n / maxScoreNum) * 100);
     const level = percentToLevel(percent, stream?.gradeLevel || 'grade_4').code;
     return {
       learnerId: lid, streamId, gradeLevel: stream?.gradeLevel, subject,
-      rawScore: n, maxScore: maxScoreNum, percent, level,
+      rawScore: n, maxScore: maxScoreNum, percent, level, paper: paper || null,
       examType: selectedExam?.examType || '', examId,
       term, academicYear: '2025/2026',
     };
   };
 
+  // Combined percent/level across Paper 1 + Paper 2 (on-screen preview only — the backend
+  // re-sums raw/max scores itself when building the mark list).
+  const combinedLevelFor = (raw1: string, raw2: string) => {
+    const n1 = Number(raw1), n2 = Number(raw2);
+    const has1 = raw1 !== '' && !isNaN(n1), has2 = raw2 !== '' && !isNaN(n2);
+    if (!has1 && !has2) return null;
+    const rawSum = (has1 ? n1 : 0) + (has2 ? n2 : 0);
+    const maxSum = (has1 ? maxScoreNum : 0) + (has2 ? maxScoreNum : 0);
+    return percentToLevel(Math.round((rawSum / maxSum) * 100), stream?.gradeLevel || 'grade_4');
+  };
+
   const saveArea = async () => {
     if (!examId) { toast.error('Pick an assessment first'); return; }
-    const records = Object.entries(areaScores)
-      .map(([lid, raw]) => buildRecord(lid, area, raw)).filter(Boolean);
+    const paperMode = hasPapers(area);
+    const records = paperMode
+      ? Object.keys({ ...areaScores, ...areaScoresP2 }).flatMap(lid => [
+          buildRecord(lid, area, areaScores[lid] ?? '', '1'),
+          buildRecord(lid, area, areaScoresP2[lid] ?? '', '2'),
+        ]).filter(Boolean)
+      : Object.entries(areaScores).map(([lid, raw]) => buildRecord(lid, area, raw)).filter(Boolean);
     if (!records.length) { toast.error('Enter at least one mark'); return; }
     setSaving(true);
     try {
@@ -139,8 +167,16 @@ export default function AdminEnterMarksPage() {
 
   const saveLearner = async () => {
     if (!examId) { toast.error('Pick an assessment first'); return; }
-    const records = Object.entries(learnerScores)
-      .map(([subject, raw]) => buildRecord(learnerId, subject, raw)).filter(Boolean);
+    const records = areas.flatMap(a => {
+      if (hasPapers(a)) {
+        return [
+          buildRecord(learnerId, a, learnerScores[a] ?? '', '1'),
+          buildRecord(learnerId, a, learnerScoresP2[a] ?? '', '2'),
+        ].filter(Boolean);
+      }
+      const rec = buildRecord(learnerId, a, learnerScores[a] ?? '');
+      return rec ? [rec] : [];
+    });
     if (!records.length) { toast.error('Enter at least one mark'); return; }
     setSaving(true);
     try {
@@ -301,15 +337,17 @@ export default function AdminEnterMarksPage() {
         <div className="card p-4 space-y-3">
           <div>
             <label className="label">Learning Area</label>
-            <select value={area} onChange={e => { setArea(e.target.value); setAreaScores({}); }} className="input w-full">
-              {areas.map(a => <option key={a} value={a}>{a}</option>)}
+            <select value={area} onChange={e => { setArea(e.target.value); setAreaScores({}); setAreaScoresP2({}); }} className="input w-full">
+              {areas.map(a => <option key={a} value={a}>{a}{hasPapers(a) ? ' (Paper 1 & 2)' : ''}</option>)}
             </select>
           </div>
           <LearnerSearch value={search} onChange={setSearch} />
           <div className="divide-y divide-theme">
             {filteredLearners.map(l => {
+              const paperMode = hasPapers(area);
               const raw = areaScores[l.id] ?? '';
-              const lvl = levelFor(raw);
+              const raw2 = areaScoresP2[l.id] ?? '';
+              const lvl = paperMode ? combinedLevelFor(raw, raw2) : levelFor(raw);
               return (
                 <div key={l.id} className="flex items-center gap-2 py-2">
                   <div className="flex-1 min-w-0">
@@ -317,12 +355,29 @@ export default function AdminEnterMarksPage() {
                     <div className="text-[11px] text-theme-muted">{l.admissionNumber || ''}</div>
                   </div>
                   {lvl && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: lvl.color }}>{lvl.code}</span>}
-                  <input
-                    type="number" inputMode="numeric" value={raw}
-                    onChange={e => setAreaScores({ ...areaScores, [l.id]: e.target.value })}
-                    placeholder="—"
-                    className="input w-20 text-center"
-                  />
+                  {paperMode ? (
+                    <>
+                      <input
+                        type="number" inputMode="numeric" value={raw}
+                        onChange={e => setAreaScores({ ...areaScores, [l.id]: e.target.value })}
+                        placeholder="P1" title="Paper 1"
+                        className="input w-16 text-center"
+                      />
+                      <input
+                        type="number" inputMode="numeric" value={raw2}
+                        onChange={e => setAreaScoresP2({ ...areaScoresP2, [l.id]: e.target.value })}
+                        placeholder="P2" title="Paper 2"
+                        className="input w-16 text-center"
+                      />
+                    </>
+                  ) : (
+                    <input
+                      type="number" inputMode="numeric" value={raw}
+                      onChange={e => setAreaScores({ ...areaScores, [l.id]: e.target.value })}
+                      placeholder="—"
+                      className="input w-20 text-center"
+                    />
+                  )}
                 </div>
               );
             })}
@@ -344,24 +399,43 @@ export default function AdminEnterMarksPage() {
             <div className="flex gap-2">
               <LearnerSearch value={search} onChange={setSearch} className="flex-1" />
             </div>
-            <select value={learnerId} onChange={e => { setLearnerId(e.target.value); setLearnerScores({}); }} className="input w-full mt-2">
+            <select value={learnerId} onChange={e => { setLearnerId(e.target.value); setLearnerScores({}); setLearnerScoresP2({}); }} className="input w-full mt-2">
               {filteredLearners.map(l => <option key={l.id} value={l.id}>{l.firstName} {l.lastName} {l.admissionNumber ? `(${l.admissionNumber})` : ''}</option>)}
             </select>
           </div>
           <div className="divide-y divide-theme">
             {areas.map(a => {
+              const paperMode = hasPapers(a);
               const raw = learnerScores[a] ?? '';
-              const lvl = levelFor(raw);
+              const raw2 = learnerScoresP2[a] ?? '';
+              const lvl = paperMode ? combinedLevelFor(raw, raw2) : levelFor(raw);
               return (
                 <div key={a} className="flex items-center gap-2 py-2">
-                  <div className="flex-1 min-w-0 text-sm font-medium text-theme-heading">{a}</div>
+                  <div className="flex-1 min-w-0 text-sm font-medium text-theme-heading">{a}{paperMode ? <span className="text-[10px] text-theme-muted"> (P1+P2)</span> : ''}</div>
                   {lvl && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: lvl.color }}>{lvl.code}</span>}
-                  <input
-                    type="number" inputMode="numeric" value={raw}
-                    onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
-                    placeholder="—"
-                    className="input w-20 text-center"
-                  />
+                  {paperMode ? (
+                    <>
+                      <input
+                        type="number" inputMode="numeric" value={raw}
+                        onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
+                        placeholder="P1" title="Paper 1"
+                        className="input w-16 text-center"
+                      />
+                      <input
+                        type="number" inputMode="numeric" value={raw2}
+                        onChange={e => setLearnerScoresP2({ ...learnerScoresP2, [a]: e.target.value })}
+                        placeholder="P2" title="Paper 2"
+                        className="input w-16 text-center"
+                      />
+                    </>
+                  ) : (
+                    <input
+                      type="number" inputMode="numeric" value={raw}
+                      onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
+                      placeholder="—"
+                      className="input w-20 text-center"
+                    />
+                  )}
                 </div>
               );
             })}
