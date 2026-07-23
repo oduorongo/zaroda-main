@@ -94,7 +94,10 @@ export default function AdminEnterMarksPage() {
     if (termExams.length && !termExams.find(e => e.id === examId)) setExamId(termExams[0].id);
   }, [term, exams]);
 
-  useEffect(() => { if (areas.length && !areas.includes(area)) setArea(areas[0]); }, [areas]);
+  // Don't auto-pick a learning area — leave it unselected so the "Out of" box (and any
+  // admin-configured Paper 1/2 totals) only appears once explicitly chosen, instead of
+  // showing whatever the first area happens to be on page load.
+  useEffect(() => { if (area && !areas.includes(area)) setArea(''); }, [areas]);
 
   useEffect(() => {
     if (!streamId) return;
@@ -367,7 +370,16 @@ export default function AdminEnterMarksPage() {
               {termExams.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
             </select>
           </div>
-          {mode === 'area' && hasPapers(area) ? (
+          {mode === 'area' && (
+            <div>
+              <label className="label">Learning Area</label>
+              <select value={area} onChange={e => { setArea(e.target.value); setAreaScores({}); setAreaScoresP2({}); }} className="input w-full">
+                <option value="">— Select —</option>
+                {areas.map(a => <option key={a} value={a}>{a}{hasPapers(a) ? ' (Paper 1 & 2)' : ''}</option>)}
+              </select>
+            </div>
+          )}
+          {mode === 'area' && !area ? null : mode === 'area' && hasPapers(area) ? (
             <div>
               <label className="label" style={{ color: areaPapersReady ? undefined : '#f5820a' }}>
                 Out of — Paper 1 / Paper 2 *
@@ -430,6 +442,10 @@ export default function AdminEnterMarksPage() {
         <div className="card p-6 text-center text-theme-muted text-sm">
           Create an assessment for this term first (Academic → Assessments), then return here to enter marks.
         </div>
+      ) : mode === 'area' && !area ? (
+        <div className="card p-6 text-center text-theme-muted text-sm">
+          Choose a learning area above to start entering marks.
+        </div>
       ) : (mode === 'area' ? (hasPapers(area) ? !areaPapersReady : !maxScoreReady) : !maxScoreReady) ? (
         <div className="card p-6 text-center text-sm" style={{ color: '#f5820a', border: '1px solid #f5820a' }}>
           Enter the <b>“Out of (total score)”</b> for this subject above before you start entering marks.
@@ -438,12 +454,6 @@ export default function AdminEnterMarksPage() {
         <div className="flex justify-center py-10"><Loader2 className="animate-spin text-theme-muted" size={24}/></div>
       ) : mode === 'area' ? (
         <div className="card p-4 space-y-3">
-          <div>
-            <label className="label">Learning Area</label>
-            <select value={area} onChange={e => { setArea(e.target.value); setAreaScores({}); setAreaScoresP2({}); }} className="input w-full">
-              {areas.map(a => <option key={a} value={a}>{a}{hasPapers(a) ? ' (Paper 1 & 2)' : ''}</option>)}
-            </select>
-          </div>
           <LearnerSearch value={search} onChange={setSearch} />
           <div className="divide-y divide-theme">
             {filteredLearners.map(l => {
