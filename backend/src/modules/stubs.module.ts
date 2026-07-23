@@ -2469,23 +2469,17 @@ class PdfController {
       // Authoritative column list = the seeded rubric areas for this grade (SAME as the on-screen
       // mark list), NOT just the subjects that happen to have marks. This guarantees identical
       // columns and an identical average denominator (missing marks count as a gap).
-      const rubricRows = await this.ds.query(
-        `SELECT DISTINCT learning_area AS area FROM assessment_templates
-          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2) ORDER BY learning_area`,
-        [stream.gradeLevel, tenantId],
-      ).catch(() => []);
-      let subjects: string[] = Array.from(new Set<string>((rubricRows as any[]).map(r => String(r.area)).filter(Boolean)))
-        .filter(a => !/indigenous|indeg/i.test(a));
+      let subjects: string[] = await getGradeLearningAreas(this.ds, stream.gradeLevel, tenantId);
       if (!subjects.length) subjects = Array.from(new Set<string>(rows.map((r: any) => String(r.subject)))).sort();
-      const areaByKey = new Map(subjects.map(s => [s.toLowerCase().trim(), s]));
       const areaCount = subjects.length || 1;
 
-      // Pivot: learner → subject → {percent, level}; match marks onto canonical rubric columns.
+      // Pivot: learner → subject → {percent, level}; match marks onto canonical rubric columns,
+      // tolerating spelling variants ("Creative Arts" vs the rubric's "Creative Activities").
       const byLearner: Record<string, any> = {};
       for (const r of rows) {
         const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0, pctSum: 0, count: 0 });
         if (r.percent != null) {
-          const col = areaByKey.get(String(r.subject).toLowerCase().trim());
+          const col = resolveLearningArea(r.subject, subjects);
           if (col) { L.marks[col] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); L.pctSum += Number(r.percent); L.count++; }
         }
       }

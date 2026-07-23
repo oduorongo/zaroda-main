@@ -17,6 +17,7 @@ import {
   TIMETABLING_COMMITTEE_ROLES,
 } from './kicd-timetable.constants';
 import { AutoTimetabler } from './auto-timetabler';
+import { getGradeLearningAreas, resolveLearningArea } from '../pdf/learning-area.util';
 import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
@@ -423,6 +424,10 @@ export class AcademicService {
       [tenantId, streamId, term || null],
     ).catch(() => []);
 
+    // Canonical rubric for this grade, so a spelling variant ("Creative Arts" vs the
+    // rubric's "Creative Activities") lands on the same area as everyone else's marks.
+    const rubricAreas = await getGradeLearningAreas(this.dataSource, gradeLevel, tenantId);
+
     // learner → { exam_id → { area → {percent, level, points} }, totals }
     const learners: Record<string, any> = {};
     for (const r of rows) {
@@ -433,10 +438,11 @@ export class AcademicService {
       const examKey = r.examId || 'unlinked';
       const blk = (L.byAssessment[examKey] = L.byAssessment[examKey] || { areas: {}, points: 0, max: 0, count: 0, percentSum: 0 });
       if (r.percent != null) {
+        const area = (rubricAreas.length ? resolveLearningArea(r.subject, rubricAreas) : r.subject) || r.subject;
         const pct = Number(r.percent);
         const level = this.percentToLevelCode(pct, senior);
         const pts = senior ? this.percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
-        blk.areas[r.subject] = { percent: pct, level, points: pts };
+        blk.areas[area] = { percent: pct, level, points: pts };
         blk.points += pts; blk.max += maxPer; blk.count++; blk.percentSum += pct;
       }
     }
@@ -490,14 +496,7 @@ export class AcademicService {
     // rubric). Averages divide by the FULL number of areas, so a missing mark counts as a gap
     // and screen + PDF always agree. Fall back to whatever subjects have marks if the rubric
     // isn't seeded for this grade.
-    const areaRows = await this.dataSource.query(
-      `SELECT DISTINCT learning_area AS area FROM assessment_templates
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)
-        ORDER BY learning_area`,
-      [gradeLevel, tenantId],
-    ).catch(() => []);
-    let areas: string[] = (areaRows as any[]).map(r => String(r.area)).filter(Boolean)
-      .filter(a => !/indigenous|indeg/i.test(a));
+    let areas: string[] = await getGradeLearningAreas(this.dataSource, gradeLevel, tenantId);
 
     const rows = await this.dataSource.query(
       `SELECT ar.learner_id AS "learnerId",
@@ -520,6 +519,10 @@ export class AcademicService {
       areas = Array.from(new Set((rows as any[]).map(r => String(r.subject)).filter(Boolean)));
     }
     const areaCount = areas.length || 1;
+    // Resolve a mark's raw subject string to its canonical rubric column so spelling
+    // variants ("Creative Arts" vs the rubric's "Creative Activities") land on the same
+    // learning area instead of becoming their own unmatched column.
+    const resolveArea = (subject: string): string => resolveLearningArea(subject, areas) || subject;
 
     // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100), configured once via the Enter
     // Marks "out of" fields or the Paper 1 & 2 Setup page. This is the AUTHORITATIVE
@@ -541,9 +544,10 @@ export class AcademicService {
     // of which papers this learner actually has scores for.
     const bySubject: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const r of rows) {
+      const area = resolveArea(r.subject);
       const acc = (bySubject[r.learnerId] ||= {});
       const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
-      const s = (acc[r.subject] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+      const s = (acc[area] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
       if (r.rawScore != null) {
         s.rawSum += Number(r.rawScore); s.any = true;
         if (!configuredMax && r.maxScore != null) s.maxSum += Number(r.maxScore);
@@ -552,6 +556,7 @@ export class AcademicService {
 
     const byLearner: Record<string, any> = {};
     for (const r of rows) {
+      const area = resolveArea(r.subject);
       if (!byLearner[r.learnerId]) {
         byLearner[r.learnerId] = {
           learnerId: r.learnerId, firstName: r.firstName, lastName: r.lastName,
@@ -559,8 +564,8 @@ export class AcademicService {
         };
       }
       const e = byLearner[r.learnerId];
-      if (e.subjects[r.subject]) continue; // already combined below for this subject
-      const combo = bySubject[r.learnerId][r.subject];
+      if (e.subjects[area]) continue; // already combined below for this area
+      const combo = bySubject[r.learnerId][area];
       const percent = combo.any ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
       const level = percent != null ? this.percentToLevelCode(percent, usePoints) : null;
       // Points scale stays grade-appropriate: 1-8 for senior (Grade 7-12), 1-4 for lower bands.
@@ -568,7 +573,7 @@ export class AcademicService {
         ? (usePoints ? this.percentToPoints(percent)
                      : (percent >= 76 ? 4 : percent >= 51 ? 3 : percent >= 26 ? 2 : 1))
         : null;
-      e.subjects[r.subject] = { percent, level, rawScore: combo.any ? combo.rawSum : null, points: pts };
+      e.subjects[area] = { percent, level, rawScore: combo.any ? combo.rawSum : null, points: pts };
       if (percent != null) { e.totalPercent += percent; e.count++; if (pts != null) e.totalPoints += pts; }
     }
     const list = Object.values(byLearner).map((e: any) => {
