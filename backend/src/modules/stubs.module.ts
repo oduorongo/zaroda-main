@@ -2411,7 +2411,7 @@ class PdfController {
         </div>
         <table><thead><tr><th>Rank</th><th>Learner</th><th>Adm</th><th>Score</th><th>%</th><th>Level</th></tr></thead>
         <tbody>${body || `<tr><td colspan="6">No marks for ${esc(subject)} in this assessment.</td></tr>`}</tbody></table>
-        <div class="f">Powered by ZARODA SOLUTIONS</div>
+        <div class="f">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
         </body></html>`;
@@ -2542,7 +2542,7 @@ class PdfController {
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
         <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}</tbody></table>
-        <div class="ml-foot">Powered by ZARODA SOLUTIONS</div>
+        <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
         </body></html>`;
@@ -2849,7 +2849,7 @@ class PdfController {
           <span>Class Teacher: __________________</span>
           <span>Checked by D.H.O.I. _______________</span>
         </div>
-        <div class="rc-powered">Powered by ZARODA SOLUTIONS</div>
+        <div class="rc-powered">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
       </div>`;
 
     if (!standalone) return card;
