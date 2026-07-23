@@ -16,6 +16,38 @@ import {
   cbcTeacherComment, cbcHoiComment, percentToPoints, isSeniorGrade,
 } from './cbc-report.helper';
 
+// ── Learning-area name matching helpers ────────────────────────────
+// Shared by the report card and the mark list so both pick learning areas the
+// SAME way and never drift into treating spelling variants as separate subjects.
+const normArea = (x: string) => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
+const AREA_STOP = new Set(['and', 'the', 'of', 'a', 'activities', 'studies', 'language']);
+const areaTokens = (x: string) => String(x || '').toLowerCase().split(/[^a-z]+/).filter(w => w && !AREA_STOP.has(w));
+const levenshtein = (a: string, b: string): number => {
+  if (a === b) return 0;
+  if (!a || !b) return Math.max(a.length, b.length);
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 0; i < a.length; i++) {
+    const cur = [i + 1];
+    for (let j = 0; j < b.length; j++) cur.push(Math.min(prev[j + 1] + 1, cur[j] + 1, prev[j] + (a[i] === b[j] ? 0 : 1)));
+    prev = cur;
+  }
+  return prev[b.length];
+};
+// Tolerant match so variant spellings are treated as the same learning area:
+// "Intergrated Science" vs "Integrated Science", "Mathematics" vs "Mathematical
+// Activities", "Creative Arts" vs "Creative Activities", "C.R.E" vs "CRE".
+const areaMatch = (a: string, b: string) => {
+  const na = normArea(a), nb = normArea(b);
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const ta = areaTokens(a), tb = areaTokens(b);
+  for (const w of ta) if (tb.includes(w)) return true;
+  for (const wa of ta) for (const wb of tb) if (wa.length >= 6 && wb.length >= 6 && wa.slice(0, 6) === wb.slice(0, 6)) return true;
+  return levenshtein(na, nb) <= Math.max(2, Math.round(0.15 * Math.max(na.length, nb.length)));
+};
+// Indigenous Language is deliberately excluded from marklists and report cards.
+const isIndigenousLanguage = (a: string) => /indigenous|indeg/i.test(a);
+
 @Injectable()
 export class PdfDataService {
   constructor(
@@ -48,6 +80,25 @@ export class PdfDataService {
       }
     } catch { /* no logo */ }
     return undefined;
+  }
+
+  // ── Canonical learning areas for a grade (the "marklist" rubric) ───
+  // Single source of truth for the report card AND the mark list, so they always
+  // show the same subjects. Collapses variant spellings ("Creative Activities" /
+  // "Creative Arts") into one entry, and drops Indigenous Language entirely.
+  private async getGradeLearningAreas(gradeLevel: string, tenantId: string): Promise<string[]> {
+    const rows = await this.dataSource.query(
+      `SELECT DISTINCT learning_area AS area FROM assessment_templates
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)
+        ORDER BY learning_area`,
+      [gradeLevel || '', tenantId],
+    ).catch(() => []);
+    const raw = rows.map((r: any) => String(r.area).trim()).filter(Boolean).filter(a => !isIndigenousLanguage(a));
+    const merged: string[] = [];
+    for (const area of raw) {
+      if (!merged.some(m => areaMatch(m, area))) merged.push(area);
+    }
+    return merged;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -89,41 +140,10 @@ export class PdfDataService {
       return r !== 0 ? r : String(a.subject || '').localeCompare(String(b.subject || ''));
     });
 
-    // Learning areas offered in this class = the assessment rubric for the learner's grade.
-    // The report card must show ONLY these areas — no stray subjects, no duplicates.
-    const rubricRows = await this.dataSource.query(
-      `SELECT DISTINCT learning_area AS area
-         FROM assessment_templates
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
-      [learner.gradeLevel || '', tenantId],
-    ).catch(() => []);
-    // Normalise + tolerant matching so variant spellings still match the rubric:
-    // "Intergrated Science" vs "Integrated Science", "Mathematics" vs "Mathematical
-    // Activities", "Creative Arts" vs "Creative Arts and Sports", "C.R.E" vs "CRE".
-    const norm = (x: string) => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
-    const stop = new Set(['and', 'the', 'of', 'a', 'activities', 'studies', 'language']);
-    const toks = (x: string) => String(x || '').toLowerCase().split(/[^a-z]+/).filter(w => w && !stop.has(w));
-    const lev = (a: string, b: string): number => {
-      if (a === b) return 0;
-      if (!a || !b) return Math.max(a.length, b.length);
-      let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-      for (let i = 0; i < a.length; i++) {
-        const cur = [i + 1];
-        for (let j = 0; j < b.length; j++) cur.push(Math.min(prev[j + 1] + 1, cur[j] + 1, prev[j] + (a[i] === b[j] ? 0 : 1)));
-        prev = cur;
-      }
-      return prev[b.length];
-    };
-    const areaMatch = (a: string, b: string) => {
-      const na = norm(a), nb = norm(b);
-      if (!na || !nb) return false;
-      if (na === nb || na.includes(nb) || nb.includes(na)) return true;
-      const ta = toks(a), tb = toks(b);
-      for (const w of ta) if (tb.includes(w)) return true;
-      for (const wa of ta) for (const wb of tb) if (wa.length >= 6 && wb.length >= 6 && wa.slice(0, 6) === wb.slice(0, 6)) return true;
-      return lev(na, nb) <= Math.max(2, Math.round(0.15 * Math.max(na.length, nb.length)));
-    };
-    let rubricAreas: string[] = rubricRows.map((r: any) => String(r.area)).filter(Boolean);
+    // Learning areas offered in this class = the SAME canonical rubric the mark list
+    // uses (getGradeLearningAreas). The report card must show ONLY these areas — no
+    // stray subjects, no duplicates, no Indigenous Language.
+    let rubricAreas: string[] = await this.getGradeLearningAreas(learner.gradeLevel || '', tenantId);
     // Senior School (Grades 10–12): the report card mirrors the class mark list exactly —
     // its learning areas are the 4 core areas plus every elective offered in the learner's
     // stream (the SAME union the mark list builds its columns from), regardless of which
@@ -146,19 +166,22 @@ export class PdfDataService {
       const ownElectives = Array.isArray((learner as any).electives) ? (learner as any).electives : [];
       const markedAreas  = allResults.map(r => String(r.subject || '')).filter(Boolean);
       const extras = Array.from(new Set([...streamElectives, ...ownElectives, ...markedAreas].filter(Boolean)))
-        .filter(a => !SENIOR_CORE.some(c => norm(c) === norm(a)));
+        .filter(a => !SENIOR_CORE.some(c => normArea(c) === normArea(a)));
       rubricAreas = [...SENIOR_CORE, ...extras];
     }
-    const inRubric = (subject: string) =>
-      rubricAreas.length === 0 || rubricAreas.some(area => areaMatch(area, subject));
 
-    // Keep only results whose subject matches a rubric area (tolerant); de-duplicate by subject.
+    // Keep only results that match a rubric area, and de-duplicate by the MATCHED
+    // canonical area (not the result's own raw spelling) — otherwise "Creative
+    // Activities" and "Creative Arts" both survive as separate rows for the same
+    // subject, each only holding whichever exam type happens to use that spelling.
     const seen = new Set<string>();
     const results = allResults.filter(r => {
-      const key = norm(r.subject);
-      if (!key || seen.has(key)) return false;
+      const canonical = rubricAreas.find(area => areaMatch(area, r.subject));
+      if (!canonical) return false;
+      const key = normArea(canonical);
+      if (seen.has(key)) return false;
       seen.add(key);
-      return inRubric(r.subject);
+      return true;
     });
 
     // Attendance for this term
@@ -352,14 +375,7 @@ export class PdfDataService {
     ).catch(() => []);
     const gradeLevel = stream[0]?.gradeLevel || '';
 
-    const rubricRows = await this.dataSource.query(
-      `SELECT DISTINCT learning_area AS area FROM assessment_templates
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)
-        ORDER BY learning_area`,
-      [gradeLevel, tenantId],
-    ).catch(() => []);
-    let subjects: string[] = Array.from(new Set(rubricRows.map((r: any) => r.area).filter(Boolean)))
-      .filter((a: string) => !/indigenous|indeg/i.test(a));
+    let subjects: string[] = await this.getGradeLearningAreas(gradeLevel, tenantId);
 
     // Senior School (Grades 10–12): columns = 4 core areas + every elective taken by
     // any learner in this class (each learner has their own elective choice).
@@ -391,7 +407,20 @@ export class PdfDataService {
     // Authoritative learning-area set = the seeded rubric (already in `subjects`). Do NOT append
     // stray subject names from marks — the mark list (screen) and PDF must show the SAME columns,
     // and the average must divide by this full set so a missing mark counts as a gap.
+    // Resolve a mark's raw subject string to its canonical column via the same tolerant
+    // match the report card uses, so a variant spelling ("Creative Arts" for a template
+    // seeded as "Creative Activities") lands in the SAME column instead of being dropped.
     const areaByKey = new Map(subjects.map(s => [s.toLowerCase().trim(), s]));
+    const resolveCache = new Map<string, string | undefined>();
+    const resolveArea = (subject: string): string | undefined => {
+      const key = String(subject || '').toLowerCase().trim();
+      if (!key) return undefined;
+      if (areaByKey.has(key)) return areaByKey.get(key);
+      if (resolveCache.has(key)) return resolveCache.get(key);
+      const match = subjects.find(s => areaMatch(s, subject));
+      resolveCache.set(key, match);
+      return match;
+    };
 
     const byLearner: Record<string, any> = {};
     const isJsSenior = isSeniorGrade(gradeLevel) || /grade_(7|8|9|1[0-2])/.test(gradeLevel);
@@ -427,7 +456,7 @@ export class PdfDataService {
     const combos: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const m of marks) {
       const key = String(m.subject || '').toLowerCase().trim();
-      const col = areaByKey.get(key);
+      const col = resolveArea(m.subject);
       if (!col) continue;
       const configuredMax = subjectCombinedMax[key];
       const acc = (combos[m.learnerId] ||= {});
@@ -439,8 +468,7 @@ export class PdfDataService {
     }
 
     for (const m of marks) {
-      const key = String(m.subject || '').toLowerCase().trim();
-      const col = areaByKey.get(key);
+      const col = resolveArea(m.subject);
       if (!col) continue;
       if (!byLearner[m.learnerId]) {
         byLearner[m.learnerId] = {
