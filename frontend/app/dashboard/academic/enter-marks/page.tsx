@@ -57,13 +57,26 @@ export default function AdminEnterMarksPage() {
 
   // Learning areas that are examined as Paper 1 + Paper 2 for this class's grade (e.g.
   // English, Kiswahili in Junior/Senior School) — entered separately, summed on the mark list.
-  const [paperConfig, setPaperConfig] = useState<Record<string, number>>({});
-  useEffect(() => {
+  // paper1Max/paper2Max (if set) are the AUTHORITATIVE combined total the mark list uses,
+  // so a learner missing one paper is still averaged against the full total.
+  const [paperConfig, setPaperConfig] = useState<Record<string, { paperCount: number; paper1Max?: number; paper2Max?: number }>>({});
+  const loadPaperConfig = () => {
     if (!stream?.gradeLevel) { setPaperConfig({}); return; }
     apiClient.get('/academic/subject-paper-config', { params: { gradeLevel: stream.gradeLevel } })
       .then(r => setPaperConfig(r.data || {})).catch(() => setPaperConfig({}));
-  }, [stream?.gradeLevel]);
-  const hasPapers = (a: string) => (paperConfig[a.toLowerCase()] || 1) >= 2;
+  };
+  useEffect(loadPaperConfig, [stream?.gradeLevel]);
+  const hasPapers = (a: string) => (paperConfig[a.toLowerCase()]?.paperCount || 1) >= 2;
+
+  // Persist the combined Paper 1 + Paper 2 total for a subject once both "out of" values
+  // are known, so future mark-list/PDF renders use the full total even if a learner is
+  // later missing one paper's score. Silent — doesn't block or report the marks save.
+  const persistPaperMax = (learningArea: string, max1: number, max2: number) => {
+    if (!stream?.gradeLevel || !max1 || !max2) return;
+    apiClient.post('/academic/subject-paper-config', {
+      gradeLevel: stream.gradeLevel, learningArea, paperCount: 2, paper1Max: max1, paper2Max: max2,
+    }).then(loadPaperConfig).catch(() => {});
+  };
 
   const areas = useMemo(() => stream ? learningAreasFor(stream.gradeLevel) : [], [stream]);
   const termExams = exams.filter(e => !term || e.term === term);
@@ -212,6 +225,7 @@ export default function AdminEnterMarksPage() {
     setSaving(true);
     try {
       await apiClient.post('/academic/assessment-results/bulk', { records });
+      if (paperMode) persistPaperMax(area, areaMaxP1Num, areaMaxP2Num);
       toast.success(`Saved ${records.length} marks for ${area}`);
       await loadExisting();   // keep saved values visible
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not save'); }
@@ -235,6 +249,12 @@ export default function AdminEnterMarksPage() {
     setSaving(true);
     try {
       await apiClient.post('/academic/assessment-results/bulk', { records });
+      for (const a of areas) {
+        if (hasPapers(a)) {
+          const lpm = getLearnerPaperMax(a);
+          persistPaperMax(a, Number(lpm.p1), Number(lpm.p2));
+        }
+      }
       const who = learners.find(l => l.id === learnerId);
       toast.success(`Saved ${records.length} marks for ${who?.firstName || 'learner'}`);
       await loadExisting();   // keep saved values visible

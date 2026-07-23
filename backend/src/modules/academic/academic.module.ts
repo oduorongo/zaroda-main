@@ -140,20 +140,25 @@ export class AcademicService {
   }
 
   // ── Paper 1 / Paper 2 subject config ─────────────────────
-  // Returns { [learningAreaLowercased]: paperCount } for a grade level, tenant override
-  // (if any) taking precedence over the global default row.
-  async getSubjectPaperConfig(tenantId: string, gradeLevel: string): Promise<Record<string, number>> {
+  // Returns { [learningAreaLowercased]: { paperCount, paper1Max?, paper2Max? } } for a grade
+  // level, tenant override (if any) taking precedence over the global default row.
+  // paper1Max/paper2Max are the AUTHORITATIVE combined totals (e.g. 40 + 60 = 100) so the
+  // mark list can average correctly even when a learner is missing one paper's score.
+  async getSubjectPaperConfig(tenantId: string, gradeLevel: string): Promise<Record<string, { paperCount: number; paper1Max?: number; paper2Max?: number }>> {
     if (!gradeLevel) return {};
     const rows = await this.dataSource.query(
-      `SELECT learning_area AS "learningArea", paper_count AS "paperCount", tenant_id AS "tenantId"
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
         WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
       [gradeLevel, tenantId],
     ).catch(() => []);
-    const out: Record<string, number> = {};
+    const out: Record<string, { paperCount: number; paper1Max?: number; paper2Max?: number }> = {};
     // Global rows first, then tenant-specific rows overwrite them.
-    for (const r of rows.filter((r: any) => !r.tenantId)) out[String(r.learningArea).toLowerCase()] = r.paperCount;
-    for (const r of rows.filter((r: any) => r.tenantId)) out[String(r.learningArea).toLowerCase()] = r.paperCount;
+    for (const r of rows.filter((r: any) => !r.tenantId))
+      out[String(r.learningArea).toLowerCase()] = { paperCount: r.paperCount, paper1Max: r.paper1Max, paper2Max: r.paper2Max };
+    for (const r of rows.filter((r: any) => r.tenantId))
+      out[String(r.learningArea).toLowerCase()] = { paperCount: r.paperCount, paper1Max: r.paper1Max, paper2Max: r.paper2Max };
     return out;
   }
 
@@ -165,6 +170,8 @@ export class AcademicService {
     const gradeLevel = dto.gradeLevel;
     const learningArea = dto.learningArea;
     const paperCount = Number(dto.paperCount) || 1;
+    const paper1Max = dto.paper1Max != null && dto.paper1Max !== '' ? Number(dto.paper1Max) : null;
+    const paper2Max = dto.paper2Max != null && dto.paper2Max !== '' ? Number(dto.paper2Max) : null;
     if (!gradeLevel || !learningArea) throw new BadRequestException('gradeLevel and learningArea are required.');
     await this.dataSource.query(
       `DELETE FROM subject_paper_config WHERE tenant_id::text = $1 AND grade_level = $2 AND learning_area = $3`,
@@ -172,11 +179,12 @@ export class AcademicService {
     );
     if (paperCount > 1) {
       await this.dataSource.query(
-        `INSERT INTO subject_paper_config (tenant_id, grade_level, learning_area, paper_count) VALUES ($1,$2,$3,$4)`,
-        [tenantId, gradeLevel, learningArea, paperCount],
+        `INSERT INTO subject_paper_config (tenant_id, grade_level, learning_area, paper_count, paper1_max, paper2_max)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [tenantId, gradeLevel, learningArea, paperCount, paper1Max, paper2Max],
       );
     }
-    return { message: 'Saved', gradeLevel, learningArea, paperCount };
+    return { message: 'Saved', gradeLevel, learningArea, paperCount, paper1Max, paper2Max };
   }
 
   // ── Assessment results / mark list ───────────────────────
@@ -513,16 +521,32 @@ export class AcademicService {
     }
     const areaCount = areas.length || 1;
 
+    // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100), configured once via the Enter
+    // Marks "out of" fields or the Paper 1 & 2 Setup page. This is the AUTHORITATIVE
+    // denominator for a multi-paper subject — without it, a learner missing Paper 2 would
+    // be averaged against Paper 1's max alone and wrongly show 100%.
+    const paperConfigMap = await this.getSubjectPaperConfig(tenantId, gradeLevel);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const [key, cfg] of Object.entries(paperConfigMap)) {
+      if (cfg.paperCount >= 2 && cfg.paper1Max && cfg.paper2Max) {
+        subjectCombinedMax[key] = Number(cfg.paper1Max) + Number(cfg.paper2Max);
+      }
+    }
+
     // Group by learner → subjects. A subject with Paper 1 & Paper 2 has TWO rows here
     // (same learner+subject, different `paper`) — sum their raw/max scores into one
     // combined score for the subject before computing percent/level/points, so a
-    // multi-paper learning area still shows as a single mark-list column.
+    // multi-paper learning area still shows as a single mark-list column. If the subject
+    // has a configured combined total, that total is used as the denominator regardless
+    // of which papers this learner actually has scores for.
     const bySubject: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const r of rows) {
       const acc = (bySubject[r.learnerId] ||= {});
-      const s = (acc[r.subject] ||= { rawSum: 0, maxSum: 0, any: false });
-      if (r.rawScore != null && r.maxScore != null) {
-        s.rawSum += Number(r.rawScore); s.maxSum += Number(r.maxScore); s.any = true;
+      const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
+      const s = (acc[r.subject] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+      if (r.rawScore != null) {
+        s.rawSum += Number(r.rawScore); s.any = true;
+        if (!configuredMax && r.maxScore != null) s.maxSum += Number(r.maxScore);
       }
     }
 

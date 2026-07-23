@@ -401,18 +401,40 @@ export class PdfDataService {
     const pointsFor = (pct: number): number =>
       isJsSenior ? percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
 
+    // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100) configured via the Enter Marks "out
+    // of" fields or the Paper 1 & 2 Setup page — the AUTHORITATIVE denominator for a
+    // multi-paper subject, so a learner missing one paper is averaged against the FULL
+    // total instead of just the paper(s) they have.
+    const paperCfgRows = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [gradeLevel, tenantId],
+    ).catch(() => []);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+      const key = String(r.learningArea).toLowerCase();
+      if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+      else delete subjectCombinedMax[key];
+    }
+
     // A subject with Paper 1 & Paper 2 has TWO rows for the same learner (different `paper`
     // marker) — sum their raw/max before computing the combined percent, so it shows as one
-    // mark-list column, matching the screen mark list's aggregation.
+    // mark-list column, matching the screen mark list's aggregation. If the subject has a
+    // configured combined total, that total is the denominator regardless of which papers
+    // this learner actually has scores for.
     const combos: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const m of marks) {
       const key = String(m.subject || '').toLowerCase().trim();
       const col = areaByKey.get(key);
       if (!col) continue;
+      const configuredMax = subjectCombinedMax[key];
       const acc = (combos[m.learnerId] ||= {});
-      const c = (acc[col] ||= { rawSum: 0, maxSum: 0, any: false });
-      if (m.rawScore != null && m.maxScore != null) {
-        c.rawSum += Number(m.rawScore); c.maxSum += Number(m.maxScore); c.any = true;
+      const c = (acc[col] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+      if (m.rawScore != null) {
+        c.rawSum += Number(m.rawScore); c.any = true;
+        if (!configuredMax && m.maxScore != null) c.maxSum += Number(m.maxScore);
       }
     }
 

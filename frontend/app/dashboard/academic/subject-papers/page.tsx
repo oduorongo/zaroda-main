@@ -3,9 +3,12 @@
 // separate papers (Paper 1 & 2) that get summed into one score on the mark list.
 // Optional and per-school — nothing is fixed to any particular subject; any
 // learning area (or a custom name) can be flagged on or off per grade.
+// Paper 1 & 2 totals set here are AUTHORITATIVE for the mark list: once both are
+// set, a learner missing one paper's score is still averaged against the full
+// combined total (e.g. 40 + 60 = 100), not just the paper they have.
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { FileStack, Loader2, Plus } from 'lucide-react';
+import { FileStack, Loader2, Plus, Save } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { GRADE_LEVELS, learningAreasFor } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
@@ -13,13 +16,17 @@ import toast from 'react-hot-toast';
 // Paper 1/2 only applies to Junior School (Grade 7-9) and Senior School (Grade 10-12).
 const PAPER_GRADE_LEVELS = GRADE_LEVELS.filter(g => g.band === 'Junior School' || g.band === 'Senior School');
 
+type PaperCfg = { paperCount: number; paper1Max?: number; paper2Max?: number };
+
 export default function SubjectPapersPage() {
   const [gradeLevel, setGradeLevel] = useState('grade_7');
-  const [config, setConfig]         = useState<Record<string, number>>({});
+  const [config, setConfig]         = useState<Record<string, PaperCfg>>({});
   const [loading, setLoading]       = useState(false);
   const [saving, setSaving]         = useState<string | null>(null);
   const [customArea, setCustomArea] = useState('');
   const [extraAreas, setExtraAreas] = useState<string[]>([]);
+  // Draft "out of" values being typed per area, keyed by area name.
+  const [draftMax, setDraftMax] = useState<Record<string, { p1: string; p2: string }>>({});
 
   const areas = useMemo(() => {
     const base = learningAreasFor(gradeLevel);
@@ -30,31 +37,54 @@ export default function SubjectPapersPage() {
     setLoading(true);
     apiClient.get('/academic/subject-paper-config', { params: { gradeLevel } })
       .then(r => {
-        const data = r.data || {};
+        const data: Record<string, PaperCfg> = r.data || {};
         setConfig(data);
+        const drafts: Record<string, { p1: string; p2: string }> = {};
+        for (const a of learningAreasFor(gradeLevel)) {
+          const cfg = data[a.toLowerCase()];
+          drafts[a] = { p1: cfg?.paper1Max != null ? String(cfg.paper1Max) : '', p2: cfg?.paper2Max != null ? String(cfg.paper2Max) : '' };
+        }
         // Any subject already flagged for this grade but not in the default KICD list
         // (a school-specific addition) still needs to show up as a row.
         const known = new Set(learningAreasFor(gradeLevel).map(a => a.toLowerCase()));
         const extra = Object.keys(data).filter(k => !known.has(k));
         setExtraAreas(extra);
+        for (const key of extra) {
+          const cfg = data[key];
+          drafts[key] = { p1: cfg?.paper1Max != null ? String(cfg.paper1Max) : '', p2: cfg?.paper2Max != null ? String(cfg.paper2Max) : '' };
+        }
+        setDraftMax(drafts);
       })
-      .catch(() => { setConfig({}); setExtraAreas([]); })
+      .catch(() => { setConfig({}); setExtraAreas([]); setDraftMax({}); })
       .finally(() => setLoading(false));
   };
   useEffect(load, [gradeLevel]);
 
   const toggle = async (area: string, on: boolean) => {
+    if (on) return; // turning ON happens via "Save totals" once both maxes are typed
+    setSaving(area);
+    try {
+      await apiClient.post('/academic/subject-paper-config', { gradeLevel, learningArea: area, paperCount: 1 });
+      setConfig(prev => { const next = { ...prev }; delete next[area.toLowerCase()]; return next; });
+      toast.success(`${area} back to a single score`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not save');
+    } finally { setSaving(null); }
+  };
+
+  const saveTotals = async (area: string) => {
+    const draft = draftMax[area] || { p1: '', p2: '' };
+    const max1 = Number(draft.p1), max2 = Number(draft.p2);
+    if (!draft.p1 || !draft.p2 || isNaN(max1) || isNaN(max2) || max1 <= 0 || max2 <= 0) {
+      toast.error('Enter both Paper 1 and Paper 2 totals first'); return;
+    }
     setSaving(area);
     try {
       await apiClient.post('/academic/subject-paper-config', {
-        gradeLevel, learningArea: area, paperCount: on ? 2 : 1,
+        gradeLevel, learningArea: area, paperCount: 2, paper1Max: max1, paper2Max: max2,
       });
-      setConfig(prev => {
-        const next = { ...prev };
-        if (on) next[area.toLowerCase()] = 2; else delete next[area.toLowerCase()];
-        return next;
-      });
-      toast.success(on ? `${area} now split into Paper 1 & 2` : `${area} back to a single score`);
+      setConfig(prev => ({ ...prev, [area.toLowerCase()]: { paperCount: 2, paper1Max: max1, paper2Max: max2 } }));
+      toast.success(`${area} now split into Paper 1 (/${max1}) & Paper 2 (/${max2})`);
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Could not save');
     } finally { setSaving(null); }
@@ -66,6 +96,7 @@ export default function SubjectPapersPage() {
     if (!extraAreas.some(a => a.toLowerCase() === name.toLowerCase()) &&
         !learningAreasFor(gradeLevel).some(a => a.toLowerCase() === name.toLowerCase())) {
       setExtraAreas(prev => [...prev, name]);
+      setDraftMax(prev => ({ ...prev, [name]: { p1: '', p2: '' } }));
     }
     setCustomArea('');
   };
@@ -79,7 +110,9 @@ export default function SubjectPapersPage() {
       <p className="text-sm text-theme-muted">
         Choose which learning areas are examined as two separate papers (e.g. English, Kiswahili)
         that get summed into one score on the mark list. This is entirely optional — a school or
-        class can flag any subject, several subjects, or none at all.
+        class can flag any subject, several subjects, or none at all. Paper 1 and Paper 2 usually
+        have different totals (e.g. /40 and /60) — set both so the mark list averages against the
+        full combined total even if a learner is missing one paper's score.
       </p>
 
       <div className="card p-4">
@@ -94,19 +127,39 @@ export default function SubjectPapersPage() {
       ) : (
         <div className="card divide-y divide-theme">
           {areas.map(area => {
-            const on = (config[area.toLowerCase()] || 1) >= 2;
+            const on = (config[area.toLowerCase()]?.paperCount || 1) >= 2;
+            const draft = draftMax[area] || { p1: '', p2: '' };
             return (
-              <div key={area} className="flex items-center justify-between gap-3 p-3">
-                <div className="text-sm font-medium text-theme-heading">{area}</div>
-                <label className="flex items-center gap-2 text-xs text-theme-muted cursor-pointer">
-                  {saving === area && <Loader2 size={14} className="animate-spin"/>}
-                  <span>{on ? 'Paper 1 & 2' : 'Single score'}</span>
+              <div key={area} className="p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-theme-heading">{area}</div>
+                  <label className="flex items-center gap-2 text-xs text-theme-muted cursor-pointer">
+                    {saving === area && <Loader2 size={14} className="animate-spin"/>}
+                    <span>{on ? 'Paper 1 & 2' : 'Single score'}</span>
+                    <input
+                      type="checkbox" checked={on} disabled={saving === area}
+                      onChange={e => toggle(area, e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
                   <input
-                    type="checkbox" checked={on} disabled={saving === area}
-                    onChange={e => toggle(area, e.target.checked)}
-                    className="w-4 h-4"
+                    type="number" inputMode="numeric" value={draft.p1}
+                    onChange={e => setDraftMax({ ...draftMax, [area]: { ...draft, p1: e.target.value } })}
+                    placeholder="Paper 1 out of"
+                    className="input w-32 text-sm"
                   />
-                </label>
+                  <input
+                    type="number" inputMode="numeric" value={draft.p2}
+                    onChange={e => setDraftMax({ ...draftMax, [area]: { ...draft, p2: e.target.value } })}
+                    placeholder="Paper 2 out of"
+                    className="input w-32 text-sm"
+                  />
+                  <button onClick={() => saveTotals(area)} disabled={saving === area} className="btn-ghost text-xs px-2 py-1">
+                    <Save size={13}/> Save totals
+                  </button>
+                </div>
               </div>
             );
           })}
