@@ -38,11 +38,22 @@ export default function AdminEnterMarksPage() {
   const [area, setArea]         = useState('');
   const [areaScores, setAreaScores] = useState<Record<string, string>>({});
   const [areaScoresP2, setAreaScoresP2] = useState<Record<string, string>>({});  // Paper 2, only used when hasPapers(area)
+  // Paper 1 & Paper 2 usually have DIFFERENT totals (e.g. Paper 1 /40, Paper 2 /60), so each
+  // gets its own "out of" in area mode — they never share maxScore.
+  const [areaMaxP1, setAreaMaxP1] = useState<string>('');
+  const [areaMaxP2, setAreaMaxP2] = useState<string>('');
+  const areaMaxP1Num = Number(areaMaxP1), areaMaxP2Num = Number(areaMaxP2);
+  const areaPapersReady = areaMaxP1 !== '' && !isNaN(areaMaxP1Num) && areaMaxP1Num > 0
+                        && areaMaxP2 !== '' && !isNaN(areaMaxP2Num) && areaMaxP2Num > 0;
 
   // By-learner mode: chosen learner + { subject: rawScore }
   const [learnerId, setLearnerId]   = useState('');
   const [learnerScores, setLearnerScores] = useState<Record<string, string>>({});
   const [learnerScoresP2, setLearnerScoresP2] = useState<Record<string, string>>({});  // Paper 2, keyed by subject
+  // Per-subject "out of" for Paper 1 / Paper 2 in learner mode, since several multi-paper
+  // subjects can be on screen at once and each may have a different total.
+  const [learnerPaperMax, setLearnerPaperMax] = useState<Record<string, { p1: string; p2: string }>>({});
+  const getLearnerPaperMax = (a: string) => learnerPaperMax[a] || { p1: '', p2: '' };
 
   // Learning areas that are examined as Paper 1 + Paper 2 for this class's grade (e.g.
   // English, Kiswahili in Junior/Senior School) — entered separately, summed on the mark list.
@@ -122,37 +133,41 @@ export default function AdminEnterMarksPage() {
 
   const senior = stream ? isSeniorScale(stream.gradeLevel) : false;
 
-  const buildRecord = (lid: string, subject: string, raw: string, paper?: '1' | '2') => {
+  const buildRecord = (lid: string, subject: string, raw: string, paper?: '1' | '2', maxOverride?: number) => {
     const n = Number(raw);
     if (raw === '' || isNaN(n)) return null;
-    const percent = Math.round((n / maxScoreNum) * 100);
+    const maxN = maxOverride != null ? maxOverride : maxScoreNum;
+    if (!maxN || isNaN(maxN) || maxN <= 0) return null;  // no "out of" set for this paper → skip
+    const percent = Math.round((n / maxN) * 100);
     const level = percentToLevel(percent, stream?.gradeLevel || 'grade_4').code;
     return {
       learnerId: lid, streamId, gradeLevel: stream?.gradeLevel, subject,
-      rawScore: n, maxScore: maxScoreNum, percent, level, paper: paper || null,
+      rawScore: n, maxScore: maxN, percent, level, paper: paper || null,
       examType: selectedExam?.examType || '', examId,
       term, academicYear: '2025/2026',
     };
   };
 
   // Combined percent/level across Paper 1 + Paper 2 (on-screen preview only — the backend
-  // re-sums raw/max scores itself when building the mark list).
-  const combinedLevelFor = (raw1: string, raw2: string) => {
+  // re-sums raw/max scores itself when building the mark list). Each paper can have its own
+  // "out of" total.
+  const combinedLevelFor = (raw1: string, raw2: string, max1: number, max2: number) => {
     const n1 = Number(raw1), n2 = Number(raw2);
-    const has1 = raw1 !== '' && !isNaN(n1), has2 = raw2 !== '' && !isNaN(n2);
+    const has1 = raw1 !== '' && !isNaN(n1) && max1 > 0, has2 = raw2 !== '' && !isNaN(n2) && max2 > 0;
     if (!has1 && !has2) return null;
     const rawSum = (has1 ? n1 : 0) + (has2 ? n2 : 0);
-    const maxSum = (has1 ? maxScoreNum : 0) + (has2 ? maxScoreNum : 0);
+    const maxSum = (has1 ? max1 : 0) + (has2 ? max2 : 0);
     return percentToLevel(Math.round((rawSum / maxSum) * 100), stream?.gradeLevel || 'grade_4');
   };
 
   const saveArea = async () => {
     if (!examId) { toast.error('Pick an assessment first'); return; }
     const paperMode = hasPapers(area);
+    if (paperMode && !areaPapersReady) { toast.error('Set the "out of" for both Paper 1 and Paper 2 first'); return; }
     const records = paperMode
       ? Object.keys({ ...areaScores, ...areaScoresP2 }).flatMap(lid => [
-          buildRecord(lid, area, areaScores[lid] ?? '', '1'),
-          buildRecord(lid, area, areaScoresP2[lid] ?? '', '2'),
+          buildRecord(lid, area, areaScores[lid] ?? '', '1', areaMaxP1Num),
+          buildRecord(lid, area, areaScoresP2[lid] ?? '', '2', areaMaxP2Num),
         ]).filter(Boolean)
       : Object.entries(areaScores).map(([lid, raw]) => buildRecord(lid, area, raw)).filter(Boolean);
     if (!records.length) { toast.error('Enter at least one mark'); return; }
@@ -169,15 +184,16 @@ export default function AdminEnterMarksPage() {
     if (!examId) { toast.error('Pick an assessment first'); return; }
     const records = areas.flatMap(a => {
       if (hasPapers(a)) {
+        const lpm = getLearnerPaperMax(a);
         return [
-          buildRecord(learnerId, a, learnerScores[a] ?? '', '1'),
-          buildRecord(learnerId, a, learnerScoresP2[a] ?? '', '2'),
+          buildRecord(learnerId, a, learnerScores[a] ?? '', '1', Number(lpm.p1)),
+          buildRecord(learnerId, a, learnerScoresP2[a] ?? '', '2', Number(lpm.p2)),
         ].filter(Boolean);
       }
       const rec = buildRecord(learnerId, a, learnerScores[a] ?? '');
       return rec ? [rec] : [];
     });
-    if (!records.length) { toast.error('Enter at least one mark'); return; }
+    if (!records.length) { toast.error('Enter at least one mark (and set each Paper\'s "out of")'); return; }
     setSaving(true);
     try {
       await apiClient.post('/academic/assessment-results/bulk', { records });
@@ -293,21 +309,50 @@ export default function AdminEnterMarksPage() {
               {termExams.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="label" style={{ color: maxScoreReady ? undefined : '#f5820a' }}>
-              Out of (total score) *
-            </label>
-            <input
-              type="number" inputMode="numeric" value={maxScore}
-              onChange={e => setMaxScore(e.target.value)}
-              placeholder="e.g. 30"
-              className="input w-full font-bold"
-              style={maxScoreReady
-                ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.06)' }
-                : { borderColor: '#f5820a', background: 'rgba(245,130,10,0.08)' }}
-            />
-            {!maxScoreReady && <p className="text-[11px] mt-1" style={{ color: '#f5820a' }}>Set the subject's total score first.</p>}
-          </div>
+          {mode === 'area' && hasPapers(area) ? (
+            <div>
+              <label className="label" style={{ color: areaPapersReady ? undefined : '#f5820a' }}>
+                Out of — Paper 1 / Paper 2 *
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number" inputMode="numeric" value={areaMaxP1}
+                  onChange={e => setAreaMaxP1(e.target.value)}
+                  placeholder="P1 e.g. 40"
+                  className="input w-full font-bold"
+                  style={areaMaxP1 !== '' && areaMaxP1Num > 0
+                    ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.06)' }
+                    : { borderColor: '#f5820a', background: 'rgba(245,130,10,0.08)' }}
+                />
+                <input
+                  type="number" inputMode="numeric" value={areaMaxP2}
+                  onChange={e => setAreaMaxP2(e.target.value)}
+                  placeholder="P2 e.g. 60"
+                  className="input w-full font-bold"
+                  style={areaMaxP2 !== '' && areaMaxP2Num > 0
+                    ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.06)' }
+                    : { borderColor: '#f5820a', background: 'rgba(245,130,10,0.08)' }}
+                />
+              </div>
+              {!areaPapersReady && <p className="text-[11px] mt-1" style={{ color: '#f5820a' }}>Paper 1 & 2 usually have different totals — set both.</p>}
+            </div>
+          ) : (
+            <div>
+              <label className="label" style={{ color: maxScoreReady ? undefined : '#f5820a' }}>
+                Out of (total score) *
+              </label>
+              <input
+                type="number" inputMode="numeric" value={maxScore}
+                onChange={e => setMaxScore(e.target.value)}
+                placeholder="e.g. 30"
+                className="input w-full font-bold"
+                style={maxScoreReady
+                  ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.06)' }
+                  : { borderColor: '#f5820a', background: 'rgba(245,130,10,0.08)' }}
+              />
+              {!maxScoreReady && <p className="text-[11px] mt-1" style={{ color: '#f5820a' }}>Set the subject's total score first.</p>}
+            </div>
+          )}
         </div>
       </div>
 
@@ -327,7 +372,7 @@ export default function AdminEnterMarksPage() {
         <div className="card p-6 text-center text-theme-muted text-sm">
           Create an assessment for this term first (Academic → Assessments), then return here to enter marks.
         </div>
-      ) : !maxScoreReady ? (
+      ) : (mode === 'area' ? (hasPapers(area) ? !areaPapersReady : !maxScoreReady) : !maxScoreReady) ? (
         <div className="card p-6 text-center text-sm" style={{ color: '#f5820a', border: '1px solid #f5820a' }}>
           Enter the <b>“Out of (total score)”</b> for this subject above before you start entering marks.
         </div>
@@ -347,7 +392,7 @@ export default function AdminEnterMarksPage() {
               const paperMode = hasPapers(area);
               const raw = areaScores[l.id] ?? '';
               const raw2 = areaScoresP2[l.id] ?? '';
-              const lvl = paperMode ? combinedLevelFor(raw, raw2) : levelFor(raw);
+              const lvl = paperMode ? combinedLevelFor(raw, raw2, areaMaxP1Num, areaMaxP2Num) : levelFor(raw);
               return (
                 <div key={l.id} className="flex items-center gap-2 py-2">
                   <div className="flex-1 min-w-0">
@@ -408,33 +453,56 @@ export default function AdminEnterMarksPage() {
               const paperMode = hasPapers(a);
               const raw = learnerScores[a] ?? '';
               const raw2 = learnerScoresP2[a] ?? '';
-              const lvl = paperMode ? combinedLevelFor(raw, raw2) : levelFor(raw);
+              const lpm = getLearnerPaperMax(a);
+              const lvl = paperMode ? combinedLevelFor(raw, raw2, Number(lpm.p1), Number(lpm.p2)) : levelFor(raw);
               return (
-                <div key={a} className="flex items-center gap-2 py-2">
-                  <div className="flex-1 min-w-0 text-sm font-medium text-theme-heading">{a}{paperMode ? <span className="text-[10px] text-theme-muted"> (P1+P2)</span> : ''}</div>
-                  {lvl && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: lvl.color }}>{lvl.code}</span>}
+                <div key={a} className={paperMode ? 'py-2' : 'flex items-center gap-2 py-2'}>
                   {paperMode ? (
                     <>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0 text-sm font-medium text-theme-heading">{a}<span className="text-[10px] text-theme-muted"> (P1+P2)</span></div>
+                        {lvl && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: lvl.color }}>{lvl.code}</span>}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <input
+                          type="number" inputMode="numeric" value={raw}
+                          onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
+                          placeholder="P1 score" title="Paper 1 score"
+                          className="input w-20 text-center"
+                        />
+                        <span className="text-theme-muted text-xs">/</span>
+                        <input
+                          type="number" inputMode="numeric" value={lpm.p1}
+                          onChange={e => setLearnerPaperMax({ ...learnerPaperMax, [a]: { ...lpm, p1: e.target.value } })}
+                          placeholder="out of" title="Paper 1 out of"
+                          className="input w-16 text-center"
+                        />
+                        <input
+                          type="number" inputMode="numeric" value={raw2}
+                          onChange={e => setLearnerScoresP2({ ...learnerScoresP2, [a]: e.target.value })}
+                          placeholder="P2 score" title="Paper 2 score"
+                          className="input w-20 text-center ml-2"
+                        />
+                        <span className="text-theme-muted text-xs">/</span>
+                        <input
+                          type="number" inputMode="numeric" value={lpm.p2}
+                          onChange={e => setLearnerPaperMax({ ...learnerPaperMax, [a]: { ...lpm, p2: e.target.value } })}
+                          placeholder="out of" title="Paper 2 out of"
+                          className="input w-16 text-center"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex-1 min-w-0 text-sm font-medium text-theme-heading">{a}</div>
+                      {lvl && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: lvl.color }}>{lvl.code}</span>}
                       <input
                         type="number" inputMode="numeric" value={raw}
                         onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
-                        placeholder="P1" title="Paper 1"
-                        className="input w-16 text-center"
-                      />
-                      <input
-                        type="number" inputMode="numeric" value={raw2}
-                        onChange={e => setLearnerScoresP2({ ...learnerScoresP2, [a]: e.target.value })}
-                        placeholder="P2" title="Paper 2"
-                        className="input w-16 text-center"
+                        placeholder="—"
+                        className="input w-20 text-center"
                       />
                     </>
-                  ) : (
-                    <input
-                      type="number" inputMode="numeric" value={raw}
-                      onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
-                      placeholder="—"
-                      className="input w-20 text-center"
-                    />
                   )}
                 </div>
               );
