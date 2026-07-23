@@ -9,6 +9,7 @@ import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Reque
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
 
 // ═══════════════════════════════════════════════════════════
 // FINANCE MODULE
@@ -2701,10 +2702,17 @@ class PdfController {
 
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
 
+    // Learning areas offered in this class = the canonical marklist rubric for the
+    // grade (same source the mark list uses). Spelling variants ("Creative Activities"
+    // vs "Creative Arts") collapse into one row, and Indigenous Language is dropped.
+    const rubricAreas = await getGradeLearningAreas(this.ds, lr.gradeLevel || '', tenantId);
+
     // area -> { examId -> percent }, plus the set of areas.
     const byArea: Record<string, Record<string, number>> = {};
     for (const r of rows) {
-      (byArea[r.subject] = byArea[r.subject] || {})[r.examId || 'x'] = Math.round(Number(r.percent));
+      const area = rubricAreas.length ? resolveLearningArea(r.subject, rubricAreas) : r.subject;
+      if (!area) continue;
+      (byArea[area] = byArea[area] || {})[r.examId || 'x'] = Math.round(Number(r.percent));
     }
     const areaNames = Object.keys(byArea).sort();
     // Only show assessment columns that actually have marks.
