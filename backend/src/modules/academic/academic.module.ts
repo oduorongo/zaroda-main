@@ -454,6 +454,21 @@ export class AcademicService {
     };
   }
 
+  // Un-aggregated marks: one row per learner/subject/paper, exactly as saved (no summing).
+  // Enter Marks uses this to re-open a saved entry — Paper 1 and Paper 2 must reload into
+  // their OWN boxes with their OWN "out of", not the mark list's combined total.
+  async getRawResults(tenantId: string, streamId: string, term?: string, examId?: string) {
+    return this.dataSource.query(
+      `SELECT ar.learner_id AS "learnerId", ar.subject, ar.paper,
+              ar.raw_score AS "rawScore", ar.max_score AS "maxScore"
+         FROM assessment_results ar
+        WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
+          AND ($3::text IS NULL OR ar.term = $3)
+          AND ($4::text IS NULL OR ar.exam_id::text = $4)`,
+      [tenantId, streamId, term || null, examId || null],
+    ).catch(() => []);
+  }
+
   // Class mark list: every learner × every subject for a stream/term, with totals & rank
   async getMarkList(tenantId: string, streamId: string, term?: string, examType?: string, examId?: string) {
     // Grade of the stream — decides whether points apply
@@ -2222,6 +2237,14 @@ export class AcademicController {
   @Get('mark-list')
   getMarkList(@Request() req: any, @Query() q: any) {
     return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType, q.examId);
+  }
+
+  // Un-aggregated marks (one row per learner/subject/paper) — used by Enter Marks to
+  // re-open a saved entry with Paper 1 and Paper 2 back in their OWN boxes, instead of
+  // the mark list's summed total (which is display-only, not what was actually typed).
+  @Get('assessment-results/raw')
+  getRawResults(@Request() req: any, @Query() q: any) {
+    return this.academicService.getRawResults(req.user.tenantId, q.streamId, q.term, q.examId);
   }
 
   // Which learning areas at a grade level are split into Paper 1 / Paper 2.

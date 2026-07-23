@@ -104,44 +104,81 @@ export default function AdminEnterMarksPage() {
   }, [streamId]);
 
   // Load already-saved marks for the current stream/term/assessment so they appear in
-  // the boxes (and don't "disappear" after saving). Returns a {learnerId: {subject: raw}}
-  // map built from saved rawScore values.
+  // the boxes (and don't "disappear" after saving). Uses the UN-aggregated raw endpoint
+  // (not /mark-list) because the mark list's rawScore is Paper 1 + Paper 2 SUMMED for
+  // display — reloading that into the Paper 1 box would double it up. savedMap holds
+  // single-paper subjects; savedPaperMap holds each paper's own raw/max separately.
   const [savedMap, setSavedMap] = useState<Record<string, Record<string, string>>>({});
+  const [savedPaperMap, setSavedPaperMap] = useState<Record<string, Record<string, { p1?: { raw: string; max: string }; p2?: { raw: string; max: string } }>>>({});
   const loadExisting = async () => {
-    if (!streamId || !examId) { setSavedMap({}); return; }
+    if (!streamId || !examId) { setSavedMap({}); setSavedPaperMap({}); return; }
     try {
-      const r = await apiClient.get('/academic/mark-list', { params: { streamId, term, examId } });
-      const rows = r.data?.learners || [];
+      const r = await apiClient.get('/academic/assessment-results/raw', { params: { streamId, term, examId } });
+      const rows = r.data || [];
       const map: Record<string, Record<string, string>> = {};
-      for (const lr of rows) {
-        const lid = lr.learnerId || lr.id;
-        const subs = lr.subjects || {};
-        map[lid] = {};
-        for (const [subj, val] of Object.entries(subs)) {
-          const raw = (val as any)?.rawScore;
-          if (raw != null) map[lid][subj] = String(raw);
+      const paperMap: Record<string, Record<string, { p1?: { raw: string; max: string }; p2?: { raw: string; max: string } }>> = {};
+      for (const row of rows) {
+        const lid = row.learnerId;
+        if (row.rawScore == null) continue;
+        if (row.paper === '1' || row.paper === '2') {
+          const key = String(row.subject || '').toLowerCase();
+          const entry = ((paperMap[lid] ||= {})[key] ||= {});
+          entry[row.paper === '1' ? 'p1' : 'p2'] = { raw: String(row.rawScore), max: String(row.maxScore ?? '') };
+        } else {
+          (map[lid] ||= {})[row.subject] = String(row.rawScore);
         }
       }
-      setSavedMap(map);
-    } catch { setSavedMap({}); }
+      setSavedMap(map); setSavedPaperMap(paperMap);
+    } catch { setSavedMap({}); setSavedPaperMap({}); }
   };
   useEffect(() => { loadExisting(); /* eslint-disable-next-line */ }, [streamId, term, examId]);
 
-  // When the saved map, chosen area, or chosen learner changes, pre-fill the boxes.
+  // When the saved data, chosen area, or chosen learner changes, pre-fill the boxes —
+  // paper subjects reload Paper 1 / Paper 2 (and each one's "out of") into their own boxes.
   useEffect(() => {
     if (mode !== 'area' || !area) return;
-    const next: Record<string, string> = {};
-    for (const [lid, subs] of Object.entries(savedMap)) {
-      const hit = Object.entries(subs).find(([s]) => s.toLowerCase() === area.toLowerCase());
-      if (hit) next[lid] = hit[1];
+    if (hasPapers(area)) {
+      const p1: Record<string, string> = {}; const p2: Record<string, string> = {};
+      let maxP1 = ''; let maxP2 = '';
+      for (const [lid, subs] of Object.entries(savedPaperMap)) {
+        const key = Object.keys(subs).find(s => s === area.toLowerCase());
+        if (!key) continue;
+        const entry = subs[key];
+        if (entry.p1) { p1[lid] = entry.p1.raw; if (!maxP1) maxP1 = entry.p1.max; }
+        if (entry.p2) { p2[lid] = entry.p2.raw; if (!maxP2) maxP2 = entry.p2.max; }
+      }
+      setAreaScores(p1); setAreaScoresP2(p2);
+      setAreaMaxP1(maxP1); setAreaMaxP2(maxP2);
+    } else {
+      const next: Record<string, string> = {};
+      for (const [lid, subs] of Object.entries(savedMap)) {
+        const hit = Object.entries(subs).find(([s]) => s.toLowerCase() === area.toLowerCase());
+        if (hit) next[lid] = hit[1];
+      }
+      setAreaScores(next); setAreaScoresP2({});
     }
-    setAreaScores(next);
-  }, [savedMap, area, mode]);
+  }, [savedMap, savedPaperMap, area, mode, paperConfig]);
 
   useEffect(() => {
     if (mode !== 'learner' || !learnerId) return;
-    setLearnerScores(savedMap[learnerId] ? { ...savedMap[learnerId] } : {});
-  }, [savedMap, learnerId, mode]);
+    const flatSaved = savedMap[learnerId] || {};
+    const paperSaved = savedPaperMap[learnerId] || {};
+    const ls: Record<string, string> = {}; const ls2: Record<string, string> = {};
+    const lpm: Record<string, { p1: string; p2: string }> = {};
+    for (const a of areas) {
+      if (hasPapers(a)) {
+        const key = Object.keys(paperSaved).find(s => s === a.toLowerCase());
+        const entry = key ? paperSaved[key] : undefined;
+        if (entry?.p1) ls[a] = entry.p1.raw;
+        if (entry?.p2) ls2[a] = entry.p2.raw;
+        lpm[a] = { p1: entry?.p1?.max || '', p2: entry?.p2?.max || '' };
+      } else {
+        const hit = Object.entries(flatSaved).find(([s]) => s.toLowerCase() === a.toLowerCase());
+        if (hit) ls[a] = hit[1];
+      }
+    }
+    setLearnerScores(ls); setLearnerScoresP2(ls2); setLearnerPaperMax(lpm);
+  }, [savedMap, savedPaperMap, learnerId, mode, areas, paperConfig]);
 
   const senior = stream ? isSeniorScale(stream.gradeLevel) : false;
 

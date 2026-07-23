@@ -10,8 +10,9 @@ import apiClient from '@/lib/api/client';
 import { GRADE_LEVELS, learningAreasFor } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
-// Only the bands that can actually have Paper 1/2 in practice (Junior & Senior School),
-// but nothing stops a school from enabling it lower down if they want to.
+// Paper 1/2 only applies to Junior School (Grade 7-9) and Senior School (Grade 10-12).
+const PAPER_GRADE_LEVELS = GRADE_LEVELS.filter(g => g.band === 'Junior School' || g.band === 'Senior School');
+
 export default function SubjectPapersPage() {
   const [gradeLevel, setGradeLevel] = useState('grade_7');
   const [config, setConfig]         = useState<Record<string, number>>({});
@@ -84,7 +85,7 @@ export default function SubjectPapersPage() {
       <div className="card p-4">
         <label className="label">Grade</label>
         <select value={gradeLevel} onChange={e => setGradeLevel(e.target.value)} className="input w-full max-w-xs">
-          {GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label} ({g.band})</option>)}
+          {PAPER_GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label} ({g.band})</option>)}
         </select>
       </div>
 
