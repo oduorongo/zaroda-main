@@ -1620,9 +1620,8 @@ export class AcademicService {
     ).catch(() => []);
     if (!rows.length) throw new BadRequestException('Staff member not found.');
 
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const plainPassword = `${block()}-${block()}-${block()}`;
+    // Same easy-to-communicate format as the parent default password (email prefix + year).
+    const plainPassword = this.parentDefaultPassword(rows[0].email);
     const passwordHash  = await bcrypt.hash(plainPassword, 12);
 
     await this.dataSource.query(

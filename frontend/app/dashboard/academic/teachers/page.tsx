@@ -540,14 +540,16 @@ export default function TeachersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>
             <div className="p-5 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center mx-auto mb-3">
-                <Crown size={22} className="text-[#d4af37]"/>
+              <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center mx-auto mb-3">
+                <Crown size={22} className="text-red-600"/>
               </div>
               <h3 className="text-lg font-bold text-theme-heading">Make {confirmHoi.firstName} {confirmHoi.lastName} the HOI?</h3>
-              <p className="text-sm text-theme-muted mt-1">They become Head of Institution. The current HOI becomes a class teacher. You can transfer it again later.</p>
+              <p className="text-sm text-theme-muted mt-1">
+                They become Head of Institution with full admin rights. <strong>You will immediately lose your own HOI privileges</strong> and become a class teacher — only {confirmHoi.firstName} will be able to transfer the role back. This cannot be undone by you.
+              </p>
               <div className="flex gap-3 mt-5">
                 <button onClick={()=>setConfirmHoi(null)} className="btn-ghost flex-1">Cancel</button>
-                <button onClick={doTransferHoi} className="btn-primary flex-1 justify-center">Transfer HOI</button>
+                <button onClick={doTransferHoi} className="btn-danger flex-1 justify-center">Transfer HOI</button>
               </div>
             </div>
           </div>
