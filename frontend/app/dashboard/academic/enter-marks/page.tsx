@@ -17,6 +17,16 @@ const TERMS = [
   { v: 'term_1', label: 'Term 1' }, { v: 'term_2', label: 'Term 2' }, { v: 'term_3', label: 'Term 3' },
 ];
 
+// A score can never exceed the "out of" it was marked against — otherwise a learner
+// could end up with e.g. 120/100. Clamps as the admin types rather than only on save.
+function clampScore(value: string, max: number): string {
+  if (value === '' || !max || isNaN(Number(value))) return value;
+  const n = Number(value);
+  if (n > max) { toast.error(`Can't exceed ${max}`); return String(max); }
+  if (n < 0) return '0';
+  return value;
+}
+
 export default function AdminEnterMarksPage() {
   const { user } = useAuth();
   const [mode, setMode]         = useState<'area' | 'learner'>('area');
@@ -471,22 +481,22 @@ export default function AdminEnterMarksPage() {
                   {paperMode ? (
                     <>
                       <input
-                        type="number" inputMode="numeric" value={raw}
-                        onChange={e => setAreaScores({ ...areaScores, [l.id]: e.target.value })}
+                        type="number" inputMode="numeric" value={raw} min={0} max={areaMaxP1Num || undefined}
+                        onChange={e => setAreaScores({ ...areaScores, [l.id]: clampScore(e.target.value, areaMaxP1Num) })}
                         placeholder="P1" title="Paper 1"
                         className="input w-16 text-center"
                       />
                       <input
-                        type="number" inputMode="numeric" value={raw2}
-                        onChange={e => setAreaScoresP2({ ...areaScoresP2, [l.id]: e.target.value })}
+                        type="number" inputMode="numeric" value={raw2} min={0} max={areaMaxP2Num || undefined}
+                        onChange={e => setAreaScoresP2({ ...areaScoresP2, [l.id]: clampScore(e.target.value, areaMaxP2Num) })}
                         placeholder="P2" title="Paper 2"
                         className="input w-16 text-center"
                       />
                     </>
                   ) : (
                     <input
-                      type="number" inputMode="numeric" value={raw}
-                      onChange={e => setAreaScores({ ...areaScores, [l.id]: e.target.value })}
+                      type="number" inputMode="numeric" value={raw} min={0} max={maxScoreNum || undefined}
+                      onChange={e => setAreaScores({ ...areaScores, [l.id]: clampScore(e.target.value, maxScoreNum) })}
                       placeholder="—"
                       className="input w-20 text-center"
                     />
@@ -533,8 +543,8 @@ export default function AdminEnterMarksPage() {
                       </div>
                       <div className="flex items-center gap-1.5 mt-1">
                         <input
-                          type="number" inputMode="numeric" value={raw}
-                          onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
+                          type="number" inputMode="numeric" value={raw} min={0} max={Number(lpm.p1) || undefined}
+                          onChange={e => setLearnerScores({ ...learnerScores, [a]: clampScore(e.target.value, Number(lpm.p1)) })}
                           placeholder="P1 score" title="Paper 1 score"
                           className="input w-20 text-center"
                         />
@@ -546,8 +556,8 @@ export default function AdminEnterMarksPage() {
                           className="input w-16 text-center"
                         />
                         <input
-                          type="number" inputMode="numeric" value={raw2}
-                          onChange={e => setLearnerScoresP2({ ...learnerScoresP2, [a]: e.target.value })}
+                          type="number" inputMode="numeric" value={raw2} min={0} max={Number(lpm.p2) || undefined}
+                          onChange={e => setLearnerScoresP2({ ...learnerScoresP2, [a]: clampScore(e.target.value, Number(lpm.p2)) })}
                           placeholder="P2 score" title="Paper 2 score"
                           className="input w-20 text-center ml-2"
                         />
@@ -565,8 +575,8 @@ export default function AdminEnterMarksPage() {
                       <div className="flex-1 min-w-0 text-sm font-medium text-theme-heading">{a}</div>
                       {lvl && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: lvl.color }}>{lvl.code}</span>}
                       <input
-                        type="number" inputMode="numeric" value={raw}
-                        onChange={e => setLearnerScores({ ...learnerScores, [a]: e.target.value })}
+                        type="number" inputMode="numeric" value={raw} min={0} max={maxScoreNum || undefined}
+                        onChange={e => setLearnerScores({ ...learnerScores, [a]: clampScore(e.target.value, maxScoreNum) })}
                         placeholder="—"
                         className="input w-20 text-center"
                       />

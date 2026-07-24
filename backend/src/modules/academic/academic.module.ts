@@ -303,6 +303,14 @@ export class AcademicService {
         continue;
       }
 
+      // A score can never exceed the "out of" it was marked against — otherwise a learner
+      // could end up with e.g. 120/100 (over 100%). maxScore is required for this check;
+      // records without one aren't bounded here (handled by whatever set maxScore upstream).
+      const maxNum = Number(r.maxScore);
+      if (r.maxScore !== null && r.maxScore !== undefined && r.maxScore !== '' && !isNaN(maxNum) && rawNum > maxNum) {
+        throw new BadRequestException(`Score ${rawNum} exceeds the maximum of ${maxNum} for ${r.subject}${r.paper ? ` (Paper ${r.paper})` : ''}.`);
+      }
+
       // Replace any existing result for the same learner/subject/paper/term/exam, then insert.
       // Matching on `paper` too means saving Paper 1 never wipes out an already-saved Paper 2
       // (and vice-versa) for the same learning area.
