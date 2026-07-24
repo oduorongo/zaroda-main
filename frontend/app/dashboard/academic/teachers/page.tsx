@@ -90,13 +90,17 @@ export default function TeachersPage() {
       toast.success('Teacher updated'); setEditTeacher(null); load();
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not update'); }
   };
+  const [confirmReset, setConfirmReset] = useState<any>(null);
   const [resettingId, setResettingId] = useState<string|null>(null);
-  const doResetPassword = async (t:any) => {
+  const doResetPassword = async () => {
+    if (!confirmReset) return;
+    const t = confirmReset;
     setResettingId(t.id);
     try {
       const res = await apiClient.post(`/academic/teachers/${t.id}/reset-password`);
       const creds = res.data?.credentials;
       if (creds) setNewCreds({ name: `${t.firstName} ${t.lastName}`, ...creds });
+      setConfirmReset(null);
       toast.success('Password reset');
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not reset password'); }
     finally { setResettingId(null); }
@@ -258,10 +262,8 @@ export default function TeachersPage() {
                         <button onClick={()=>setConfirmHoi(t)} title="Make HOI"
                           className="text-theme-muted hover:text-[#d4af37] p-1"><Crown size={14}/></button>
                       )}
-                      <button onClick={()=>doResetPassword(t)} disabled={resettingId===t.id} title="Reset password"
-                        className="text-theme-muted hover:text-[#2563eb] p-1">
-                        {resettingId===t.id ? <Loader2 size={14} className="animate-spin"/> : <KeyRound size={14}/>}
-                      </button>
+                      <button onClick={()=>setConfirmReset(t)} title="Reset password"
+                        className="text-theme-muted hover:text-[#2563eb] p-1"><KeyRound size={14}/></button>
                       <button onClick={()=>toggleActive(t)} title={t.isActive===false?'Reactivate':'Deactivate'}
                         className="text-theme-muted hover:text-amber-600 p-1">{t.isActive===false ? <UserCheck size={14}/> : <UserX size={14}/>}</button>
                       <button onClick={()=>setConfirmDelete(t)} title="Remove teacher"
@@ -423,6 +425,27 @@ export default function TeachersPage() {
                 <button onClick={()=>setConfirmDelete(null)} className="btn-ghost flex-1">Cancel</button>
                 <button onClick={doDelete} disabled={deleting} className="btn-danger flex-1 justify-center">
                   {deleting ? <Loader2 size={14} className="animate-spin"/> : 'Remove'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset password confirmation */}
+      {confirmReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>
+            <div className="p-5 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center mx-auto mb-3">
+                <KeyRound size={22} className="text-[#2563eb]"/>
+              </div>
+              <h3 className="text-lg font-bold text-theme-heading">Reset {confirmReset.firstName} {confirmReset.lastName}'s password?</h3>
+              <p className="text-sm text-theme-muted mt-1">Their current password stops working immediately and a new one is generated. You'll need to share it with them yourself.</p>
+              <div className="flex gap-3 mt-5">
+                <button onClick={()=>setConfirmReset(null)} className="btn-ghost flex-1">Cancel</button>
+                <button onClick={doResetPassword} disabled={resettingId===confirmReset.id} className="btn-primary flex-1 justify-center">
+                  {resettingId===confirmReset.id ? <Loader2 size={14} className="animate-spin"/> : 'Reset Password'}
                 </button>
               </div>
             </div>
