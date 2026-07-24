@@ -1608,6 +1608,34 @@ export class AcademicService {
     return { message: active ? 'Teacher reactivated' : 'Teacher deactivated', id: teacherId };
   }
 
+  // Admin-initiated reset — no email flow needed, since the school may not have email configured.
+  // Generates a new one-time password the same way onboarding does, shown to the admin once.
+  async resetTeacherPassword(tenantId: string, actorRole: string, teacherId: string) {
+    if (!this.isHoiRole(actorRole)) {
+      throw new BadRequestException('Only a school administrator can reset a staff member\'s password.');
+    }
+    const rows = await this.dataSource.query(
+      `SELECT id, email, first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 AND tenant_id::text = $2`,
+      [teacherId, tenantId],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Staff member not found.');
+
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const plainPassword = `${block()}-${block()}-${block()}`;
+    const passwordHash  = await bcrypt.hash(plainPassword, 12);
+
+    await this.dataSource.query(
+      `UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id::text = $2 AND tenant_id::text = $3`,
+      [passwordHash, teacherId, tenantId],
+    ).catch((e: any) => { throw new BadRequestException(e.message); });
+
+    return {
+      message: 'Password reset',
+      credentials: { username: rows[0].email, password: plainPassword },
+    };
+  }
+
   private isTeacherRole(role: string) {
     return ['class_teacher','subject_teacher','overall_class_teacher','hoi','dhois'].includes(role);
   }
@@ -2447,6 +2475,11 @@ export class AcademicController {
   @Patch('teachers/:id/active')
   setTeacherActive(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
     return this.academicService.setTeacherActive(req.user.tenantId, req.user.role, req.user.id, id, dto.active !== false);
+  }
+
+  @Post('teachers/:id/reset-password')
+  resetTeacherPassword(@Request() req: any, @Param('id') id: string) {
+    return this.academicService.resetTeacherPassword(req.user.tenantId, req.user.role, id);
   }
 
   @Post('teachers/transfer-hoi')

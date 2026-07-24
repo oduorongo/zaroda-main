@@ -90,6 +90,17 @@ export default function TeachersPage() {
       toast.success('Teacher updated'); setEditTeacher(null); load();
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not update'); }
   };
+  const [resettingId, setResettingId] = useState<string|null>(null);
+  const doResetPassword = async (t:any) => {
+    setResettingId(t.id);
+    try {
+      const res = await apiClient.post(`/academic/teachers/${t.id}/reset-password`);
+      const creds = res.data?.credentials;
+      if (creds) setNewCreds({ name: `${t.firstName} ${t.lastName}`, ...creds });
+      toast.success('Password reset');
+    } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not reset password'); }
+    finally { setResettingId(null); }
+  };
   const doTransferHoi = async () => {
     try {
       await apiClient.post('/academic/teachers/transfer-hoi', { newHoiTeacherId: confirmHoi.id });
@@ -247,6 +258,10 @@ export default function TeachersPage() {
                         <button onClick={()=>setConfirmHoi(t)} title="Make HOI"
                           className="text-theme-muted hover:text-[#d4af37] p-1"><Crown size={14}/></button>
                       )}
+                      <button onClick={()=>doResetPassword(t)} disabled={resettingId===t.id} title="Reset password"
+                        className="text-theme-muted hover:text-[#2563eb] p-1">
+                        {resettingId===t.id ? <Loader2 size={14} className="animate-spin"/> : <KeyRound size={14}/>}
+                      </button>
                       <button onClick={()=>toggleActive(t)} title={t.isActive===false?'Reactivate':'Deactivate'}
                         className="text-theme-muted hover:text-amber-600 p-1">{t.isActive===false ? <UserCheck size={14}/> : <UserX size={14}/>}</button>
                       <button onClick={()=>setConfirmDelete(t)} title="Remove teacher"
