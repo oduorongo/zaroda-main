@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Search, Plus, User, Phone, BookOpen, X, Loader2, Pencil, UserX, UserCheck, KeyRound } from 'lucide-react';
+import { Search, Plus, User, Phone, BookOpen, X, Loader2, Pencil, UserX, UserCheck, KeyRound, Trash2, AlertTriangle, ArrowRightLeft } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { SENIOR_ELECTIVES } from '@/lib/cbc/constants';
@@ -204,6 +204,43 @@ export default function LearnersPage() {
     } catch (e:any) { toast.error(e?.response?.data?.message || 'Could not update'); }
   };
 
+  // Delete a learner (permanent — warn first).
+  const [confirmDelete, setConfirmDelete] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
+  const deleteLearner = async () => {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/academic/learners/${confirmDelete.id}`);
+      toast.success('Learner deleted');
+      setConfirmDelete(null);
+      load();
+    } catch (e:any) {
+      toast.error(e?.response?.data?.message || 'Could not delete learner');
+    } finally { setDeleting(false); }
+  };
+
+  // Move a learner to a different stream.
+  const [moveLearner, setMoveLearner] = useState<any>(null);
+  const [moveStreamId, setMoveStreamId] = useState('');
+  const [moving, setMoving] = useState(false);
+  const openMove = (l: any) => { setMoveLearner(l); setMoveStreamId(l.streamId || l.stream?.id || ''); };
+  const submitMove = async () => {
+    if (!moveStreamId) { toast.error('Select a stream'); return; }
+    setMoving(true);
+    try {
+      const s = streams.find((x:any) => x.id === moveStreamId);
+      await apiClient.patch(`/academic/learners/${moveLearner.id}`, {
+        streamId: moveStreamId, gradeLevel: s?.gradeLevel || moveLearner.gradeLevel,
+      });
+      toast.success('Learner moved');
+      setMoveLearner(null);
+      load();
+    } catch (e:any) {
+      toast.error(e?.response?.data?.message || 'Could not move learner');
+    } finally { setMoving(false); }
+  };
+
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -328,9 +365,14 @@ export default function LearnersPage() {
                     ) : (
                       <>
                         <button onClick={() => openEdit(l)} title="Edit" className="text-theme-muted hover:text-[#2563eb] p-1"><Pencil size={14}/></button>
+                        <button onClick={() => openMove(l)} title="Move to another stream" className="text-theme-muted hover:text-[#2563eb] p-1 ml-1"><ArrowRightLeft size={14}/></button>
                         <button onClick={() => openParent(l)} title="Parent access" className="text-theme-muted hover:text-[#16a34a] p-1 ml-1"><KeyRound size={14}/></button>
                         <button onClick={() => toggleActive(l)} title="Deactivate"
                           className="text-theme-muted hover:text-amber-600 p-1 ml-1"><UserX size={14}/></button>
+                        {isHoi(user?.role || '') && (
+                          <button onClick={() => setConfirmDelete(l)} title="Delete permanently"
+                            className="text-theme-muted hover:text-red-600 p-1 ml-1"><Trash2 size={14}/></button>
+                        )}
                       </>
                     )}
                   </td>
@@ -514,6 +556,57 @@ export default function LearnersPage() {
               <div className="flex gap-3 pt-1">
                 <button onClick={()=>setEditLearner(null)} className="btn-ghost flex-1">Cancel</button>
                 <button onClick={saveEdit} className="btn-primary flex-1">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {moveLearner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-bold text-theme-heading">Move Learner</h3>
+              <button onClick={() => setMoveLearner(null)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-theme-muted">
+                Move <b>{moveLearner.fullName || `${moveLearner.firstName} ${moveLearner.lastName}`}</b> from{' '}
+                <b>{moveLearner.stream?.name || 'their current stream'}</b> to:
+              </p>
+              <select value={moveStreamId} onChange={e => setMoveStreamId(e.target.value)} className="input">
+                <option value="">Select stream…</option>
+                {streams.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setMoveLearner(null)} className="btn-ghost flex-1">Cancel</button>
+                <button onClick={submitMove} disabled={moving} className="btn-primary flex-1">
+                  {moving ? <><Loader2 size={14} className="animate-spin"/> Moving…</> : 'Move'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>
+            <div className="p-5 space-y-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto">
+                <AlertTriangle size={22} className="text-red-600"/>
+              </div>
+              <h3 className="font-bold text-theme-heading">
+                Delete {confirmDelete.fullName || `${confirmDelete.firstName} ${confirmDelete.lastName}`}?
+              </h3>
+              <p className="text-sm text-theme-muted">
+                This permanently removes the learner record. If you just want to remove them from active classes, use Deactivate instead.
+              </p>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setConfirmDelete(null)} className="btn-ghost flex-1">Cancel</button>
+                <button onClick={deleteLearner} disabled={deleting} className="btn-danger flex-1">
+                  {deleting ? <><Loader2 size={14} className="animate-spin"/> Deleting…</> : 'Delete'}
+                </button>
               </div>
             </div>
           </div>

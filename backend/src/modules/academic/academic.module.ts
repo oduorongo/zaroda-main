@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import * as bcrypt from 'bcryptjs';
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
-  UseGuards, Request, Delete, BadRequestException,
+  UseGuards, Request, Delete, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -1110,6 +1110,23 @@ export class AcademicService {
       vals,
     ).catch((e: any) => { throw new BadRequestException(e.message); });
     return { message: 'Stream updated', id: streamId };
+  }
+
+  /**
+   * Delete a stream. Refuses if learners are still assigned to it — they must be
+   * moved or deactivated first so a delete can never silently orphan learner records.
+   */
+  async deleteStream(tenantId: string, streamId: string) {
+    const stream = await this.streamRepo.findOne({ where: { id: streamId, tenantId } });
+    if (!stream) throw new NotFoundException('Stream not found');
+    const learnerCount = await this.learnerRepo.count({ where: { streamId, tenantId } as any });
+    if (learnerCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete "${stream.name}" — ${learnerCount} learner(s) are still assigned to it. Move them to another stream first.`,
+      );
+    }
+    await this.streamRepo.delete({ id: streamId, tenantId } as any);
+    return { message: 'Stream deleted' };
   }
 
   /**
@@ -2221,6 +2238,11 @@ export class AcademicController {
   @Patch('streams/:id')
   updateStream(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
     return this.academicService.updateStream(req.user.tenantId, id, dto);
+  }
+
+  @Delete('streams/:id')
+  deleteStream(@Request() req: any, @Param('id') id: string) {
+    return this.academicService.deleteStream(req.user.tenantId, id);
   }
 
   // Learners

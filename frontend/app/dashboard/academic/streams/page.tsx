@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight, Pencil } from 'lucide-react';
+import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS, EDUCATION_BANDS, bandsForSchoolLevels } from '@/lib/cbc/constants';
@@ -54,6 +54,21 @@ export default function StreamsPage() {
     } catch (e:any) {
       toast.error(e?.response?.data?.message || 'Could not update stream');
     } finally { setSavingEdit(false); }
+  };
+  // Delete a stream. Refused server-side if learners are still assigned to it.
+  const [confirmDelete, setConfirmDelete] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
+  const deleteStream = async () => {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/academic/streams/${confirmDelete.id}`);
+      toast.success('Stream deleted');
+      setConfirmDelete(null);
+      load();
+    } catch (e:any) {
+      toast.error(e?.response?.data?.message || 'Could not delete stream');
+    } finally { setDeleting(false); }
   };
   const addStreamRow    = () => setStreamRows(r => [...r, { name: '', classTeacherId: '' }]);
   const removeStreamRow = (i: number) => setStreamRows(r => r.length > 1 ? r.filter((_, idx) => idx !== i) : r);
@@ -118,10 +133,16 @@ export default function StreamsPage() {
                 <div className="flex items-center gap-2">
                   <span className="badge bg-surface-2 text-theme-muted">{s.academicYear || '2025/2026'}</span>
                   {isHoi(user?.role || '') && (
-                    <button
-                      onClick={() => setEditStream({ id: s.id, name: s.name, classTeacherId: s.classTeacherId || '' })}
-                      className="btn-ghost p-1.5" title="Rename / set class teacher"
-                    ><Pencil size={14}/></button>
+                    <>
+                      <button
+                        onClick={() => setEditStream({ id: s.id, name: s.name, classTeacherId: s.classTeacherId || '' })}
+                        className="btn-ghost p-1.5" title="Rename / set class teacher"
+                      ><Pencil size={14}/></button>
+                      <button
+                        onClick={() => setConfirmDelete(s)}
+                        className="btn-ghost p-1.5 hover:text-red-600" title="Delete stream"
+                      ><Trash2 size={14}/></button>
+                    </>
                   )}
                 </div>
               </div>
@@ -247,6 +268,29 @@ export default function StreamsPage() {
                 <button type="button" onClick={() => setEditStream(null)} className="btn-ghost flex-1">Cancel</button>
                 <button type="button" onClick={saveStreamEdit} disabled={savingEdit} className="btn-primary flex-1">
                   {savingEdit ? <><Loader2 size={14} className="animate-spin"/> Saving…</> : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>
+            <div className="p-5 space-y-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto">
+                <AlertTriangle size={22} className="text-red-600"/>
+              </div>
+              <h3 className="font-bold text-theme-heading">Delete "{confirmDelete.name}"?</h3>
+              <p className="text-sm text-theme-muted">
+                This cannot be undone. {confirmDelete.learnersCount > 0
+                  ? `This stream has ${confirmDelete.learnersCount} learner(s) — move or deactivate them first.`
+                  : 'The stream will be permanently removed.'}
+              </p>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setConfirmDelete(null)} className="btn-ghost flex-1">Cancel</button>
+                <button onClick={deleteStream} disabled={deleting} className="btn-danger flex-1">
+                  {deleting ? <><Loader2 size={14} className="animate-spin"/> Deleting…</> : 'Delete'}
                 </button>
               </div>
             </div>
