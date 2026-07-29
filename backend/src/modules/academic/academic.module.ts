@@ -518,8 +518,14 @@ export class AcademicService {
     const areaCount = areas.length || 1;
     // Resolve a mark's raw subject string to its canonical rubric column so spelling
     // variants ("Creative Arts" vs the rubric's "Creative Activities") land on the same
-    // learning area instead of becoming their own unmatched column.
-    const resolveArea = (subject: string): string => resolveLearningArea(subject, areas) || subject;
+    // learning area instead of becoming their own unmatched column. A mark that matches
+    // NO known area must be dropped, not kept under its raw name — falling back to the
+    // raw subject string previously let a stray/renamed subject silently become its own
+    // extra pseudo-column, adding its points to totalPoints while areaCount (the
+    // denominator, and the PDF's "out of" figure) stayed fixed at the official area
+    // count, so a learner could show e.g. 77/72 — impossible once every area is
+    // accounted for by the fixed denominator.
+    const resolveArea = (subject: string): string | undefined => resolveLearningArea(subject, areas);
 
     // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100), configured once via the Enter
     // Marks "out of" fields or the Paper 1 & 2 Setup page. This is the AUTHORITATIVE
@@ -542,6 +548,7 @@ export class AcademicService {
     const bySubject: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const r of rows) {
       const area = resolveArea(r.subject);
+      if (!area) continue;
       const acc = (bySubject[r.learnerId] ||= {});
       const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
       const s = (acc[area] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
@@ -554,6 +561,7 @@ export class AcademicService {
     const byLearner: Record<string, any> = {};
     for (const r of rows) {
       const area = resolveArea(r.subject);
+      if (!area) continue;
       if (!byLearner[r.learnerId]) {
         byLearner[r.learnerId] = {
           learnerId: r.learnerId, firstName: r.firstName, lastName: r.lastName,
