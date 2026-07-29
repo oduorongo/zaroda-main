@@ -2909,9 +2909,10 @@ class AdminController {
   async getTenants(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
     const search = q.search ? `%${q.search}%` : null;
-    // 'primary_js' | 'senior' | null (no filter). Tenants with school_levels = '{}'
-    // (unset/legacy) are always included regardless of filter, since we can't yet
-    // tell which band they run.
+    // 'primary_js' | 'senior' | null (no filter). Only tenants whose school_levels
+    // actually contains the requested band are matched — unset/legacy ('{}') tenants
+    // are excluded from the Primary/JS and Senior tabs since we can't tell which band
+    // they run, and showing them under every tab was misleading.
     const level = ['primary_js', 'senior'].includes(q.level) ? q.level : null;
     // 'public' | 'private' | null (no filter) — lets the owner view schools of just one
     // ownership type, or all.
@@ -2942,7 +2943,7 @@ class AdminController {
             LIMIT 1
          ) admin ON true
         WHERE ($1::text IS NULL OR t.name ILIKE $1)
-          AND ($2::text IS NULL OR t.school_levels = '{}' OR $2 = ANY(t.school_levels))
+          AND ($2::text IS NULL OR $2 = ANY(t.school_levels))
           AND ($3::text IS NULL OR t.ownership = $3)
         ORDER BY t.created_at DESC`,
       [search, level, ownership],
