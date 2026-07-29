@@ -2447,7 +2447,7 @@ class PdfController {
 
       const rows = await this.ds.query(
         `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
-                l.admission_number AS "adm", ar.subject, ar.percent, ar.raw_score AS "raw"
+                l.admission_number AS "adm", ar.subject, ar.raw_score AS "rawScore", ar.max_score AS "maxScore"
            FROM assessment_results ar
            LEFT JOIN learners l ON l.id::text = ar.learner_id::text
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
@@ -2456,6 +2456,24 @@ class PdfController {
           ORDER BY l.first_name`,
         [tenantId, streamId, term || null, examId || null],
       ).catch(() => []);
+
+      // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100), configured via the Enter Marks
+      // "out of" fields or the Paper 1 & 2 Setup page — the AUTHORITATIVE denominator for a
+      // multi-paper subject. Without combining papers first, a subject with two rows per
+      // learner (Paper 1 + Paper 2) would have its points counted TWICE below.
+      const paperCfgRows = await this.ds.query(
+        `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+                paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+           FROM subject_paper_config
+          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        [stream.gradeLevel, tenantId],
+      ).catch(() => []);
+      const subjectCombinedMax: Record<string, number> = {};
+      for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+        const key = String(r.learningArea).toLowerCase();
+        if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+        else delete subjectCombinedMax[key];
+      }
 
       const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
       // Level code must match the grade band: 8-level (EE1…BE2) for Grade 7-12, 4-level (EE/ME/AE/BE) below.
@@ -2473,14 +2491,35 @@ class PdfController {
       if (!subjects.length) subjects = Array.from(new Set<string>(rows.map((r: any) => String(r.subject)))).sort();
       const areaCount = subjects.length || 1;
 
+      // A subject with Paper 1 & Paper 2 has TWO rows for the same learner (different
+      // `paper` marker) — sum their raw/max before computing one percent per subject, so
+      // it contributes ONE set of points, matching the on-screen mark list's aggregation.
+      const combos: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
+      for (const r of rows) {
+        const col = resolveLearningArea(r.subject, subjects);
+        if (!col) continue;
+        const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
+        const acc = (combos[r.learnerId] ||= {});
+        const c = (acc[col] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+        if (r.rawScore != null) {
+          c.rawSum += Number(r.rawScore); c.any = true;
+          if (!configuredMax && r.maxScore != null) c.maxSum += Number(r.maxScore);
+        }
+      }
+
       // Pivot: learner → subject → {percent, level}; match marks onto canonical rubric columns,
       // tolerating spelling variants ("Creative Arts" vs the rubric's "Creative Activities").
       const byLearner: Record<string, any> = {};
       for (const r of rows) {
+        const col = resolveLearningArea(r.subject, subjects);
+        if (!col) continue;
         const L = (byLearner[r.learnerId] = byLearner[r.learnerId] || { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, marks: {}, points: 0, pctSum: 0, count: 0 });
-        if (r.percent != null) {
-          const col = resolveLearningArea(r.subject, subjects);
-          if (col) { L.marks[col] = { pct: Math.round(r.percent), level: lvl(r.percent) }; L.points += pts(r.percent); L.pctSum += Number(r.percent); L.count++; }
+        if (L.marks[col]) continue; // already combined below for this subject
+        const combo = combos[r.learnerId][col];
+        const percent = (combo.any && combo.maxSum > 0) ? (combo.rawSum / combo.maxSum) * 100 : null;
+        if (percent != null) {
+          L.marks[col] = { pct: Math.round(percent), level: lvl(percent) };
+          L.points += pts(percent); L.pctSum += percent; L.count++;
         }
       }
       const maxPoints = subjects.length * (senior ? 8 : 4);
