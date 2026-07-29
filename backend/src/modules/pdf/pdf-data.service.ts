@@ -127,19 +127,59 @@ export class PdfDataService {
       rubricAreas = [...SENIOR_CORE, ...extras];
     }
 
-    // Keep only results that match a rubric area, and de-duplicate by the MATCHED
-    // canonical area (not the result's own raw spelling) — otherwise "Creative
-    // Activities" and "Creative Arts" both survive as separate rows for the same
-    // subject, each only holding whichever exam type happens to use that spelling.
-    const seen = new Set<string>();
-    const results = allResults.filter(r => {
-      const canonical = rubricAreas.find(area => areaMatch(area, r.subject));
-      if (!canonical) return false;
-      const key = normArea(canonical);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100), configured via the Enter Marks
+    // "out of" fields or the Paper 1 & 2 Setup page — the AUTHORITATIVE denominator for a
+    // multi-paper subject, so the report card shows the TRUE combined mark.
+    const paperCfgRows = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [learner.gradeLevel || '', tenantId],
+    ).catch(() => []);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+      const key = String(r.learningArea).toLowerCase();
+      if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+      else delete subjectCombinedMax[key];
+    }
+
+    // Keep only results that match a rubric area, and COMBINE every row for the MATCHED
+    // canonical area — otherwise a subject with Paper 1 & Paper 2 (two rows) only kept
+    // whichever paper's row happened to sort first, silently dropping the other paper's
+    // marks instead of showing the true combined score. Prefer end_term rows for an area
+    // over CATs, same as before, but combine ALL rows within that preferred tier.
+    const useEightScale = isSeniorGrade(learner.gradeLevel || '');
+    const seenAreaKeys = new Set<string>();
+    const results: any[] = [];
+    for (const area of rubricAreas) {
+      const key = normArea(area);
+      if (seenAreaKeys.has(key)) continue;
+      const matches = allResults.filter(r => areaMatch(area, r.subject));
+      if (!matches.length) continue;
+      seenAreaKeys.add(key);
+      const hasEndTerm = matches.some(r => String((r as any).examType || '').toLowerCase() === 'end_term');
+      const tierRows = hasEndTerm ? matches.filter(r => String((r as any).examType || '').toLowerCase() === 'end_term') : matches;
+      const configuredMax = subjectCombinedMax[String(tierRows[0].subject || '').toLowerCase()];
+      let rawSum = 0, maxSum = configuredMax || 0, any = false;
+      for (const r of tierRows) {
+        if ((r as any).rawScore != null) {
+          rawSum += Number((r as any).rawScore); any = true;
+          if (!configuredMax && (r as any).maxScore != null) maxSum += Number((r as any).maxScore);
+        }
+      }
+      const percent = (any && maxSum > 0) ? (rawSum / maxSum) * 100
+        : ((tierRows[0] as any).percent != null ? Number((tierRows[0] as any).percent) : null);
+      const level = percent != null ? percentToLevelCode(percent, useEightScale) : ((tierRows[0] as any).level || null);
+      results.push({
+        ...tierRows[0],
+        subject: area,
+        rawScore: any ? rawSum : (tierRows[0] as any).rawScore,
+        maxScore: maxSum || (tierRows[0] as any).maxScore,
+        percent: percent != null ? Math.round(percent) : (tierRows[0] as any).percent,
+        level,
+      });
+    }
 
     // Attendance for this term
     const attendance = await this.dataSource.query(`

@@ -2359,8 +2359,8 @@ class PdfController {
         ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
         : '';
       const rows = await this.ds.query(
-        `SELECT l.first_name AS "firstName", l.last_name AS "lastName", l.admission_number AS "adm",
-                ar.raw_score AS "raw", ar.max_score AS "max", ar.percent
+        `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+                l.admission_number AS "adm", ar.raw_score AS "raw", ar.max_score AS "max"
            FROM assessment_results ar
            LEFT JOIN learners l ON l.id::text = ar.learner_id::text
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2 AND ar.subject = $3
@@ -2374,9 +2374,31 @@ class PdfController {
         ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
         : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
 
-      const ranked = rows
-        .filter((r: any) => r.percent != null)
-        .map((r: any) => ({ ...r, pct: Math.round(Number(r.percent)) }))
+      // A subject with Paper 1 & Paper 2 has TWO rows for the same learner here — combine
+      // them into one raw/max total before ranking, otherwise the same learner would
+      // appear twice in the ranking, each row showing only one incomplete paper.
+      const paperCfgRows = await this.ds.query(
+        `SELECT paper_count AS "paperCount", paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+           FROM subject_paper_config
+          WHERE grade_level = $1 AND learning_area = $2 AND (tenant_id IS NULL OR tenant_id::text = $3)`,
+        [stream.gradeLevel || '', subject, tenantId],
+      ).catch(() => []);
+      const cfg = paperCfgRows.find((r: any) => r.tenantId) || paperCfgRows.find((r: any) => !r.tenantId);
+      const configuredMax = (cfg && cfg.paperCount >= 2 && cfg.paper1Max && cfg.paper2Max)
+        ? Number(cfg.paper1Max) + Number(cfg.paper2Max) : 0;
+
+      const combos: Record<string, { firstName: string; lastName: string; adm: string; rawSum: number; maxSum: number; any: boolean }> = {};
+      for (const r of rows) {
+        const c = (combos[r.learnerId] ||= { firstName: r.firstName, lastName: r.lastName, adm: r.adm, rawSum: 0, maxSum: configuredMax, any: false });
+        if (r.raw != null) {
+          c.rawSum += Number(r.raw); c.any = true;
+          if (!configuredMax && r.max != null) c.maxSum += Number(r.max);
+        }
+      }
+
+      const ranked = Object.values(combos)
+        .filter((c: any) => c.any && c.maxSum > 0)
+        .map((c: any) => ({ firstName: c.firstName, lastName: c.lastName, adm: c.adm, raw: c.rawSum, max: c.maxSum, pct: Math.round((c.rawSum / c.maxSum) * 100) }))
         .sort((a: any, b: any) => b.pct - a.pct);
 
       const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
@@ -2726,10 +2748,9 @@ class PdfController {
 
     // Per learning area, the percent for each assessment + overall average.
     const rows = await this.ds.query(
-      `SELECT subject, exam_id AS "examId", percent
+      `SELECT subject, exam_id AS "examId", raw_score AS "rawScore", max_score AS "maxScore", percent
          FROM assessment_results
-        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)
-          AND percent IS NOT NULL`,
+        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)`,
       [tenantId, learnerId, term || null],
     ).catch(() => []);
 
@@ -2740,12 +2761,46 @@ class PdfController {
     // vs "Creative Arts") collapse into one row, and Indigenous Language is dropped.
     const rubricAreas = await getGradeLearningAreas(this.ds, lr.gradeLevel || '', tenantId);
 
-    // area -> { examId -> percent }, plus the set of areas.
-    const byArea: Record<string, Record<string, number>> = {};
+    // Paper 1 & 2 combined totals — the AUTHORITATIVE denominator for a multi-paper
+    // subject, so combining two paper rows under the same assessment gives the true
+    // combined mark instead of the second paper silently overwriting the first below.
+    const paperCfgRows = await this.ds.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [lr.gradeLevel || '', tenantId],
+    ).catch(() => []);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+      const key = String(r.learningArea).toLowerCase();
+      if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+      else delete subjectCombinedMax[key];
+    }
+
+    // area -> examId -> combined {rawSum, maxSum, any} — a subject with Paper 1 & Paper 2
+    // has two rows for the same exam; sum them into one mark before computing percent.
+    const combos: Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>> = {};
     for (const r of rows) {
       const area = rubricAreas.length ? resolveLearningArea(r.subject, rubricAreas) : r.subject;
       if (!area) continue;
-      (byArea[area] = byArea[area] || {})[r.examId || 'x'] = Math.round(Number(r.percent));
+      const examKey = r.examId || 'x';
+      const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
+      const acc = (combos[area] ||= {});
+      const c = (acc[examKey] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+      if (r.rawScore != null) {
+        c.rawSum += Number(r.rawScore); c.any = true;
+        if (!configuredMax && r.maxScore != null) c.maxSum += Number(r.maxScore);
+      }
+    }
+
+    // area -> { examId -> percent }, plus the set of areas.
+    const byArea: Record<string, Record<string, number>> = {};
+    for (const area of Object.keys(combos)) {
+      for (const examKey of Object.keys(combos[area])) {
+        const c = combos[area][examKey];
+        if (c.any && c.maxSum > 0) (byArea[area] = byArea[area] || {})[examKey] = Math.round((c.rawSum / c.maxSum) * 100);
+      }
     }
     const areaNames = Object.keys(byArea).sort();
     // Only show assessment columns that actually have marks.

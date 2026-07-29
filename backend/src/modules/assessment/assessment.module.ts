@@ -412,7 +412,8 @@ export class AssessmentService {
     // The report reads from Enter Marks (assessment_results). End-Term is the
     // determining result per learning area; CATs are shown alongside for reference.
     const allRows = await this.dataSource.query(
-      `SELECT subject AS "learningArea", exam_type AS "examType", percent, level, raw_score AS "score"
+      `SELECT subject AS "learningArea", exam_type AS "examType", percent, level,
+              raw_score AS "score", max_score AS "maxScore"
        FROM assessment_results
        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3`,
       [tenantId, learnerId, this.markTerm(term)],
@@ -424,17 +425,55 @@ export class AssessmentService {
     )).sort();
     const catLabels = catTypes.map((t: any) => t.replace('_', ' ').toUpperCase());
 
+    // Paper 1 & 2 combined totals — the AUTHORITATIVE denominator for a multi-paper
+    // subject. Without this, a subject with two rows (Paper 1 + Paper 2) for the same
+    // exam type would have the second paper silently OVERWRITE the first below instead
+    // of the two being combined into one true mark.
+    const paperCfgRows = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [gradeLevel, tenantId],
+    ).catch(() => []);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+      const key = String(r.learningArea).toLowerCase();
+      if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+      else delete subjectCombinedMax[key];
+    }
+    // Combine rows sharing the same learning area + exam type (i.e. Paper 1 & Paper 2 of
+    // the same assessment) into one raw/max total before computing a single percent.
+    const combos: Record<string, { rawSum: number; maxSum: number; any: boolean }> = {};
+    for (const r of allRows) {
+      const comboKey = `${r.learningArea}|${r.examType || ''}`;
+      const configuredMax = subjectCombinedMax[String(r.learningArea || '').toLowerCase()];
+      const c = (combos[comboKey] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+      if (r.score != null) {
+        c.rawSum += Number(r.score); c.any = true;
+        if (!configuredMax && r.maxScore != null) c.maxSum += Number(r.maxScore);
+      }
+    }
+
     // Group by learning area
     const byArea: Record<string, any> = {};
+    const seenComboKeys = new Set<string>();
     for (const r of allRows) {
       (byArea[r.learningArea] ||= { learningArea: r.learningArea, cats: {} });
+      const comboKey = `${r.learningArea}|${r.examType || ''}`;
+      if (seenComboKeys.has(comboKey)) continue; // already combined below
+      seenComboKeys.add(comboKey);
+      const combo = combos[comboKey];
+      const percent = (combo.any && combo.maxSum > 0) ? (combo.rawSum / combo.maxSum) * 100
+        : (r.percent != null ? Number(r.percent) : null);
+      const score = combo.any ? combo.rawSum : r.score;
       if (/^end_term$/i.test(r.examType || '') || !r.examType) {
-        byArea[r.learningArea].score = r.score;
-        byArea[r.learningArea].percent = r.percent;
-        byArea[r.learningArea].level = r.level;
-        if (usePoints && r.percent != null) byArea[r.learningArea].points = this.percentToPoints(Number(r.percent));
+        byArea[r.learningArea].score = score;
+        byArea[r.learningArea].percent = percent != null ? Math.round(percent) : null;
+        byArea[r.learningArea].level = percent != null ? this.levelForGrade(percent, gradeLevel) : r.level;
+        if (usePoints && percent != null) byArea[r.learningArea].points = this.percentToPoints(percent);
       } else if (/^cat/i.test(r.examType)) {
-        byArea[r.learningArea].cats[r.examType] = r.score;
+        byArea[r.learningArea].cats[r.examType] = score;
       }
     }
     let areas = Object.values(byArea).map((a: any) => ({

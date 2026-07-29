@@ -628,14 +628,45 @@ export class AcademicService {
     // Pull every mark for the stream (optionally filtered to a term).
     const rows = await this.dataSource.query(
       `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
-              l.admission_number AS "adm", ar.subject, ar.percent, ar.term
+              l.admission_number AS "adm", ar.subject, ar.raw_score AS "rawScore", ar.max_score AS "maxScore",
+              ar.exam_id AS "examId", ar.term
          FROM assessment_results ar
          LEFT JOIN learners l ON l.id::text = ar.learner_id::text
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
-          AND ($3::text IS NULL OR ar.term = $3)
-          AND ar.percent IS NOT NULL`,
+          AND ($3::text IS NULL OR ar.term = $3)`,
       [tenantId, streamId, term || null],
     ).catch(() => []);
+
+    // Paper 1 & 2 combined totals — a subject with two rows for the same learner+exam
+    // (Paper 1 + Paper 2) must be combined into ONE mark before it feeds any average
+    // below, otherwise it silently gets double statistical weight versus single-paper
+    // subjects.
+    const paperCfgRows = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [gradeLevel, tenantId],
+    ).catch(() => []);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+      const key = String(r.learningArea).toLowerCase();
+      if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+      else delete subjectCombinedMax[key];
+    }
+    const combos: Record<string, { learnerId: string; firstName: string; lastName: string; adm: string; subject: string; term: string; rawSum: number; maxSum: number; any: boolean }> = {};
+    for (const r of rows) {
+      const comboKey = `${r.learnerId}|${r.subject}|${r.examId || ''}`;
+      const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
+      const c = (combos[comboKey] ||= { learnerId: r.learnerId, firstName: r.firstName, lastName: r.lastName, adm: r.adm, subject: r.subject, term: r.term, rawSum: 0, maxSum: configuredMax || 0, any: false });
+      if (r.rawScore != null) {
+        c.rawSum += Number(r.rawScore); c.any = true;
+        if (!configuredMax && r.maxScore != null) c.maxSum += Number(r.maxScore);
+      }
+    }
+    const combinedMarks = Object.values(combos)
+      .filter(c => c.any && c.maxSum > 0)
+      .map(c => ({ ...c, percent: (c.rawSum / c.maxSum) * 100 }));
 
     // Per-learning-area average %.
     const byArea: Record<string, { sum: number; n: number }> = {};
@@ -646,9 +677,8 @@ export class AcademicService {
     // Term trend: average % per term.
     const byTerm: Record<string, { sum: number; n: number }> = {};
 
-    for (const r of rows) {
-      const pct = Number(r.percent);
-      if (isNaN(pct)) continue;
+    for (const r of combinedMarks) {
+      const pct = r.percent;
       (byArea[r.subject] ||= { sum: 0, n: 0 }); byArea[r.subject].sum += pct; byArea[r.subject].n++;
       const code = this.percentToLevelCode(pct, senior);
       levelDist[code] = (levelDist[code] || 0) + 1;
