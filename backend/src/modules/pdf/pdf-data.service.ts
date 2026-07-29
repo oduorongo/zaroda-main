@@ -434,7 +434,10 @@ export class PdfDataService {
       }
       if (col in byLearner[m.learnerId].scores) continue; // already combined below
       const combo = combos[m.learnerId][col];
-      const percent = combo.any ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
+      // maxSum can be 0 if no combined-max is configured AND every raw row's max_score
+      // is null (legacy data) — treat as "no valid denominator" instead of dividing by
+      // zero, which previously produced Infinity and inflated points to the top band.
+      const percent = (combo.any && combo.maxSum > 0) ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
       byLearner[m.learnerId].scores[col] = combo.any ? combo.rawSum : null;
       if (percent != null) {
         byLearner[m.learnerId].points[col] = pointsFor(percent);
@@ -453,9 +456,10 @@ export class PdfDataService {
       const level       = e.count ? pctToLvl4(avgPercent) : '';
       return { ...e, average: avgPercent, totalPoints, avgLevel: level };
     }).sort((a: any, b: any) => {
-      // Rank basis is uniform: total % first, then total points, then level, then name.
-      if (b.average !== a.average) return b.average - a.average;
+      // Rank basis matches the screen mark list: total points first (the Points column IS
+      // the rank), then average %, then name — so PDF and screen never disagree on order.
       if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
+      if (b.average !== a.average) return b.average - a.average;
       return String(a.name || '').localeCompare(String(b.name || ''));
     });
     learners.forEach((e: any, i: number) => (e.rank = i + 1));

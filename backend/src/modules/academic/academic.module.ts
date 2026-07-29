@@ -574,7 +574,10 @@ export class AcademicService {
       const e = byLearner[r.learnerId];
       if (e.subjects[area]) continue; // already combined below for this area
       const combo = bySubject[r.learnerId][area];
-      const percent = combo.any ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
+      // maxSum can be 0 if no combined-max is configured AND every raw row's max_score
+      // is null (legacy data) — treat as "no valid denominator" instead of dividing by
+      // zero, which previously produced Infinity and inflated points to the top band.
+      const percent = (combo.any && combo.maxSum > 0) ? Math.round((combo.rawSum / combo.maxSum) * 100) : null;
       const level = percent != null ? this.percentToLevelCode(percent, usePoints) : null;
       // Points scale stays grade-appropriate: 1-8 for senior (Grade 7-12), 1-4 for lower bands.
       const pts = (percent != null)
