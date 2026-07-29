@@ -2921,6 +2921,11 @@ class AdminController {
               t.county, t.sub_county AS "subCounty", t.zone, t.phone, t.email,
               t.knec_code AS "knecCode", t.trial_ends_at AS "trialEndsAt", t.created_at AS "createdAt",
               t.school_levels AS "schoolLevels", t.ownership,
+              CASE
+                WHEN t.name ILIKE 'KOLWAL SENIOR%' THEN 'Public Senior School'
+                WHEN t.ownership = 'private' THEN 'PRI/JS'
+                ELSE 'Public'
+              END AS "category",
               (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
               (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount",
@@ -2951,6 +2956,11 @@ class AdminController {
     if (!this.isOwner(req)) return { error: 'forbidden' };
     const rows = await this.ds.query(
       `SELECT t.*,
+              CASE
+                WHEN t.name ILIKE 'KOLWAL SENIOR%' THEN 'Public Senior School'
+                WHEN t.ownership = 'private' THEN 'PRI/JS'
+                ELSE 'Public'
+              END AS "category",
               (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
               (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount"
@@ -2970,7 +2980,7 @@ class AdminController {
   // Platform-wide stats across ALL tenants. Read-only.
   @Get('stats')
   async getStats(@Request() req: any) {
-    if (!this.isOwner(req)) return { totalTenants: 0, activeTenants: 0, trialTenants: 0, suspendedTenants: 0, totalLearners: 0, totalUsers: 0 };
+    if (!this.isOwner(req)) return { totalTenants: 0, activeTenants: 0, trialTenants: 0, suspendedTenants: 0, totalLearners: 0, totalUsers: 0, totalStreams: 0 };
     const r = await this.ds.query(
       `SELECT
          (SELECT COUNT(*) FROM tenants)                                   AS "totalTenants",
@@ -2978,7 +2988,8 @@ class AdminController {
          (SELECT COUNT(*) FROM tenants WHERE status = 'trial')            AS "trialTenants",
          (SELECT COUNT(*) FROM tenants WHERE status = 'suspended')        AS "suspendedTenants",
          (SELECT COUNT(*) FROM learners WHERE is_active = true)           AS "totalLearners",
-         (SELECT COUNT(*) FROM users)                                     AS "totalUsers"`,
+         (SELECT COUNT(*) FROM users)                                     AS "totalUsers",
+         (SELECT COUNT(*) FROM streams)                                   AS "totalStreams"`,
     ).catch(() => [{}]);
     return r[0] || {};
   }

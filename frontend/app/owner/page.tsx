@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRight, ShieldCheck } from 'lucide-react';
+import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRight, ShieldCheck, Layers } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 
@@ -134,6 +134,7 @@ export default function OwnerDashboard() {
                 { label: 'Suspended', value: stats?.suspendedTenants ?? 0, icon: Activity },
                 { label: 'Learners',  value: stats?.totalLearners ?? 0,    icon: GraduationCap },
                 { label: 'Users',     value: stats?.totalUsers ?? 0,       icon: Users },
+                { label: 'Streams',   value: stats?.totalStreams ?? 0,     icon: Layers, sub: 'onboarded across all schools' },
               ].map((c, i) => (
                 <div key={i} className="card p-4">
                   <div className="flex items-center justify-between">
@@ -146,8 +147,8 @@ export default function OwnerDashboard() {
               ))}
             </div>
 
-            {/* Charts: school status + subscription tier breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Charts: school status + subscription tier + category breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <div className="card p-4">
                 <div className="text-xs text-theme-muted font-medium uppercase tracking-wide mb-3">Schools by status</div>
                 {(() => {
@@ -200,6 +201,32 @@ export default function OwnerDashboard() {
                   ) : <div className="text-xs text-theme-muted">No schools yet</div>;
                 })()}
               </div>
+
+              <div className="card p-4">
+                <div className="text-xs text-theme-muted font-medium uppercase tracking-wide mb-3">Schools by category</div>
+                {(() => {
+                  const counts: Record<string, number> = {};
+                  for (const s of schools) { const c = s.category || 'Public'; counts[c] = (counts[c]||0)+1; }
+                  const palette: Record<string,string> = { 'Public':'#2563eb', 'PRI/JS':'#7c3aed', 'Public Senior School':'#0d9488' };
+                  const total = schools.length || 1;
+                  const entries = Object.entries(counts);
+                  return entries.length ? (
+                    <div className="space-y-2">
+                      {entries.map(([cat, n]) => (
+                        <div key={cat}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className="text-theme">{cat}</span>
+                            <span className="text-theme-muted font-semibold">{n}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${(n/total)*100}%`, background: palette[cat] || '#94a3b8' }}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="text-xs text-theme-muted">No schools yet</div>;
+                })()}
+              </div>
             </div>
 
             <div className="card p-4">
@@ -226,6 +253,7 @@ export default function OwnerDashboard() {
                     <tr className="text-left text-theme-muted border-b border-theme">
                       <th className="py-2 pr-3 font-medium">School</th>
                       <th className="py-2 pr-3 font-medium">Ownership</th>
+                      <th className="py-2 pr-3 font-medium">Category</th>
                       <th className="py-2 pr-3 font-medium">Status</th>
                       <th className="py-2 pr-3 font-medium">Tier</th>
                       <th className="py-2 pr-3 font-medium">Learners</th>
@@ -236,11 +264,12 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {schools.length === 0 ? (
-                      <tr><td colSpan={8} className="py-8 text-center text-theme-muted">No schools found</td></tr>
+                      <tr><td colSpan={9} className="py-8 text-center text-theme-muted">No schools found</td></tr>
                     ) : schools.map((s: any) => (
                       <tr key={s.id} className="border-b border-theme/50 hover:bg-surface-2 cursor-pointer" onClick={() => openSchool(s.id)}>
                         <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
                         <td className="py-2.5 pr-3 capitalize">{s.ownership || 'public'}</td>
+                        <td className="py-2.5 pr-3">{s.category || 'Public'}</td>
                         <td className="py-2.5 pr-3"><span className={`badge ${statusBadge(s.status)}`}>{s.status}</span></td>
                         <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>
                         <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
