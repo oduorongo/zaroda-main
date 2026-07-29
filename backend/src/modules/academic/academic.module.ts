@@ -18,6 +18,7 @@ import {
 } from './kicd-timetable.constants';
 import { AutoTimetabler } from './auto-timetabler';
 import { getGradeLearningAreas, resolveLearningArea } from '../pdf/learning-area.util';
+import { percentToPoints as cbcPercentToPoints, percentToLevelCode as cbcPercentToLevelCode } from '../pdf/cbc-report.helper';
 import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
@@ -345,27 +346,15 @@ export class AcademicService {
     return { message: 'Marks saved', saved };
   }
 
-  // 8-point scale (grades 7-12 only): % -> points
+  // 8-point scale (grades 7-12 only): % -> points. Delegates to the single shared
+  // implementation in cbc-report.helper.ts, used by the PDF marklist/report cards too,
+  // so screen and PDF can never drift apart on the boundaries.
   private percentToPoints(pct: number): number {
-    if (pct >= 90) return 8;
-    if (pct >= 75) return 7;
-    if (pct >= 58) return 6;
-    if (pct >= 41) return 5;
-    if (pct >= 31) return 4;
-    if (pct >= 21) return 3;
-    if (pct >= 11) return 2;
-    return 1;
+    return cbcPercentToPoints(pct);
   }
   // Senior (8-level) code for a percentage. Lower grades use the 4-level codes.
   private percentToLevelCode(pct: number, senior: boolean): string {
-    if (senior) {
-      if (pct >= 90) return 'EE1'; if (pct >= 75) return 'EE2';
-      if (pct >= 58) return 'ME1'; if (pct >= 41) return 'ME2';
-      if (pct >= 31) return 'AE1'; if (pct >= 21) return 'AE2';
-      if (pct >= 11) return 'BE1'; return 'BE2';
-    }
-    if (pct >= 76) return 'EE'; if (pct >= 51) return 'ME';
-    if (pct >= 26) return 'AE'; return 'BE';
+    return cbcPercentToLevelCode(pct, senior);
   }
   private isSenior(gradeLevel: string): boolean {
     return ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(gradeLevel || '');

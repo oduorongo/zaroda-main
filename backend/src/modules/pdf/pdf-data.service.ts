@@ -13,7 +13,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   averagePoints, meanGradeBand, coreCompetenciesAchieved,
-  cbcTeacherComment, cbcHoiComment, percentToPoints, isSeniorGrade,
+  cbcTeacherComment, cbcHoiComment, isSeniorGrade,
+  percentToLevelCode, percentToBandPoints,
 } from './cbc-report.helper';
 import { areaMatch, normArea, getGradeLearningAreas as getGradeLearningAreasShared } from './learning-area.util';
 
@@ -381,10 +382,11 @@ export class PdfDataService {
     const byLearner: Record<string, any> = {};
     const isJsSenior = isSeniorGrade(gradeLevel) || /grade_(7|8|9|1[0-2])/.test(gradeLevel);
     const isLowerBand = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6'].includes(gradeLevel);
-    const pctToLvl4 = (p: number): string => (p >= 76 ? 'EE' : p >= 51 ? 'ME' : p >= 26 ? 'AE' : 'BE');
-    // Points scale stays grade-appropriate: 1-8 for senior, 1-4 for lower bands.
-    const pointsFor = (pct: number): number =>
-      isJsSenior ? percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
+    // Level code and points both delegate to the single shared scale in
+    // cbc-report.helper.ts (also used by academic.module.ts's screen mark list and the
+    // report card builder), so this file can never drift from the others.
+    const pctToLvl4 = (p: number): string => percentToLevelCode(p, false);
+    const pointsFor = (pct: number): number => percentToBandPoints(pct, isJsSenior);
 
     // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100) configured via the Enter Marks "out
     // of" fields or the Paper 1 & 2 Setup page — the AUTHORITATIVE denominator for a

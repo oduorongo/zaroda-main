@@ -33,6 +33,25 @@ export function percentToPoints(pct: number): number {
   return 1;
 }
 
+// Senior (8-level) code for a percentage; lower grades use the 4-level codes. Single
+// source of truth for the boundaries — do not re-derive these elsewhere.
+export function percentToLevelCode(pct: number, senior: boolean): string {
+  if (senior) {
+    if (pct >= 90) return 'EE1'; if (pct >= 75) return 'EE2';
+    if (pct >= 58) return 'ME1'; if (pct >= 41) return 'ME2';
+    if (pct >= 31) return 'AE1'; if (pct >= 21) return 'AE2';
+    if (pct >= 11) return 'BE1'; return 'BE2';
+  }
+  if (pct >= 76) return 'EE'; if (pct >= 51) return 'ME';
+  if (pct >= 26) return 'AE'; return 'BE';
+}
+
+// % -> performance points, grade-appropriate: 1-8 for senior (grades 7-12), 1-4 for
+// lower bands (ECDE-Grade 6). Single source of truth for the boundaries.
+export function percentToBandPoints(pct: number, senior: boolean): number {
+  return senior ? percentToPoints(pct) : (pct >= 76 ? 4 : pct >= 51 ? 3 : pct >= 26 ? 2 : 1);
+}
+
 // Resolve points for one result, preferring an explicit % then the stored level code.
 export function pointsForResult(r: { percent?: number | null; level?: string | null }): number | null {
   if (r.percent != null && !isNaN(Number(r.percent))) return percentToPoints(Number(r.percent));
