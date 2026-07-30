@@ -90,3 +90,19 @@ services:
       # (e.g. https://zaroda-api.onrender.com) BEFORE the first build, then redeploy.
       - key: NEXT_PUBLIC_API_URL
         sync: false        # e.g. https://zaroda-api.onrender.com
+
+  # ── Cron: purge soft-deleted exams/results older than 90 days ──────────
+  - type: cron
+    name: zaroda-cleanup-soft-deletes
+    runtime: node
+    rootDir: backend
+    region: frankfurt
+    plan: free
+    schedule: "0 3 * * *"
+    buildCommand: npm install --legacy-peer-deps
+    startCommand: node scripts/cleanup-soft-deletes.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zaroda-db
+          property: connectionString
