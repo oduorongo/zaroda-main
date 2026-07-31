@@ -103,6 +103,7 @@ export class AssessmentResult {
   @Column({ name: 'teacher_comment', nullable: true }) teacherComment: string;
   @Column({ name: 'class_teacher_comment', nullable: true }) classTeacherComment: string;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
+  @Column({ name: 'deleted_at', type: 'timestamp', nullable: true }) deletedAt: Date;
 }
 
 // ── Service ───────────────────────────────────────────────
@@ -403,6 +404,7 @@ export class AcademicService {
       `SELECT DISTINCT e.id, e.name, e.exam_type AS "examType", e.created_at
          FROM exams e
         WHERE e.tenant_id::text = $1 AND ($2::text IS NULL OR e.term = $2)
+          AND e.deleted_at IS NULL
         ORDER BY e.created_at ASC`,
       [tenantId, term || null],
     ).catch(() => []);
@@ -417,6 +419,7 @@ export class AcademicService {
          LEFT JOIN learners l ON l.id::text = ar.learner_id::text
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
           AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.deleted_at IS NULL
         ORDER BY l.first_name`,
       [tenantId, streamId, term || null],
     ).catch(() => []);
@@ -475,7 +478,8 @@ export class AcademicService {
          FROM assessment_results ar
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
           AND ($3::text IS NULL OR ar.term = $3)
-          AND ($4::text IS NULL OR ar.exam_id::text = $4)`,
+          AND ($4::text IS NULL OR ar.exam_id::text = $4)
+          AND ar.deleted_at IS NULL`,
       [tenantId, streamId, term || null, examId || null],
     ).catch(() => []);
   }
@@ -507,6 +511,7 @@ export class AcademicService {
          AND ($3::text IS NULL OR ar.term = $3)
          AND ($4::text IS NULL OR ar.exam_type = $4)
          AND ($5::text IS NULL OR ar.exam_id::text = $5)
+         AND ar.deleted_at IS NULL
        ORDER BY l.first_name`,
       [tenantId, streamId, term || null, examType || null, examId || null],
     ).catch(() => []);
@@ -633,7 +638,8 @@ export class AcademicService {
          FROM assessment_results ar
          LEFT JOIN learners l ON l.id::text = ar.learner_id::text
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
-          AND ($3::text IS NULL OR ar.term = $3)`,
+          AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.deleted_at IS NULL`,
       [tenantId, streamId, term || null],
     ).catch(() => []);
 
@@ -739,7 +745,8 @@ export class AcademicService {
          JOIN streams s ON s.id::text = ar.stream_id::text
         WHERE ar.tenant_id::text = $1
           AND ($2::text IS NULL OR s.grade_level = $2)
-          AND ($3::text IS NULL OR ar.term = $3)`,
+          AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.deleted_at IS NULL`,
       [tenantId, gradeLevel || null, term || null],
     ).catch(() => []);
 
@@ -876,7 +883,8 @@ export class AcademicService {
          JOIN streams s ON s.id::text = ar.stream_id::text
         WHERE ar.tenant_id::text = $1 AND ar.subject = $2
           AND ar.stream_id::text = ANY($3::text[])
-          AND ($4::text IS NULL OR ar.term = $4)`,
+          AND ($4::text IS NULL OR ar.term = $4)
+          AND ar.deleted_at IS NULL`,
       [tenantId, chosen, streamIds, term || null],
     ).catch(() => []);
 
@@ -1013,7 +1021,8 @@ export class AcademicService {
               learner_id AS "learnerId"
          FROM assessment_results
         WHERE tenant_id::text = $1 AND learner_id::text = $2
-          AND ($3::text IS NULL OR term = $3)`,
+          AND ($3::text IS NULL OR term = $3)
+          AND deleted_at IS NULL`,
       [tenantId, chosen.id, term || null],
     ).catch(() => []);
     const myRows = combineByLearnerSubjectExam(myRawRows);
@@ -1025,7 +1034,8 @@ export class AcademicService {
               learner_id AS "learnerId"
          FROM assessment_results
         WHERE tenant_id::text = $1 AND stream_id::text = $2
-          AND ($3::text IS NULL OR term = $3)`,
+          AND ($3::text IS NULL OR term = $3)
+          AND deleted_at IS NULL`,
       [tenantId, chosen.streamId, term || null],
     ).catch(() => []);
     const classMarks = combineByLearnerSubjectExam(classRawRows);
@@ -1100,7 +1110,8 @@ export class AcademicService {
     for (const c of rows) {
       const agg = await this.dataSource.query(
         `SELECT AVG(percent) AS "avg" FROM assessment_results
-          WHERE tenant_id::text = $1 AND learner_id::text = $2 AND percent IS NOT NULL`,
+          WHERE tenant_id::text = $1 AND learner_id::text = $2 AND percent IS NOT NULL
+            AND deleted_at IS NULL`,
         [tenantId, c.id],
       ).catch(() => []);
       const avg = agg[0]?.avg != null ? Math.round(Number(agg[0].avg)) : null;
@@ -1133,7 +1144,7 @@ export class AcademicService {
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear",
               start_date AS "startDate", end_date AS "endDate", max_score AS "maxScore", status
-       FROM exams WHERE tenant_id = $1 ORDER BY created_at DESC`,
+       FROM exams WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
       [tenantId],
     ).catch(() => []);
   }
@@ -1159,27 +1170,34 @@ export class AcademicService {
 
   // HOI/admin deletes a created exam. Refuses if marks already exist for it unless
   // ?force=true, so an exam with entered marks isn't wiped by accident.
+  // Soft-delete only: sets deleted_at on the exam and its assessment_results in one
+  // transaction, so both can be recovered/audited later instead of being lost forever.
   async deleteExam(tenantId: string, actorRole: string, examId: string, force?: boolean) {
     if (!this.isHoiRole(actorRole)) {
       throw new BadRequestException('Only the school administrator can delete exams.');
     }
     const cnt = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS n FROM assessment_results WHERE tenant_id::text = $1 AND exam_id::text = $2`,
+      `SELECT COUNT(*)::int AS n FROM assessment_results
+        WHERE tenant_id::text = $1 AND exam_id::text = $2 AND deleted_at IS NULL`,
       [tenantId, examId],
     ).catch(() => [{ n: 0 }]);
     const markCount = cnt[0]?.n || 0;
     if (markCount > 0 && !force) {
       return { needsConfirm: true, markCount, message: `This assessment has ${markCount} marks entered. Delete anyway?` };
     }
-    if (markCount > 0 && force) {
-      await this.dataSource.query(
-        `DELETE FROM assessment_results WHERE tenant_id::text = $1 AND exam_id::text = $2`,
-        [tenantId, examId],
-      ).catch(() => null);
-    }
-    await this.dataSource.query(
-      `DELETE FROM exams WHERE id::text = $1 AND tenant_id::text = $2`, [examId, tenantId],
-    ).catch((e: any) => { throw new BadRequestException(e.message); });
+    await this.dataSource.transaction(async (manager) => {
+      if (markCount > 0 && force) {
+        await manager.query(
+          `UPDATE assessment_results SET deleted_at = NOW()
+            WHERE tenant_id::text = $1 AND exam_id::text = $2 AND deleted_at IS NULL`,
+          [tenantId, examId],
+        );
+      }
+      await manager.query(
+        `UPDATE exams SET deleted_at = NOW() WHERE id::text = $1 AND tenant_id::text = $2 AND deleted_at IS NULL`,
+        [examId, tenantId],
+      );
+    }).catch((e: any) => { throw new BadRequestException(e.message); });
     return { deleted: true, removedMarks: force ? markCount : 0 };
   }
 
@@ -2019,7 +2037,7 @@ export class AcademicService {
               ar.max_score AS "maxScore", ar.exam_id AS "examId",
               s.id::text AS "streamId", s.name AS "streamName", s.grade_level AS "gradeLevel"
          FROM assessment_results ar JOIN streams s ON s.id::text = ar.stream_id::text
-        WHERE ar.tenant_id::text = $1`,
+        WHERE ar.tenant_id::text = $1 AND ar.deleted_at IS NULL`,
       [tenantId],
     ).catch(() => []);
     const topClassPaperCfg = await this.dataSource.query(
@@ -2062,6 +2080,7 @@ export class AcademicService {
       `SELECT name, exam_type AS "examType", start_date AS "startDate", term
          FROM exams
         WHERE tenant_id::text = $1 AND start_date IS NOT NULL AND start_date >= CURRENT_DATE
+          AND deleted_at IS NULL
         ORDER BY start_date ASC LIMIT 5`,
       [tenantId],
     ).catch(() => []);
@@ -2071,9 +2090,10 @@ export class AcademicService {
     const assessmentProgress = await this.dataSource.query(
       `SELECT e.id, e.name, e.term, e.exam_type AS "examType",
               (SELECT COUNT(DISTINCT ar.learner_id) FROM assessment_results ar
-                WHERE ar.tenant_id::text = $1 AND ar.exam_id::text = e.id::text) AS "marksEntered",
+                WHERE ar.tenant_id::text = $1 AND ar.exam_id::text = e.id::text
+                  AND ar.deleted_at IS NULL) AS "marksEntered",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id::text = $1 AND l.is_active = true) AS "totalLearners"
-         FROM exams e WHERE e.tenant_id::text = $1
+         FROM exams e WHERE e.tenant_id::text = $1 AND e.deleted_at IS NULL
         ORDER BY e.created_at DESC LIMIT 6`,
       [tenantId],
     ).then((r: any[]) => r.map(x => {
@@ -2145,8 +2165,9 @@ export class AcademicService {
       `SELECT e.id, e.name, e.term, e.exam_type AS "examType",
               (SELECT COUNT(DISTINCT ar.learner_id) FROM assessment_results ar
                 WHERE ar.tenant_id::text = $1 AND ar.exam_id::text = e.id::text
-                  AND ar.stream_id::text = ANY($2::text[])) AS "marksEntered"
-         FROM exams e WHERE e.tenant_id::text = $1
+                  AND ar.stream_id::text = ANY($2::text[])
+                  AND ar.deleted_at IS NULL) AS "marksEntered"
+         FROM exams e WHERE e.tenant_id::text = $1 AND e.deleted_at IS NULL
         ORDER BY e.created_at DESC LIMIT 6`,
       [tenantId, streamIds],
     ).catch(() => []);

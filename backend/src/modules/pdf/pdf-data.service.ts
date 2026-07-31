@@ -144,11 +144,14 @@ export class PdfDataService {
       else delete subjectCombinedMax[key];
     }
 
-    // Keep only results that match a rubric area, and COMBINE every row for the MATCHED
-    // canonical area — otherwise a subject with Paper 1 & Paper 2 (two rows) only kept
-    // whichever paper's row happened to sort first, silently dropping the other paper's
-    // marks instead of showing the true combined score. Prefer end_term rows for an area
-    // over CATs, same as before, but combine ALL rows within that preferred tier.
+    // Keep only results that match a rubric area. For each area, first COMBINE every row
+    // WITHIN each exam type (a Paper 1 & Paper 2 subject has two rows per exam — otherwise
+    // whichever paper's row sorted first would win, silently dropping the other paper), then
+    // AVERAGE the resulting per-exam percent across Mid Term + End Term. This is the SAME
+    // "Term Average" the mark list ranks on, so the report card's Total Points always agrees
+    // with the position read out at assembly. CATs are formative and excluded from the
+    // average, same as the mark list; if neither Mid Term nor End Term exists for an area,
+    // fall back to averaging whatever exam types ARE present so the card isn't left blank.
     const useEightScale = isSeniorGrade(learner.gradeLevel || '');
     const seenAreaKeys = new Set<string>();
     const results: any[] = [];
@@ -158,25 +161,40 @@ export class PdfDataService {
       const matches = allResults.filter(r => areaMatch(area, r.subject));
       if (!matches.length) continue;
       seenAreaKeys.add(key);
-      const hasEndTerm = matches.some(r => String((r as any).examType || '').toLowerCase() === 'end_term');
-      const tierRows = hasEndTerm ? matches.filter(r => String((r as any).examType || '').toLowerCase() === 'end_term') : matches;
-      const configuredMax = subjectCombinedMax[String(tierRows[0].subject || '').toLowerCase()];
-      let rawSum = 0, maxSum = configuredMax || 0, any = false;
-      for (const r of tierRows) {
-        if ((r as any).rawScore != null) {
-          rawSum += Number((r as any).rawScore); any = true;
-          if (!configuredMax && (r as any).maxScore != null) maxSum += Number((r as any).maxScore);
-        }
+
+      const byExamType = new Map<string, typeof matches>();
+      for (const r of matches) {
+        const et = String((r as any).examType || '').toLowerCase();
+        (byExamType.get(et) || byExamType.set(et, []).get(et))!.push(r);
       }
-      const percent = (any && maxSum > 0) ? (rawSum / maxSum) * 100
-        : ((tierRows[0] as any).percent != null ? Number((tierRows[0] as any).percent) : null);
-      const level = percent != null ? percentToLevelCode(percent, useEightScale) : ((tierRows[0] as any).level || null);
+      const majorTypes = ['mid_term', 'end_term'].filter(t => byExamType.has(t));
+      const typesToAverage = majorTypes.length ? majorTypes : Array.from(byExamType.keys());
+
+      const examPercents: number[] = [];
+      for (const et of typesToAverage) {
+        const rows = byExamType.get(et)!;
+        const configuredMax = subjectCombinedMax[String(rows[0].subject || '').toLowerCase()];
+        let rawSum = 0, maxSum = configuredMax || 0, any = false;
+        for (const r of rows) {
+          if ((r as any).rawScore != null) {
+            rawSum += Number((r as any).rawScore); any = true;
+            if (!configuredMax && (r as any).maxScore != null) maxSum += Number((r as any).maxScore);
+          }
+        }
+        if (any && maxSum > 0) examPercents.push((rawSum / maxSum) * 100);
+        else if ((rows[0] as any).percent != null) examPercents.push(Number((rows[0] as any).percent));
+      }
+
+      const percent = examPercents.length
+        ? examPercents.reduce((n, p) => n + p, 0) / examPercents.length
+        : null;
+      const level = percent != null ? percentToLevelCode(percent, useEightScale) : ((matches[0] as any).level || null);
       results.push({
-        ...tierRows[0],
+        ...matches[0],
         subject: area,
-        rawScore: any ? rawSum : (tierRows[0] as any).rawScore,
-        maxScore: maxSum || (tierRows[0] as any).maxScore,
-        percent: percent != null ? Math.round(percent) : (tierRows[0] as any).percent,
+        rawScore: percent != null ? Math.round(percent) : (matches[0] as any).rawScore,
+        maxScore: percent != null ? 100 : (matches[0] as any).maxScore,
+        percent: percent != null ? Math.round(percent) : (matches[0] as any).percent,
         level,
       });
     }
@@ -269,6 +287,10 @@ export class PdfDataService {
     // Average % across scored areas.
     const pctScored  = areaRows.filter(a => a.percent != null);
     const avgPercent = pctScored.length ? Math.round(pctScored.reduce((n, a) => n + (a.percent as number), 0) / pctScored.length) : null;
+    // Total Points — SAME metric and scale as the class Mark List's ranking column
+    // (sum of per-subject CBC performance-level points), so the number a learner sees
+    // on their report card matches the number read out from the mark list at assembly.
+    const totalPoints = pctScored.reduce((n, a) => n + percentToBandPoints(a.percent as number, isSenior), 0);
     // Average performance level (Playgroup–Grade 6): mean of the 4-level points → level code.
     const lvlPts     = areaRows.map(a => lvl4ToPoints(a.grade)).filter((p): p is number => p != null);
     const avgLevel   = (isLowerBand && lvlPts.length)
@@ -303,7 +325,7 @@ export class PdfDataService {
       },
       // Full CBC learning-area table (every area for the grade, scored or not).
       areaRows,
-      totals: { totalScore, avgScore, avgPercent, avgLevel, overallRating: ratingFromLevel(overallLevel) },
+      totals: { totalScore, avgScore, avgPercent, avgLevel, totalPoints, overallRating: ratingFromLevel(overallLevel) },
       academic: {
         year:          academicYear,
         term,
@@ -397,7 +419,8 @@ export class PdfDataService {
          FROM assessment_results ar
          JOIN learners l ON l.id = ar.learner_id
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
-          AND ar.term = $3 AND ($4 = '' OR ar.exam_type = $4)`,
+          AND ar.term = $3 AND ($4 = '' OR ar.exam_type = $4)
+          AND ar.deleted_at IS NULL`,
       [tenantId, streamId, term, examType || ''],
     ).catch(() => []);
 
@@ -510,6 +533,145 @@ export class PdfDataService {
       school: { name: school?.name || '', knecCode: (school as any)?.knecCode || '', logoBase64: logo,
         brand: { primary: (school as any)?.settings?.brandPrimary, accent: (school as any)?.settings?.brandAccent } },
       stream: stream[0]?.name || 'Class', gradeLevel, term, examType, academicYear,
+      subjects, learners, isJsSenior, isLowerBand,
+      maxPoints: subjects.length * (isJsSenior ? 8 : 4),
+    };
+  }
+
+  /**
+   * Term Average Mark List — ranks the class on the AVERAGE of Mid Term + End Term
+   * percent per subject (not a single exam), so its ranking matches what the report
+   * card's Total Points now reflects (see buildReportCardData). Where a learner only
+   * has one of the two exams for a subject, that one score IS the average.
+   */
+  async buildAverageMarkListData(tenantId: string, streamId: string, term: string, academicYear: string) {
+    const school = await this.schoolRepo.findOne({ where: { tenantId } });
+    const logo   = (school as any)?.settings?.badgeBase64 || await this.getLogoBase64(school?.id || '');
+
+    const stream = await this.dataSource.query(
+      `SELECT id, name, grade_level AS "gradeLevel" FROM streams WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+      [streamId, tenantId],
+    ).catch(() => []);
+    const gradeLevel = stream[0]?.gradeLevel || '';
+
+    let subjects: string[] = await this.getGradeLearningAreas(gradeLevel, tenantId);
+
+    if (/grade_(10|11|12)/.test(gradeLevel)) {
+      const seniorCore = ['English', 'Kiswahili', 'Core Mathematics', 'Community Service Learning'];
+      const learnerRows = await this.dataSource.query(
+        `SELECT electives FROM learners WHERE stream_id::text = $1 AND tenant_id::text = $2`,
+        [streamId, tenantId],
+      ).catch(() => []);
+      const electiveSet = new Set<string>();
+      for (const lr of learnerRows) {
+        const es = Array.isArray(lr.electives) ? lr.electives : [];
+        es.forEach((e: string) => e && electiveSet.add(e));
+      }
+      subjects = [...seniorCore, ...Array.from(electiveSet)];
+    }
+
+    // Both major exams for the term — CATs are formative and excluded from the term average.
+    const marks = await this.dataSource.query(
+      `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber", ar.subject, ar.exam_type AS "examType",
+              ar.raw_score AS "rawScore", ar.max_score AS "maxScore", ar.percent
+         FROM assessment_results ar
+         JOIN learners l ON l.id = ar.learner_id
+        WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
+          AND ar.term = $3 AND ar.exam_type IN ('mid_term','end_term')
+          AND ar.deleted_at IS NULL`,
+      [tenantId, streamId, term],
+    ).catch(() => []);
+
+    const areaByKey = new Map(subjects.map(s => [s.toLowerCase().trim(), s]));
+    const resolveCache = new Map<string, string | undefined>();
+    const resolveArea = (subject: string): string | undefined => {
+      const key = String(subject || '').toLowerCase().trim();
+      if (!key) return undefined;
+      if (areaByKey.has(key)) return areaByKey.get(key);
+      if (resolveCache.has(key)) return resolveCache.get(key);
+      const match = subjects.find(s => areaMatch(s, subject));
+      resolveCache.set(key, match);
+      return match;
+    };
+
+    const isJsSenior = isSeniorGrade(gradeLevel) || /grade_(7|8|9|1[0-2])/.test(gradeLevel);
+    const isLowerBand = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6'].includes(gradeLevel);
+    const pctToLvl4 = (p: number): string => percentToLevelCode(p, false);
+    const pointsFor = (pct: number): number => percentToBandPoints(pct, isJsSenior);
+
+    const paperCfgRows = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+              paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+         FROM subject_paper_config
+        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+      [gradeLevel, tenantId],
+    ).catch(() => []);
+    const subjectCombinedMax: Record<string, number> = {};
+    for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+      const key = String(r.learningArea).toLowerCase();
+      if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+      else delete subjectCombinedMax[key];
+    }
+
+    // First combine multi-paper rows WITHIN each exam type (Paper 1 + Paper 2 → one % per
+    // exam), then average that exam-level % across the exam types the learner actually sat —
+    // a learner missing one exam is averaged over what they have, not penalised with a zero.
+    const perExam: Record<string, Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>>> = {};
+    const learnerNames: Record<string, { firstName: string; lastName: string; admissionNumber: string }> = {};
+    for (const m of marks) {
+      const col = resolveArea(m.subject);
+      if (!col) continue;
+      learnerNames[m.learnerId] ||= { firstName: m.firstName, lastName: m.lastName, admissionNumber: m.admissionNumber };
+      const configuredMax = subjectCombinedMax[String(m.subject || '').toLowerCase().trim()];
+      const byExam = (perExam[m.learnerId] ||= {});
+      const byCol  = (byExam[m.examType] ||= {});
+      const c = (byCol[col] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+      if (m.rawScore != null) {
+        c.rawSum += Number(m.rawScore); c.any = true;
+        if (!configuredMax && m.maxScore != null) c.maxSum += Number(m.maxScore);
+      }
+    }
+
+    const byLearner: Record<string, any> = {};
+    for (const learnerId of Object.keys(perExam)) {
+      const name = learnerNames[learnerId];
+      byLearner[learnerId] = {
+        learnerId, name: `${name.firstName} ${name.lastName}`.trim(),
+        admissionNumber: name.admissionNumber, scores: {}, points: {}, levels: {}, total: 0, count: 0,
+      };
+      for (const col of subjects) {
+        const examPercents: number[] = [];
+        for (const examType of ['mid_term', 'end_term']) {
+          const c = perExam[learnerId][examType]?.[col];
+          if (c?.any && c.maxSum > 0) examPercents.push((c.rawSum / c.maxSum) * 100);
+        }
+        if (!examPercents.length) continue;
+        const avgPercent = Math.round(examPercents.reduce((n, p) => n + p, 0) / examPercents.length);
+        byLearner[learnerId].scores[col] = avgPercent;
+        byLearner[learnerId].points[col] = pointsFor(avgPercent);
+        byLearner[learnerId].levels[col] = pctToLvl4(avgPercent);
+        byLearner[learnerId].total += avgPercent; byLearner[learnerId].count++;
+      }
+    }
+
+    const areaCount = subjects.length || 1;
+    const learners = Object.values(byLearner).map((e: any) => {
+      const totalPoints = Object.values(e.points).reduce((n: number, p: any) => n + Number(p), 0);
+      const avgPercent  = Math.round(e.total / areaCount);
+      const level       = e.count ? pctToLvl4(avgPercent) : '';
+      return { ...e, average: avgPercent, totalPoints, avgLevel: level };
+    }).sort((a: any, b: any) => {
+      if ((b.totalPoints || 0) !== (a.totalPoints || 0)) return (b.totalPoints || 0) - (a.totalPoints || 0);
+      if (b.average !== a.average) return b.average - a.average;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    learners.forEach((e: any, i: number) => (e.rank = i + 1));
+
+    return {
+      school: { name: school?.name || '', knecCode: (school as any)?.knecCode || '', logoBase64: logo,
+        brand: { primary: (school as any)?.settings?.brandPrimary, accent: (school as any)?.settings?.brandAccent } },
+      stream: stream[0]?.name || 'Class', gradeLevel, term, examType: 'Term Average (Mid + End)', academicYear,
       subjects, learners, isJsSenior, isLowerBand,
       maxPoints: subjects.length * (isJsSenior ? 8 : 4),
     };

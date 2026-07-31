@@ -2365,7 +2365,8 @@ class PdfController {
            LEFT JOIN learners l ON l.id::text = ar.learner_id::text
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2 AND ar.subject = $3
             AND ($4::text IS NULL OR ar.term = $4)
-            AND ($5::text IS NULL OR ar.exam_id::text = $5)`,
+            AND ($5::text IS NULL OR ar.exam_id::text = $5)
+            AND ar.deleted_at IS NULL`,
         [tenantId, streamId, subject, term || null, examId || null],
       ).catch(() => []);
 
@@ -2475,6 +2476,7 @@ class PdfController {
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
             AND ($3::text IS NULL OR ar.term = $3)
             AND ($4::text IS NULL OR ar.exam_id::text = $4)
+            AND ar.deleted_at IS NULL
           ORDER BY l.first_name`,
         [tenantId, streamId, term || null, examId || null],
       ).catch(() => []);
@@ -2614,6 +2616,168 @@ class PdfController {
     }
   }
 
+  // Printable TERM AVERAGE mark list: ranks the whole stream on each subject's average
+  // percent across EVERY assessment entered this term (Mid Term, End Term, CATs — same
+  // basis the report card's "Term Average" / points total already uses), so this list
+  // and the report cards issued to learners always agree on position and points, unlike
+  // the single-exam mark list above which only reflects one assessment.
+  @Get('average-mark-list/html')
+  async averageMarkListHtml(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const tenantId = req.user.tenantId;
+    const { streamId, term, academicYear } = q;
+    try {
+      const stream = (await this.ds.query(
+        `SELECT s.name, s.grade_level AS "gradeLevel",
+                (SELECT name FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolName",
+                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "logo",
+                (SELECT settings->>'phone'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolPhone",
+                (SELECT settings->>'email'   FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolEmail",
+                (SELECT settings->>'address' FROM schools WHERE tenant_id = s.tenant_id LIMIT 1) AS "schoolAddress"
+           FROM streams s WHERE s.id::text = $1 AND s.tenant_id::text = $2 LIMIT 1`,
+        [streamId, tenantId],
+      ).catch(() => []))[0] || {};
+
+      // Every assessment result for the class this term, across ALL exams — no examId
+      // filter — mirroring exactly what buildReportCardHtml averages per learner.
+      const rows = await this.ds.query(
+        `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+                l.admission_number AS "adm", ar.subject, ar.exam_id AS "examId",
+                ar.raw_score AS "rawScore", ar.max_score AS "maxScore"
+           FROM assessment_results ar
+           LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+          WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
+            AND ($3::text IS NULL OR ar.term = $3)
+            AND ar.deleted_at IS NULL`,
+        [tenantId, streamId, term || null],
+      ).catch(() => []);
+
+      const paperCfgRows = await this.ds.query(
+        `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+                paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+           FROM subject_paper_config
+          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        [stream.gradeLevel, tenantId],
+      ).catch(() => []);
+      const subjectCombinedMax: Record<string, number> = {};
+      for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+        const key = String(r.learningArea).toLowerCase();
+        if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+        else delete subjectCombinedMax[key];
+      }
+
+      const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
+      const lvl = (p: number) => senior
+        ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+        : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      const pts = (p: number) => senior
+        ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
+        : (p>=76?4:p>=51?3:p>=26?2:1);
+
+      let subjects: string[] = await getGradeLearningAreas(this.ds, stream.gradeLevel, tenantId);
+      if (!subjects.length) subjects = Array.from(new Set<string>(rows.map((r: any) => String(r.subject)))).sort();
+      const areaCount = subjects.length || 1;
+      const maxPoints = subjects.length * (senior ? 8 : 4);
+
+      // learner -> subject -> examId -> combined {rawSum, maxSum, any} — combine Paper 1 &
+      // Paper 2 rows for the SAME exam first, exactly like the single-exam mark list.
+      const combos: Record<string, Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>>> = {};
+      const names: Record<string, { name: string; adm: string }> = {};
+      for (const r of rows) {
+        const col = resolveLearningArea(r.subject, subjects);
+        if (!col) continue;
+        names[r.learnerId] ||= { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm };
+        const examKey = r.examId || 'x';
+        const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
+        const byArea = (combos[r.learnerId] ||= {});
+        const byExam = (byArea[col] ||= {});
+        const c = (byExam[examKey] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+        if (r.rawScore != null) {
+          c.rawSum += Number(r.rawScore); c.any = true;
+          if (!configuredMax && r.maxScore != null) c.maxSum += Number(r.maxScore);
+        }
+      }
+
+      // Average each subject's per-exam percents into ONE term-average percent per
+      // learner per subject — the same figure the report card's Term Average column shows.
+      const byLearner: Record<string, any> = {};
+      for (const learnerId of Object.keys(combos)) {
+        const L = (byLearner[learnerId] = { name: names[learnerId].name, adm: names[learnerId].adm, marks: {} as Record<string, any>, points: 0, pctSum: 0, count: 0 });
+        for (const col of subjects) {
+          const byExam = combos[learnerId][col];
+          if (!byExam) continue;
+          const examPercents = Object.values(byExam)
+            .filter((c: any) => c.any && c.maxSum > 0)
+            .map((c: any) => (c.rawSum / c.maxSum) * 100);
+          if (!examPercents.length) continue;
+          const avg = Math.round(examPercents.reduce((a, b) => a + b, 0) / examPercents.length);
+          L.marks[col] = { pct: avg, level: lvl(avg) };
+          L.points += pts(avg); L.pctSum += avg; L.count++;
+        }
+      }
+      const maxTotal = Math.max(1, areaCount * (senior ? 8 : 4));
+      const levelFromTotal = (total: number) => {
+        const p = (total / maxTotal) * 100;
+        return senior
+          ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+          : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      };
+      const learners = Object.values(byLearner).map((L: any) => {
+        L.avgPctExact = L.pctSum / areaCount;
+        L.avgPct = Math.round(L.avgPctExact);
+        L.avgLevel = L.count ? levelFromTotal(L.points) : '';
+        return L;
+      }).sort((a: any, b: any) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.avgPctExact !== a.avgPctExact) return b.avgPctExact - a.avgPctExact;
+        return String(a.name||'').localeCompare(String(b.name||''));
+      });
+
+      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+      const head = subjects.map(s => `<th>${esc(s)}</th>`).join('');
+      const body = learners.map((L: any, i: number) => `
+        <tr>
+          <td>${i+1}</td><td style="text-align:left">${esc(L.name)}</td><td>${esc(L.adm||'')}</td>
+          ${subjects.map(s => { const m = L.marks[s]; return `<td>${m ? `${m.pct}% <b>${m.level}</b>` : '-'}</td>`; }).join('')}
+          <td><b>${L.points}/${maxPoints}</b></td>
+          <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
+        </tr>`).join('');
+
+      const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+        <title>Term Average Mark List — ${esc(stream.name||'')}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
+          .ml-head{text-align:center;margin-bottom:14px}
+          h1{font-size:18px;margin:0}h2{font-size:13px;font-weight:normal;color:#555;margin:2px 0 0}
+          table{width:100%;border-collapse:collapse;font-size:11px}
+          th,td{border:1px solid #cfd6e4;padding:5px 6px;text-align:center}
+          th{background:#1a2e5a;color:#fff}td{text-align:center}
+          tr:nth-child(even) td{background:#f5f7fb}
+          .ml-foot{text-align:center;margin-top:14px;font-size:10px;color:#888;font-style:italic}
+          .ml-note{text-align:center;margin-top:8px;font-size:10px;color:#b3261e}
+          .no-print{text-align:center;margin:18px 0}
+          @media print{.no-print{display:none}}
+        </style></head><body>
+        <div class="ml-head">
+          ${logoTag}
+          <h1>${esc(stream.schoolName||'ZARODA School')}</h1>
+          ${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[stream.schoolPhone && ('Tel: '+esc(stream.schoolPhone)), stream.schoolEmail && esc(stream.schoolEmail), stream.schoolAddress && esc(stream.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
+          <h2>Term Average Mark List — ${esc(stream.name||'')} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
+        </div>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this term.</td></tr>`}</tbody></table>
+        <div class="ml-note">Ranking basis: average % per subject across every assessment entered this term — the SAME basis used for the report card's Term Average and Points total.</div>
+        <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
+        <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+        <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
+        </body></html>`;
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build term average mark list: ${e?.message || 'error'}</p>`);
+    }
+  }
+
   @Get('report-card/:learnerId')
   getReportCard(@Param('learnerId') id: string) {
     return { message: 'PDF generation — requires Puppeteer. Run: npm install puppeteer' };
@@ -2715,7 +2879,7 @@ class PdfController {
   private async buildReportCardHtml(tenantId: string, learnerId: string, term: string, academicYear: string, standalone: boolean): Promise<string> {
     const lr = (await this.ds.query(
       `SELECT l.first_name AS "firstName", l.last_name AS "lastName", l.admission_number AS "adm",
-              l.grade_level AS "gradeLevel",
+              COALESCE(NULLIF(l.grade_level, ''), s.grade_level) AS "gradeLevel",
               s.name AS "streamName",
               (SELECT name FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "schoolName",
               (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = l.tenant_id LIMIT 1) AS "logo",
@@ -2742,6 +2906,7 @@ class PdfController {
       `SELECT DISTINCT e.id, e.name, e.created_at
          FROM exams e
         WHERE e.tenant_id::text = $1 AND ($2::text IS NULL OR e.term = $2)
+          AND e.deleted_at IS NULL
         ORDER BY e.created_at ASC`,
       [tenantId, term || null],
     ).catch(() => []);
@@ -2750,7 +2915,8 @@ class PdfController {
     const rows = await this.ds.query(
       `SELECT subject, exam_id AS "examId", raw_score AS "rawScore", max_score AS "maxScore", percent
          FROM assessment_results
-        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)`,
+        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)
+          AND deleted_at IS NULL`,
       [tenantId, learnerId, term || null],
     ).catch(() => []);
 

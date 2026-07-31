@@ -217,7 +217,7 @@ export class PdfService {
     academic:     { year: string; term: string; classTeacher: string; totalLearners: number; };
     results?:     { subject: string; strand: string; level: string; teacherComment?: string }[];
     areaRows?:    { index: number; area: string; score: number | null; grade: string; rating: string; comment: string }[];
-    totals?:      { totalScore: number; avgScore: number | null; overallRating: string };
+    totals?:      { totalScore: number; avgScore: number | null; totalPoints?: number; overallRating: string };
     summary:      { overallLevel: string; teacherComment: string; hoiComment: string; attendance: { present: number; total: number }; averagePoints?: number | null; meanGrade?: string; coreCompetencies?: string[] };
     behaviour?:   { socialSkills?: string; selfManagement?: string; responsibility?: string; respectForOthers?: string; punctuality?: string; participation?: string };
     isSenior?:    boolean;
@@ -258,6 +258,7 @@ export class PdfService {
 
     const totalScore = data.totals?.totalScore ?? '';
     const avgScore   = data.totals?.avgScore != null ? data.totals.avgScore : '';
+    const totalPoints = data.totals?.totalPoints;
     const avgPercent = (data.totals as any)?.avgPercent;
     const avgLevel   = (data.totals as any)?.avgLevel || '';
     const overallGrade  = summary.overallLevel || '';
@@ -368,9 +369,10 @@ export class PdfService {
       <tbody>${areaTableRows}</tbody>
     </table>
     <table class="tot" style="margin-top:-1px"><tr>
-      <td style="width:30%">TOTAL: ${totalScore}</td>
-      <td style="width:18%">AVG %: ${avgPercent != null ? avgPercent + '%' : (avgScore || '')}</td>
-      <td style="width:26%">${avgLevel ? 'Average Performance Level: ' + esc(avgLevel) : 'Overall Grade: ' + esc(overallGrade)}</td>
+      <td style="width:22%">TOTAL: ${totalScore}</td>
+      <td style="width:16%">AVG %: ${avgPercent != null ? avgPercent + '%' : (avgScore || '')}</td>
+      ${totalPoints != null ? `<td style="width:18%">TOTAL POINTS: ${totalPoints}</td>` : ''}
+      <td style="width:${totalPoints != null ? '22' : '26'}%">${avgLevel ? 'Average Performance Level: ' + esc(avgLevel) : 'Overall Grade: ' + esc(overallGrade)}</td>
       <td>Overall Rating: ${esc(overallRating)}</td>
     </tr></table>
   </div>
@@ -1122,6 +1124,39 @@ export class PdfController {
     const data = await this.pdfService.buildMarkListData(u.tenantId, streamId, term, examType || '', academicYear || '2025/2026');
     const pdf  = await this.pdfService.generateMarkList(data);
     this.sendPdf(res, pdf, `mark-list-${streamId}-${term}.pdf`);
+  }
+
+  @Get('average-mark-list')
+  @Roles('hoi','dhois','school_admin','class_teacher','overall_class_teacher','subject_teacher')
+  async getAverageMarkListPdf(
+    @Query('streamId') streamId: string,
+    @Query('term') term: string,
+    @Query('academicYear') academicYear: string,
+    @CurrentUser() u: User,
+    @Res() res: Response,
+  ) {
+    const data = await this.pdfService.buildAverageMarkListData(u.tenantId, streamId, term, academicYear || '2025/2026');
+    const pdf  = await this.pdfService.generateMarkList(data);
+    this.sendPdf(res, pdf, `average-mark-list-${streamId}-${term}.pdf`);
+  }
+
+  @Get('average-mark-list/html')
+  @Roles('hoi','dhois','school_admin','class_teacher','overall_class_teacher','subject_teacher')
+  async getAverageMarkListHtml(
+    @Query('streamId') streamId: string,
+    @Query('term') term: string,
+    @Query('academicYear') academicYear: string,
+    @CurrentUser() u: User,
+    @Res() res: Response,
+  ) {
+    try {
+      const data = await this.pdfService.buildAverageMarkListData(u.tenantId, streamId, term, academicYear || '2025/2026');
+      const html = this.pdfService.buildMarkListHtml(data);
+      this.sendPrintableHtml(res, html);
+    } catch (e: any) {
+      console.error('❌ Average mark list HTML failed:', e?.message, e?.stack);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build average mark list: ${e?.message || 'unknown error'}</p>`);
+    }
   }
 
   // ── Browser-print HTML versions (no Puppeteer needed) ──────────────

@@ -390,7 +390,7 @@ export class AssessmentService {
   async listExams(tenantId: string) {
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear"
-       FROM exams WHERE tenant_id::text = $1 ORDER BY created_at DESC`,
+       FROM exams WHERE tenant_id::text = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
       [tenantId],
     ).catch(() => []);
   }
@@ -415,7 +415,8 @@ export class AssessmentService {
       `SELECT subject AS "learningArea", exam_type AS "examType", percent, level,
               raw_score AS "score", max_score AS "maxScore"
        FROM assessment_results
-       WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3`,
+       WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3
+         AND deleted_at IS NULL`,
       [tenantId, learnerId, this.markTerm(term)],
     ).catch(() => []);
 

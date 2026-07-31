@@ -149,6 +149,25 @@ export default function MarkListPage() {
     }
   };
 
+  // Term Average Mark List — ranks on each subject's average % across EVERY assessment
+  // entered this term (Mid Term + End Term + CATs), the SAME basis the report card's Term
+  // Average / Points total uses, so positions read here match what's on the report card.
+  const printAverageMarkList = async () => {
+    const win = window.open('', '_blank');
+    try {
+      const res = await apiClient.get('/pdf/average-mark-list/html', {
+        params: { streamId, term, academicYear: '2025/2026' },
+        responseType: 'text',
+      });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      if (win) { win.document.write(html); win.document.close(); }
+      else toast.error('Allow pop-ups to print');
+    } catch {
+      if (win) win.close();
+      toast.error('Could not open term average mark list');
+    }
+  };
+
   const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
     const s = document.createElement('script');
@@ -221,6 +240,9 @@ export default function MarkListPage() {
             </button>
             <button onClick={printMarkList} className="btn-ghost">
               <Printer size={16}/> Print
+            </button>
+            <button onClick={printAverageMarkList} className="btn-ghost" title="Ranks on the average of every assessment this term — matches the report card's Term Average points">
+              <Printer size={16}/> Print Term Average
             </button>
           </>)}
         </div>
