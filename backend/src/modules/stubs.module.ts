@@ -2616,6 +2616,180 @@ class PdfController {
     }
   }
 
+  // Printable GRADE-LEVEL mark list: pools EVERY stream sharing a grade level (e.g.
+  // "Grade 4 North" + "Grade 4 South") into ONE ranking, so a learner's position reflects
+  // where they stand against the whole grade, not just their own stream. Pass examId to
+  // rank on one assessment (mirrors the single-stream mark-list above); omit it to rank on
+  // the term average across every assessment entered this term (mirrors the average mark
+  // list below) — either way every stream in the grade is pooled together. A Stream column
+  // shows which class each learner belongs to since the list spans more than one.
+  @Get('grade-mark-list/html')
+  async gradeMarkListHtml(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const tenantId = req.user.tenantId;
+    const { gradeLevel, term, examId, academicYear } = q;
+    if (!gradeLevel) { res.status(400).send('<p style="font-family:sans-serif">gradeLevel is required.</p>'); return; }
+    try {
+      const meta = (await this.ds.query(
+        `SELECT
+                (SELECT name FROM schools WHERE tenant_id = $1 LIMIT 1) AS "schoolName",
+                (SELECT settings->>'badgeBase64' FROM schools WHERE tenant_id = $1 LIMIT 1) AS "logo",
+                (SELECT settings->>'phone'   FROM schools WHERE tenant_id = $1 LIMIT 1) AS "schoolPhone",
+                (SELECT settings->>'email'   FROM schools WHERE tenant_id = $1 LIMIT 1) AS "schoolEmail",
+                (SELECT settings->>'address' FROM schools WHERE tenant_id = $1 LIMIT 1) AS "schoolAddress"`,
+        [tenantId],
+      ).catch(() => []))[0] || {};
+      const streamRows = await this.ds.query(
+        `SELECT id, name FROM streams WHERE tenant_id::text = $1 AND grade_level = $2`,
+        [tenantId, gradeLevel],
+      ).catch(() => []);
+      const streamNameById: Record<string, string> = {};
+      streamRows.forEach((s: any) => { streamNameById[s.id] = s.name; });
+
+      const examName = examId
+        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
+        : 'Term Average';
+
+      // Pool marks across EVERY stream in this grade — the only difference from the
+      // single-stream endpoints is filtering by s.grade_level instead of one stream_id.
+      const rows = await this.ds.query(
+        `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+                l.admission_number AS "adm", ar.stream_id AS "streamId", ar.subject, ar.exam_id AS "examId",
+                ar.raw_score AS "rawScore", ar.max_score AS "maxScore"
+           FROM assessment_results ar
+           JOIN streams s ON s.id::text = ar.stream_id::text
+           LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+          WHERE ar.tenant_id::text = $1 AND s.grade_level = $2
+            AND ($3::text IS NULL OR ar.term = $3)
+            AND ($4::text IS NULL OR ar.exam_id::text = $4)
+            AND ar.deleted_at IS NULL`,
+        [tenantId, gradeLevel, term || null, examId || null],
+      ).catch(() => []);
+
+      const paperCfgRows = await this.ds.query(
+        `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
+                paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
+           FROM subject_paper_config
+          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        [gradeLevel, tenantId],
+      ).catch(() => []);
+      const subjectCombinedMax: Record<string, number> = {};
+      for (const r of paperCfgRows.filter((r: any) => !r.tenantId).concat(paperCfgRows.filter((r: any) => r.tenantId))) {
+        const key = String(r.learningArea).toLowerCase();
+        if (r.paperCount >= 2 && r.paper1Max && r.paper2Max) subjectCombinedMax[key] = Number(r.paper1Max) + Number(r.paper2Max);
+        else delete subjectCombinedMax[key];
+      }
+
+      const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(gradeLevel || '');
+      const lvl = (p: number) => senior
+        ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+        : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      const pts = (p: number) => senior
+        ? (p>=90?8:p>=75?7:p>=58?6:p>=41?5:p>=31?4:p>=21?3:p>=11?2:1)
+        : (p>=76?4:p>=51?3:p>=26?2:1);
+
+      let subjects: string[] = await getGradeLearningAreas(this.ds, gradeLevel, tenantId);
+      if (!subjects.length) subjects = Array.from(new Set<string>(rows.map((r: any) => String(r.subject)))).sort();
+      const areaCount = subjects.length || 1;
+      const maxPoints = subjects.length * (senior ? 8 : 4);
+
+      // learner -> subject -> examId -> combined {rawSum, maxSum, any}. When examId was
+      // supplied, every row already belongs to that one exam; when it wasn't, this groups
+      // by whichever exams the learner actually sat, exactly like the average mark list.
+      const combos: Record<string, Record<string, Record<string, { rawSum: number; maxSum: number; any: boolean }>>> = {};
+      const names: Record<string, { name: string; adm: string; streamName: string }> = {};
+      for (const r of rows) {
+        const col = resolveLearningArea(r.subject, subjects);
+        if (!col) continue;
+        names[r.learnerId] ||= { name: `${r.firstName||''} ${r.lastName||''}`.trim(), adm: r.adm, streamName: streamNameById[r.streamId] || '' };
+        const examKey = r.examId || 'x';
+        const configuredMax = subjectCombinedMax[String(r.subject || '').toLowerCase()];
+        const byArea = (combos[r.learnerId] ||= {});
+        const byExam = (byArea[col] ||= {});
+        const c = (byExam[examKey] ||= { rawSum: 0, maxSum: configuredMax || 0, any: false });
+        if (r.rawScore != null) {
+          c.rawSum += Number(r.rawScore); c.any = true;
+          if (!configuredMax && r.maxScore != null) c.maxSum += Number(r.maxScore);
+        }
+      }
+
+      const byLearner: Record<string, any> = {};
+      for (const learnerId of Object.keys(combos)) {
+        const L = (byLearner[learnerId] = { name: names[learnerId].name, adm: names[learnerId].adm, streamName: names[learnerId].streamName, marks: {} as Record<string, any>, points: 0, pctSum: 0, count: 0 });
+        for (const col of subjects) {
+          const byExam = combos[learnerId][col];
+          if (!byExam) continue;
+          const examPercents = Object.values(byExam)
+            .filter((c: any) => c.any && c.maxSum > 0)
+            .map((c: any) => (c.rawSum / c.maxSum) * 100);
+          if (!examPercents.length) continue;
+          const avg = Math.round(examPercents.reduce((a, b) => a + b, 0) / examPercents.length);
+          L.marks[col] = { pct: avg, level: lvl(avg) };
+          L.points += pts(avg); L.pctSum += avg; L.count++;
+        }
+      }
+      const maxTotal = Math.max(1, areaCount * (senior ? 8 : 4));
+      const levelFromTotal = (total: number) => {
+        const p = (total / maxTotal) * 100;
+        return senior
+          ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
+          : (p>=76?'EE':p>=51?'ME':p>=26?'AE':'BE');
+      };
+      const learners = Object.values(byLearner).map((L: any) => {
+        L.avgPctExact = L.pctSum / areaCount;
+        L.avgPct = Math.round(L.avgPctExact);
+        L.avgLevel = L.count ? levelFromTotal(L.points) : '';
+        return L;
+      }).sort((a: any, b: any) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.avgPctExact !== a.avgPctExact) return b.avgPctExact - a.avgPctExact;
+        return String(a.name||'').localeCompare(String(b.name||''));
+      });
+
+      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+      const head = subjects.map(s => `<th>${esc(s)}</th>`).join('');
+      const body = learners.map((L: any, i: number) => `
+        <tr>
+          <td>${i+1}</td><td style="text-align:left">${esc(L.name)}</td><td>${esc(L.adm||'')}</td><td>${esc(L.streamName)}</td>
+          ${subjects.map(s => { const m = L.marks[s]; return `<td>${m ? `${m.pct}% <b>${m.level}</b>` : '-'}</td>`; }).join('')}
+          <td><b>${L.points}/${maxPoints}</b></td>
+          <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
+        </tr>`).join('');
+
+      const gradeLabel = String(gradeLevel).replace('grade_', 'Grade ').replace(/^./, (c: string) => c.toUpperCase());
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+        <title>Grade Mark List — ${esc(gradeLabel)}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a2e5a;padding:24px}
+          .ml-head{text-align:center;margin-bottom:14px}
+          h1{font-size:18px;margin:0}h2{font-size:13px;font-weight:normal;color:#555;margin:2px 0 0}
+          table{width:100%;border-collapse:collapse;font-size:11px}
+          th,td{border:1px solid #cfd6e4;padding:5px 6px;text-align:center}
+          th{background:#1a2e5a;color:#fff}td{text-align:center}
+          tr:nth-child(even) td{background:#f5f7fb}
+          .ml-foot{text-align:center;margin-top:14px;font-size:10px;color:#888;font-style:italic}
+          .ml-note{text-align:center;margin-top:8px;font-size:10px;color:#b3261e}
+          .no-print{text-align:center;margin:18px 0}
+          @media print{.no-print{display:none}}
+        </style></head><body>
+        <div class="ml-head">
+          <h1>${esc(meta.schoolName||'ZARODA School')}</h1>
+          ${[meta.schoolPhone && ('Tel: '+esc(meta.schoolPhone)), meta.schoolEmail && esc(meta.schoolEmail), meta.schoolAddress && esc(meta.schoolAddress)].filter(Boolean).length ? `<p style="font-size:11px;color:#555;margin:2px 0">${[meta.schoolPhone && ('Tel: '+esc(meta.schoolPhone)), meta.schoolEmail && esc(meta.schoolEmail), meta.schoolAddress && esc(meta.schoolAddress)].filter(Boolean).join(' · ')}</p>` : ''}
+          <h2>Grade Mark List — ${esc(gradeLabel)} (${esc(String(streamRows.length))} stream${streamRows.length===1?'':'s'} combined) · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
+        </div>
+        <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Stream</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this grade &amp; term.</td></tr>`}</tbody></table>
+        <div class="ml-note">Ranking basis: every stream in ${esc(gradeLabel)} pooled together — position reflects standing across the WHOLE grade, not one stream.</div>
+        <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
+        <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
+        <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
+        </body></html>`;
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build grade mark list: ${e?.message || 'error'}</p>`);
+    }
+  }
+
   // Printable TERM AVERAGE mark list: ranks the whole stream on each subject's average
   // percent across EVERY assessment entered this term (Mid Term, End Term, CATs — same
   // basis the report card's "Term Average" / points total already uses), so this list

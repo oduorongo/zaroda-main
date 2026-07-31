@@ -168,6 +168,26 @@ export default function MarkListPage() {
     }
   };
 
+  // Grade Mark List — pools EVERY stream sharing this grade level into ONE ranking, so
+  // a learner's position reflects standing across the whole grade, not just their stream.
+  // Only meaningful (and only shown) when the grade has more than one stream.
+  const streamsInGrade = streams.filter(s => s.gradeLevel === stream?.gradeLevel);
+  const printGradeMarkList = async () => {
+    const win = window.open('', '_blank');
+    try {
+      const res = await apiClient.get('/pdf/grade-mark-list/html', {
+        params: { gradeLevel: stream?.gradeLevel, term, examId, academicYear: '2025/2026' },
+        responseType: 'text',
+      });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      if (win) { win.document.write(html); win.document.close(); }
+      else toast.error('Allow pop-ups to print');
+    } catch {
+      if (win) win.close();
+      toast.error('Could not open grade mark list');
+    }
+  };
+
   const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
     const s = document.createElement('script');
@@ -244,6 +264,11 @@ export default function MarkListPage() {
             <button onClick={printAverageMarkList} className="btn-ghost" title="Ranks on the average of every assessment this term — matches the report card's Term Average points">
               <Printer size={16}/> Print Term Average
             </button>
+            {streamsInGrade.length > 1 && (
+              <button onClick={printGradeMarkList} className="btn-ghost" title={`Pools all ${streamsInGrade.length} streams in this grade into one ranking, instead of ranking within ${stream?.name} alone`}>
+                <Printer size={16}/> Print Grade-Wide ({streamsInGrade.length} streams)
+              </button>
+            )}
           </>)}
         </div>
       </div>
