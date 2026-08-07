@@ -498,10 +498,20 @@ async function bootstrap() {
           let templateId: string;
           if (tpl.length) templateId = tpl[0].id;
           else { const c = await ds.query(`INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,NULL) RETURNING id`, [gradeLevel, learningArea]); templateId = c[0].id; tplCount++; }
+          // Preserve any curated video links before a replace wipes the rows — a
+          // reseed recreates sub-strands with brand-new ids, so without this any
+          // link added via the owner rubric page would silently vanish. Matched
+          // back onto the reseeded sub-strand by its (trimmed, lowercased) name.
+          const preservedLinks = new Map<string, string[]>();
           if (replace) {
             const old = await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1 AND term = $2`, [templateId, term]).catch(() => []);
             const ids = old.map((r: any) => r.id);
             if (ids.length) {
+              const existing = await ds.query(
+                `SELECT name, youtube_urls AS "youtubeUrls" FROM assessment_substrands WHERE strand_id = ANY($1::uuid[]) AND cardinality(youtube_urls) > 0`,
+                [ids],
+              ).catch(() => []);
+              for (const r of existing) preservedLinks.set(String(r.name).trim().toLowerCase(), r.youtubeUrls);
               await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [ids]).catch(() => null);
               await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [ids]).catch(() => null);
             }
@@ -517,7 +527,8 @@ async function bootstrap() {
               const subName = typeof sub === 'string' ? sub : (sub?.name || '');
               if (!subName) continue;
               sp++; subCount++;
-              await ds.query(`INSERT INTO assessment_substrands (strand_id, position, name) VALUES ($1,$2,$3)`, [strandId, sp, subName]);
+              const urls = preservedLinks.get(subName.trim().toLowerCase()) || [];
+              await ds.query(`INSERT INTO assessment_substrands (strand_id, position, name, youtube_urls) VALUES ($1,$2,$3,$4)`, [strandId, sp, subName, urls]);
             }
           }
           log.push(`${gradeLevel}/${term}/${learningArea}: ${strands.length} strands`);
