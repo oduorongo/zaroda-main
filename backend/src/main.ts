@@ -501,17 +501,27 @@ async function bootstrap() {
           // Preserve any curated video links before a replace wipes the rows — a
           // reseed recreates sub-strands with brand-new ids, so without this any
           // link added via the owner rubric page would silently vanish. Matched
-          // back onto the reseeded sub-strand by its (trimmed, lowercased) name.
-          const preservedLinks = new Map<string, string[]>();
+          // back onto the reseeded sub-strand primarily by its (trimmed,
+          // lowercased) name; if the owner ALSO renamed it in the same window
+          // (so the name no longer matches), fall back to matching by its
+          // position (strand position, sub-strand position) — a rename alone
+          // doesn't reorder anything, so the position stays a reliable anchor.
+          const preservedByName = new Map<string, string[]>();
+          const preservedByPos = new Map<string, string[]>();
           if (replace) {
-            const old = await ds.query(`SELECT id FROM assessment_strands WHERE template_id = $1 AND term = $2`, [templateId, term]).catch(() => []);
+            const old = await ds.query(`SELECT id, position FROM assessment_strands WHERE template_id = $1 AND term = $2`, [templateId, term]).catch(() => []);
             const ids = old.map((r: any) => r.id);
+            const strandPosById = new Map<string, number>(old.map((r: any) => [r.id, r.position]));
             if (ids.length) {
               const existing = await ds.query(
-                `SELECT name, youtube_urls AS "youtubeUrls" FROM assessment_substrands WHERE strand_id = ANY($1::uuid[]) AND cardinality(youtube_urls) > 0`,
+                `SELECT strand_id AS "strandId", position, name, youtube_urls AS "youtubeUrls" FROM assessment_substrands WHERE strand_id = ANY($1::uuid[]) AND cardinality(youtube_urls) > 0`,
                 [ids],
               ).catch(() => []);
-              for (const r of existing) preservedLinks.set(String(r.name).trim().toLowerCase(), r.youtubeUrls);
+              for (const r of existing) {
+                preservedByName.set(String(r.name).trim().toLowerCase(), r.youtubeUrls);
+                const sp = strandPosById.get(r.strandId);
+                if (sp != null) preservedByPos.set(`${sp}|${r.position}`, r.youtubeUrls);
+              }
               await ds.query(`DELETE FROM assessment_substrands WHERE strand_id = ANY($1::uuid[])`, [ids]).catch(() => null);
               await ds.query(`DELETE FROM assessment_strands WHERE id = ANY($1::uuid[])`, [ids]).catch(() => null);
             }
@@ -527,7 +537,7 @@ async function bootstrap() {
               const subName = typeof sub === 'string' ? sub : (sub?.name || '');
               if (!subName) continue;
               sp++; subCount++;
-              const urls = preservedLinks.get(subName.trim().toLowerCase()) || [];
+              const urls = preservedByName.get(subName.trim().toLowerCase()) || preservedByPos.get(`${pos}|${sp}`) || [];
               await ds.query(`INSERT INTO assessment_substrands (strand_id, position, name, youtube_urls) VALUES ($1,$2,$3,$4)`, [strandId, sp, subName, urls]);
             }
           }
