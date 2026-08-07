@@ -2,16 +2,16 @@
 -- Grade 7 Term 2 & Term 3 strands (and sub-strands where available), extracted from
 -- the official Grade 7 Assessment Report Book. Term 1 strands already exist (014) and
 -- default to term_1 via migration 033. This adds the sequential Term 2/3 strands so the
--- rubric shows the correct strands per term. Idempotent: clears any prior term_2/term_3
--- strands for these templates before inserting.
+-- rubric shows the correct strands per term.
+-- Guarded per (template, term): only seeds when NO strand exists yet for that pair, so
+-- replaying this migration (e.g. after a _migrations tracker reset — see the 014 fix)
+-- never wipes newer term_2/term_3 content added later via /seed-rubric-bulk-run.
 DO $$
 DECLARE tid UUID; sid UUID;
 BEGIN
   -- term_2 :: Mathematics
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Mathematics' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'ALGEBRA', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'Linear equations');
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 2, 'Linear Inequalities');
@@ -26,9 +26,7 @@ BEGIN
   END IF;
   -- term_2 :: English
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='English' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'DRUG & SUBSTANCE ABUSE', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'DRUG & SUBSTANCE ABUSE');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'NATURAL RESOURCES- FORESTS', 'term_2') RETURNING id INTO sid;
@@ -44,9 +42,7 @@ BEGIN
   END IF;
   -- term_2 :: Kiswahili
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Kiswahili' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'USALAMA SHULENI', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'USALAMA SHULENI');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'KUHUDUMIA JAMII SHULENI', 'term_2') RETURNING id INTO sid;
@@ -62,9 +58,7 @@ BEGIN
   END IF;
   -- term_2 :: Social Studies
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Social Studies' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'COMMUNITY SERVICE LEARNING', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'COMMUNITY SERVICE LEARNING');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'NATURAL & HISTORIC BUILT ENVIRONMENTS IN AFRICA', 'term_2') RETURNING id INTO sid;
@@ -72,9 +66,7 @@ BEGIN
   END IF;
   -- term_2 :: Integrated Science
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Integrated Science' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'MIXTURES, ELEMENTS & COMPONENTS', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'MIXTURES, ELEMENTS & COMPONENTS');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'LIVING THINGS & THEIR ENVIRONMENT', 'term_2') RETURNING id INTO sid;
@@ -82,9 +74,7 @@ BEGIN
   END IF;
   -- term_2 :: Agriculture
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Agriculture' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'FOOD PRODUCTION PROCESSES', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'Selected crop management practices');
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 2, 'Preparing animal products: eggs & honey');
@@ -96,9 +86,7 @@ BEGIN
   END IF;
   -- term_2 :: Pre-technical Studies
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Pre-technical Studies' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'COMMUNICATION  IN PRE TECHNICAL', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'COMMUNICATION  IN PRE TECHNICAL');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'Materials for production', 'term_2') RETURNING id INTO sid;
@@ -108,9 +96,7 @@ BEGIN
   END IF;
   -- term_2 :: Creative Arts and Sports
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Creative Arts and Sports' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_2');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_2';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_2') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'CREATION & PERFORMING OF CA&S', 'term_2') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'Football');
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 2, 'Storytelling');
@@ -124,9 +110,7 @@ BEGIN
   END IF;
   -- term_3 :: Mathematics
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Mathematics' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'GEOMETRY', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'GEOMETRY');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'DATA HANDLING', 'term_3') RETURNING id INTO sid;
@@ -134,9 +118,7 @@ BEGIN
   END IF;
   -- term_3 :: English
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='English' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'TRADITIONAL FASHION', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'TRADITIONAL FASHION');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'LAND TRAVEL', 'term_3') RETURNING id INTO sid;
@@ -148,9 +130,7 @@ BEGIN
   END IF;
   -- term_3 :: Kiswahili
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Kiswahili' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'MAGONJWA AMBUKIZI', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'MAGONJWA AMBUKIZI');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'UTATUZI WA MIZOZO', 'term_3') RETURNING id INTO sid;
@@ -162,42 +142,32 @@ BEGIN
   END IF;
   -- term_3 :: Social Studies
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Social Studies' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'POLITICAL DEVELOPMENT & GOVERNANCE', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'POLITICAL DEVELOPMENT & GOVERNANCE');
   END IF;
   -- term_3 :: Integrated Science
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Integrated Science' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'FORCE AND ENERGY', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'FORCE AND ENERGY');
   END IF;
   -- term_3 :: Agriculture
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Agriculture' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'PRODUCTION TECHNIQUES', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'Constructing framed suspended gardens');
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 2, 'Adding value to crop produce');
   END IF;
   -- term_3 :: Pre-technical Studies
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Pre-technical Studies' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'ENTREPRENEURSHIP', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'ENTREPRENEURSHIP');
   END IF;
   -- term_3 :: Creative Arts and Sports
   SELECT id INTO tid FROM assessment_templates WHERE grade_level='grade_7' AND learning_area='Creative Arts and Sports' AND tenant_id IS NULL LIMIT 1;
-  IF tid IS NOT NULL THEN
-    DELETE FROM assessment_substrands WHERE strand_id IN (SELECT id FROM assessment_strands WHERE template_id=tid AND term='term_3');
-    DELETE FROM assessment_strands WHERE template_id=tid AND term='term_3';
+  IF tid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM assessment_strands WHERE template_id=tid AND term='term_3') THEN
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 1, 'Creating and Preforming', 'term_3') RETURNING id INTO sid;
     INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'Kenyan folk songs');
     INSERT INTO assessment_strands (template_id, position, name, term) VALUES (tid, 2, 'APPRECIATION IN CA&S', 'term_3') RETURNING id INTO sid;
