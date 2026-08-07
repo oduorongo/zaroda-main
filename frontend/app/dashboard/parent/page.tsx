@@ -286,12 +286,12 @@ export default function ParentPortalPage() {
                                     sub.level.startsWith('AE')?'bg-orange-100 text-orange-700':
                                     'bg-red-100 text-red-700'}`}>{sub.level}</span>
                                 )}
-                                {sub.video && (
-                                  <a href={sub.video} target="_blank" rel="noopener noreferrer"
+                                {(sub.videos || []).map((v: string, vi: number) => (
+                                  <a key={vi} href={v} target="_blank" rel="noopener noreferrer"
                                     className="text-[11px] text-[#f5820a] hover:underline flex items-center gap-0.5 flex-shrink-0">
-                                    <Play size={11}/> Watch
+                                    <Play size={11}/> {(sub.videos || []).length > 1 ? `Watch ${vi + 1}` : 'Watch'}
                                   </a>
-                                )}
+                                ))}
                               </div>
                             ))}
                           </div>

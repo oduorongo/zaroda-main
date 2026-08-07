@@ -49,7 +49,7 @@ export default function TeacherAssessment() {
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const [resourceFor, setResourceFor] = useState<any>(null);
-  const [resourceUrl, setResourceUrl] = useState('');
+  const [resourceUrls, setResourceUrls] = useState<string[]>(['']);
 
   useEffect(() => {
     if (!user) return;
@@ -146,10 +146,11 @@ export default function TeacherAssessment() {
   };
 
   const saveResource = async () => {
+    const cleaned = resourceUrls.map(u => u.trim()).filter(Boolean);
     try {
-      await apiClient.post('/assessment/resource', { substrandId: resourceFor.id, youtubeUrl: resourceUrl });
-      setStrands(sts => sts.map(s => ({ ...s, substrands: s.substrands.map((ss: any) => ss.id === resourceFor.id ? { ...ss, youtubeUrl: resourceUrl } : ss) })));
-      toast.success('Resource link saved'); setResourceFor(null); setResourceUrl('');
+      await apiClient.post('/assessment/resource', { substrandId: resourceFor.id, youtubeUrls: cleaned });
+      setStrands(sts => sts.map(s => ({ ...s, substrands: s.substrands.map((ss: any) => ss.id === resourceFor.id ? { ...ss, youtubeUrls: cleaned, youtubeUrl: cleaned[0] || null } : ss) })));
+      toast.success('Resource link(s) saved'); setResourceFor(null); setResourceUrls(['']);
     } catch { toast.error('Could not save link'); }
   };
 
@@ -244,15 +245,15 @@ export default function TeacherAssessment() {
                   <tr key={ss.id} style={{ borderTop: '0.5px solid var(--border)' }}>
                     <td className="py-1.5 pr-2 text-theme align-middle">
                       <div className="flex items-center gap-1.5">
-                        {ss.youtubeUrl && (
-                          <a href={ss.youtubeUrl} target="_blank" rel="noreferrer" title="Watch resource" className="text-red-600 shrink-0"><Youtube size={14}/></a>
-                        )}
+                        {(ss.youtubeUrls || []).map((u: string, ui: number) => (
+                          <a key={ui} href={u} target="_blank" rel="noreferrer" title={`Watch resource ${ui + 1}`} className="text-red-600 shrink-0"><Youtube size={14}/></a>
+                        ))}
                         {user?.role === 'super_admin' && (
                           <button
-                            onClick={() => { setResourceFor(ss); setResourceUrl(ss.youtubeUrl || ''); }}
-                            title={ss.youtubeUrl ? 'Edit YouTube resource' : 'Add YouTube resource'}
+                            onClick={() => { setResourceFor(ss); setResourceUrls((ss.youtubeUrls || []).length ? [...ss.youtubeUrls] : ['']); }}
+                            title={(ss.youtubeUrls || []).length ? 'Edit YouTube resource' : 'Add YouTube resource'}
                             className="text-theme-muted hover:text-red-600 shrink-0">
-                            {ss.youtubeUrl ? <Pencil size={12}/> : <Youtube size={14}/>}
+                            {(ss.youtubeUrls || []).length ? <Pencil size={12}/> : <Youtube size={14}/>}
                           </button>
                         )}
                         <span>{ss.name}</span>
@@ -301,11 +302,26 @@ export default function TeacherAssessment() {
               <button onClick={() => setResourceFor(null)}><X size={20} className="text-theme-muted"/></button>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-xs text-theme-muted">YouTube link for: <strong className="text-theme-heading">{resourceFor.name}</strong></p>
-              <input value={resourceUrl} onChange={e => setResourceUrl(e.target.value)} placeholder="https://youtube.com/watch?v=…" className="input"/>
+              <p className="text-xs text-theme-muted">YouTube link(s) for: <strong className="text-theme-heading">{resourceFor.name}</strong></p>
+              <div className="space-y-2">
+                {resourceUrls.map((u, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <input
+                      value={u}
+                      onChange={e => setResourceUrls(list => list.map((x, idx) => idx === i ? e.target.value : x))}
+                      className="input flex-1" placeholder="https://youtube.com/watch?v=…"
+                    />
+                    <button type="button" onClick={() => setResourceUrls(list => list.length > 1 ? list.filter((_, idx) => idx !== i) : [''])}
+                      className="btn-ghost px-2" title="Remove link"><X size={16}/></button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={() => setResourceUrls(list => [...list, ''])} className="btn-ghost text-sm">
+                + Add another link
+              </button>
               <div className="flex gap-3">
                 <button onClick={() => setResourceFor(null)} className="btn-ghost flex-1">Cancel</button>
-                <button onClick={saveResource} className="btn-primary flex-1">Save link</button>
+                <button onClick={saveResource} className="btn-primary flex-1">Save link(s)</button>
               </div>
             </div>
           </div>
