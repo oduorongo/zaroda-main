@@ -37,11 +37,6 @@ export default function SchoolAnalyticsPage() {
   }, [grade, term]);
 
   const hasData = data && data.learnerCount > 0;
-  // Primary band uses 4-level; junior uses 8-level. Choose which distribution to show
-  // based on the grade filter; with "all grades" we show whichever has data.
-  const showJunior = grade ? ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(grade)
-                           : (data?.distributionJunior?.length > 0);
-  const distribution = showJunior ? data?.distributionJunior : data?.distributionPrimary;
   const gradeColor = (g: string, avg: number) => percentToLevel(avg, g).color;
 
   return (
@@ -103,39 +98,48 @@ export default function SchoolAnalyticsPage() {
             </div>
           )}
 
-          <div className="grid lg:grid-cols-2 gap-4">
-            {/* School-wide subject averages */}
-            <div className="card p-5">
-              <h2 className="font-bold text-theme-heading mb-1">Average by learning area</h2>
-              <p className="text-xs text-theme-muted mb-4">Across the whole school{grade ? ` · ${gradeLabel(grade)}` : ''}.</p>
-              <ResponsiveContainer width="100%" height={Math.max(220, data.areas.length * 34)}>
-                <BarChart data={data.areas} layout="vertical" margin={{ left: 10, right: 30 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(0,0,0,0.06)"/>
-                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10 }}/>
-                  <YAxis type="category" dataKey="subject" width={120} tick={{ fontSize: 10 }}/>
-                  <Tooltip formatter={(v: any) => [`${v}%`, 'Average']}/>
-                  <Bar dataKey="average" radius={[0, 6, 6, 0]} fill={NAVY}/>
-                </BarChart>
-              </ResponsiveContainer>
+          {/* Per-education-band breakdown. Bands run different learning areas (e.g.
+              "Mathematics Activities" in ECDE vs "Mathematics" in 4-6 vs electives in
+              10-12), so subject averages and level distributions are shown separately
+              per band rather than pooled into one school-wide chart. */}
+          {(data.bands || []).map((b: any) => (
+            <div key={b.key} className="card p-5 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h2 className="font-bold text-theme-heading">{b.label}</h2>
+                  <p className="text-xs text-theme-muted">{b.learnerCount} learner{b.learnerCount === 1 ? '' : 's'} assessed{term ? '' : ` · ${b.average}% average`}</p>
+                </div>
+              </div>
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-theme-heading mb-2">Average by learning area</h3>
+                  <ResponsiveContainer width="100%" height={Math.max(180, b.areas.length * 34)}>
+                    <BarChart data={b.areas} layout="vertical" margin={{ left: 10, right: 30 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(0,0,0,0.06)"/>
+                      <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10 }}/>
+                      <YAxis type="category" dataKey="subject" width={120} tick={{ fontSize: 10 }}/>
+                      <Tooltip formatter={(v: any) => [`${v}%`, 'Average']}/>
+                      <Bar dataKey="average" radius={[0, 6, 6, 0]} fill={NAVY}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-theme-heading mb-2">Performance level distribution</h3>
+                  {b.distribution && b.distribution.length ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={b.distribution} margin={{ left: 0, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.06)"/>
+                        <XAxis dataKey="code" tick={{ fontSize: 11 }}/>
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }}/>
+                        <Tooltip formatter={(v: any) => [`${v} marks`, 'Count']}/>
+                        <Bar dataKey="count" radius={[6, 6, 0, 0]} fill={GOLD}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : <div className="h-[200px] flex items-center justify-center text-sm text-theme-muted">No data.</div>}
+                </div>
+              </div>
             </div>
-
-            {/* Level distribution */}
-            <div className="card p-5">
-              <h2 className="font-bold text-theme-heading mb-1">Performance level distribution</h2>
-              <p className="text-xs text-theme-muted mb-4">{showJunior ? 'Grades 7–12 (8-level scale)' : 'Grades 1–6 (4-level scale)'}.</p>
-              {distribution && distribution.length ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={distribution} margin={{ left: 0, right: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.06)"/>
-                    <XAxis dataKey="code" tick={{ fontSize: 11 }}/>
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }}/>
-                    <Tooltip formatter={(v: any) => [`${v} marks`, 'Count']}/>
-                    <Bar dataKey="count" radius={[6, 6, 0, 0]} fill={GOLD}/>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : <div className="h-[240px] flex items-center justify-center text-sm text-theme-muted">No data for this band.</div>}
-            </div>
-          </div>
+          ))}
 
           {/* Term trend */}
           <div className="card p-5">

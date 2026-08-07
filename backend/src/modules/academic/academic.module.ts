@@ -361,6 +361,21 @@ export class AcademicService {
     return ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(gradeLevel || '');
   }
 
+  // Education bands for analytics — each band runs a different set of learning areas
+  // (e.g. "Mathematics Activities" in ECDE vs "Mathematics" in 4-6 vs electives in
+  // 10-12), so subject/level analytics must never be pooled across bands.
+  private static readonly ANALYTICS_BANDS: { key: string; label: string; grades: string[] }[] = [
+    { key: 'ecde',  label: 'ECDE (Playgroup–PP2)', grades: ['playgroup', 'pp1', 'pp2'] },
+    { key: 'p1_3',  label: 'Grades 1–3',            grades: ['grade_1', 'grade_2', 'grade_3'] },
+    { key: 'p4_6',  label: 'Grades 4–6',            grades: ['grade_4', 'grade_5', 'grade_6'] },
+    { key: 'js',    label: 'Grades 7–9',            grades: ['grade_7', 'grade_8', 'grade_9'] },
+    { key: 'ss',    label: 'Grades 10–12',          grades: ['grade_10', 'grade_11', 'grade_12'] },
+  ];
+  private analyticsBand(gradeLevel: string): { key: string; label: string } {
+    const b = AcademicService.ANALYTICS_BANDS.find(b => b.grades.includes(gradeLevel));
+    return b ? { key: b.key, label: b.label } : { key: 'unknown', label: 'Other' };
+  }
+
   /** Default parent password derived from the email's first part + the year, e.g.
    *  "john.doe@gmail.com" → "johndoe2026". Easy to communicate; the parent is forced to
    *  change it on first login (must_change_password=true). Padded to a safe minimum length. */
@@ -788,6 +803,16 @@ export class AcademicService {
     const allLearners = new Set<string>();
     let totalSum = 0, totalN = 0;
 
+    // Band-scoped versions — every chart that breaks down by learning area or level
+    // must stay within one education band, since bands run different subjects/scales.
+    type BandAgg = {
+      label: string; sum: number; n: number; learners: Set<string>;
+      area: Record<string, { sum: number; n: number }>;
+      dist: Record<string, number>;
+      term: Record<string, { sum: number; n: number }>;
+    };
+    const byBand: Record<string, BandAgg> = {};
+
     for (const r of combinedMarks) {
       const pct = (r.rawSum / r.maxSum) * 100;
       const g = r.gradeLevel || 'unknown';
@@ -803,6 +828,13 @@ export class AcademicService {
       bucket[code] = (bucket[code] || 0) + 1;
       allLearners.add(r.learnerId);
       totalSum += pct; totalN++;
+
+      const band = this.analyticsBand(g);
+      const ba = (byBand[band.key] ||= { label: band.label, sum: 0, n: 0, learners: new Set(), area: {}, dist: {}, term: {} });
+      ba.sum += pct; ba.n++; ba.learners.add(r.learnerId);
+      (ba.area[r.subject] ||= { sum: 0, n: 0 }); ba.area[r.subject].sum += pct; ba.area[r.subject].n++;
+      ba.dist[code] = (ba.dist[code] || 0) + 1;
+      (ba.term[t] ||= { sum: 0, n: 0 }); ba.term[t].sum += pct; ba.term[t].n++;
     }
 
     const grades = Object.entries(byGrade)
@@ -827,17 +859,37 @@ export class AcademicService {
 
     const schoolAverage = totalN ? Math.round(totalSum / totalN) : 0;
 
+    // Per-education-band breakdown, in fixed curriculum order, only bands with data.
+    const bands = AcademicService.ANALYTICS_BANDS
+      .map(b => byBand[b.key])
+      .map((ba, i) => ba ? {
+        key: AcademicService.ANALYTICS_BANDS[i].key,
+        label: ba.label,
+        gradeLevels: AcademicService.ANALYTICS_BANDS[i].grades,
+        learnerCount: ba.learners.size,
+        average: Math.round(ba.sum / ba.n),
+        areas: Object.entries(ba.area)
+          .map(([subject, v]) => ({ subject, average: Math.round(v.sum / v.n), count: v.n }))
+          .sort((a, b) => b.average - a.average),
+        distribution: Object.entries(ba.dist).map(([code, count]) => ({ code, count })),
+        trend: Object.entries(ba.term)
+          .map(([t, v]) => ({ term: t, average: Math.round(v.sum / v.n) }))
+          .sort((a, b) => a.term.localeCompare(b.term)),
+      } : null)
+      .filter(Boolean);
+
     return {
       gradeFilter: gradeLevel || 'all',
       term: term || 'all',
       learnerCount: allLearners.size,
       schoolAverage,
       grades,                 // per-grade averages
-      areas,                  // school-wide per-learning-area averages
+      areas,                  // school-wide per-learning-area averages (mixed bands — kept for backward compat)
       streams,                // stream leaderboard
       trend,                  // school avg % per term
       distributionPrimary,    // CBC 4-level (grades 1-6)
       distributionJunior,     // 8-level (grades 7-12)
+      bands,                  // per-education-band breakdown (ECDE, 1-3, 4-6, 7-9, 10-12) — never pools subjects across bands
     };
   }
 
