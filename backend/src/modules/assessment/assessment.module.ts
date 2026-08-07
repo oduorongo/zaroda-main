@@ -133,7 +133,7 @@ export class AssessmentService {
     const termKey = this.normaliseTerm(term);
     const rows = await this.dataSource.query(
       `SELECT st.id AS "strandId", st.position AS "strandPos", st.name AS "strandName", st.term AS "strandTerm",
-              ss.id AS "substrandId", ss.position AS "subPos", ss.name AS "subName", ss.youtube_url AS "youtubeUrl"
+              ss.id AS "substrandId", ss.position AS "subPos", ss.name AS "subName", ss.youtube_urls AS "youtubeUrls"
        FROM assessment_strands st
        JOIN assessment_substrands ss ON ss.strand_id = st.id
        WHERE st.template_id::text = $1
@@ -144,7 +144,8 @@ export class AssessmentService {
     const byStrand: Record<string, any> = {};
     for (const r of rows) {
       if (!byStrand[r.strandId]) byStrand[r.strandId] = { id: r.strandId, name: r.strandName, position: r.strandPos, term: r.strandTerm, substrands: [] };
-      byStrand[r.strandId].substrands.push({ id: r.substrandId, name: r.subName, position: r.subPos, youtubeUrl: r.youtubeUrl });
+      const urls: string[] = r.youtubeUrls || [];
+      byStrand[r.strandId].substrands.push({ id: r.substrandId, name: r.subName, position: r.subPos, youtubeUrls: urls, youtubeUrl: urls[0] || null });
     }
     return { templateId, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), term: termKey, strands: Object.values(byStrand) };
   }
@@ -192,7 +193,7 @@ export class AssessmentService {
     const out: any[] = [];
     for (const a of areas) {
       const rows = await this.dataSource.query(
-        `SELECT st.name AS "strandName", ss.id AS "substrandId", ss.name AS "subName", ss.youtube_url AS "youtubeUrl"
+        `SELECT st.name AS "strandName", ss.id AS "substrandId", ss.name AS "subName", ss.youtube_urls AS "youtubeUrls"
            FROM assessment_strands st JOIN assessment_substrands ss ON ss.strand_id = st.id
           WHERE st.template_id = $1 AND ($2::text IS NULL OR st.term = $2)
           ORDER BY st.position, ss.position`,
@@ -201,8 +202,9 @@ export class AssessmentService {
       if (!rows.length) continue;
       const strands: Record<string, any> = {};
       for (const r of rows) {
+        const urls: string[] = r.youtubeUrls || [];
         (strands[r.strandName] = strands[r.strandName] || { strand: r.strandName, substrands: [] }).substrands.push({
-          name: r.subName, level: levelBy[r.substrandId] || null, video: r.youtubeUrl || null,
+          name: r.subName, level: levelBy[r.substrandId] || null, videos: urls, video: urls[0] || null,
         });
       }
       out.push({ learningArea: a.learningArea, strands: Object.values(strands) });
@@ -260,7 +262,7 @@ export class AssessmentService {
       `INSERT INTO assessment_substrands (strand_id, position, name) VALUES ($1,$2,$3) RETURNING id, name, position`,
       [dto.strandId, posRow[0].p, dto.name.trim()],
     );
-    return { id: r[0].id, name: r[0].name, position: r[0].position, youtubeUrl: null };
+    return { id: r[0].id, name: r[0].name, position: r[0].position, youtubeUrls: [], youtubeUrl: null };
   }
 
   async renameSubstrand(user: any, substrandId: string, name: string) {
@@ -371,16 +373,20 @@ export class AssessmentService {
     return { message: 'Assessment saved', saved };
   }
 
-  // Set/replace the YouTube resource link on a sub-strand (teacher/admin only)
-  async setResource(user: any, substrandId: string, youtubeUrl: string) {
+  // Set/replace the YouTube resource link(s) on a sub-strand (owner only). Accepts either
+  // a single `youtubeUrl` (legacy, one link) or `youtubeUrls` (array — a sub-strand can
+  // need more than one video, e.g. covering different parts of the same topic).
+  async setResource(user: any, substrandId: string, youtubeUrl: string, youtubeUrls?: string[]) {
     // Only the platform owner curates the learning resource (YouTube) links. All other
     // users can watch the videos but cannot edit them.
     if (user.role !== 'super_admin') {
       throw new BadRequestException('Only the platform owner can edit learning resource links.');
     }
+    const urls = (Array.isArray(youtubeUrls) ? youtubeUrls : (youtubeUrl ? [youtubeUrl] : []))
+      .map(u => String(u || '').trim()).filter(Boolean);
     await this.dataSource.query(
-      `UPDATE assessment_substrands SET youtube_url = $1 WHERE id::text = $2`,
-      [youtubeUrl || null, substrandId],
+      `UPDATE assessment_substrands SET youtube_urls = $1 WHERE id::text = $2`,
+      [urls, substrandId],
     ).catch(() => null);
     return { message: 'Resource saved' };
   }
@@ -557,7 +563,7 @@ export class AssessmentController {
 
   @Post('resource')
   setResource(@Request() req: any, @Body() dto: any) {
-    return this.svc.setResource(req.user, dto.substrandId, dto.youtubeUrl);
+    return this.svc.setResource(req.user, dto.substrandId, dto.youtubeUrl, dto.youtubeUrls);
   }
 
   // ── Owner rubric editing ──

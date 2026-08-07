@@ -3,7 +3,7 @@
 // add/edit the YouTube resource link on each sub-strand. Not tied to a stream or learner.
 'use client';
 import { useState, useEffect } from 'react';
-import { BookOpen, Loader2, Youtube, Save, X, Pencil, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Loader2, Youtube, Save, X, Pencil, Plus, Trash2, PlusCircle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -23,7 +23,7 @@ export default function OwnerRubricsPage() {
   const [strands, setStrands] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [editFor, setEditFor] = useState<any>(null);
-  const [url, setUrl]         = useState('');
+  const [urls, setUrls]       = useState<string[]>(['']);
   const [saving, setSaving]   = useState(false);
 
   useEffect(() => {
@@ -48,11 +48,12 @@ export default function OwnerRubricsPage() {
   }, [grade, area, term]);
 
   const saveLink = async () => {
+    const cleaned = urls.map(u => u.trim()).filter(Boolean);
     setSaving(true);
     try {
-      await apiClient.post('/assessment/resource', { substrandId: editFor.id, youtubeUrl: url });
-      setStrands(sts => sts.map(s => ({ ...s, substrands: s.substrands.map((ss: any) => ss.id === editFor.id ? { ...ss, youtubeUrl: url } : ss) })));
-      toast.success('Video link saved');
+      await apiClient.post('/assessment/resource', { substrandId: editFor.id, youtubeUrls: cleaned });
+      setStrands(sts => sts.map(s => ({ ...s, substrands: s.substrands.map((ss: any) => ss.id === editFor.id ? { ...ss, youtubeUrls: cleaned, youtubeUrl: cleaned[0] || null } : ss) })));
+      toast.success('Video link(s) saved');
       setEditFor(null);
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
@@ -174,12 +175,19 @@ export default function OwnerRubricsPage() {
               {s.substrands.map((ss: any) => (
                 <div key={ss.id} className="flex items-center gap-2 py-2">
                   <div className="flex-1 min-w-0 text-sm">{ss.name}</div>
-                  {ss.youtubeUrl && (
-                    <a href={ss.youtubeUrl} target="_blank" rel="noreferrer" className="text-red-600" title="Watch"><Youtube size={15}/></a>
+                  {(ss.youtubeUrls || []).length > 0 && (
+                    <span className="flex items-center gap-1">
+                      {(ss.youtubeUrls || []).map((u: string, i: number) => (
+                        <a key={i} href={u} target="_blank" rel="noreferrer" className="text-red-600" title={`Watch link ${i + 1}`}><Youtube size={15}/></a>
+                      ))}
+                      {(ss.youtubeUrls || []).length > 1 && (
+                        <span className="text-[10px] text-theme-muted">×{ss.youtubeUrls.length}</span>
+                      )}
+                    </span>
                   )}
-                  <button onClick={() => { setEditFor(ss); setUrl(ss.youtubeUrl || ''); }}
-                    className="text-theme-muted hover:text-red-600" title={ss.youtubeUrl ? 'Edit video link' : 'Add video link'}>
-                    {ss.youtubeUrl ? <Pencil size={13}/> : <Youtube size={15}/>}
+                  <button onClick={() => { setEditFor(ss); setUrls((ss.youtubeUrls || []).length ? [...ss.youtubeUrls] : ['']); }}
+                    className="text-theme-muted hover:text-red-600" title={(ss.youtubeUrls || []).length ? 'Edit video links' : 'Add video link'}>
+                    {(ss.youtubeUrls || []).length ? <Pencil size={13}/> : <Youtube size={15}/>}
                   </button>
                   <button onClick={() => renameSubstrand(ss)} className="text-theme-muted hover:text-[#1a2e5a]" title="Rename sub-strand"><Pencil size={12}/></button>
                   <button onClick={() => deleteSubstrand(ss)} className="text-theme-muted hover:text-red-600" title="Delete sub-strand"><Trash2 size={12}/></button>
@@ -197,14 +205,29 @@ export default function OwnerRubricsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setEditFor(null)}>
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" onClick={e => e.stopPropagation()} style={{ border: '1px solid var(--border)' }}>
             <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h3 className="font-bold text-theme-heading flex items-center gap-2"><Youtube size={18} className="text-red-600"/> Video resource</h3>
+              <h3 className="font-bold text-theme-heading flex items-center gap-2"><Youtube size={18} className="text-red-600"/> Video resource(s)</h3>
               <button onClick={() => setEditFor(null)} className="text-theme-muted"><X size={20}/></button>
             </div>
             <div className="p-5 space-y-3">
               <div className="text-sm text-theme-muted">{editFor.name}</div>
-              <input value={url} onChange={e => setUrl(e.target.value)} className="input w-full" placeholder="https://youtu.be/…"/>
+              <div className="space-y-2">
+                {urls.map((u, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <input
+                      value={u}
+                      onChange={e => setUrls(list => list.map((x, idx) => idx === i ? e.target.value : x))}
+                      className="input flex-1" placeholder="https://youtu.be/…"
+                    />
+                    <button type="button" onClick={() => setUrls(list => list.length > 1 ? list.filter((_, idx) => idx !== i) : [''])}
+                      className="btn-ghost px-2" title="Remove link"><X size={16}/></button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={() => setUrls(list => [...list, ''])} className="btn-ghost text-sm">
+                <PlusCircle size={14}/> Add another link
+              </button>
               <button onClick={saveLink} disabled={saving} className="btn-primary w-full justify-center">
-                {saving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>} Save link
+                {saving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>} Save link(s)
               </button>
             </div>
           </div>
