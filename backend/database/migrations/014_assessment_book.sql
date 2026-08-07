@@ -51,13 +51,20 @@ CREATE TABLE IF NOT EXISTS assessment_scores (
 CREATE INDEX IF NOT EXISTS idx_ascore_lookup ON assessment_scores(tenant_id, learner_id, learning_area, term);
 CREATE INDEX IF NOT EXISTS idx_ascore_stream ON assessment_scores(tenant_id, stream_id, term);
 
--- Seed assessment book templates from KICD books (idempotent)
+-- Seed assessment book templates from KICD books — ONLY on a genuinely empty table.
+-- This migration is replayed on every boot where the _migrations tracker is empty
+-- (e.g. a fresh DB, or a tracker reset). It used to unconditionally DELETE every
+-- global template and reinsert this file's own (much smaller, older) hardcoded set,
+-- which silently wiped out richer rubric data added later via /seed-rubric-bulk-run
+-- (see rubric_seed.json) whenever the tracker got reset on a redeploy. Guarding on
+-- "no global templates exist yet" makes this migration inert once real data is present.
 DO $$
-DECLARE tid UUID; sid UUID;
+DECLARE tid UUID; sid UUID; existing_count INT;
 BEGIN
-  DELETE FROM assessment_substrands WHERE strand_id IN (SELECT st.id FROM assessment_strands st JOIN assessment_templates t ON t.id=st.template_id WHERE t.tenant_id IS NULL);
-  DELETE FROM assessment_strands WHERE template_id IN (SELECT id FROM assessment_templates WHERE tenant_id IS NULL);
-  DELETE FROM assessment_templates WHERE tenant_id IS NULL;
+  SELECT COUNT(*) INTO existing_count FROM assessment_templates WHERE tenant_id IS NULL;
+  IF existing_count > 0 THEN
+    RETURN;
+  END IF;
   INSERT INTO assessment_templates (tenant_id, grade_level, learning_area) VALUES (NULL, 'pp1', 'Mathematics Activities') RETURNING id INTO tid;
   INSERT INTO assessment_strands (template_id, position, name) VALUES (tid, 1, 'Theme: Myself') RETURNING id INTO sid;
   INSERT INTO assessment_substrands (strand_id, position, name) VALUES (sid, 1, 'PRE-NUMBER ACTIVITIES');
