@@ -83,7 +83,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // during a full-reload navigation doesn't bounce a logged-in user to login.
   // Dashboard pages teachers ARE allowed to open (shared modules), despite otherwise being
   // routed to their own /teacher workspace.
-  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling'];
+  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records'];
   const teacherAllowedHere = TEACHER_ALLOWED.some(p => pathname.startsWith(p));
 
   useEffect(() => {
