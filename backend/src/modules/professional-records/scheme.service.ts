@@ -22,8 +22,38 @@ export class SchemeService {
     return this.schemeRepo.find({ where: { tenantId, status }, order: { submittedAt: 'ASC' } });
   }
 
+  // A teacher may only generate a scheme for a (stream, subject) they are actually
+  // assigned to teach, or for any subject in a stream where they are the class teacher.
+  // HOI/admin roles generating on a teacher's behalf are exempt.
+  private async assertAssignedToTeach(
+    tenantId: string, teacherId: string, role: string, streamId: string, subjectName: string,
+  ) {
+    if (['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(role)) return;
+
+    const classTeacherRows = await this.dataSource.query(
+      `SELECT id FROM streams WHERE tenant_id::text = $1 AND id::text = $2 AND class_teacher_id::text = $3`,
+      [tenantId, streamId, teacherId],
+    ).catch(() => []);
+    if (classTeacherRows.length > 0) return;
+
+    const assignmentRows = await this.dataSource.query(
+      `SELECT subject FROM teacher_stream_subjects
+        WHERE tenant_id::text = $1 AND teacher_id::text = $2 AND stream_id::text = $3`,
+      [tenantId, teacherId, streamId],
+    ).catch(() => []);
+    const teaches = assignmentRows.some((r: any) =>
+      String(r.subject).toLowerCase().includes(subjectName.toLowerCase()) ||
+      subjectName.toLowerCase().includes(String(r.subject).toLowerCase()),
+    );
+    if (!teaches) {
+      throw new BadRequestException('You are not assigned to teach this subject for this class.');
+    }
+  }
+
   // ── GENERATE SCHEME OF WORK (AI) ──────────────────────────
-  async generate(tenantId: string, schoolId: string, teacherId: string, dto: GenerateSchemeDto) {
+  async generate(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
+    await this.assertAssignedToTeach(tenantId, teacherId, role, dto.streamId, dto.subjectName);
+
     const existing = await this.schemeRepo.findOne({
       where: {
         tenantId, teacherId, streamId: dto.streamId, subjectId: dto.subjectId,

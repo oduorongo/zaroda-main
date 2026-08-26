@@ -30,6 +30,7 @@ export default function ProfessionalRecordsPage() {
   const [tab, setTab] = useState<'schemes'|'plans'|'notes'|'pending'>('schemes');
   const [streams, setStreams] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);
+  const [myAssignments, setMyAssignments] = useState<{ streamId: string; subjects: string[] }[]>([]);
 
   const [schemes, setSchemes] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
@@ -47,9 +48,35 @@ export default function ProfessionalRecordsPage() {
   });
 
   useEffect(() => {
-    apiClient.get('/academic/streams').then(r => setStreams(r.data || [])).catch(() => setStreams([]));
+    if (!user) return;
     apiClient.get('/professional-records/subjects').then(r => setSubjects(r.data || [])).catch(() => setSubjects([]));
-  }, []);
+    Promise.all([
+      apiClient.get('/academic/streams').catch(() => ({ data: [] })),
+      teacher ? apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+    ]).then(([allStreams, assignments]) => {
+      const all = allStreams.data || [];
+      const mine: { streamId: string; subjects: string[] }[] = assignments.data || [];
+      setMyAssignments(mine);
+      if (!teacher) { setStreams(all); return; }
+      const assignedIds = new Set(mine.map(r => String(r.streamId)));
+      const mineStreams = all.filter((s: any) => assignedIds.has(String(s.id)) || s.classTeacherId === user.id);
+      setStreams(mineStreams.length ? mineStreams : all);
+    });
+  }, [user, teacher]);
+
+  // Subjects a teacher may pick for the currently-selected stream — the full assignment
+  // list if they're that stream's class teacher (no per-subject record), otherwise only
+  // subjects they're explicitly assigned to teach there.
+  const allowedSubjectNames = (() => {
+    if (!teacher || !form.streamId) return null;
+    const stream = streams.find((s: any) => s.id === form.streamId);
+    if (stream?.classTeacherId === user?.id) return null;
+    const row = myAssignments.find(r => String(r.streamId) === String(form.streamId));
+    return row ? row.subjects : [];
+  })();
+  const availableSubjects = allowedSubjectNames
+    ? subjects.filter((s: any) => allowedSubjectNames.some(a => a.toLowerCase() === String(s.name).toLowerCase()))
+    : subjects;
 
   const load = () => {
     setLoading(true);
@@ -269,17 +296,22 @@ export default function ProfessionalRecordsPage() {
             <form onSubmit={generateScheme} className="p-5 space-y-4">
               <div>
                 <label className="label">Stream / Class *</label>
-                <select required value={form.streamId} onChange={set('streamId')} className="input">
+                <select required value={form.streamId}
+                  onChange={(e) => setForm(f => ({ ...f, streamId: e.target.value, subjectId: '' }))}
+                  className="input">
                   <option value="">Select a stream…</option>
                   {streams.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="label">Subject *</label>
-                <select required value={form.subjectId} onChange={set('subjectId')} className="input">
-                  <option value="">Select a subject…</option>
-                  {subjects.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <select required value={form.subjectId} onChange={set('subjectId')} className="input" disabled={!form.streamId}>
+                  <option value="">{form.streamId ? 'Select a subject…' : 'Select a stream first…'}</option>
+                  {availableSubjects.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+                {form.streamId && availableSubjects.length === 0 && (
+                  <p className="text-xs text-red-600 mt-1">You are not assigned to teach any subject for this class.</p>
+                )}
               </div>
               <div>
                 <label className="label">Grade Level *</label>

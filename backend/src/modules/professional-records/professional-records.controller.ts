@@ -40,7 +40,7 @@ export class ProfessionalRecordsController {
   @Post('schemes/generate')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi')
   generateScheme(@CurrentUser() u: AuthUser, @Body() dto: GenerateSchemeDto) {
-    return this.schemeService.generate(u.tenantId, u.schoolId, u.id, dto);
+    return this.schemeService.generate(u.tenantId, u.schoolId, u.id, u.role, dto);
   }
 
   @Get('schemes')
