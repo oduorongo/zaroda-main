@@ -10,12 +10,13 @@ import { AuthModule }               from './modules/auth/auth.module';
 import { AcademicModule }           from './modules/academic/academic.module';
 import { AssessmentModule }         from './modules/assessment/assessment.module';
 import {
-  FinanceModule, CommunicationModule, ProfessionalRecordsModule,
+  FinanceModule, CommunicationModule,
   LibraryModule, SportsModule, DisciplineModule, ReferralModule, PdfModule,
   AdminModule, RetoolingModule,
 } from './modules/stubs.module';
 import { LocationModule }           from './modules/location/location.module';
 import { TeacherOnboardModule }     from './modules/onboarding/teacher-onboard.module';
+import { ProfessionalRecordsModule } from './modules/professional-records/professional-records.module';
 
 @Module({
   imports: [
