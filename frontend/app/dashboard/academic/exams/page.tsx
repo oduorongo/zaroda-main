@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { ClipboardList, Plus, Calendar, FileText, Loader2, X, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { ClipboardList, Plus, Calendar, FileText, Loader2, X, ChevronRight, Pencil, Trash2, RotateCcw } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
@@ -20,6 +20,9 @@ export default function ExamsPage() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [saving,  setSaving]  = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedExams, setDeletedExams] = useState<any[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
   const [form, setForm] = useState({
     name: '', examType: 'end_term', term: 'term_1',
     academicYear: '2025/2026', startDate: '', endDate: '',
@@ -33,6 +36,24 @@ export default function ExamsPage() {
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+
+  const loadDeleted = () => {
+    setDeletedLoading(true);
+    apiClient.get('/academic/exams/deleted')
+      .then(r => setDeletedExams(r.data))
+      .catch(() => toast.error('Could not load deleted exams'))
+      .finally(() => setDeletedLoading(false));
+  };
+
+  const restoreExam = async (ex: any) => {
+    if (!confirm(`Restore the assessment "${ex.name}"? Its marks will be restored too.`)) return;
+    try {
+      await apiClient.post(`/academic/exams/${ex.id}/restore`);
+      toast.success('Assessment restored');
+      loadDeleted();
+      load();
+    } catch { toast.error('Could not restore assessment'); }
+  };
 
   const deleteExam = async (ex: any) => {
     if (!confirm(`Delete the assessment "${ex.name}"?`)) return;
@@ -80,9 +101,45 @@ export default function ExamsPage() {
           <p className="text-sm text-theme-muted">Create assessments, then enter scores via the Mark List</p>
         </div>
         {isHoi(user?.role || '') && (
-          <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Exam</button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { const next = !showDeleted; setShowDeleted(next); if (next) loadDeleted(); }}
+              className="btn-ghost"
+            >
+              <RotateCcw size={16}/> {showDeleted ? 'Hide' : 'Recently Deleted'}
+            </button>
+            <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Exam</button>
+          </div>
         )}
       </div>
+
+      {showDeleted && isHoi(user?.role || '') && (
+        <div className="card p-4">
+          <h3 className="text-sm font-bold text-theme-heading mb-3">Recently Deleted (last 90 days)</h3>
+          {deletedLoading ? (
+            <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-12 shimmer rounded-lg"/>)}</div>
+          ) : deletedExams.length === 0 ? (
+            <p className="text-xs text-theme-muted">No deleted exams in the last 90 days.</p>
+          ) : (
+            <div className="space-y-2">
+              {deletedExams.map((ex: any) => (
+                <div key={ex.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-surface-2">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-theme-heading text-sm">{ex.name}</span>
+                    <div className="text-xs text-theme-muted">
+                      {EXAM_TYPES.find(t => t.value === ex.examType)?.label} · {ex.term?.replace('_',' ')} · {ex.academicYear}
+                      {' · '}Deleted {new Date(ex.deletedAt).toLocaleDateString('en-KE')}
+                    </div>
+                  </div>
+                  <button onClick={() => restoreExam(ex)} className="btn-ghost text-xs py-1.5 px-3">
+                    <RotateCcw size={12}/> Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 shimmer rounded-xl"/>)}</div>

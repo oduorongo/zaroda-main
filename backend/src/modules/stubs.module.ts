@@ -2356,7 +2356,7 @@ class PdfController {
         [streamId, tenantId],
       ).catch(() => []))[0] || {};
       const examName = examId
-        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
+        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 AND tenant_id::text = $2 AND deleted_at IS NULL LIMIT 1`, [examId, tenantId]).catch(() => []))[0]?.name || '')
         : '';
       const rows = await this.ds.query(
         `SELECT ar.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
@@ -2465,7 +2465,7 @@ class PdfController {
       ).catch(() => []))[0] || {};
 
       const examName = examId
-        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
+        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 AND tenant_id::text = $2 AND deleted_at IS NULL LIMIT 1`, [examId, tenantId]).catch(() => []))[0]?.name || '')
         : (examType || '');
 
       const rows = await this.ds.query(
@@ -2646,7 +2646,7 @@ class PdfController {
       streamRows.forEach((s: any) => { streamNameById[s.id] = s.name; });
 
       const examName = examId
-        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 LIMIT 1`, [examId]).catch(() => []))[0]?.name || '')
+        ? ((await this.ds.query(`SELECT name FROM exams WHERE id::text = $1 AND tenant_id::text = $2 AND deleted_at IS NULL LIMIT 1`, [examId, tenantId]).catch(() => []))[0]?.name || '')
         : 'Term Average';
 
       // Pool marks across EVERY stream in this grade — the only difference from the

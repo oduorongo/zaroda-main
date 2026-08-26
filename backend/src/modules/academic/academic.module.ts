@@ -1253,6 +1253,53 @@ export class AcademicService {
     return { deleted: true, removedMarks: force ? markCount : 0 };
   }
 
+  // HOI/admin views exams soft-deleted within the last 90 days (before the
+  // cleanup cron purges them for good), so they can be restored if needed.
+  async getDeletedExams(tenantId: string, actorRole: string) {
+    if (!this.isHoiRole(actorRole)) {
+      throw new BadRequestException('Only the school administrator can view deleted exams.');
+    }
+    return this.dataSource.query(
+      `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear", deleted_at AS "deletedAt"
+         FROM exams
+        WHERE tenant_id::text = $1 AND deleted_at IS NOT NULL AND deleted_at > NOW() - INTERVAL '90 days'
+        ORDER BY deleted_at DESC`,
+      [tenantId],
+    );
+  }
+
+  // Reverses deleteExam: clears deleted_at on the exam and, if they were removed
+  // alongside it, on its assessment_results. Only works within the 90-day window
+  // before the cleanup cron hard-deletes soft-deleted exams for good.
+  async restoreExam(tenantId: string, actorRole: string, examId: string) {
+    if (!this.isHoiRole(actorRole)) {
+      throw new BadRequestException('Only the school administrator can restore exams.');
+    }
+    const rows = await this.dataSource.query(
+      `SELECT deleted_at AS "deletedAt" FROM exams WHERE id::text = $1 AND tenant_id::text = $2`,
+      [examId, tenantId],
+    );
+    if (!rows[0] || !rows[0].deletedAt) {
+      throw new BadRequestException('This exam is not deleted.');
+    }
+    const deletedAt = rows[0].deletedAt;
+    let restoredMarks = 0;
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE exams SET deleted_at = NULL WHERE id::text = $1 AND tenant_id::text = $2`,
+        [examId, tenantId],
+      );
+      const result = await manager.query(
+        `UPDATE assessment_results SET deleted_at = NULL
+          WHERE tenant_id::text = $1 AND exam_id::text = $2 AND deleted_at = $3
+          RETURNING id`,
+        [tenantId, examId, deletedAt],
+      );
+      restoredMarks = result?.length || 0;
+    }).catch((e: any) => { throw new BadRequestException(e.message); });
+    return { restored: true, restoredMarks };
+  }
+
   getStream(tenantId: string, id: string) {
     return this.streamRepo.findOne({ where: { id, tenantId } });
   }
@@ -2628,6 +2675,16 @@ export class AcademicController {
   @Delete('exams/:id')
   deleteExam(@Request() req: any, @Param('id') id: string, @Query() q: any) {
     return this.academicService.deleteExam(req.user.tenantId, req.user.role, id, q.force === 'true');
+  }
+
+  @Get('exams/deleted')
+  getDeletedExams(@Request() req: any) {
+    return this.academicService.getDeletedExams(req.user.tenantId, req.user.role);
+  }
+
+  @Post('exams/:id/restore')
+  restoreExam(@Request() req: any, @Param('id') id: string) {
+    return this.academicService.restoreExam(req.user.tenantId, req.user.role, id);
   }
 
   // Timetable
