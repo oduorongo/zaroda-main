@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit } from './entities';
+import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } from './entities';
 import { AiGeneratorService } from './ai-generator.service';
 import { GenerateSchemeDto, ReviewRecordDto } from './dto';
 
@@ -12,9 +12,56 @@ export class SchemeService {
     @InjectRepository(SchemeWeek) private weekRepo: Repository<SchemeWeek>,
     @InjectRepository(TeacherDocument) private docRepo: Repository<TeacherDocument>,
     @InjectRepository(PrAudit) private auditRepo: Repository<PrAudit>,
+    @InjectRepository(SubjectCatalogue) private subjectRepo: Repository<SubjectCatalogue>,
     private aiGenerator: AiGeneratorService,
     private dataSource: DataSource,
   ) {}
+
+  // subject_catalogue is never seeded elsewhere in this app — every other module treats
+  // subjects as free-text strings (teacher_stream_subjects.subject etc). So rather than
+  // require a pre-populated catalogue, self-heal it here: derive the real subject names
+  // this user actually teaches from teacher_stream_subjects, and find-or-create a
+  // subject_catalogue row per name so it has a stable id to hang scheme records off.
+  async listSubjectsForUser(tenantId: string, schoolId: string, teacherId: string, role: string) {
+    const isPriv = ['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(role);
+
+    let names: string[];
+    if (isPriv) {
+      const rows = await this.dataSource.query(
+        `SELECT DISTINCT subject FROM teacher_stream_subjects WHERE tenant_id::text = $1`,
+        [tenantId],
+      ).catch(() => []);
+      names = rows.map((r: any) => r.subject);
+    } else {
+      const ownRows = await this.dataSource.query(
+        `SELECT DISTINCT subject FROM teacher_stream_subjects
+          WHERE tenant_id::text = $1 AND teacher_id::text = $2`,
+        [tenantId, teacherId],
+      ).catch(() => []);
+      // Class teacher of a stream may generate for any subject taught in that stream.
+      const classRows = await this.dataSource.query(
+        `SELECT DISTINCT tss.subject FROM teacher_stream_subjects tss
+           JOIN streams s ON s.id = tss.stream_id
+          WHERE s.tenant_id::text = $1 AND s.class_teacher_id::text = $2`,
+        [tenantId, teacherId],
+      ).catch(() => []);
+      names = Array.from(new Set([...ownRows, ...classRows].map((r: any) => r.subject)));
+    }
+    names = names.filter(Boolean);
+    if (!names.length) return [];
+
+    const result: SubjectCatalogue[] = [];
+    for (const name of names) {
+      let row = await this.subjectRepo.findOne({ where: { tenantId, name } });
+      if (!row) {
+        row = await this.subjectRepo.save(this.subjectRepo.create({
+          tenantId, schoolId, name, category: 'core', gradeBand: 'primary',
+        }));
+      }
+      result.push(row);
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name));
+  }
 
   // Public accessor so the controller can query for the pending-approvals dashboard
   // without reaching into a private repo field.

@@ -2,8 +2,6 @@ import {
   Controller, Get, Post, Patch, Body, Param,
   Query, UseGuards,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,7 +9,6 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
-import { SubjectCatalogue } from './entities';
 import {
   GenerateSchemeDto, GenerateLessonPlanDto, GenerateLessonNotesDto,
   RecordWorkCoveredDto, GenerateLearnerProgressDto, ReviewRecordDto,
@@ -26,14 +23,14 @@ export class ProfessionalRecordsController {
     private schemeService: SchemeService,
     private lessonPlanService: LessonPlanService,
     private recordsService: RecordsService,
-    @InjectRepository(SubjectCatalogue) private subjectRepo: Repository<SubjectCatalogue>,
   ) {}
 
-  // Subject picker for the "Generate" forms — every teacher-facing role may read this list.
+  // Subject picker for the "Generate" forms — scoped to what this user actually
+  // teaches (or, for HOI/admin, every subject taught anywhere in the school).
   @Get('subjects')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
   listSubjects(@CurrentUser() u: AuthUser) {
-    return this.subjectRepo.find({ where: { tenantId: u.tenantId, isActive: true }, order: { name: 'ASC' } });
+    return this.schemeService.listSubjectsForUser(u.tenantId, u.schoolId, u.id, u.role);
   }
 
   // ── SCHEMES OF WORK ───────────────────────────────────────
