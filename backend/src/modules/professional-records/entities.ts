@@ -251,6 +251,27 @@ export class TeacherDocument {
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
+@Entity('pr_purchases')
+export class PrPurchase {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ name: 'tenant_id' }) tenantId: string;
+  @Column({ name: 'teacher_id' }) teacherId: string;
+  @Column({ name: 'scheme_id', nullable: true }) schemeId: string | null;
+
+  @Column({ type: 'numeric', default: 50 }) amount: number;
+  @Column({ nullable: true }) phone: string;
+
+  @Column({ name: 'checkout_request_id', nullable: true }) checkoutRequestId: string;
+  @Column({ name: 'merchant_request_id', nullable: true }) merchantRequestId: string;
+  @Column({ name: 'mpesa_receipt_number', nullable: true }) mpesaReceiptNumber: string;
+
+  @Column({ default: 'pending' }) status: string;
+  @Column({ name: 'result_desc', type: 'text', nullable: true }) resultDesc: string;
+
+  @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
+}
+
 @Entity('professional_records_audit')
 export class PrAudit {
   @PrimaryGeneratedColumn('uuid') id: string;

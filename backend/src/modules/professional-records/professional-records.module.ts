@@ -2,23 +2,24 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   SchemeOfWork, SchemeWeek, LessonPlan, LessonNote, RecordOfWork,
-  LearnerProgressEntry, TeacherDocument, PrAudit, SubjectCatalogue,
+  LearnerProgressEntry, TeacherDocument, PrAudit, PrPurchase, SubjectCatalogue,
 } from './entities';
 import { Learner } from '../academic/academic.module';
 import { AiGeneratorService } from './ai-generator.service';
 import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
-import { ProfessionalRecordsController } from './professional-records.controller';
+import { PurchaseService } from './purchase.service';
+import { ProfessionalRecordsController, ProfessionalRecordsPaymentsController } from './professional-records.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       SchemeOfWork, SchemeWeek, LessonPlan, LessonNote, RecordOfWork,
-      LearnerProgressEntry, TeacherDocument, PrAudit, SubjectCatalogue, Learner,
+      LearnerProgressEntry, TeacherDocument, PrAudit, PrPurchase, SubjectCatalogue, Learner,
     ]),
   ],
-  controllers: [ProfessionalRecordsController],
-  providers: [AiGeneratorService, SchemeService, LessonPlanService, RecordsService],
+  controllers: [ProfessionalRecordsController, ProfessionalRecordsPaymentsController],
+  providers: [AiGeneratorService, SchemeService, LessonPlanService, RecordsService, PurchaseService],
 })
 export class ProfessionalRecordsModule {}

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } from './entities';
 import { AiGeneratorService } from './ai-generator.service';
+import { PurchaseService } from './purchase.service';
 import { GenerateSchemeDto, ReviewRecordDto } from './dto';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class SchemeService {
     @InjectRepository(PrAudit) private auditRepo: Repository<PrAudit>,
     @InjectRepository(SubjectCatalogue) private subjectRepo: Repository<SubjectCatalogue>,
     private aiGenerator: AiGeneratorService,
+    private purchaseService: PurchaseService,
     private dataSource: DataSource,
   ) {}
 
@@ -101,6 +103,12 @@ export class SchemeService {
   async generate(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
     await this.assertAssignedToTeach(tenantId, teacherId, role, dto.streamId, dto.subjectName);
 
+    // Pay-per-flow, not subscription: every generator (teachers, HOI, admin — no
+    // exemptions) must have an unconsumed paid M-Pesa purchase before we spend AI
+    // tokens generating anything. Re-checked atomically inside the transaction below
+    // to close the race between this pre-check and the actual consume.
+    this.purchaseService.assertPaid(await this.purchaseService.findConsumablePurchase(tenantId, teacherId));
+
     const existing = await this.schemeRepo.findOne({
       where: {
         tenantId, teacherId, streamId: dto.streamId, subjectId: dto.subjectId,
@@ -128,6 +136,9 @@ export class SchemeService {
     });
 
     return this.dataSource.transaction(async (manager) => {
+      const purchase = await this.purchaseService.findConsumablePurchase(tenantId, teacherId, manager);
+      this.purchaseService.assertPaid(purchase);
+
       const scheme = manager.create(SchemeOfWork, {
         tenantId, schoolId, teacherId,
         streamId: dto.streamId,
@@ -160,6 +171,8 @@ export class SchemeService {
           remarks: '',
         }));
       }
+
+      await this.purchaseService.markConsumed(purchase!.id, scheme.id, manager);
 
       return {
         schemeId: scheme.id,

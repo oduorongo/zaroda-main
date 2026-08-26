@@ -45,7 +45,9 @@ export default function ProfessionalRecordsPage() {
   const [form, setForm] = useState({
     streamId: '', subjectId: '', gradeLevel: 'grade_4',
     term: 'term_1', academicYear: '2025/2026', totalWeeks: 12, periodsPerWeek: 5,
+    phone: '',
   });
+  const [payStep, setPayStep] = useState<'form'|'waiting'>('form');
 
   useEffect(() => {
     if (!user) return;
@@ -98,12 +100,35 @@ export default function ProfessionalRecordsPage() {
   const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const generateScheme = async (e: React.FormEvent) => {
+  // Pay-per-flow: KES 50 via M-Pesa unlocks one Scheme of Work plus every lesson
+  // plan and lesson notes record generated from it. No subscription involved.
+  const payAndGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.streamId || !form.subjectId) { toast.error('Select a stream and subject.'); return; }
-    const subject = subjects.find((s: any) => s.id === form.subjectId);
+    if (!form.phone) { toast.error('Enter the M-Pesa phone number to pay with.'); return; }
+
     setGenerating(true);
     try {
+      const { data } = await apiClient.post('/professional-records/purchase/initiate', { phone: form.phone });
+      toast.success(data.message || 'Check your phone for the M-Pesa prompt.');
+      setPayStep('waiting');
+
+      const purchaseId = data.purchaseId;
+      let paid = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const { data: s } = await apiClient.get(`/professional-records/purchase/status/${purchaseId}`);
+        if (s.status === 'paid') { paid = true; break; }
+        if (s.status === 'failed') { toast.error('Payment failed or was cancelled.'); break; }
+      }
+      if (!paid) {
+        if (payStep === 'waiting') toast.error('Payment not confirmed in time. Please try again.');
+        setPayStep('form');
+        setGenerating(false);
+        return;
+      }
+
+      const subject = subjects.find((s: any) => s.id === form.subjectId);
       await apiClient.post('/professional-records/schemes/generate', {
         streamId: form.streamId,
         subjectId: form.subjectId,
@@ -114,10 +139,11 @@ export default function ProfessionalRecordsPage() {
         totalWeeks: Number(form.totalWeeks) || 12,
         periodsPerWeek: Number(form.periodsPerWeek) || 5,
       });
-      toast.success('Scheme of work generated! Review and submit when ready.');
+      toast.success('Payment confirmed — scheme of work generated! Review and submit when ready.');
       setShowNewScheme(false);
+      setPayStep('form');
       load();
-    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate scheme.'); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not complete payment/generation.'); }
     finally { setGenerating(false); }
   };
 
@@ -293,7 +319,7 @@ export default function ProfessionalRecordsPage() {
               </div>
               <button onClick={() => setShowNewScheme(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
-            <form onSubmit={generateScheme} className="p-5 space-y-4">
+            <form onSubmit={payAndGenerate} className="p-5 space-y-4">
               <div>
                 <label className="label">Stream / Class *</label>
                 <select required value={form.streamId}
@@ -346,14 +372,28 @@ export default function ProfessionalRecordsPage() {
                   <input type="number" min={1} max={10} value={form.periodsPerWeek} onChange={set('periodsPerWeek')} className="input"/>
                 </div>
               </div>
+              <div>
+                <label className="label">M-Pesa Phone Number *</label>
+                <input required type="tel" placeholder="07XXXXXXXX" value={form.phone}
+                  onChange={set('phone')} className="input" disabled={payStep === 'waiting'}/>
+              </div>
               <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
                 <Sparkles size={12} className="inline mr-1"/>
-                AI will generate all strands, sub-strands, SLOs, Key Inquiry Questions, and learning activities for every week. Takes 15–30 seconds.
+                KES 50 via M-Pesa unlocks this Scheme of Work plus every lesson plan and lesson
+                notes record you generate from it — no subscription, pay once per scheme.
               </div>
+              {payStep === 'waiting' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin flex-shrink-0"/>
+                  Waiting for M-Pesa confirmation on your phone…
+                </div>
+              )}
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowNewScheme(false)} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={generating} className="btn-primary flex-1">
-                  {generating ? <><Loader2 size={14} className="animate-spin"/> Generating…</> : <><Sparkles size={14}/> Generate</>}
+                  {generating
+                    ? <><Loader2 size={14} className="animate-spin"/> {payStep === 'waiting' ? 'Confirming payment…' : 'Starting payment…'}</>
+                    : <><Sparkles size={14}/> Pay KES 50 &amp; Generate</>}
                 </button>
               </div>
             </form>

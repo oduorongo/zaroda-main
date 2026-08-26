@@ -9,12 +9,15 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
+import { PurchaseService } from './purchase.service';
 import {
   GenerateSchemeDto, GenerateLessonPlanDto, GenerateLessonNotesDto,
   RecordWorkCoveredDto, GenerateLearnerProgressDto, ReviewRecordDto,
 } from './dto';
 
 type AuthUser = { id: string; tenantId: string; schoolId?: string; role: string };
+
+const ALL_GENERATOR_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner'];
 
 @Controller('professional-records')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,6 +26,7 @@ export class ProfessionalRecordsController {
     private schemeService: SchemeService,
     private lessonPlanService: LessonPlanService,
     private recordsService: RecordsService,
+    private purchaseService: PurchaseService,
   ) {}
 
   // Subject picker for the "Generate" forms — scoped to what this user actually
@@ -31,6 +35,21 @@ export class ProfessionalRecordsController {
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
   listSubjects(@CurrentUser() u: AuthUser) {
     return this.schemeService.listSubjectsForUser(u.tenantId, u.schoolId, u.id, u.role);
+  }
+
+  // ── PAY-PER-FLOW PURCHASE (M-Pesa) ────────────────────────
+  // One payment unlocks one Scheme of Work plus every lesson plan and lesson
+  // notes record generated from it. No exemptions — everyone who generates pays.
+  @Post('purchase/initiate')
+  @Roles(...ALL_GENERATOR_ROLES)
+  initiatePurchase(@CurrentUser() u: AuthUser, @Body('phone') phone: string) {
+    return this.purchaseService.initiate(u.tenantId, u.id, phone);
+  }
+
+  @Get('purchase/status/:id')
+  @Roles(...ALL_GENERATOR_ROLES)
+  getPurchaseStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    return this.purchaseService.getStatus(u.tenantId, u.id, id);
   }
 
   // ── SCHEMES OF WORK ───────────────────────────────────────
@@ -171,5 +190,18 @@ export class ProfessionalRecordsController {
       lessonNotes: notes,
       total: schemes.length + plans.length + notes.length,
     };
+  }
+}
+
+// Safaricom calls this directly — it carries no JWT, so it lives on its own
+// unguarded controller rather than inside the guarded one above.
+@Controller('professional-records')
+export class ProfessionalRecordsPaymentsController {
+  constructor(private purchaseService: PurchaseService) {}
+
+  @Post('mpesa/callback')
+  async mpesaCallback(@Body() body: any) {
+    await this.purchaseService.handleCallback(body);
+    return { ResultCode: 0, ResultDesc: 'Accepted' };
   }
 }
