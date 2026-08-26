@@ -138,7 +138,6 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <h3 className="font-bold text-[#1a2e5a]">{m.title}</h3>
-                  {m.badge && <span className="text-[9px] font-black bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{m.badge}</span>}
                 </div>
                 <p className="text-sm text-[#7a82a8] leading-relaxed">{m.desc}</p>
               </div>
@@ -219,8 +218,6 @@ export default function HomePage() {
 
         <div className="text-center mt-8 text-sm text-[#7a82a8]">
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Free all of 2026</span>
-          <span className="mx-3">·</span>
-          <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Library always free</span>
           <span className="mx-3">·</span>
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> ZARODA Sports always free</span>
         </div>
