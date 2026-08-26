@@ -14,7 +14,7 @@ const MODULES = [
   { icon: DollarSign,    title: 'Finance & Fees',       desc: 'M-Pesa STK push collection, auto-reconciliation, FPE/FDJSE/FDSSE fund tracking, and payroll with statutory deductions.', color: 'bg-green-600' },
   { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600' },
   { icon: MessageSquare, title: 'Communication',        desc: 'SMS via Africa\'s Talking, email, WhatsApp, and push notifications. Personalised bulk fee reminders to parents.', color: 'bg-blue-600' },
-  { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns. Completely free — no fines, ever.', color: 'bg-cyan-600', badge: 'FREE' },
+  { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns.', color: 'bg-cyan-600' },
   { icon: Trophy,        title: 'Sports & Championships', desc: 'School teams, AI talent analytics, and a bridge to ZARODA Sports for cross-school championships — free.', color: 'bg-amber-500' },
   { icon: Scale,         title: 'Discipline & Guidance', desc: 'Incident recording, confidential counselling, behaviour assessments, and QASO-ready reports.', color: 'bg-red-500' },
   { icon: Zap,           title: 'Easy Self-Onboarding', desc: 'No IT team needed — a class teacher can onboard a single stream and start enjoying the service in minutes. The rest of the school follows at its own pace.', color: 'bg-[#f5820a]' },
