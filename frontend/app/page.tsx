@@ -12,8 +12,7 @@ const MODULES = [
   { icon: BookOpen,      title: 'Academic Core',        desc: 'Teachers enter marks online — mark lists and CBC report cards generate automatically, with real-time analytics. Learners, streams, attendance, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
   { icon: PlayCircle,    title: 'Rubric Learning Videos', desc: 'Selected CBC sub-strands in the digital assessment books link to matching learning videos — accessed from the assessment books themselves — giving teachers and learners targeted teaching and learning materials.', color: 'bg-rose-600' },
   { icon: DollarSign,    title: 'Finance & Fees',       desc: 'M-Pesa STK push collection, auto-reconciliation, FPE/FDJSE/FDSSE fund tracking, and payroll with statutory deductions.', color: 'bg-green-600' },
-  { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600',
-    ribbon: { label: 'GENERATE MY PROFESSIONAL RECORDS USING ZARODA AI', href: '/auth/signup-individual' } },
+  { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600' },
   { icon: MessageSquare, title: 'Communication',        desc: 'SMS via Africa\'s Talking, email, WhatsApp, and push notifications. Personalised bulk fee reminders to parents.', color: 'bg-blue-600' },
   { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns.', color: 'bg-cyan-600' },
   { icon: Trophy,        title: 'Sports & Championships', desc: 'School teams, AI talent analytics, and a bridge to ZARODA Sports for cross-school championships — free.', color: 'bg-amber-500' },
@@ -79,11 +78,17 @@ export default function HomePage() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-[#d4af37]/10 rounded-full blur-3xl -translate-y-20 translate-x-20"/>
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#243f7a]/40 rounded-full blur-3xl translate-y-20"/>
         <div className="relative max-w-6xl mx-auto px-4 py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-4 py-1.5 text-xs font-medium mb-6">
-            <span className="w-1.5 h-1.5 bg-[#d4af37] rounded-full"/> Made in Kenya for Kenyan schools
-          </div>
-          <div className="inline-flex items-center gap-2 bg-[#d4af37]/15 border border-[#d4af37]/40 text-[#d4af37] text-sm font-bold px-4 py-1.5 rounded-full mb-6">
-            🎉 FREE for all of 2026 — subscription begins 15 Jan 2027
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
+            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-4 py-1.5 text-xs font-medium">
+              <span className="w-1.5 h-1.5 bg-[#d4af37] rounded-full"/> Made in Kenya for Kenyan schools
+            </div>
+            <div className="inline-flex items-center gap-2 bg-[#d4af37]/15 border border-[#d4af37]/40 text-[#d4af37] text-sm font-bold px-4 py-1.5 rounded-full">
+              🎉 FREE for all of 2026 — subscription begins 15 Jan 2027
+            </div>
+            <Link href="/auth/signup-individual"
+              className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-purple-500/25 transition-colors">
+              <Sparkles size={12}/> GENERATE MY PROFESSIONAL RECORDS USING ZARODA AI
+            </Link>
           </div>
           <h1 className="text-4xl md:text-6xl font-black leading-tight max-w-3xl mx-auto">
             Run your entire school from <span className="text-[#d4af37]">one platform</span>
@@ -100,9 +105,6 @@ export default function HomePage() {
             </Link>
           </div>
           <p className="text-white/35 text-xs mt-4">No credit card required · Set up in minutes</p>
-          <p className="text-white/40 text-xs mt-3">
-            Not signing up your school? <Link href="/auth/signup-individual" className="text-[#d4af37] font-semibold hover:underline">Use Professional Records on your own →</Link>
-          </p>
 
           {/* Trust strip */}
           <div className="flex flex-wrap justify-center gap-x-10 gap-y-4 mt-14 pt-10 border-t border-white/10">
@@ -136,13 +138,7 @@ export default function HomePage() {
           {MODULES.map(m => {
             const Icon = m.icon;
             return (
-              <div key={m.title} className="card p-6 hover:shadow-md hover:-translate-y-1 transition-all relative overflow-hidden">
-                {(m as any).ribbon && (
-                  <Link href={(m as any).ribbon.href}
-                    className="absolute top-4 -right-11 w-48 rotate-45 bg-[#d4af37] text-[#0f1c38] text-center text-[7px] leading-tight font-black uppercase tracking-wide py-1.5 px-1 shadow-md hover:bg-[#f0d060] transition-colors">
-                    {(m as any).ribbon.label}
-                  </Link>
-                )}
+              <div key={m.title} className="card p-6 hover:shadow-md hover:-translate-y-1 transition-all">
                 <div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center mb-4`}>
                   <Icon size={22} className="text-white"/>
                 </div>
