@@ -14,6 +14,10 @@ export default function OwnerDashboard() {
   const [schools, setSchools] = useState<any[]>([]);
   const [search, setSearch]   = useState('');
   const [ownershipFilter, setOwnershipFilter] = useState<''|'public'|'private'>('');
+  // Real onboarded schools vs one-person tenants auto-provisioned for teachers
+  // using Professional Records without a school account — kept as fully
+  // separate lists rather than mixed rows in one table.
+  const [accountType, setAccountType] = useState<'school'|'individual'>('school');
   const [loading, setLoading] = useState(true);
   const [detail, setDetail]   = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -89,13 +93,15 @@ export default function OwnerDashboard() {
     setLoading(true);
     Promise.all([
       apiClient.get('/admin/stats').catch(() => ({ data: {} })),
-      apiClient.get('/admin/tenants', { params: { search, ownership: ownershipFilter || undefined } }).catch(() => ({ data: { data: [] } })),
+      apiClient.get('/admin/tenants', {
+        params: { search, ownership: ownershipFilter || undefined, accountType },
+      }).catch(() => ({ data: { data: [] } })),
     ]).then(([s, t]) => {
       setStats(s.data || {});
       setSchools(t.data?.data || []);
     }).finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [ownershipFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [ownershipFilter, accountType]);
 
   const openSchool = async (id: string) => {
     setDetailLoading(true); setDetail({ id });
@@ -147,7 +153,9 @@ export default function OwnerDashboard() {
               ))}
             </div>
 
-            {/* Charts: school status + subscription tier + category breakdown */}
+            {/* Charts: school status + subscription tier + category breakdown — meaningless
+                for individual accounts (always the same tier/category), so schools-only. */}
+            {accountType === 'school' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <div className="card p-4">
                 <div className="text-xs text-theme-muted font-medium uppercase tracking-wide mb-3">Schools by status</div>
@@ -228,8 +236,25 @@ export default function OwnerDashboard() {
                 })()}
               </div>
             </div>
+            )}
 
             <div className="card p-4">
+              <div className="flex items-center gap-3 mb-3 flex-wrap">
+                <div className="flex gap-1 bg-surface-2 rounded-xl p-1">
+                  {([
+                    ['school', 'Schools'],
+                    ['individual', 'Individual Accounts'],
+                  ] as const).map(([k, l]) => (
+                    <button key={k} onClick={() => setAccountType(k)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${accountType === k ? 'bg-surface shadow-sm text-theme-heading' : 'text-theme-muted hover:text-theme-heading'}`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-theme-muted">
+                  {accountType === 'school' ? 'Real onboarded schools.' : 'Teachers using Professional Records without a school account.'}
+                </span>
+              </div>
               <div className="flex items-center gap-2 mb-3">
                 <div className="relative flex-1">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted"/>
@@ -239,11 +264,13 @@ export default function OwnerDashboard() {
                     placeholder="Search schools by name…"
                     className="input pl-9 w-full"/>
                 </div>
-                <select value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value as any)} className="input w-40">
-                  <option value="">All ownership</option>
-                  <option value="public">Public only</option>
-                  <option value="private">Private only</option>
-                </select>
+                {accountType === 'school' && (
+                  <select value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value as any)} className="input w-40">
+                    <option value="">All ownership</option>
+                    <option value="public">Public only</option>
+                    <option value="private">Private only</option>
+                  </select>
+                )}
                 <button onClick={load} className="btn-primary">Search</button>
               </div>
 
@@ -251,30 +278,30 @@ export default function OwnerDashboard() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-theme-muted border-b border-theme">
-                      <th className="py-2 pr-3 font-medium">School</th>
-                      <th className="py-2 pr-3 font-medium">Ownership</th>
-                      <th className="py-2 pr-3 font-medium">Category</th>
+                      <th className="py-2 pr-3 font-medium">{accountType === 'school' ? 'School' : 'Teacher'}</th>
+                      {accountType === 'school' && <th className="py-2 pr-3 font-medium">Ownership</th>}
+                      {accountType === 'school' && <th className="py-2 pr-3 font-medium">Category</th>}
                       <th className="py-2 pr-3 font-medium">Status</th>
-                      <th className="py-2 pr-3 font-medium">Tier</th>
+                      {accountType === 'school' && <th className="py-2 pr-3 font-medium">Tier</th>}
                       <th className="py-2 pr-3 font-medium">Learners</th>
                       <th className="py-2 pr-3 font-medium">Users</th>
-                      <th className="py-2 pr-3 font-medium">County</th>
+                      <th className="py-2 pr-3 font-medium">{accountType === 'school' ? 'County' : 'Email'}</th>
                       <th className="py-2"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {schools.length === 0 ? (
-                      <tr><td colSpan={9} className="py-8 text-center text-theme-muted">No schools found</td></tr>
+                      <tr><td colSpan={accountType === 'school' ? 9 : 6} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
                     ) : schools.map((s: any) => (
                       <tr key={s.id} className="border-b border-theme/50 hover:bg-surface-2 cursor-pointer" onClick={() => openSchool(s.id)}>
                         <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
-                        <td className="py-2.5 pr-3 capitalize">{s.ownership || 'public'}</td>
-                        <td className="py-2.5 pr-3">{s.category || 'Public'}</td>
+                        {accountType === 'school' && <td className="py-2.5 pr-3 capitalize">{s.ownership || 'public'}</td>}
+                        {accountType === 'school' && <td className="py-2.5 pr-3">{s.category || 'Public'}</td>}
                         <td className="py-2.5 pr-3"><span className={`badge ${statusBadge(s.status)}`}>{s.status}</span></td>
-                        <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>
+                        {accountType === 'school' && <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>}
                         <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
                         <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>
-                        <td className="py-2.5 pr-3 text-theme-muted">{s.county || '—'}</td>
+                        <td className="py-2.5 pr-3 text-theme-muted">{accountType === 'school' ? (s.county || '—') : (s.email || s.adminEmail || '—')}</td>
                         <td className="py-2.5 text-theme-muted"><ChevronRight size={16}/></td>
                       </tr>
                     ))}
