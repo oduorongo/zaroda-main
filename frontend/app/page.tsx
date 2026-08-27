@@ -12,7 +12,8 @@ const MODULES = [
   { icon: BookOpen,      title: 'Academic Core',        desc: 'Teachers enter marks online — mark lists and CBC report cards generate automatically, with real-time analytics. Learners, streams, attendance, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
   { icon: PlayCircle,    title: 'Rubric Learning Videos', desc: 'Selected CBC sub-strands in the digital assessment books link to matching learning videos — accessed from the assessment books themselves — giving teachers and learners targeted teaching and learning materials.', color: 'bg-rose-600' },
   { icon: DollarSign,    title: 'Finance & Fees',       desc: 'M-Pesa STK push collection, auto-reconciliation, FPE/FDJSE/FDSSE fund tracking, and payroll with statutory deductions.', color: 'bg-green-600' },
-  { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600' },
+  { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600',
+    ribbon: { label: 'GENERATE MY PROFESSIONAL RECORDS USING ZARODA AI', href: '/auth/signup-individual' } },
   { icon: MessageSquare, title: 'Communication',        desc: 'SMS via Africa\'s Talking, email, WhatsApp, and push notifications. Personalised bulk fee reminders to parents.', color: 'bg-blue-600' },
   { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns.', color: 'bg-cyan-600' },
   { icon: Trophy,        title: 'Sports & Championships', desc: 'School teams, AI talent analytics, and a bridge to ZARODA Sports for cross-school championships — free.', color: 'bg-amber-500' },
@@ -135,7 +136,13 @@ export default function HomePage() {
           {MODULES.map(m => {
             const Icon = m.icon;
             return (
-              <div key={m.title} className="card p-6 hover:shadow-md hover:-translate-y-1 transition-all">
+              <div key={m.title} className="card p-6 hover:shadow-md hover:-translate-y-1 transition-all relative overflow-hidden">
+                {(m as any).ribbon && (
+                  <Link href={(m as any).ribbon.href}
+                    className="absolute top-4 -right-11 w-48 rotate-45 bg-[#d4af37] text-[#0f1c38] text-center text-[7px] leading-tight font-black uppercase tracking-wide py-1.5 px-1 shadow-md hover:bg-[#f0d060] transition-colors">
+                    {(m as any).ribbon.label}
+                  </Link>
+                )}
                 <div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center mb-4`}>
                   <Icon size={22} className="text-white"/>
                 </div>
