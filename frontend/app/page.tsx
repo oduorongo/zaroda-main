@@ -87,7 +87,7 @@ export default function HomePage() {
             </div>
             <Link href="/auth/signup-individual"
               className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-purple-500/25 transition-colors">
-              <Sparkles size={12}/> GENERATE MY PROFESSIONAL RECORDS USING ZARODA AI
+              <Sparkles size={12}/> GENERATE MY PROFESSIONAL RECORDS USING ZARODA AI — WITHOUT SCHOOL SIGNUP
             </Link>
           </div>
           <h1 className="text-4xl md:text-6xl font-black leading-tight max-w-3xl mx-auto">
