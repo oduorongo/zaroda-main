@@ -14,6 +14,16 @@ export class GenerateSchemeDto {
   @IsOptional() @IsNumber() periodsPerWeek?: number;
   @IsOptional() @IsString() schoolContext?: string;
   @IsOptional() @IsArray()  strandFocus?: string[];
+
+  // Document header fields — printed on the generated scheme, not used for AI generation.
+  @IsOptional() @IsString() schoolName?: string;
+  @IsOptional() @IsString() teacherName?: string;
+  @IsOptional() @IsString() tscNumber?: string;
+  @IsOptional() @IsString() signOffLine?: string;
+  @IsOptional() @IsString() curriculumEdition?: string;
+  @IsOptional() @IsNumber() startWeek?: number;
+  @IsOptional() @IsArray()  columns?: string[];
+  @IsOptional() @IsString() defaultFont?: string;
 }
 
 export class GenerateLessonPlanDto {

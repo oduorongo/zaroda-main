@@ -123,6 +123,10 @@ export class SchemeService {
 
     const totalWeeks = dto.totalWeeks || 12;
     const periodsPerWeek = dto.periodsPerWeek || 5;
+    const startWeek = dto.startWeek || 1;
+    const columns = dto.columns?.length
+      ? dto.columns
+      : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection'];
 
     const { weeks, title, tokens } = await this.aiGenerator.generateSchemeOfWork({
       subjectName: dto.subjectName,
@@ -133,6 +137,7 @@ export class SchemeService {
       periodsPerWeek,
       schoolContext: dto.schoolContext,
       strandFocus: dto.strandFocus,
+      columns,
     });
 
     return this.dataSource.transaction(async (manager) => {
@@ -151,14 +156,22 @@ export class SchemeService {
         aiModel: 'claude-sonnet-4-20250514',
         generationTokens: tokens,
         status: 'draft',
+        schoolName: dto.schoolName,
+        teacherName: dto.teacherName,
+        tscNumber: dto.tscNumber,
+        signOffLine: dto.signOffLine || 'Checked by D.H.O.I.',
+        curriculumEdition: dto.curriculumEdition,
+        startWeek,
+        columns,
+        defaultFont: dto.defaultFont || 'Times New Roman',
       });
       await manager.save(SchemeOfWork, scheme);
 
-      for (const w of weeks) {
+      for (const [i, w] of weeks.entries()) {
         await manager.save(SchemeWeek, manager.create(SchemeWeek, {
           tenantId,
           schemeId: scheme.id,
-          weekNumber: w.weekNumber,
+          weekNumber: startWeek + i,
           dates: w.dates,
           strand: w.strand,
           subStrand: w.subStrand,
@@ -167,6 +180,10 @@ export class SchemeService {
           learningExperiences: w.learningExperiences,
           learningResources: w.learningResources,
           assessmentMethods: w.assessmentMethods,
+          reflectionNotes: w.reflectionNotes,
+          coreCompetencies: w.coreCompetencies,
+          values: w.values,
+          pertinentIssues: w.pertinentIssues,
           periods: w.periods || periodsPerWeek,
           remarks: '',
         }));
@@ -192,6 +209,66 @@ export class SchemeService {
     });
     if (!scheme) throw new NotFoundException('Scheme of work not found');
     return scheme;
+  }
+
+  // ── RENDER PRINTABLE DOCUMENT ──────────────────────────────
+  // Honors the columns selected at generation time and an optional font override
+  // (falls back to the scheme's own default). Used for both the browser
+  // print-to-PDF flow and the Word (.doc) download — same HTML either way.
+  async renderHtml(tenantId: string, schemeId: string, fontOverride?: string): Promise<string> {
+    const scheme = await this.findOne(tenantId, schemeId);
+    const weeks = [...(scheme.weeks || [])].sort((a, b) => a.weekNumber - b.weekNumber);
+    const cols = new Set(scheme.columns?.length ? scheme.columns : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection']);
+    const font = fontOverride || scheme.defaultFont || 'Times New Roman';
+    const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const grade = String(scheme.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const term = String(scheme.term || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+    const headCols: string[] = ['Wk', 'Dates', 'Strand', 'Sub-Strand', 'SLOs'];
+    if (cols.has('keyInquiry')) headCols.push('Key Inquiry Questions');
+    if (cols.has('learningExperiences')) headCols.push('Learning Experiences');
+    if (cols.has('resources')) headCols.push('Resources');
+    if (cols.has('assessment')) headCols.push('Assessment');
+    if (cols.has('corePV')) headCols.push('Core Competencies / Values / PCIs');
+    if (cols.has('reflection')) headCols.push('Reflection');
+
+    const rows = weeks.map((w) => {
+      const cells: string[] = [
+        String(w.weekNumber), esc(w.dates), esc(w.strand), esc(w.subStrand), esc(w.specificLearningOutcomes),
+      ];
+      if (cols.has('keyInquiry')) cells.push(esc(w.keyInquiryQuestions));
+      if (cols.has('learningExperiences')) cells.push(esc(w.learningExperiences));
+      if (cols.has('resources')) cells.push(esc(w.learningResources));
+      if (cols.has('assessment')) cells.push(esc(w.assessmentMethods));
+      if (cols.has('corePV')) cells.push(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | ')));
+      if (cols.has('reflection')) cells.push(esc(w.reflectionNotes));
+      return `<tr>${cells.map((c) => `<td style="border:1px solid #999;padding:6px;vertical-align:top;font-size:11px;white-space:pre-wrap">${c}</td>`).join('')}</tr>`;
+    }).join('');
+
+    return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${esc(scheme.title)}</title>
+<style>
+  body{font-family:'${esc(font)}',serif;margin:24px;color:#111}
+  h1{font-size:18px;text-align:center;margin:0 0 4px}
+  .meta{font-size:12px;margin-bottom:14px}
+  .meta div{margin-bottom:2px}
+  table{border-collapse:collapse;width:100%}
+  th{border:1px solid #999;padding:6px;font-size:11px;background:#f0f0f0;text-align:left}
+  .sig{margin-top:36px;font-size:12px;display:flex;justify-content:space-between}
+  @media print{@page{size:landscape;margin:12mm}}
+</style></head>
+<body onload="window.print && window.print()">
+  <h1>${esc(scheme.title)}</h1>
+  <div class="meta">
+    <div><b>School:</b> ${esc(scheme.schoolName || '')} &nbsp; <b>Teacher:</b> ${esc(scheme.teacherName || '')} ${scheme.tscNumber ? `&nbsp; <b>TSC No:</b> ${esc(scheme.tscNumber)}` : ''}</div>
+    <div><b>Grade:</b> ${esc(grade)} &nbsp; <b>Term:</b> ${esc(term)} &nbsp; <b>Year:</b> ${esc(scheme.academicYear)} ${scheme.curriculumEdition ? `&nbsp; <b>Curriculum:</b> ${esc(scheme.curriculumEdition)}` : ''}</div>
+  </div>
+  <table><thead><tr>${headCols.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+  <div class="sig">
+    <div>Prepared by: ${esc(scheme.teacherName || '_______________________')}</div>
+    <div>${esc(scheme.signOffLine || 'Checked by D.H.O.I.')}: _______________________</div>
+  </div>
+</body></html>`;
   }
 
   // ── LIST (for teacher or admin) ────────────────────────────

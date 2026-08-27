@@ -52,6 +52,17 @@ export class SchemeOfWork {
   @Column({ name: 'pdf_url', nullable: true }) pdfUrl: string;
   @Column({ name: 'docx_url', nullable: true }) docxUrl: string;
 
+  // Document header / export preferences — not used for AI generation, only for
+  // rendering the printable scheme (GET schemes/:id/html).
+  @Column({ name: 'school_name', nullable: true }) schoolName: string;
+  @Column({ name: 'teacher_name', nullable: true }) teacherName: string;
+  @Column({ name: 'tsc_number', nullable: true }) tscNumber: string;
+  @Column({ name: 'sign_off_line', nullable: true, default: 'Checked by D.H.O.I.' }) signOffLine: string;
+  @Column({ name: 'curriculum_edition', nullable: true }) curriculumEdition: string;
+  @Column({ name: 'start_week', default: 1 }) startWeek: number;
+  @Column({ type: 'text', array: true, nullable: true }) columns: string[];
+  @Column({ name: 'default_font', nullable: true, default: 'Times New Roman' }) defaultFont: string;
+
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
   @Column({ name: 'deleted_at', nullable: true }) deletedAt: Date;
@@ -76,6 +87,9 @@ export class SchemeWeek {
   @Column({ name: 'learning_resources', type: 'text', nullable: true }) learningResources: string;
   @Column({ name: 'assessment_methods', type: 'text', nullable: true }) assessmentMethods: string;
   @Column({ name: 'reflection_notes', type: 'text', nullable: true }) reflectionNotes: string;
+  @Column({ name: 'core_competencies', type: 'text', array: true, nullable: true }) coreCompetencies: string[];
+  @Column({ type: 'text', array: true, nullable: true }) values: string[];
+  @Column({ name: 'pertinent_issues', type: 'text', nullable: true }) pertinentIssues: string;
   @Column({ default: 5 }) periods: number;
   @Column({ type: 'text', nullable: true }) remarks: string;
 

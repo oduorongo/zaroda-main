@@ -43,15 +43,24 @@ export default function ProfessionalRecordsPage() {
   const [generating, setGenerating] = useState(false);
 
   const [form, setForm] = useState({
-    streamId: '', subjectId: '', gradeLevel: 'grade_4',
-    term: 'term_1', academicYear: '2025/2026', totalWeeks: 12, periodsPerWeek: 5,
-    phone: '',
+    schoolName: '', teacherName: '', tscNumber: '', signOffLine: 'Checked by D.H.O.I.',
+    streamId: '', subjectId: '', gradeLevel: 'grade_4', curriculumEdition: '',
+    term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5,
+    strands: '', notes: '', phone: '',
+    columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
+    format: 'preview' as 'pdf' | 'doc' | 'preview',
+    font: 'Times New Roman',
   });
   const [payStep, setPayStep] = useState<'form'|'waiting'>('form');
 
   useEffect(() => {
     if (!user) return;
+    setForm(f => ({ ...f, teacherName: f.teacherName || `${user.firstName || ''} ${user.lastName || ''}`.trim() }));
     apiClient.get('/professional-records/subjects').then(r => setSubjects(r.data || [])).catch(() => setSubjects([]));
+    apiClient.get('/schools/settings').then(r => {
+      const name = r.data?.schoolName;
+      if (name) setForm(f => ({ ...f, schoolName: f.schoolName || name }));
+    }).catch(() => {});
     Promise.all([
       apiClient.get('/academic/streams').catch(() => ({ data: [] })),
       teacher ? apiClient.get(`/academic/teachers/${user.id}/stream-subjects`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
@@ -97,8 +106,36 @@ export default function ProfessionalRecordsPage() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) =>
+  const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
+  const toggleColumn = (k: keyof typeof form.columns) =>
+    setForm(f => ({ ...f, columns: { ...f.columns, [k]: !f.columns[k] } }));
+
+  // Opens the printable scheme document — 'preview' just drills into the in-app
+  // detail view (already a live preview), 'pdf' opens a print-ready tab, 'doc'
+  // triggers a Word (.doc) download. Same server-rendered HTML underneath.
+  const exportScheme = async (schemeId: string, format: 'pdf' | 'doc' | 'preview', font: string) => {
+    if (format === 'preview') { openSchemeDetail(schemeId); return; }
+    try {
+      if (format === 'doc') {
+        const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, {
+          params: { font, download: 'doc' }, responseType: 'blob',
+        });
+        const blob = new Blob([res.data], { type: 'application/msword' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `scheme-of-work-${schemeId}.doc`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } else {
+        const win = window.open('', '_blank');
+        const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, { params: { font }, responseType: 'text' });
+        const html = typeof res.data === 'string' ? res.data : String(res.data);
+        if (win) { win.document.write(html); win.document.close(); }
+        else toast.error('Please allow pop-ups to open the print view.');
+      }
+    } catch { toast.error('Could not open the document.'); }
+  };
 
   // Pay-per-flow: KES 50 via M-Pesa unlocks one Scheme of Work plus every lesson
   // plan and lesson notes record generated from it. No subscription involved.
@@ -129,20 +166,32 @@ export default function ProfessionalRecordsPage() {
       }
 
       const subject = subjects.find((s: any) => s.id === form.subjectId);
-      await apiClient.post('/professional-records/schemes/generate', {
+      const selectedColumns = Object.entries(form.columns).filter(([, on]) => on).map(([k]) => k);
+      const { data: gen } = await apiClient.post('/professional-records/schemes/generate', {
         streamId: form.streamId,
         subjectId: form.subjectId,
         subjectName: subject?.name || 'Subject',
         gradeLevel: form.gradeLevel,
         academicYear: form.academicYear,
         term: form.term,
+        startWeek: Number(form.startWeek) || 1,
         totalWeeks: Number(form.totalWeeks) || 12,
         periodsPerWeek: Number(form.periodsPerWeek) || 5,
+        strandFocus: form.strands.split('\n').map(s => s.trim()).filter(Boolean),
+        schoolContext: form.notes || undefined,
+        schoolName: form.schoolName || undefined,
+        teacherName: form.teacherName || undefined,
+        tscNumber: form.tscNumber || undefined,
+        signOffLine: form.signOffLine || undefined,
+        curriculumEdition: form.curriculumEdition || undefined,
+        columns: selectedColumns,
+        defaultFont: form.font,
       });
       toast.success('Payment confirmed — scheme of work generated! Review and submit when ready.');
       setShowNewScheme(false);
       setPayStep('form');
       load();
+      if (gen?.schemeId) exportScheme(gen.schemeId, form.format, form.font);
     } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not complete payment/generation.'); }
     finally { setGenerating(false); }
   };
@@ -230,6 +279,7 @@ export default function ProfessionalRecordsPage() {
           onSubmit={() => submitScheme(openScheme.id)}
           onReview={(a: any) => reviewScheme(openScheme.id, a)}
           onGenerateLessonPlan={generateLessonPlan}
+          onExport={(format: 'pdf' | 'doc' | 'preview', font: string) => exportScheme(openScheme.id, format, font)}
         />
       ) : tab === 'schemes' ? (
         schemes.length === 0 ? (
@@ -310,68 +360,156 @@ export default function ProfessionalRecordsPage() {
 
       {/* Generate Scheme Modal */}
       {showNewScheme && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8">
             <div className="flex items-center justify-between p-5 border-b border-theme">
               <div>
                 <h3 className="text-lg font-bold text-theme-heading">Generate Scheme of Work</h3>
-                <p className="text-xs text-theme-muted mt-0.5">ZARODA will generate a full KICD-aligned scheme</p>
+                <p className="text-xs text-theme-muted mt-0.5">KICD-aligned CBC scheme, term-by-term</p>
               </div>
               <button onClick={() => setShowNewScheme(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
-            <form onSubmit={payAndGenerate} className="p-5 space-y-4">
-              <div>
-                <label className="label">Stream / Class *</label>
-                <select required value={form.streamId}
-                  onChange={(e) => setForm(f => ({ ...f, streamId: e.target.value, subjectId: '' }))}
-                  className="input">
-                  <option value="">Select a stream…</option>
-                  {streams.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Subject *</label>
-                <select required value={form.subjectId} onChange={set('subjectId')} className="input" disabled={!form.streamId}>
-                  <option value="">{form.streamId ? 'Select a subject…' : 'Select a stream first…'}</option>
-                  {availableSubjects.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                {form.streamId && availableSubjects.length === 0 && (
-                  <p className="text-xs text-red-600 mt-1">You are not assigned to teach any subject for this class.</p>
-                )}
-              </div>
-              <div>
-                <label className="label">Grade Level *</label>
-                <select required value={form.gradeLevel} onChange={set('gradeLevel')} className="input">
-                  {GRADES.map(g => <option key={g} value={g}>{gradeLabel(g)}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Term</label>
-                  <select value={form.term} onChange={set('term')} className="input">
-                    <option value="term_1">Term 1</option>
-                    <option value="term_2">Term 2</option>
-                    <option value="term_3">Term 3</option>
-                  </select>
+            <form onSubmit={payAndGenerate} className="p-5 space-y-6">
+
+              <fieldset className="space-y-3">
+                <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Document header</legend>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">School</label>
+                    <input value={form.schoolName} onChange={set('schoolName')} className="input"/>
+                  </div>
+                  <div>
+                    <label className="label">Teacher</label>
+                    <input value={form.teacherName} onChange={set('teacherName')} className="input" placeholder="Full name as it appears on the record"/>
+                  </div>
+                  <div>
+                    <label className="label">TSC number</label>
+                    <input value={form.tscNumber} onChange={set('tscNumber')} className="input" placeholder="Optional"/>
+                  </div>
+                  <div>
+                    <label className="label">Sign-off line</label>
+                    <input value={form.signOffLine} onChange={set('signOffLine')} className="input"/>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset className="space-y-3">
+                <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Class and learning area</legend>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Stream / Class *</label>
+                    <select required value={form.streamId}
+                      onChange={(e) => setForm(f => ({ ...f, streamId: e.target.value, subjectId: '' }))}
+                      className="input">
+                      <option value="">Select a stream…</option>
+                      {streams.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Learning area *</label>
+                    <select required value={form.subjectId} onChange={set('subjectId')} className="input" disabled={!form.streamId}>
+                      <option value="">{form.streamId ? 'Select a subject…' : 'Select a stream first…'}</option>
+                      {availableSubjects.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    {form.streamId && availableSubjects.length === 0 && (
+                      <p className="text-xs text-red-600 mt-1">You are not assigned to teach any subject for this class.</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="label">Grade *</label>
+                    <select required value={form.gradeLevel} onChange={set('gradeLevel')} className="input">
+                      {GRADES.map(g => <option key={g} value={g}>{gradeLabel(g)}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Term *</label>
+                    <select value={form.term} onChange={set('term')} className="input">
+                      <option value="term_1">Term 1</option>
+                      <option value="term_2">Term 2</option>
+                      <option value="term_3">Term 3</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Academic Year *</label>
+                    <select value={form.academicYear} onChange={set('academicYear')} className="input">
+                      <option>2025/2026</option>
+                      <option>2026/2027</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Curriculum design edition</label>
+                    <input value={form.curriculumEdition} onChange={set('curriculumEdition')} className="input" placeholder="KICD design + approved course book"/>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset className="space-y-3">
+                <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Coverage</legend>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="label">Start week *</label>
+                    <input type="number" min={1} max={14} value={form.startWeek} onChange={set('startWeek')} className="input"/>
+                  </div>
+                  <div>
+                    <label className="label">Number of weeks *</label>
+                    <input type="number" min={1} max={16} value={form.totalWeeks} onChange={set('totalWeeks')} className="input"/>
+                    <p className="hint text-[11px] text-theme-muted mt-1">Opening and exam weeks included.</p>
+                  </div>
+                  <div>
+                    <label className="label">Lessons / week *</label>
+                    <input type="number" min={1} max={10} value={form.periodsPerWeek} onChange={set('periodsPerWeek')} className="input"/>
+                  </div>
                 </div>
                 <div>
-                  <label className="label">Academic Year</label>
-                  <select value={form.academicYear} onChange={set('academicYear')} className="input">
-                    <option>2025/2026</option>
-                    <option>2026/2027</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Total Weeks</label>
-                  <input type="number" min={1} max={16} value={form.totalWeeks} onChange={set('totalWeeks')} className="input"/>
+                  <label className="label">Strands and sub-strands to cover</label>
+                  <textarea value={form.strands} onChange={set('strands')} className="input" rows={3}
+                    placeholder="One strand per line, sub-strands after a colon. Leave blank to follow the KICD sequence for the term."/>
+                  <p className="hint text-[11px] text-theme-muted mt-1">Example — Living Things: Plants; Animals</p>
                 </div>
                 <div>
-                  <label className="label">Periods / Week</label>
-                  <input type="number" min={1} max={10} value={form.periodsPerWeek} onChange={set('periodsPerWeek')} className="input"/>
+                  <label className="label">Notes for the generator</label>
+                  <textarea value={form.notes} onChange={set('notes')} className="input" rows={2}
+                    placeholder="Local context, available resources, weeks lost to school events."/>
                 </div>
-              </div>
+              </fieldset>
+
+              <fieldset className="space-y-3">
+                <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Columns and output</legend>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {([
+                    ['keyInquiry', 'Key inquiry questions'],
+                    ['learningExperiences', 'Learning experiences'],
+                    ['resources', 'Learning resources'],
+                    ['assessment', 'Assessment methods'],
+                    ['reflection', 'Reflection'],
+                    ['corePV', 'Core competencies, values, PCIs'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-start gap-2 border border-theme rounded-lg p-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked={form.columns[key]} onChange={() => toggleColumn(key)} className="mt-0.5"/>
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Export format</label>
+                    <select value={form.format} onChange={set('format')} className="input">
+                      <option value="preview">Preview in app</option>
+                      <option value="pdf">Print / Save as PDF</option>
+                      <option value="doc">Word (.doc)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Font</label>
+                    <select value={form.font} onChange={set('font')} className="input">
+                      <option>Times New Roman</option>
+                      <option>Arial</option>
+                    </select>
+                    <p className="hint text-[11px] text-theme-muted mt-1">Plain black borders, no colour fills.</p>
+                  </div>
+                </div>
+              </fieldset>
+
               <div>
                 <label className="label">M-Pesa Phone Number *</label>
                 <input required type="tel" placeholder="07XXXXXXXX" value={form.phone}
@@ -388,7 +526,7 @@ export default function ProfessionalRecordsPage() {
                   Waiting for M-Pesa confirmation on your phone…
                 </div>
               )}
-              <div className="flex gap-3">
+              <div className="flex gap-3 border-t border-theme pt-4">
                 <button type="button" onClick={() => setShowNewScheme(false)} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={generating} className="btn-primary flex-1">
                   {generating
@@ -414,8 +552,10 @@ function EmptyState({ label, cta }: { label: string; cta?: { label: string; onCl
   );
 }
 
-function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan }: any) {
+function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onExport }: any) {
   const [busyWeek, setBusyWeek] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<'pdf'|'doc'|'preview'>('pdf');
+  const [exportFont, setExportFont] = useState(scheme.defaultFont || 'Times New Roman');
   const weeks = [...(scheme.weeks || [])].sort((a: any, b: any) => a.weekNumber - b.weekNumber);
 
   const handleGenPlan = async (weekId: string) => {
@@ -448,6 +588,18 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
               </>
             )}
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-theme">
+          <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)} className="input text-xs py-1.5 w-auto">
+            <option value="preview">Preview in app</option>
+            <option value="pdf">Print / Save as PDF</option>
+            <option value="doc">Word (.doc)</option>
+          </select>
+          <select value={exportFont} onChange={(e) => setExportFont(e.target.value)} className="input text-xs py-1.5 w-auto">
+            <option>Times New Roman</option>
+            <option>Arial</option>
+          </select>
+          <button onClick={() => onExport(exportFormat, exportFont)} className="btn-ghost text-xs py-1.5 px-3">Export</button>
         </div>
       </div>
 

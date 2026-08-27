@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Body, Param,
-  Query, UseGuards,
+  Query, UseGuards, Res,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -72,6 +72,27 @@ export class ProfessionalRecordsController {
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
   getScheme(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return this.schemeService.findOne(u.tenantId, id);
+  }
+
+  // Printable document — same HTML for browser print-to-PDF and the Word (.doc)
+  // download, distinguished only by the response headers.
+  @Get('schemes/:id/html')
+  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
+  async getSchemeHtml(
+    @CurrentUser() u: AuthUser, @Param('id') id: string,
+    @Query('font') font: string, @Query('download') download: string,
+    @Res() res: any,
+  ) {
+    const html = await this.schemeService.renderHtml(u.tenantId, id, font);
+    if (download === 'doc') {
+      res.set({
+        'Content-Type': 'application/msword; charset=utf-8',
+        'Content-Disposition': `attachment; filename="scheme-of-work-${id}.doc"`,
+      });
+    } else {
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    }
+    res.send(html);
   }
 
   @Post('schemes/:id/submit')

@@ -15,6 +15,10 @@ export interface SchemeWeekData {
   learningExperiences: string;
   learningResources?: string;
   assessmentMethods?: string;
+  reflectionNotes?: string;
+  coreCompetencies?: string[];
+  values?: string[];
+  pertinentIssues?: string;
   periods?: number;
   remarks?: string;
 }
@@ -100,10 +104,14 @@ export class AiGeneratorService {
     periodsPerWeek: number;
     schoolContext?: string;
     strandFocus?: string[];
+    columns?: string[];
   }): Promise<{ weeks: SchemeWeekData[]; title: string; tokens: number }> {
     const band = gradeBand(params.gradeLevel);
     const grade = params.gradeLevel.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const termLabel = params.term.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const cols = new Set(params.columns?.length ? params.columns : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection']);
+    const wantReflection = cols.has('reflection');
+    const wantCorePV = cols.has('corePV');
 
     const prompt = `You are a KICD-certified curriculum expert generating a CBC/CBE-aligned Scheme of Work for Kenyan schools.
 
@@ -127,6 +135,7 @@ REQUIREMENTS:
 7. Week 1 should include orientation/introduction activities
 8. Final week should include revision/consolidation
 9. Use authentic Kenyan contexts, examples, and resources
+${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs).' : ''}
 
 Return ONLY valid JSON (no preamble, no markdown fences):
 {
@@ -143,7 +152,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
       "learningResources": "Textbook pg X, charts, realia...",
       "assessmentMethods": "Observation, oral questions, written exercise",
       "periods": ${params.periodsPerWeek},
-      "remarks": ""
+      "remarks": ""${wantReflection ? ',\n      "reflectionNotes": "Leave as an empty string — filled in by the teacher after delivery"' : ''}${wantCorePV ? ',\n      "coreCompetencies": ["..."],\n      "values": ["..."],\n      "pertinentIssues": "..."' : ''}
     }
   ]
 }`;
