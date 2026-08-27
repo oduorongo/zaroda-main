@@ -27,6 +27,9 @@ export default function ProfessionalRecordsPage() {
   const teacher = isTeacher(user?.role || '');
   const hoi = isHoi(user?.role || '');
   const individual = isIndividualAccount(user?.accountType);
+  // An admin who also teaches a learning area can generate/submit their own
+  // records exactly like a teacher — the backend already allows this.
+  const canGenerate = teacher || hoi;
 
   const [tab, setTab] = useState<'schemes'|'plans'|'notes'|'pending'>('schemes');
   const [streams, setStreams] = useState<any[]>([]);
@@ -257,7 +260,7 @@ export default function ProfessionalRecordsPage() {
           <h1 className="text-2xl font-black text-theme-heading">Professional Records</h1>
           <p className="text-sm text-theme-muted">AI-generated · KICD CBC aligned · HOI approval workflow</p>
         </div>
-        {teacher && !openScheme && (
+        {canGenerate && !openScheme && (
           <button onClick={() => setShowNewScheme(true)} className="btn-primary">
             <Sparkles size={16}/> Generate Scheme of Work
           </button>
@@ -286,7 +289,7 @@ export default function ProfessionalRecordsPage() {
       ) : openScheme ? (
         <SchemeDetail
           scheme={openScheme}
-          teacher={teacher}
+          teacher={canGenerate}
           hoi={hoi}
           onBack={() => setOpenScheme(null)}
           onSubmit={() => submitScheme(openScheme.id)}
@@ -296,7 +299,7 @@ export default function ProfessionalRecordsPage() {
         />
       ) : tab === 'schemes' ? (
         schemes.length === 0 ? (
-          <EmptyState label="No schemes of work yet" cta={teacher ? { label: 'Generate First Scheme', onClick: () => setShowNewScheme(true) } : undefined}/>
+          <EmptyState label="No schemes of work yet" cta={canGenerate ? { label: 'Generate First Scheme', onClick: () => setShowNewScheme(true) } : undefined}/>
         ) : (
           <div className="space-y-3">
             {schemes.map((s: any) => (
@@ -338,8 +341,8 @@ export default function ProfessionalRecordsPage() {
                     {p.reviewComment && <p className="text-xs mt-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {p.reviewComment}</p>}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-                    {p.status === 'draft' && teacher && <button onClick={() => submitLessonPlan(p.id)} className="btn-ghost text-xs py-1.5 px-3">Submit →</button>}
-                    {p.status === 'approved' && teacher && <button onClick={() => generateLessonNotes(p.id)} className="btn-ghost text-xs py-1.5 px-3"><Sparkles size={12}/> Notes</button>}
+                    {p.status === 'draft' && canGenerate && <button onClick={() => submitLessonPlan(p.id)} className="btn-ghost text-xs py-1.5 px-3">Submit →</button>}
+                    {p.status === 'approved' && canGenerate && <button onClick={() => generateLessonNotes(p.id)} className="btn-ghost text-xs py-1.5 px-3"><Sparkles size={12}/> Notes</button>}
                     {p.status === 'submitted' && hoi && (
                       <>
                         <button onClick={() => reviewLessonPlan(p.id,'approved')} className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700">Approve</button>

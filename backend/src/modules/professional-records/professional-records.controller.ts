@@ -54,7 +54,7 @@ export class ProfessionalRecordsController {
 
   // ── SCHEMES OF WORK ───────────────────────────────────────
   @Post('schemes/generate')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi')
+  @Roles(...ALL_GENERATOR_ROLES)
   generateScheme(@CurrentUser() u: AuthUser, @Body() dto: GenerateSchemeDto) {
     return this.schemeService.generate(u.tenantId, u.schoolId, u.id, u.role, dto);
   }
@@ -96,7 +96,7 @@ export class ProfessionalRecordsController {
   }
 
   @Post('schemes/:id/submit')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher')
+  @Roles(...ALL_GENERATOR_ROLES)
   submitScheme(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
@@ -113,7 +113,7 @@ export class ProfessionalRecordsController {
 
   // ── LESSON PLANS ──────────────────────────────────────────
   @Post('lesson-plans/generate')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher')
+  @Roles(...ALL_GENERATOR_ROLES)
   generateLessonPlan(@CurrentUser() u: AuthUser, @Body() dto: GenerateLessonPlanDto) {
     return this.lessonPlanService.generate(u.tenantId, u.id, dto);
   }
@@ -134,7 +134,7 @@ export class ProfessionalRecordsController {
   }
 
   @Post('lesson-plans/:id/submit')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher')
+  @Roles(...ALL_GENERATOR_ROLES)
   submitLessonPlan(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return this.lessonPlanService.submit(u.tenantId, id, u.id);
   }
@@ -147,7 +147,7 @@ export class ProfessionalRecordsController {
 
   // ── LESSON NOTES ──────────────────────────────────────────
   @Post('lesson-notes/generate')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher')
+  @Roles(...ALL_GENERATOR_ROLES)
   generateLessonNotes(@CurrentUser() u: AuthUser, @Body() dto: GenerateLessonNotesDto) {
     return this.recordsService.generateNotes(u.tenantId, u.id, dto);
   }
@@ -161,7 +161,7 @@ export class ProfessionalRecordsController {
 
   // ── RECORDS OF WORK ───────────────────────────────────────
   @Post('records-of-work')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher')
+  @Roles(...ALL_GENERATOR_ROLES)
   recordWork(@CurrentUser() u: AuthUser, @Body() dto: RecordWorkCoveredDto) {
     return this.recordsService.recordWork(u.tenantId, u.id, dto);
   }
@@ -174,7 +174,7 @@ export class ProfessionalRecordsController {
 
   // ── LEARNER PROGRESS RECORDS ──────────────────────────────
   @Post('learner-progress/generate')
-  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher')
+  @Roles(...ALL_GENERATOR_ROLES)
   generateLearnerProgress(@CurrentUser() u: AuthUser, @Body() dto: GenerateLearnerProgressDto) {
     return this.recordsService.generateProgressRecords(u.tenantId, u.id, dto);
   }
