@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, Sparkles, CheckCircle, Clock, XCircle, Loader2, X, ChevronRight, ChevronLeft, BookOpen } from 'lucide-react';
 import apiClient from '@/lib/api/client';
-import { useAuth, isHoi, isTeacher } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
 
 const STATUS_CONF: Record<string, { label: string; className: string; icon: any }> = {
@@ -26,6 +26,7 @@ export default function ProfessionalRecordsPage() {
   const { user } = useAuth();
   const teacher = isTeacher(user?.role || '');
   const hoi = isHoi(user?.role || '');
+  const individual = isIndividualAccount(user?.accountType);
 
   const [tab, setTab] = useState<'schemes'|'plans'|'notes'|'pending'>('schemes');
   const [streams, setStreams] = useState<any[]>([]);
@@ -44,7 +45,7 @@ export default function ProfessionalRecordsPage() {
 
   const [form, setForm] = useState({
     schoolName: '', teacherName: '', tscNumber: '', signOffLine: 'Checked by D.H.O.I.',
-    streamId: '', subjectId: '', gradeLevel: 'grade_4', curriculumEdition: '',
+    streamId: '', subjectId: '', streamName: '', subjectName: '', gradeLevel: 'grade_4', curriculumEdition: '',
     term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5,
     strands: '', notes: '', specialWeeks: '', phone: '',
     columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
@@ -56,6 +57,9 @@ export default function ProfessionalRecordsPage() {
   useEffect(() => {
     if (!user) return;
     setForm(f => ({ ...f, teacherName: f.teacherName || `${user.firstName || ''} ${user.lastName || ''}`.trim() }));
+    // An individual account has no real streams/subject_catalogue to pick from — the
+    // generate form uses free-text inputs for it instead, so skip these lookups.
+    if (individual) return;
     apiClient.get('/professional-records/subjects').then(r => setSubjects(r.data || [])).catch(() => setSubjects([]));
     apiClient.get('/schools/settings').then(r => {
       const name = r.data?.schoolName;
@@ -73,7 +77,7 @@ export default function ProfessionalRecordsPage() {
       const mineStreams = all.filter((s: any) => assignedIds.has(String(s.id)) || s.classTeacherId === user.id);
       setStreams(mineStreams.length ? mineStreams : all);
     });
-  }, [user, teacher]);
+  }, [user, teacher, individual]);
 
   // Subjects a teacher may pick for the currently-selected stream — the full assignment
   // list if they're that stream's class teacher (no per-subject record), otherwise only
@@ -141,7 +145,11 @@ export default function ProfessionalRecordsPage() {
   // plan and lesson notes record generated from it. No subscription involved.
   const payAndGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.streamId || !form.subjectId) { toast.error('Select a stream and subject.'); return; }
+    if (individual) {
+      if (!form.streamName || !form.subjectName) { toast.error('Enter a class/stream name and subject.'); return; }
+    } else if (!form.streamId || !form.subjectId) {
+      toast.error('Select a stream and subject.'); return;
+    }
     if (!form.phone) { toast.error('Enter the M-Pesa phone number to pay with.'); return; }
 
     setGenerating(true);
@@ -172,9 +180,9 @@ export default function ProfessionalRecordsPage() {
         return m ? { week: Number(m[1]), label: m[2].trim() } : null;
       }).filter(Boolean);
       const { data: gen } = await apiClient.post('/professional-records/schemes/generate', {
-        streamId: form.streamId,
-        subjectId: form.subjectId,
-        subjectName: subject?.name || 'Subject',
+        ...(individual
+          ? { streamName: form.streamName, subjectName: form.subjectName }
+          : { streamId: form.streamId, subjectId: form.subjectId, subjectName: subject?.name || 'Subject' }),
         gradeLevel: form.gradeLevel,
         academicYear: form.academicYear,
         term: form.term,
@@ -401,25 +409,40 @@ export default function ProfessionalRecordsPage() {
               <fieldset className="space-y-3">
                 <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Class and learning area</legend>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">Stream / Class *</label>
-                    <select required value={form.streamId}
-                      onChange={(e) => setForm(f => ({ ...f, streamId: e.target.value, subjectId: '' }))}
-                      className="input">
-                      <option value="">Select a stream…</option>
-                      {streams.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Learning area *</label>
-                    <select required value={form.subjectId} onChange={set('subjectId')} className="input" disabled={!form.streamId}>
-                      <option value="">{form.streamId ? 'Select a subject…' : 'Select a stream first…'}</option>
-                      {availableSubjects.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                    {form.streamId && availableSubjects.length === 0 && (
-                      <p className="text-xs text-red-600 mt-1">You are not assigned to teach any subject for this class.</p>
-                    )}
-                  </div>
+                  {individual ? (
+                    <>
+                      <div>
+                        <label className="label">Stream / Class *</label>
+                        <input required value={form.streamName} onChange={set('streamName')} className="input" placeholder="e.g. Grade 4 East"/>
+                      </div>
+                      <div>
+                        <label className="label">Learning area *</label>
+                        <input required value={form.subjectName} onChange={set('subjectName')} className="input" placeholder="e.g. Mathematics"/>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="label">Stream / Class *</label>
+                        <select required value={form.streamId}
+                          onChange={(e) => setForm(f => ({ ...f, streamId: e.target.value, subjectId: '' }))}
+                          className="input">
+                          <option value="">Select a stream…</option>
+                          {streams.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Learning area *</label>
+                        <select required value={form.subjectId} onChange={set('subjectId')} className="input" disabled={!form.streamId}>
+                          <option value="">{form.streamId ? 'Select a subject…' : 'Select a stream first…'}</option>
+                          {availableSubjects.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                        {form.streamId && availableSubjects.length === 0 && (
+                          <p className="text-xs text-red-600 mt-1">You are not assigned to teach any subject for this class.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
                   <div>
                     <label className="label">Grade *</label>
                     <select required value={form.gradeLevel} onChange={set('gradeLevel')} className="input">

@@ -21,6 +21,9 @@ export interface AppUser {
   // 'public' | 'private' — only private schools may onboard a non-teaching
   // School Owner (tenant_owner) account.
   ownership?: string;
+  // 'school' | 'individual' — an individual account is a teacher using
+  // Professional Records without their school being a ZARODA tenant.
+  accountType?: string;
 }
 
 interface AuthState {
@@ -83,6 +86,7 @@ export const isBursar   = (role: string) => ['bursar','hoi','tenant_owner'].incl
 export const isAdmin    = (role: string) => ['school_admin','tenant_owner','super_admin'].includes(role);
 export const isParent   = (role: string) => role === 'parent';
 export const isLearner  = (role: string) => role === 'learner';
+export const isIndividualAccount = (accountType?: string) => accountType === 'individual';
 
 // School-level helpers — a school with no schoolLevels set (legacy/unknown) is
 // treated as running both bands so nothing disappears unexpectedly.

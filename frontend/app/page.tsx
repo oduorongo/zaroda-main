@@ -99,6 +99,9 @@ export default function HomePage() {
             </Link>
           </div>
           <p className="text-white/35 text-xs mt-4">No credit card required · Set up in minutes</p>
+          <p className="text-white/40 text-xs mt-3">
+            Not signing up your school? <Link href="/auth/signup-individual" className="text-[#d4af37] font-semibold hover:underline">Use Professional Records on your own →</Link>
+          </p>
 
           {/* Trust strip */}
           <div className="flex flex-wrap justify-center gap-x-10 gap-y-4 mt-14 pt-10 border-t border-white/10">
