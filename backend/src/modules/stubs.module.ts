@@ -3111,12 +3111,17 @@ class AdminController {
     // 'public' | 'private' | null (no filter) — lets the owner view schools of just one
     // ownership type, or all.
     const ownership = ['public', 'private'].includes(q.ownership) ? q.ownership : null;
+    // 'school' | 'individual' | null (no filter) — separates real onboarded schools
+    // from one-person tenants auto-provisioned for teachers using Professional
+    // Records without a school account (see migration 043).
+    const accountType = ['school', 'individual'].includes(q.accountType) ? q.accountType : null;
     const rows = await this.ds.query(
       `SELECT t.id, t.name, t.status, t.subscription_tier AS "subscriptionTier",
               t.county, t.sub_county AS "subCounty", t.zone, t.phone, t.email,
               t.knec_code AS "knecCode", t.trial_ends_at AS "trialEndsAt", t.created_at AS "createdAt",
-              t.school_levels AS "schoolLevels", t.ownership,
+              t.school_levels AS "schoolLevels", t.ownership, t.account_type AS "accountType",
               CASE
+                WHEN t.account_type = 'individual' THEN 'Individual'
                 WHEN t.name ILIKE 'KOLWAL SENIOR%' THEN 'Public Senior School'
                 WHEN t.ownership = 'private' THEN 'PRI/JS'
                 ELSE 'Public'
@@ -3132,15 +3137,16 @@ class AdminController {
            SELECT (u.first_name || ' ' || COALESCE(u.last_name,'')) AS admin_name,
                   u.email AS admin_email, u.phone AS admin_phone
              FROM users u
-            WHERE u.tenant_id = t.id AND u.role IN ('hoi','tenant_owner','school_admin')
-            ORDER BY CASE u.role WHEN 'hoi' THEN 0 WHEN 'tenant_owner' THEN 1 ELSE 2 END
+            WHERE u.tenant_id = t.id AND u.role IN ('hoi','tenant_owner','school_admin','class_teacher')
+            ORDER BY CASE u.role WHEN 'hoi' THEN 0 WHEN 'tenant_owner' THEN 1 WHEN 'school_admin' THEN 2 ELSE 3 END
             LIMIT 1
          ) admin ON true
         WHERE ($1::text IS NULL OR t.name ILIKE $1)
           AND ($2::text IS NULL OR $2 = ANY(t.school_levels))
           AND ($3::text IS NULL OR t.ownership = $3)
+          AND ($4::text IS NULL OR t.account_type = $4)
         ORDER BY t.created_at DESC`,
-      [search, level, ownership],
+      [search, level, ownership, accountType],
     ).catch(() => []);
     return { data: rows };
   }
@@ -3175,7 +3181,7 @@ class AdminController {
   // Platform-wide stats across ALL tenants. Read-only.
   @Get('stats')
   async getStats(@Request() req: any) {
-    if (!this.isOwner(req)) return { totalTenants: 0, activeTenants: 0, trialTenants: 0, suspendedTenants: 0, totalLearners: 0, totalUsers: 0, totalStreams: 0 };
+    if (!this.isOwner(req)) return { totalTenants: 0, activeTenants: 0, trialTenants: 0, suspendedTenants: 0, totalLearners: 0, totalUsers: 0, totalStreams: 0, schoolTenants: 0, individualTenants: 0 };
     const r = await this.ds.query(
       `SELECT
          (SELECT COUNT(*) FROM tenants)                                   AS "totalTenants",
@@ -3184,7 +3190,9 @@ class AdminController {
          (SELECT COUNT(*) FROM tenants WHERE status = 'suspended')        AS "suspendedTenants",
          (SELECT COUNT(*) FROM learners WHERE is_active = true)           AS "totalLearners",
          (SELECT COUNT(*) FROM users)                                     AS "totalUsers",
-         (SELECT COUNT(*) FROM streams)                                   AS "totalStreams"`,
+         (SELECT COUNT(*) FROM streams)                                   AS "totalStreams",
+         (SELECT COUNT(*) FROM tenants WHERE account_type = 'school')     AS "schoolTenants",
+         (SELECT COUNT(*) FROM tenants WHERE account_type = 'individual') AS "individualTenants"`,
     ).catch(() => [{}]);
     return r[0] || {};
   }

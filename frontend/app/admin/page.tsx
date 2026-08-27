@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import {
-  Building2, Users, DollarSign, TrendingUp, Search, Send,
+  Building2, Users, Search, Send,
   MapPin, Loader2, Megaphone, CheckCircle, Clock,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
@@ -15,6 +15,9 @@ export default function SuperAdminPage() {
   const [stats,   setStats]   = useState<any>({});
   const [search,  setSearch]  = useState('');
   const [loading, setLoading] = useState(true);
+  // Separates real onboarded schools from one-person tenants auto-provisioned for
+  // teachers using Professional Records without a school account.
+  const [accountFilter, setAccountFilter] = useState<'all'|'school'|'individual'>('all');
 
   // Retooling broadcast form
   const [bcast, setBcast]   = useState({ audience: 'all', title: '', message: '' });
@@ -43,15 +46,16 @@ export default function SuperAdminPage() {
   };
 
   const filtered = tenants.filter(t =>
-    !search || t.name?.toLowerCase().includes(search.toLowerCase()) ||
-    t.county?.toLowerCase().includes(search.toLowerCase()),
+    (accountFilter === 'all' || (t.accountType || 'school') === accountFilter) &&
+    (!search || t.name?.toLowerCase().includes(search.toLowerCase()) ||
+      t.county?.toLowerCase().includes(search.toLowerCase())),
   );
 
   const STAT_CARDS = [
-    { icon: Building2,  label: 'Total Schools',   value: stats.totalTenants    ?? tenants.length, color: 'bg-[#1a2e5a]' },
+    { icon: Building2,  label: 'School Tenants',  value: stats.schoolTenants   ?? tenants.filter(t => (t.accountType || 'school') === 'school').length, color: 'bg-[#1a2e5a]' },
+    { icon: Users,      label: 'Individual Accounts', value: stats.individualTenants ?? tenants.filter(t => t.accountType === 'individual').length, color: 'bg-purple-600' },
     { icon: CheckCircle,label: 'Active',          value: stats.activeTenants   ?? '—', color: 'bg-green-600' },
     { icon: Clock,      label: 'On Trial',        value: stats.trialTenants    ?? '—', color: 'bg-amber-500' },
-    { icon: DollarSign, label: 'MRR (KES)',       value: stats.mrr ? stats.mrr.toLocaleString('en-KE') : '—', color: 'bg-[#f5820a]' },
   ];
 
   return (
@@ -104,10 +108,24 @@ export default function SuperAdminPage() {
         {/* TENANTS */}
         {tab === 'tenants' && (
           <>
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted"/>
-              <input value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search schools by name or county…" className="input pl-8"/>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted"/>
+                <input value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search schools by name or county…" className="input pl-8"/>
+              </div>
+              <div className="flex gap-1 bg-surface-2 rounded-xl p-1 flex-shrink-0">
+                {([
+                  ['all', 'All'],
+                  ['school', 'Schools'],
+                  ['individual', 'Individuals'],
+                ] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setAccountFilter(k)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${accountFilter === k ? 'bg-surface shadow-sm text-theme-heading' : 'text-theme-muted hover:text-theme-heading'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
             </div>
             {loading ? <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 shimmer rounded-xl"/>)}</div> : (
               <div className="card overflow-hidden">
@@ -115,6 +133,7 @@ export default function SuperAdminPage() {
                   <thead>
                     <tr className="table-header">
                       <th className="px-4 py-3 text-left text-xs">School</th>
+                      <th className="px-4 py-3 text-center text-xs">Account</th>
                       <th className="px-4 py-3 text-left text-xs hidden sm:table-cell">County</th>
                       <th className="px-4 py-3 text-left text-xs hidden md:table-cell">Streams</th>
                       <th className="px-4 py-3 text-center text-xs">Status</th>
@@ -123,12 +142,17 @@ export default function SuperAdminPage() {
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={5} className="px-4 py-10 text-center text-theme-muted">No schools registered yet</td></tr>
+                      <tr><td colSpan={6} className="px-4 py-10 text-center text-theme-muted">No accounts match this filter</td></tr>
                     ) : filtered.map((t, i) => (
                       <tr key={t.id} className={`border-b border-theme ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-2'}`}>
                         <td className="px-4 py-3">
                           <div className="font-semibold text-theme-heading text-sm">{t.name}</div>
-                          <div className="text-xs text-theme-muted">{t.email || '—'}</div>
+                          <div className="text-xs text-theme-muted">{t.email || t.adminEmail || '—'}</div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`badge ${t.accountType === 'individual' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {t.accountType === 'individual' ? 'Individual' : 'School'}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-theme-muted hidden sm:table-cell">
                           <MapPin size={11} className="inline mr-1"/>{t.county || '—'}
