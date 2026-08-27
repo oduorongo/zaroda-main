@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } from './entities';
+import { Tenant } from '../auth/entities/tenant.entity';
 import { AiGeneratorService } from './ai-generator.service';
 import { PurchaseService } from './purchase.service';
 import { GenerateSchemeDto, ReviewRecordDto } from './dto';
@@ -14,6 +15,7 @@ export class SchemeService {
     @InjectRepository(TeacherDocument) private docRepo: Repository<TeacherDocument>,
     @InjectRepository(PrAudit) private auditRepo: Repository<PrAudit>,
     @InjectRepository(SubjectCatalogue) private subjectRepo: Repository<SubjectCatalogue>,
+    @InjectRepository(Tenant) private tenantRepo: Repository<Tenant>,
     private aiGenerator: AiGeneratorService,
     private purchaseService: PurchaseService,
     private dataSource: DataSource,
@@ -101,7 +103,42 @@ export class SchemeService {
 
   // ── GENERATE SCHEME OF WORK (AI) ──────────────────────────
   async generate(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
-    await this.assertAssignedToTeach(tenantId, teacherId, role, dto.streamId, dto.subjectName);
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    const isIndividual = tenant?.accountType === 'individual';
+
+    // Individual accounts (a teacher without a school tenant) have no
+    // teacher_stream_subjects assignments to check against, and no real
+    // streams/subject_catalogue rows to pick from — find-or-create both by
+    // name instead of requiring the school-tenant UUID pickers.
+    let streamId = dto.streamId;
+    let subjectId = dto.subjectId;
+    if (isIndividual) {
+      const streamName = dto.streamName || `${dto.gradeLevel} (self)`;
+      const streamRows = await this.dataSource.query(
+        `SELECT id FROM streams WHERE tenant_id::text = $1 AND name = $2 LIMIT 1`,
+        [tenantId, streamName],
+      ).catch(() => []);
+      streamId = streamRows[0]?.id;
+      if (!streamId) {
+        const inserted = await this.dataSource.query(
+          `INSERT INTO streams (tenant_id, school_id, name, grade_level, class_teacher_id)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [tenantId, schoolId, streamName, dto.gradeLevel, teacherId],
+        );
+        streamId = inserted[0].id;
+      }
+
+      let subjectRow = await this.subjectRepo.findOne({ where: { tenantId, name: dto.subjectName } });
+      if (!subjectRow) {
+        subjectRow = await this.subjectRepo.save(this.subjectRepo.create({
+          tenantId, schoolId, name: dto.subjectName, category: 'core', gradeBand: 'primary',
+        }));
+      }
+      subjectId = subjectRow.id;
+    } else {
+      if (!streamId || !subjectId) throw new BadRequestException('Select a stream and subject.');
+      await this.assertAssignedToTeach(tenantId, teacherId, role, streamId, dto.subjectName);
+    }
 
     // Pay-per-flow, not subscription: every generator (teachers, HOI, admin — no
     // exemptions) must have an unconsumed paid M-Pesa purchase before we spend AI
@@ -111,7 +148,7 @@ export class SchemeService {
 
     const existing = await this.schemeRepo.findOne({
       where: {
-        tenantId, teacherId, streamId: dto.streamId, subjectId: dto.subjectId,
+        tenantId, teacherId, streamId, subjectId,
         academicYear: dto.academicYear, term: dto.term,
       },
     });
@@ -147,8 +184,8 @@ export class SchemeService {
 
       const scheme = manager.create(SchemeOfWork, {
         tenantId, schoolId, teacherId,
-        streamId: dto.streamId,
-        subjectId: dto.subjectId,
+        streamId,
+        subjectId,
         academicYear: dto.academicYear,
         term: dto.term,
         gradeLevel: dto.gradeLevel,
@@ -156,7 +193,8 @@ export class SchemeService {
         aiGenerated: true,
         aiModel: 'claude-sonnet-4-20250514',
         generationTokens: tokens,
-        status: 'draft',
+        // Individual accounts have no HOI to approve anything — self-certified instead.
+        status: isIndividual ? 'approved' : 'draft',
         schoolName: dto.schoolName,
         teacherName: dto.teacherName,
         tscNumber: dto.tscNumber,

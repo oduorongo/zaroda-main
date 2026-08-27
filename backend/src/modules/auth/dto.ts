@@ -24,6 +24,17 @@ export class SignupDto {
   @IsOptional() @IsString() ownership?: string;
 }
 
+// Lightweight signup for a teacher whose school isn't a ZARODA tenant — no
+// school name, county, or KNEC lookup. Used for Professional Records only.
+export class SignupIndividualDto {
+  @IsString()  firstName: string;
+  @IsString()  lastName:  string;
+  @IsEmail()   email:     string;
+  @IsString()  @MinLength(8) password: string;
+
+  @IsOptional() @IsString() phone?: string;
+}
+
 export class LoginDto {
   @IsEmail()  email:    string;
   @IsString() password: string;

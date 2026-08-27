@@ -60,6 +60,14 @@ export class Tenant {
   @Column({ default: 'public' })
   ownership: string;
 
+  // 'school' (a real onboarded school) | 'individual' (a one-person tenant
+  // auto-provisioned for a teacher using Professional Records without a school
+  // account — see AuthService.signupIndividual). Individual tenants skip the
+  // subscription-trial gate, HOI approval workflow, and stream/subject
+  // assignment checks that only make sense for a real school.
+  @Column({ name: 'account_type', default: 'school' })
+  accountType: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

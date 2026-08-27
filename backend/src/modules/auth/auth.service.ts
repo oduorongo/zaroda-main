@@ -10,7 +10,7 @@ import * as bcrypt       from 'bcryptjs';
 import { User }     from './entities/user.entity';
 import { Tenant }   from './entities/tenant.entity';
 import { School }   from './entities/school.entity';
-import { SignupDto } from './dto';
+import { SignupDto, SignupIndividualDto } from './dto';
 
 /** Parse a value to an integer, returning null for missing/blank/non-numeric input
  *  (so a stray "NaN" or undefined never reaches a smallint/integer DB column). */
@@ -165,6 +165,77 @@ export class AuthService {
           schoolId:  savedSchool.id,
           schoolLevels: savedTenant.schoolLevels || [],
           ownership: savedTenant.ownership || 'public',
+        },
+      };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ── Individual teacher signup (Professional Records, no school tenant) ──
+  // Auto-provisions a one-person tenant + school behind the scenes so every
+  // existing tenant-scoped table/query/RLS policy keeps working unchanged —
+  // the teacher never sees "tenant" or "school" language for this account.
+  async signupIndividual(dto: SignupIndividualDto) {
+    const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
+    if (existing) throw new ConflictException('An account with this email already exists');
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const displayName = `${dto.firstName} ${dto.lastName}`.trim();
+
+      const tenant = this.tenantRepo.create({
+        name: displayName,
+        accountType: 'individual',
+        status: 'active',
+        subscriptionTier: 'individual',
+      });
+      const savedTenant = await queryRunner.manager.save(Tenant, tenant);
+
+      const school = this.schoolRepo.create({
+        name: displayName,
+        phone: dto.phone || '',
+        tenantId: savedTenant.id,
+      });
+      const savedSchool = await queryRunner.manager.save(School, school);
+
+      const passwordHash = await bcrypt.hash(dto.password, 12);
+      const user = this.userRepo.create({
+        email: dto.email.toLowerCase().trim(),
+        passwordHash,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        role: 'class_teacher',
+        tenantId: savedTenant.id,
+        schoolId: savedSchool.id,
+        isActive: true,
+        emailVerified: false,
+      });
+      const savedUser = await queryRunner.manager.save(User, user);
+
+      await queryRunner.commitTransaction();
+
+      const tokens = await this.generateTokens(savedUser);
+      return {
+        message: 'Account created. You can start generating Professional Records right away.',
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: {
+          id: savedUser.id,
+          email: savedUser.email,
+          firstName: savedUser.firstName,
+          lastName: savedUser.lastName,
+          role: savedUser.role,
+          tenantId: savedTenant.id,
+          schoolId: savedSchool.id,
+          accountType: 'individual',
         },
       };
     } catch (err) {

@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { SignupDto, LoginDto } from './dto';
+import { SignupDto, SignupIndividualDto, LoginDto } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @ApiTags('Auth')
@@ -18,6 +18,12 @@ export class AuthController {
   @Post('signup')
   signup(@Body() dto: SignupDto) {
     return this.authService.signup(dto);
+  }
+
+  // Teacher whose school isn't a ZARODA tenant — Professional Records only.
+  @Post('signup-individual')
+  signupIndividual(@Body() dto: SignupIndividualDto) {
+    return this.authService.signupIndividual(dto);
   }
 
   @Post('forgot-password')

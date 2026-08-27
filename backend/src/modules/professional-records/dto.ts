@@ -4,8 +4,12 @@ import {
 } from 'class-validator';
 
 export class GenerateSchemeDto {
-  @IsNotEmpty() @IsUUID()   streamId: string;
-  @IsNotEmpty() @IsUUID()   subjectId: string;
+  // Required for a school-tenant teacher (picked from real streams/subject_catalogue
+  // rows); omitted for an individual account, which instead sends `streamName` and
+  // finds-or-creates its own stream/subject by name — see SchemeService.generate().
+  @IsOptional() @IsUUID()   streamId?: string;
+  @IsOptional() @IsUUID()   subjectId?: string;
+  @IsOptional() @IsString() streamName?: string;
   @IsNotEmpty() @IsString() subjectName: string;
   @IsNotEmpty() @IsString() gradeLevel: string;
   @IsNotEmpty() @IsString() academicYear: string;
