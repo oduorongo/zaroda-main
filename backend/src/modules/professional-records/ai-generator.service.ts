@@ -105,6 +105,7 @@ export class AiGeneratorService {
     schoolContext?: string;
     strandFocus?: string[];
     columns?: string[];
+    specialWeeks?: { week: number; label: string }[];
   }): Promise<{ weeks: SchemeWeekData[]; title: string; tokens: number }> {
     const band = gradeBand(params.gradeLevel);
     const grade = params.gradeLevel.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -112,6 +113,7 @@ export class AiGeneratorService {
     const cols = new Set(params.columns?.length ? params.columns : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection']);
     const wantReflection = cols.has('reflection');
     const wantCorePV = cols.has('corePV');
+    const specialWeeks = (params.specialWeeks || []).filter(w => w?.week && w?.label);
 
     const prompt = `You are a KICD-certified curriculum expert generating a CBC/CBE-aligned Scheme of Work for Kenyan schools.
 
@@ -124,6 +126,7 @@ CONTEXT:
 - Periods per Week: ${params.periodsPerWeek}
 - School Context: ${params.schoolContext || 'Mixed day school, Kenya'}
 ${params.strandFocus?.length ? `- Priority Strands: ${params.strandFocus.join(', ')}` : ''}
+${specialWeeks.length ? `- Non-teaching weeks (mid-term breaks, summative assessments, exams — no new curriculum content): ${specialWeeks.map(w => `Week ${w.week} = ${w.label}`).join('; ')}` : ''}
 
 REQUIREMENTS:
 1. Follow the KICD ${params.subjectName} syllabus for ${grade} exactly
@@ -136,6 +139,7 @@ REQUIREMENTS:
 8. Final week should include revision/consolidation
 9. Use authentic Kenyan contexts, examples, and resources
 ${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs).' : ''}
+${specialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${specialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
 
 Return ONLY valid JSON (no preamble, no markdown fences):
 {

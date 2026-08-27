@@ -24,6 +24,11 @@ export class GenerateSchemeDto {
   @IsOptional() @IsNumber() startWeek?: number;
   @IsOptional() @IsArray()  columns?: string[];
   @IsOptional() @IsString() defaultFont?: string;
+
+  // Weeks that aren't ordinary teaching weeks — mid-term breaks, summative
+  // assessment weeks, exam weeks — so the AI can plan pacing around them
+  // instead of scheduling curriculum content into them.
+  @IsOptional() @IsArray()  specialWeeks?: { week: number; label: string }[];
 }
 
 export class GenerateLessonPlanDto {

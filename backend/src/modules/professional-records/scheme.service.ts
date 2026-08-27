@@ -138,6 +138,7 @@ export class SchemeService {
       schoolContext: dto.schoolContext,
       strandFocus: dto.strandFocus,
       columns,
+      specialWeeks: dto.specialWeeks,
     });
 
     return this.dataSource.transaction(async (manager) => {

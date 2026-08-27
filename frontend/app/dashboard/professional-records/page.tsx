@@ -46,7 +46,7 @@ export default function ProfessionalRecordsPage() {
     schoolName: '', teacherName: '', tscNumber: '', signOffLine: 'Checked by D.H.O.I.',
     streamId: '', subjectId: '', gradeLevel: 'grade_4', curriculumEdition: '',
     term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5,
-    strands: '', notes: '', phone: '',
+    strands: '', notes: '', specialWeeks: '', phone: '',
     columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
     format: 'preview' as 'pdf' | 'doc' | 'preview',
     font: 'Times New Roman',
@@ -167,6 +167,10 @@ export default function ProfessionalRecordsPage() {
 
       const subject = subjects.find((s: any) => s.id === form.subjectId);
       const selectedColumns = Object.entries(form.columns).filter(([, on]) => on).map(([k]) => k);
+      const specialWeeks = form.specialWeeks.split('\n').map(line => {
+        const m = line.match(/^\D*(\d+)\D+(.+)$/);
+        return m ? { week: Number(m[1]), label: m[2].trim() } : null;
+      }).filter(Boolean);
       const { data: gen } = await apiClient.post('/professional-records/schemes/generate', {
         streamId: form.streamId,
         subjectId: form.subjectId,
@@ -178,6 +182,7 @@ export default function ProfessionalRecordsPage() {
         totalWeeks: Number(form.totalWeeks) || 12,
         periodsPerWeek: Number(form.periodsPerWeek) || 5,
         strandFocus: form.strands.split('\n').map(s => s.trim()).filter(Boolean),
+        specialWeeks,
         schoolContext: form.notes || undefined,
         schoolName: form.schoolName || undefined,
         teacherName: form.teacherName || undefined,
@@ -360,8 +365,8 @@ export default function ProfessionalRecordsPage() {
 
       {/* Generate Scheme Modal */}
       {showNewScheme && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8">
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-12">
             <div className="flex items-center justify-between p-5 border-b border-theme">
               <div>
                 <h3 className="text-lg font-bold text-theme-heading">Generate Scheme of Work</h3>
@@ -470,6 +475,12 @@ export default function ProfessionalRecordsPage() {
                   <label className="label">Notes for the generator</label>
                   <textarea value={form.notes} onChange={set('notes')} className="input" rows={2}
                     placeholder="Local context, available resources, weeks lost to school events."/>
+                </div>
+                <div>
+                  <label className="label">Mid-term breaks &amp; summative assessment weeks</label>
+                  <textarea value={form.specialWeeks} onChange={set('specialWeeks')} className="input" rows={2}
+                    placeholder="One per line: week number, then a colon, then the label."/>
+                  <p className="hint text-[11px] text-theme-muted mt-1">Example — 3: Mid-Term Break · 7: Summative Assessment 1 · 13: End Term Exam. These weeks are marked accordingly instead of new content.</p>
                 </div>
               </fieldset>
 
