@@ -25,6 +25,12 @@ export async function sendEmail(to: string, subject: string, html: string, text?
       port: 465,
       secure: true,
       auth: { user, pass },
+      // Without these, a stalled connection (common from cloud hosts whose outbound
+      // SMTP is throttled/blocked) hangs indefinitely instead of failing — callers
+      // (e.g. a bulk broadcast awaiting many of these) would then hang forever too.
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
     const fromName = process.env.GMAIL_FROM_NAME || 'ZARODA SMS';
     await transporter.sendMail({
