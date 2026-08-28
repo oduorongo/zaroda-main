@@ -343,7 +343,11 @@ export class AuthService {
           <p style="font-size:12px;color:#666">If you didn't request this, you can safely ignore this email — your password won't change.</p>
         </div>
       </div>`;
-    await sendEmail(cleaned, 'Reset your ZARODA password', html).catch(() => null);
+    const emailResult = await sendEmail(cleaned, 'Reset your ZARODA password', html).catch((e: any) => ({ ok: false, detail: e?.message }));
+    if (!emailResult?.ok) {
+      // eslint-disable-next-line no-console
+      console.error(`[forgotPassword] email send failed for ${cleaned}: ${emailResult?.detail}`);
+    }
     return generic;
   }
 

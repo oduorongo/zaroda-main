@@ -45,6 +45,7 @@ export default function SuperAdminPage() {
       if (data.email) parts.push(`Email ${data.email.sent}/${data.email.attempted}`);
       toast.success(`Sent to ${data.recipients} recipients — ${parts.join(', ') || 'no channels configured'}`);
       if (data.sms?.detail && data.sms.sent === 0) toast.error(`SMS: ${data.sms.detail}`);
+      if (data.email?.detail && data.email.sent === 0) toast.error(`Email: ${data.email.detail}`);
       setBcast({ audience: 'all', title: '', message: '' });
     } catch { toast.error('Could not send broadcast'); }
     finally { setSending(false); }

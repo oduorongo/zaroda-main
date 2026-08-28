@@ -3271,7 +3271,11 @@ class AdminController {
         withEmail.map((r: any) => sendEmail(r.email, title, html, message)),
       );
       const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
-      result.email = { attempted: withEmail.length, sent, failed: withEmail.length - sent };
+      const firstFailure = outcomes.find(o => o.status === 'fulfilled' && !(o.value as any).ok) as any;
+      result.email = {
+        attempted: withEmail.length, sent, failed: withEmail.length - sent,
+        detail: firstFailure?.value?.detail,
+      };
     }
 
     return result;
