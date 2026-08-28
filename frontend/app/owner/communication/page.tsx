@@ -1,9 +1,10 @@
 // app/owner/communication/page.tsx
-// Owner broadcasts a message to all school admins or all users, via WhatsApp, email,
-// or SMS. Works with no external credentials: WhatsApp links + mailto + copyable lists.
+// Owner broadcasts a message to all school admins or all users, via email or SMS
+// (sent for real through the platform's Resend/Africa's Talking setup) or WhatsApp
+// (still a wa.me link — there's no server-side WhatsApp sender in this app).
 'use client';
 import { useState, useEffect } from 'react';
-import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check } from 'lucide-react';
+import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -11,8 +12,10 @@ export default function OwnerCommunicationPage() {
   const [audience, setAudience] = useState<'admins' | 'all'>('admins');
   const [data, setData]         = useState<any>(null);
   const [loading, setLoading]   = useState(false);
+  const [title, setTitle]       = useState('');
   const [message, setMessage]   = useState('');
   const [copied, setCopied]     = useState('');
+  const [sending, setSending]   = useState<'email' | 'sms' | ''>('');
 
   const load = (aud: string) => {
     setLoading(true);
@@ -33,18 +36,34 @@ export default function OwnerCommunicationPage() {
     toast.success('Copied');
   };
 
-  // WhatsApp: opens a chat with the message prefilled (owner picks/forwards recipients).
+  // WhatsApp has no server-side sender in this app — opens a chat with the message
+  // prefilled so the owner can pick/forward recipients manually.
   const whatsappFirst = () => {
     if (!message.trim()) { toast.error('Write a message first'); return; }
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  const emailAll = () => {
-    if (!emails.length) { toast.error('No email addresses for this audience'); return; }
-    const subject = encodeURIComponent('A message from ZARODA');
-    const body = encodeURIComponent(message);
-    // BCC keeps recipients private.
-    window.location.href = `mailto:?bcc=${emails.join(',')}&subject=${subject}&body=${body}`;
+  // Sends for real via POST /admin/broadcast (Resend for email, Africa's Talking for
+  // SMS) — no dependency on the viewer having a desktop mail app configured, unlike
+  // the mailto: link this replaced.
+  const sendReal = async (channel: 'email' | 'sms') => {
+    if (!title.trim()) { toast.error('Write a subject/title first'); return; }
+    if (!message.trim()) { toast.error('Write a message first'); return; }
+    setSending(channel);
+    try {
+      const { data: result } = await apiClient.post('/admin/broadcast', {
+        audience, title, message, channels: [channel],
+      });
+      if (result?.error) { toast.error(result.error); return; }
+      const stats = result[channel];
+      if (!stats) { toast.error('No response for this channel.'); return; }
+      toast.success(`Sent ${stats.sent}/${stats.attempted} via ${channel === 'email' ? 'email' : 'SMS'}.`);
+      if (stats.sent === 0 && stats.detail) toast.error(`${channel === 'email' ? 'Email' : 'SMS'}: ${stats.detail}`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || `Could not send ${channel}.`);
+    } finally {
+      setSending('');
+    }
   };
 
   return (
@@ -80,27 +99,31 @@ export default function OwnerCommunicationPage() {
 
         {/* Message */}
         <div className="card p-4 space-y-3">
+          <label className="label">Subject</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} className="input w-full"
+            placeholder="Subject line (used for email; ignored for SMS)"/>
           <label className="label">Message</label>
           <textarea value={message} onChange={e => setMessage(e.target.value)} rows={6}
             className="input w-full" placeholder="Write your announcement to schools…"/>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button onClick={whatsappFirst} className="btn-primary justify-center">
+            <button onClick={() => sendReal('email')} disabled={sending === 'email'} className="btn-primary justify-center">
+              {sending === 'email' ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>} Send Email
+            </button>
+            <button onClick={() => sendReal('sms')} disabled={sending === 'sms'} className="btn-primary justify-center">
+              {sending === 'sms' ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>} Send SMS
+            </button>
+            <button onClick={whatsappFirst} className="btn-ghost justify-center">
               <MessageCircle size={15}/> WhatsApp
-            </button>
-            <button onClick={emailAll} className="btn-ghost justify-center">
-              <Mail size={15}/> Email all (BCC)
-            </button>
-            <button onClick={() => copy('msg', message)} className="btn-ghost justify-center">
-              {copied==='msg' ? <Check size={15}/> : <Copy size={15}/>} Copy message
             </button>
           </div>
           <p className="text-[11px] text-theme-muted">
-            WhatsApp opens with your message ready to forward. Email opens your mail app with all recipients BCC'd. For SMS, copy the numbers below into your SMS tool.
+            Email and SMS send for real to every recipient in this audience. WhatsApp has no automated sender —
+            it opens a chat with the message ready to forward manually.
           </p>
         </div>
 
-        {/* Recipient lists for SMS / external tools */}
+        {/* Recipient lists for reference / manual outreach */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="card p-4">
             <div className="flex items-center justify-between mb-2">
