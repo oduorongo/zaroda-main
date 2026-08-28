@@ -1,45 +1,47 @@
-// Central messaging helpers for ZARODA — one shared Gmail (app password) for email and one
-// shared Africa's Talking account for SMS. All configured via environment variables on the
-// server (no per-school secrets). Both functions fail soft: they return a status object and
-// never throw, so callers (password reset, announcements) keep working even if a channel is
-// misconfigured.
+// Central messaging helpers for ZARODA — Resend (HTTP API) for email and Africa's
+// Talking for SMS. All configured via environment variables on the server (no
+// per-school secrets). Both functions fail soft: they return a status object and
+// never throw, so callers (password reset, announcements) keep working even if a
+// channel is misconfigured.
+//
+// Email used to go through Gmail SMTP, but Render (and most cloud hosts) blocks or
+// silently drops outbound SMTP traffic to prevent spam abuse — connections would
+// hang or fail with no way to fix it from application code. Resend sends over a
+// normal HTTPS POST, which isn't subject to that restriction.
 
 export interface SendResult { ok: boolean; channel: 'email' | 'sms'; detail?: string; }
 
 /**
- * Send an email through Gmail SMTP using an app password.
- * Env: GMAIL_USER (full address), GMAIL_APP_PASSWORD (16-char app password),
- *      optional GMAIL_FROM_NAME.
+ * Send an email via the Resend API (plain HTTPS — not affected by cloud hosts
+ * blocking outbound SMTP, unlike the Gmail SMTP approach this replaced).
+ * Env: RESEND_API_KEY, optional RESEND_FROM (e.g. '"ZARODA SMS" <notifications@yourdomain.com>';
+ *      defaults to Resend's shared test sender, which works without domain verification).
  */
 export async function sendEmail(to: string, subject: string, html: string, text?: string): Promise<SendResult> {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) {
-    return { ok: false, channel: 'email', detail: 'Email not configured (GMAIL_USER / GMAIL_APP_PASSWORD missing).' };
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { ok: false, channel: 'email', detail: 'Email not configured (RESEND_API_KEY missing).' };
   }
+  const from = process.env.RESEND_FROM || 'ZARODA SMS <onboarding@resend.dev>';
   try {
-    // Lazy require so a missing optional dependency never breaks the build/boot.
-    const nodemailer = eval('require')('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: { user, pass },
-      // Without these, a stalled connection (common from cloud hosts whose outbound
-      // SMTP is throttled/blocked) hangs indefinitely instead of failing — callers
-      // (e.g. a bulk broadcast awaiting many of these) would then hang forever too.
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
-    });
-    const fromName = process.env.GMAIL_FROM_NAME || 'ZARODA SMS';
-    await transporter.sendMail({
-      from: `"${fromName}" <${user}>`,
-      to,
-      subject,
-      text: text || html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
-      html,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        from, to, subject, html,
+        text: text || html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+      }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      return { ok: false, channel: 'email', detail: `Resend error ${resp.status}: ${body.slice(0, 200)}` };
+    }
     return { ok: true, channel: 'email' };
   } catch (err: any) {
     return { ok: false, channel: 'email', detail: err?.message || 'Email send failed.' };
