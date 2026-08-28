@@ -38,8 +38,13 @@ export default function SuperAdminPage() {
     if (!bcast.title || !bcast.message) { toast.error('Title and message required'); return; }
     setSending(true);
     try {
-      await apiClient.post('/admin/broadcast', bcast);
-      toast.success(`Broadcast sent to: ${bcast.audience}`);
+      const { data } = await apiClient.post('/admin/broadcast', bcast);
+      if (data?.error) { toast.error(data.error); return; }
+      const parts: string[] = [];
+      if (data.sms) parts.push(`SMS ${data.sms.sent}/${data.sms.attempted}`);
+      if (data.email) parts.push(`Email ${data.email.sent}/${data.email.attempted}`);
+      toast.success(`Sent to ${data.recipients} recipients — ${parts.join(', ') || 'no channels configured'}`);
+      if (data.sms?.detail && data.sms.sent === 0) toast.error(`SMS: ${data.sms.detail}`);
       setBcast({ audience: 'all', title: '', message: '' });
     } catch { toast.error('Could not send broadcast'); }
     finally { setSending(false); }

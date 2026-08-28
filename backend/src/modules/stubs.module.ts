@@ -10,6 +10,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
+import { sendSms, sendEmail } from '../common/messaging';
 
 // ═══════════════════════════════════════════════════════════
 // FINANCE MODULE
@@ -3224,6 +3225,56 @@ class AdminController {
       withEmail: rows.filter((r: any) => r.email).length,
       recipients: rows,
     };
+  }
+
+  // Actually send the owner's broadcast — SMS via Africa's Talking (bulk, chunked)
+  // and email via Gmail SMTP (looped, one failure doesn't block the rest). WhatsApp
+  // stays link-based client-side (no server-side WhatsApp sender exists).
+  @Post('broadcast')
+  async sendBroadcast(@Request() req: any, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const audience = dto?.audience === 'all' ? 'all' : 'admins';
+    const title = String(dto?.title || '').trim();
+    const message = String(dto?.message || '').trim();
+    if (!title || !message) return { error: 'Title and message are required.' };
+    const channels: string[] = Array.isArray(dto?.channels) && dto.channels.length ? dto.channels : ['sms', 'email'];
+
+    const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
+    const where = audience === 'all'
+      ? `COALESCE(is_active, true) = true AND role <> 'super_admin'`
+      : `COALESCE(is_active, true) = true AND role = ANY($1)`;
+    const params = audience === 'all' ? [] : [adminRoles];
+    const recipients = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName", email, phone
+         FROM users WHERE ${where}`,
+      params,
+    ).catch(() => []);
+
+    const result: any = { audience, recipients: recipients.length };
+
+    if (channels.includes('sms')) {
+      const numbers = recipients.map((r: any) => r.phone).filter(Boolean);
+      const smsBody = `${title}\n\n${message}`;
+      let sent = 0, failed = 0, detail: string | undefined;
+      const CHUNK = 100; // Africa's Talking recommended batch size per call
+      for (let i = 0; i < numbers.length; i += CHUNK) {
+        const r = await sendSms(numbers.slice(i, i + CHUNK), smsBody);
+        sent += r.sent; failed += r.failed; detail = detail || r.detail;
+      }
+      result.sms = { attempted: numbers.length, sent, failed, detail };
+    }
+
+    if (channels.includes('email')) {
+      const withEmail = recipients.filter((r: any) => r.email);
+      const html = `<p>${message.replace(/\n/g, '<br/>')}</p>`;
+      const outcomes = await Promise.allSettled(
+        withEmail.map((r: any) => sendEmail(r.email, title, html, message)),
+      );
+      const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
+      result.email = { attempted: withEmail.length, sent, failed: withEmail.length - sent };
+    }
+
+    return result;
   }
 
   // ── STREAM GRADE-LEVEL REPAIR (owner) ───────────────────────────────────────
