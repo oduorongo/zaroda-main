@@ -92,7 +92,15 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     const recipients = data?.SMSMessageData?.Recipients || [];
     const sent = recipients.filter((r: any) => r.status === 'Success').length;
     const failed = numbers.length - sent;
-    return { ok: sent > 0, sent, failed, detail: data?.SMSMessageData?.Message };
+    // The top-level Message is often just a generic summary ("Sent to 1/1...") even on
+    // total failure — the real reason (InsufficientBalance, InvalidSenderId,
+    // UserInBlackList, etc.) is per-recipient, so surface the first rejected one.
+    const firstRejected = recipients.find((r: any) => r.status !== 'Success');
+    const detail = data?.SMSMessageData?.Message
+      || (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}` : undefined)
+      || (!resp.ok ? `HTTP ${resp.status}` : undefined)
+      || (recipients.length === 0 ? `Unexpected response: ${JSON.stringify(data).slice(0, 200)}` : undefined);
+    return { ok: sent > 0, sent, failed, detail };
   } catch (err: any) {
     return { ok: false, sent: 0, failed: numbers.length, detail: err?.message || 'SMS send failed.' };
   }
