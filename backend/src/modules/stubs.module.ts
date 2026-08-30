@@ -3267,9 +3267,19 @@ class AdminController {
     if (channels.includes('email')) {
       const withEmail = recipients.filter((r: any) => r.email);
       const html = `<p>${message.replace(/\n/g, '<br/>')}</p>`;
-      const outcomes = await Promise.allSettled(
-        withEmail.map((r: any) => sendEmail(r.email, title, html, message)),
-      );
+      // Resend's plan here allows 10 requests/second — firing all recipients at once
+      // (Promise.allSettled over the full list) blew past that. Send in small batches
+      // with a pause between them instead.
+      const BATCH = 8;
+      const outcomes: any[] = [];
+      for (let i = 0; i < withEmail.length; i += BATCH) {
+        const batch = withEmail.slice(i, i + BATCH);
+        const batchResults = await Promise.allSettled(
+          batch.map((r: any) => sendEmail(r.email, title, html, message)),
+        );
+        outcomes.push(...batchResults);
+        if (i + BATCH < withEmail.length) await new Promise(res => setTimeout(res, 1100));
+      }
       const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
       const firstFailure = outcomes.find(o => o.status === 'fulfilled' && !(o.value as any).ok) as any;
       result.email = {
