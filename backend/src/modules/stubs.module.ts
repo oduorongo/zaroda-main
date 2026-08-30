@@ -6,8 +6,8 @@
 // ============================================================
 
 import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
+import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource, Repository } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
 import { sendSms, sendEmail } from '../common/messaging';
@@ -985,13 +985,100 @@ class Announcement {
 @Controller('communication')
 @UseGuards(JwtAuthGuard)
 class CommunicationController {
+  constructor(
+    @InjectRepository(Announcement) private annRepo: Repository<Announcement>,
+    private readonly ds: DataSource,
+  ) {}
+
   @Get('announcements')
-  getAnnouncements(@Request() req: any) { return []; }
+  getAnnouncements(@Request() req: any) {
+    return this.annRepo.find({ where: { tenantId: req.user.tenantId }, order: { createdAt: 'DESC' } }).catch(() => []);
+  }
+
+  // Looks up phone/email for the requested audience — staff (users table, filtered by
+  // role) and/or parents (learners.guardian_phone / guardian_email, deduped by contact
+  // since siblings share a guardian). 'learners' has no phone/email of its own in this
+  // schema, so it's treated the same as 'parents'.
+  private async resolveRecipients(tenantId: string, audience: string): Promise<{ phone: string | null; email: string | null }[]> {
+    const staffRoles = ['class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner'];
+    const adminRoles = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
+    const out: { phone: string | null; email: string | null }[] = [];
+
+    if (audience === 'teachers' || audience === 'all') {
+      const rows = await this.ds.query(
+        `SELECT phone, email FROM users WHERE tenant_id::text = $1 AND role = ANY($2) AND COALESCE(is_active, true) = true`,
+        [tenantId, staffRoles],
+      ).catch(() => []);
+      out.push(...rows);
+    }
+    if (audience === 'admins') {
+      const rows = await this.ds.query(
+        `SELECT phone, email FROM users WHERE tenant_id::text = $1 AND role = ANY($2) AND COALESCE(is_active, true) = true`,
+        [tenantId, adminRoles],
+      ).catch(() => []);
+      out.push(...rows);
+    }
+    if (audience === 'parents' || audience === 'learners' || audience === 'all') {
+      const rows = await this.ds.query(
+        `SELECT DISTINCT guardian_phone AS phone, guardian_email AS email FROM learners
+          WHERE tenant_id::text = $1 AND is_active = true
+            AND (guardian_phone IS NOT NULL OR guardian_email IS NOT NULL)`,
+        [tenantId],
+      ).catch(() => []);
+      out.push(...rows);
+    }
+    return out;
+  }
+
+  // Sends via Africa's Talking (SMS) / Resend (email) — same shared platform-wide
+  // senders the owner's broadcast uses (backend/src/common/messaging.ts), batched to
+  // stay under each provider's rate limit.
+  private async dispatch(recipients: { phone: string | null; email: string | null }[], title: string, content: string, channel: string) {
+    const wantsSms = channel === 'sms' || channel === 'all';
+    const wantsEmail = channel === 'email' || channel === 'all';
+    const result: any = {};
+
+    if (wantsSms) {
+      const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean))) as string[];
+      const body = `${title}\n\n${content}`;
+      let sent = 0, failed = 0, detail: string | undefined;
+      for (let i = 0; i < phones.length; i += 100) {
+        const r = await sendSms(phones.slice(i, i + 100), body);
+        sent += r.sent; failed += r.failed; detail = detail || r.detail;
+      }
+      result.sms = { attempted: phones.length, sent, failed, detail };
+    }
+    if (wantsEmail) {
+      const emails = Array.from(new Set(recipients.map(r => r.email).filter(Boolean))) as string[];
+      const html = `<p>${content.replace(/\n/g, '<br/>')}</p>`;
+      const outcomes: any[] = [];
+      for (let i = 0; i < emails.length; i += 8) {
+        const batch = emails.slice(i, i + 8);
+        outcomes.push(...await Promise.allSettled(batch.map(e => sendEmail(e, title, html, content))));
+        if (i + 8 < emails.length) await new Promise(res => setTimeout(res, 1100));
+      }
+      const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
+      const firstFailure = outcomes.find(o => o.status === 'fulfilled' && !(o.value as any).ok) as any;
+      result.email = { attempted: emails.length, sent, failed: emails.length - sent, detail: firstFailure?.value?.detail };
+    }
+    return result;
+  }
 
   @Post('announcements')
-  createAnnouncement(@Request() req: any, @Body() dto: any) {
-    // TODO: integrate AT SMS, FCM push, email
-    return { id: 'stub', ...dto, sentAt: new Date(), message: 'Announcement queued for delivery' };
+  async createAnnouncement(@Request() req: any, @Body() dto: any) {
+    const tenantId = req.user.tenantId;
+    const audience = dto.audience || 'all';
+    const channel = dto.channel || 'push'; // 'push' has no automated sender yet — logged only
+    const recipients = channel === 'push' ? [] : await this.resolveRecipients(tenantId, audience);
+    const sendResult = recipients.length ? await this.dispatch(recipients, dto.title, dto.content, channel) : {};
+
+    const saved = await this.annRepo.save(this.annRepo.create({
+      tenantId, title: dto.title, content: dto.content, audience,
+      priority: dto.priority || 'normal', channel,
+      createdBy: req.user.id, sentAt: new Date(),
+    }));
+
+    return { ...saved, ...sendResult, message: 'Announcement sent' };
   }
 
   @Get('messages')
@@ -1001,9 +1088,57 @@ class CommunicationController {
   sendMessage(@Request() req: any, @Body() dto: any) { return { id: 'stub', ...dto }; }
 
   @Post('fee-reminders')
-  sendFeeReminders(@Request() req: any, @Body() dto: any) {
-    // TODO: query outstanding invoices and send personalised SMS/WhatsApp
-    return { message: 'Fee reminders sent (configure AT_API_KEY env var)', count: 0 };
+  async sendFeeReminders(@Request() req: any, @Body() dto: any) {
+    const tenantId = req.user.tenantId;
+    const term = dto.term || null;
+    const academicYear = dto.academicYear || null;
+
+    // Same billed-vs-paid computation the live Finance "Invoices" screen uses
+    // (fee_items per grade + payment_allocations per learner) — reused here rather
+    // than duplicated logic drifting out of sync.
+    const learners = await this.ds.query(
+      `SELECT l.id, l.first_name AS "firstName", l.grade_level AS "gradeLevel", l.guardian_phone AS "guardianPhone"
+         FROM learners l WHERE l.tenant_id::text = $1 AND l.is_active = true`,
+      [tenantId],
+    ).catch(() => []);
+    const billedRows = await this.ds.query(
+      `SELECT grade_level AS g, COALESCE(SUM(amount),0) AS billed FROM fee_items
+        WHERE tenant_id = $1
+          AND ($2::text IS NULL OR term = $2 OR term IS NULL)
+          AND ($3::text IS NULL OR academic_year = $3 OR academic_year IS NULL)
+        GROUP BY grade_level`,
+      [tenantId, term, academicYear],
+    ).catch(() => []);
+    const billedByGrade: Record<string, number> = {};
+    let schoolWide = 0;
+    for (const r of billedRows as any[]) { if (r.g === null) schoolWide += Number(r.billed); else billedByGrade[r.g] = Number(r.billed); }
+    const paidRows = await this.ds.query(
+      `SELECT learner_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
+        WHERE tenant_id = $1
+          AND ($2::text IS NULL OR term = $2)
+          AND ($3::text IS NULL OR academic_year = $3)
+        GROUP BY learner_id`,
+      [tenantId, term, academicYear],
+    ).catch(() => []);
+    const paidByLearner: Record<string, number> = {};
+    for (const r of paidRows as any[]) paidByLearner[r.learner_id] = Number(r.paid || 0);
+
+    const debtors = (learners as any[])
+      .map(l => {
+        const totalAmount = (billedByGrade[l.gradeLevel] || 0) + schoolWide;
+        const amountPaid = paidByLearner[l.id] || 0;
+        return { ...l, balance: totalAmount - amountPaid };
+      })
+      .filter(l => l.balance > 0 && l.guardianPhone);
+
+    let sent = 0, failed = 0, detail: string | undefined;
+    for (const d of debtors) {
+      const body = `Dear parent, ${d.firstName} has an outstanding school fee balance of KES ${d.balance.toLocaleString('en-KE')}. Please clear it at your earliest convenience. — ZARODA`;
+      const r = await sendSms([d.guardianPhone], body);
+      sent += r.sent; failed += r.failed; detail = detail || r.detail;
+    }
+
+    return { message: `Fee reminders sent to ${sent} of ${debtors.length} parents with outstanding balances.`, count: sent, attempted: debtors.length, failed, detail };
   }
 }
 

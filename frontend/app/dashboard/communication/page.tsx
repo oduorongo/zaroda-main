@@ -44,8 +44,13 @@ export default function CommunicationPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiClient.post('/communication/announcements', form);
-      toast.success('Announcement sent!');
+      const { data } = await apiClient.post('/communication/announcements', form);
+      const parts: string[] = [];
+      if (data.sms) parts.push(`SMS ${data.sms.sent}/${data.sms.attempted}`);
+      if (data.email) parts.push(`Email ${data.email.sent}/${data.email.attempted}`);
+      toast.success(parts.length ? `Sent — ${parts.join(', ')}` : 'Announcement saved!');
+      if (data.sms?.detail && data.sms.sent === 0) toast.error(`SMS: ${data.sms.detail}`);
+      if (data.email?.detail && data.email.sent === 0) toast.error(`Email: ${data.email.detail}`);
       setShowNew(false);
       setForm({ title:'', content:'', audience:'all', priority:'normal', channel:'push' });
       load();
@@ -55,8 +60,9 @@ export default function CommunicationPage() {
 
   const sendFeeReminders = async () => {
     try {
-      await apiClient.post('/communication/fee-reminders', { term: 'term_1', academicYear: '2025/2026' });
-      toast.success('Fee reminders sent to all parents with outstanding balances!');
+      const { data } = await apiClient.post('/communication/fee-reminders', { term: 'term_1', academicYear: '2025/2026' });
+      toast.success(data.message || `Sent to ${data.count} parents.`);
+      if (data.count === 0 && data.detail) toast.error(`SMS: ${data.detail}`);
     } catch { toast.error('Could not send reminders'); }
   };
 
