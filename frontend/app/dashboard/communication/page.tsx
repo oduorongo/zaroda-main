@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Bell, Send, MessageSquare, Megaphone, Loader2, X, Plus } from 'lucide-react';
+import { Bell, Send, Megaphone, Loader2, X, Plus } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -21,7 +21,7 @@ const PRIORITY_CONF: Record<string, string> = {
 
 export default function CommunicationPage() {
   const { user } = useAuth();
-  const [tab,    setTab]    = useState<'announcements'|'messages'|'reminders'>('announcements');
+  const [tab,    setTab]    = useState<'announcements'|'reminders'>('announcements');
   const [items,  setItems]  = useState<any[]>([]);
   const [loading,setLoading]= useState(true);
   const [showNew,setShowNew]= useState(false);
@@ -76,7 +76,7 @@ export default function CommunicationPage() {
       <div className="page-header">
         <div>
           <h1 className="text-2xl font-black text-theme-heading">Communication</h1>
-          <p className="text-sm text-theme-muted">Announcements · Fee reminders · Parent messaging</p>
+          <p className="text-sm text-theme-muted">Announcements · Fee reminders</p>
         </div>
         {isHoi(user?.role || '') && (
           <div className="flex gap-2">
@@ -92,7 +92,7 @@ export default function CommunicationPage() {
 
       {/* Tab bar */}
       <div className="flex border-b border-theme gap-1">
-        {[{key:'announcements',label:'📢 Announcements'},{key:'messages',label:'💬 Messages'},{key:'reminders',label:'🔔 Reminders'}].map(t => (
+        {[{key:'announcements',label:'📢 Announcements'},{key:'reminders',label:'🔔 Reminders'}].map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${tab===t.key ? 'border-[#1a2e5a] text-theme-heading' : 'border-transparent text-theme-muted hover:text-theme-heading'}`}>
             {t.label}
@@ -134,13 +134,6 @@ export default function CommunicationPage() {
             ))}
           </div>
         )
-      )}
-
-      {tab === 'messages' && (
-        <div className="card p-8 text-center text-theme-muted">
-          <MessageSquare size={36} className="mx-auto text-[#e2e6f0] mb-2"/>
-          <p>Parent–teacher messages load from <code className="bg-surface-2 px-1 rounded">/api/v1/communication/messages</code></p>
-        </div>
       )}
 
       {tab === 'reminders' && (
