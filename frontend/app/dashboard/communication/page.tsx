@@ -27,6 +27,9 @@ export default function CommunicationPage() {
   const [showNew,setShowNew]= useState(false);
   const [saving, setSaving] = useState(false);
   const [form,   setForm]   = useState({ title:'', content:'', audience:'all', priority:'normal', channel:'push' });
+  const [reminderTerm, setReminderTerm] = useState('term_1');
+  const [reminderChannel, setReminderChannel] = useState('sms');
+  const [sendingReminders, setSendingReminders] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -62,12 +65,18 @@ export default function CommunicationPage() {
   };
 
   const sendFeeReminders = async () => {
+    setSendingReminders(true);
     try {
-      const { data } = await apiClient.post('/communication/fee-reminders', { term: 'term_1', academicYear: '2025/2026' });
+      const { data } = await apiClient.post('/communication/fee-reminders', {
+        term: reminderTerm, academicYear: '2025/2026', channel: reminderChannel,
+      });
       toast.success(data.message || `Sent to ${data.count} parents.`);
-      if (data.count === 0 && data.detail) toast.error(`SMS: ${data.detail}`);
+      if (data.sms?.sent === 0 && data.sms?.detail) toast.error(`SMS: ${data.sms.detail}`);
+      if (data.email?.sent === 0 && data.email?.detail) toast.error(`Email: ${data.email.detail}`);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not send reminders');
+    } finally {
+      setSendingReminders(false);
     }
   };
 
@@ -125,9 +134,17 @@ export default function CommunicationPage() {
                       <span className="badge bg-surface-2 text-theme-muted text-[10px]">→ {a.audience}</span>
                     </div>
                     <p className="text-sm text-theme mt-1 line-clamp-2">{a.content}</p>
-                    <p className="text-xs text-theme-muted mt-1.5">
-                      {a.sentAt ? new Date(a.sentAt).toLocaleDateString('en-KE', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : 'Draft'}
-                    </p>
+                    <div className="flex items-center gap-3 flex-wrap mt-1.5">
+                      <p className="text-xs text-theme-muted">
+                        {a.sentAt ? new Date(a.sentAt).toLocaleDateString('en-KE', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : 'Draft'}
+                      </p>
+                      {a.delivery?.sms && (
+                        <span className="text-[11px] text-theme-muted">SMS {a.delivery.sms.sent}/{a.delivery.sms.attempted}</span>
+                      )}
+                      {a.delivery?.email && (
+                        <span className="text-[11px] text-theme-muted">Email {a.delivery.email.sent}/{a.delivery.email.attempted}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -141,10 +158,18 @@ export default function CommunicationPage() {
           <h3 className="font-bold text-theme-heading">Bulk Fee Reminders</h3>
           <p className="text-sm text-theme-muted">Send personalised fee reminders to all parents with outstanding balances. Each message includes the learner's name, balance, and due date.</p>
           <div className="flex gap-3">
-            <select className="input w-36"><option>Term 1</option><option>Term 2</option><option>Term 3</option></select>
-            <select className="input w-36"><option>SMS + WhatsApp</option><option>SMS only</option><option>Email only</option></select>
-            <button onClick={sendFeeReminders} className="btn-primary">
-              <Send size={14}/> Send Reminders
+            <select value={reminderTerm} onChange={e => setReminderTerm(e.target.value)} className="input w-36">
+              <option value="term_1">Term 1</option>
+              <option value="term_2">Term 2</option>
+              <option value="term_3">Term 3</option>
+            </select>
+            <select value={reminderChannel} onChange={e => setReminderChannel(e.target.value)} className="input w-36">
+              <option value="sms">SMS only</option>
+              <option value="email">Email only</option>
+              <option value="all">SMS + Email</option>
+            </select>
+            <button onClick={sendFeeReminders} disabled={sendingReminders} className="btn-primary">
+              {sendingReminders ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>} Send Reminders
             </button>
           </div>
         </div>
@@ -187,10 +212,10 @@ export default function CommunicationPage() {
                 <div>
                   <label className="label">Channel</label>
                   <select value={form.channel} onChange={set('channel')} className="input">
-                    <option value="push">Push Only</option>
+                    <option value="push">Save only (no send)</option>
                     <option value="sms">SMS</option>
                     <option value="email">Email</option>
-                    <option value="all">All channels</option>
+                    <option value="all">SMS + Email</option>
                   </select>
                 </div>
               </div>

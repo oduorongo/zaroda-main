@@ -983,7 +983,10 @@ class CommunicationController {
   @Get('announcements')
   getAnnouncements(@Request() req: any) {
     return this.ds.query(
-      `SELECT id, title, body AS content, audience, priority, created_at AS "createdAt", published_at AS "sentAt"
+      // audience_filter doubles as a place to persist delivery stats (sms/email
+      // sent-failed counts) since the table has no dedicated columns for that.
+      `SELECT id, title, body AS content, audience, priority, created_at AS "createdAt",
+              published_at AS "sentAt", audience_filter AS "delivery"
          FROM announcements WHERE tenant_id::text = $1 AND deleted_at IS NULL
          ORDER BY created_at DESC`,
       [req.user.tenantId],
@@ -1072,10 +1075,10 @@ class CommunicationController {
     const sendResult = recipients.length ? await this.dispatch(recipients, dto.title, dto.content, channel) : {};
 
     const rows = await this.ds.query(
-      `INSERT INTO announcements (tenant_id, school_id, title, body, audience, priority, is_published, published_at, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,true,NOW(),$7)
-       RETURNING id, title, body AS content, audience, priority, created_at AS "createdAt", published_at AS "sentAt"`,
-      [tenantId, schoolId, dto.title, dto.content, audience, priority, req.user.id],
+      `INSERT INTO announcements (tenant_id, school_id, title, body, audience, priority, is_published, published_at, created_by, audience_filter)
+       VALUES ($1,$2,$3,$4,$5,$6,true,NOW(),$7,$8)
+       RETURNING id, title, body AS content, audience, priority, created_at AS "createdAt", published_at AS "sentAt", audience_filter AS "delivery"`,
+      [tenantId, schoolId, dto.title, dto.content, audience, priority, req.user.id, JSON.stringify({ channel, ...sendResult })],
     );
 
     return { ...rows[0], ...sendResult, message: 'Announcement sent' };
@@ -1092,12 +1095,16 @@ class CommunicationController {
     const tenantId = req.user.tenantId;
     const term = dto.term || null;
     const academicYear = dto.academicYear || null;
+    const channel = ['sms', 'email', 'all'].includes(dto.channel) ? dto.channel : 'sms';
+    const wantsSms = channel === 'sms' || channel === 'all';
+    const wantsEmail = channel === 'email' || channel === 'all';
 
     // Same billed-vs-paid computation the live Finance "Invoices" screen uses
     // (fee_items per grade + payment_allocations per learner) — reused here rather
     // than duplicated logic drifting out of sync.
     const learners = await this.ds.query(
-      `SELECT l.id, l.first_name AS "firstName", l.grade_level AS "gradeLevel", l.guardian_phone AS "guardianPhone"
+      `SELECT l.id, l.first_name AS "firstName", l.grade_level AS "gradeLevel",
+              l.guardian_phone AS "guardianPhone", l.guardian_email AS "guardianEmail"
          FROM learners l WHERE l.tenant_id::text = $1 AND l.is_active = true`,
       [tenantId],
     ).catch(() => []);
@@ -1129,16 +1136,29 @@ class CommunicationController {
         const amountPaid = paidByLearner[l.id] || 0;
         return { ...l, balance: totalAmount - amountPaid };
       })
-      .filter(l => l.balance > 0 && l.guardianPhone);
+      .filter(l => l.balance > 0 && (l.guardianPhone || l.guardianEmail));
 
-    let sent = 0, failed = 0, detail: string | undefined;
+    let smsSent = 0, smsFailed = 0, smsDetail: string | undefined;
+    let emailSent = 0, emailFailed = 0, emailDetail: string | undefined;
     for (const d of debtors) {
-      const body = `Dear parent, ${d.firstName} has an outstanding school fee balance of KES ${d.balance.toLocaleString('en-KE')}. Please clear it at your earliest convenience. — ZARODA`;
-      const r = await sendSms([d.guardianPhone], body);
-      sent += r.sent; failed += r.failed; detail = detail || r.detail;
+      const text = `Dear parent, ${d.firstName} has an outstanding school fee balance of KES ${d.balance.toLocaleString('en-KE')}. Please clear it at your earliest convenience. — ZARODA`;
+      if (wantsSms && d.guardianPhone) {
+        const r = await sendSms([d.guardianPhone], text);
+        smsSent += r.sent; smsFailed += r.failed; smsDetail = smsDetail || r.detail;
+      }
+      if (wantsEmail && d.guardianEmail) {
+        const r = await sendEmail(d.guardianEmail, 'Outstanding Fee Balance', `<p>${text}</p>`, text);
+        if (r.ok) emailSent++; else { emailFailed++; emailDetail = emailDetail || r.detail; }
+      }
     }
 
-    return { message: `Fee reminders sent to ${sent} of ${debtors.length} parents with outstanding balances.`, count: sent, attempted: debtors.length, failed, detail };
+    const sent = smsSent + emailSent;
+    return {
+      message: `Fee reminders sent to ${sent} of ${debtors.length} parents with outstanding balances.`,
+      count: sent, attempted: debtors.length,
+      sms: wantsSms ? { sent: smsSent, failed: smsFailed, detail: smsDetail } : undefined,
+      email: wantsEmail ? { sent: emailSent, failed: emailFailed, detail: emailDetail } : undefined,
+    };
   }
 }
 
