@@ -6,8 +6,8 @@
 // ============================================================
 
 import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException } from '@nestjs/common';
-import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource, Repository } from 'typeorm';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
 import { sendSms, sendEmail } from '../common/messaging';
@@ -968,31 +968,26 @@ export class FinanceModule {}
 // ═══════════════════════════════════════════════════════════
 // COMMUNICATION MODULE
 // ═══════════════════════════════════════════════════════════
-@Entity('announcements')
-class Announcement {
-  @PrimaryGeneratedColumn('uuid') id:        string;
-  @Column({ name: 'tenant_id' })  tenantId:  string;
-  @Column()                       title:     string;
-  @Column({ type: 'text' })       content:   string;
-  @Column({ default: 'all' })     audience:  string;
-  @Column({ default: 'normal' })  priority:  string;
-  @Column({ default: 'push' })    channel:   string;
-  @Column({ name: 'created_by', nullable: true }) createdBy: string;
-  @Column({ name: 'sent_at', nullable: true }) sentAt: Date;
-  @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
-}
-
 @Controller('communication')
 @UseGuards(JwtAuthGuard)
 class CommunicationController {
   constructor(
-    @InjectRepository(Announcement) private annRepo: Repository<Announcement>,
     private readonly ds: DataSource,
   ) {}
 
+  // The real `announcements` table (migration 005) uses body/school_id/a stricter
+  // priority CHECK ('low'|'normal'|'high'|'urgent') — there used to be a mismatched
+  // TypeORM entity here (wrong column names, no school_id) that silently worked only
+  // because the old stub never actually inserted anything. Raw SQL against the real
+  // schema instead of an out-of-sync entity.
   @Get('announcements')
   getAnnouncements(@Request() req: any) {
-    return this.annRepo.find({ where: { tenantId: req.user.tenantId }, order: { createdAt: 'DESC' } }).catch(() => []);
+    return this.ds.query(
+      `SELECT id, title, body AS content, audience, priority, created_at AS "createdAt", published_at AS "sentAt"
+         FROM announcements WHERE tenant_id::text = $1 AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
   }
 
   // Looks up phone/email for the requested audience — staff (users table, filtered by
@@ -1067,18 +1062,23 @@ class CommunicationController {
   @Post('announcements')
   async createAnnouncement(@Request() req: any, @Body() dto: any) {
     const tenantId = req.user.tenantId;
-    const audience = dto.audience || 'all';
+    const schoolId = req.user.schoolId;
+    // Constrained by the announcements table's CHECK constraints — anything else falls
+    // back to a safe default rather than letting the insert fail on a bad value.
+    const audience = ['all', 'admins', 'teachers', 'learners', 'parents'].includes(dto.audience) ? dto.audience : 'all';
+    const priority = ['low', 'normal', 'high', 'urgent'].includes(dto.priority) ? dto.priority : 'normal';
     const channel = dto.channel || 'push'; // 'push' has no automated sender yet — logged only
     const recipients = channel === 'push' ? [] : await this.resolveRecipients(tenantId, audience);
     const sendResult = recipients.length ? await this.dispatch(recipients, dto.title, dto.content, channel) : {};
 
-    const saved = await this.annRepo.save(this.annRepo.create({
-      tenantId, title: dto.title, content: dto.content, audience,
-      priority: dto.priority || 'normal', channel,
-      createdBy: req.user.id, sentAt: new Date(),
-    }));
+    const rows = await this.ds.query(
+      `INSERT INTO announcements (tenant_id, school_id, title, body, audience, priority, is_published, published_at, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,true,NOW(),$7)
+       RETURNING id, title, body AS content, audience, priority, created_at AS "createdAt", published_at AS "sentAt"`,
+      [tenantId, schoolId, dto.title, dto.content, audience, priority, req.user.id],
+    );
 
-    return { ...saved, ...sendResult, message: 'Announcement sent' };
+    return { ...rows[0], ...sendResult, message: 'Announcement sent' };
   }
 
   @Get('messages')
@@ -1143,7 +1143,7 @@ class CommunicationController {
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Announcement])],
+  imports: [],
   controllers: [CommunicationController],
 })
 export class CommunicationModule {}

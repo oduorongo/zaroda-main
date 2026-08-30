@@ -13,9 +13,10 @@ const AUDIENCE_OPTS = [
   { value: 'admins',   label: 'Admins only' },
 ];
 const PRIORITY_CONF: Record<string, string> = {
+  low:    'bg-gray-100 text-gray-700',
   normal: 'bg-blue-100 text-blue-700',
+  high:   'bg-amber-100 text-amber-700',
   urgent: 'bg-red-100  text-red-700',
-  info:   'bg-gray-100 text-gray-700',
 };
 
 export default function CommunicationPage() {
@@ -54,7 +55,9 @@ export default function CommunicationPage() {
       setShowNew(false);
       setForm({ title:'', content:'', audience:'all', priority:'normal', channel:'push' });
       load();
-    } catch { toast.error('Could not send announcement'); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Could not send announcement');
+    }
     finally { setSaving(false); }
   };
 
@@ -63,7 +66,9 @@ export default function CommunicationPage() {
       const { data } = await apiClient.post('/communication/fee-reminders', { term: 'term_1', academicYear: '2025/2026' });
       toast.success(data.message || `Sent to ${data.count} parents.`);
       if (data.count === 0 && data.detail) toast.error(`SMS: ${data.detail}`);
-    } catch { toast.error('Could not send reminders'); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Could not send reminders');
+    }
   };
 
   return (
@@ -180,9 +185,10 @@ export default function CommunicationPage() {
                 <div>
                   <label className="label">Priority</label>
                   <select value={form.priority} onChange={set('priority')} className="input">
+                    <option value="low">Low</option>
                     <option value="normal">Normal</option>
+                    <option value="high">High</option>
                     <option value="urgent">Urgent</option>
-                    <option value="info">Info</option>
                   </select>
                 </div>
                 <div>
