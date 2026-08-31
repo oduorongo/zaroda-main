@@ -17,6 +17,7 @@ import {
 import { LocationModule }           from './modules/location/location.module';
 import { TeacherOnboardModule }     from './modules/onboarding/teacher-onboard.module';
 import { ProfessionalRecordsModule } from './modules/professional-records/professional-records.module';
+import { SeniorSelectionModule }    from './modules/senior-selection/senior-selection.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { ProfessionalRecordsModule } from './modules/professional-records/profes
     AdminModule,
     RetoolingModule,
     TeacherOnboardModule,
+    SeniorSelectionModule,
   ],
 })
 export class AppModule {}
