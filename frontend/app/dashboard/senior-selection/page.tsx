@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { GraduationCap, Loader2, X, CheckCircle2, FileText, Send } from 'lucide-react';
+import { GraduationCap, Loader2, X, CheckCircle2, FileText, Send, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isParent } from '@/lib/hooks/useAuth';
+import { usePdfDownload } from '@/components/pdf/pdf-buttons';
 import toast from 'react-hot-toast';
 
 const PATHWAYS = [
@@ -64,6 +65,7 @@ export default function SeniorSelectionPage() {
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const { printHtml, downloading: printing } = usePdfDownload();
 
   const load = () => {
     setLoading(true);
@@ -167,6 +169,16 @@ export default function SeniorSelectionPage() {
                     : 'Grade 9 parent/guardian submissions'}
           </p>
         </div>
+        {!parent && (
+          <button
+            onClick={() => printHtml('/senior-selection/bulk-print/html', 'bulk-print')}
+            disabled={printing === 'bulk-print'}
+            className="btn-primary"
+          >
+            {printing === 'bulk-print' ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+            Print blank forms (all G9)
+          </button>
+        )}
       </div>
 
       {loading ? (

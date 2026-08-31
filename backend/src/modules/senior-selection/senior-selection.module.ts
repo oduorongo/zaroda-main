@@ -9,7 +9,7 @@
 
 import {
   Module, Controller, Get, Post, Patch, Param, Query, Body,
-  Request, UseGuards, BadRequestException, ForbiddenException, NotFoundException,
+  Request, Res, UseGuards, BadRequestException, ForbiddenException, NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -224,6 +224,118 @@ export class SeniorSelectionController {
         ORDER BY l.first_name`,
       [tenantId],
     ).catch(() => []);
+  }
+
+  // ── TEACHER / ADMIN: printable blank forms for manual filling ──
+  // One page per Grade 9 learner, pre-filled with school name, learner name and
+  // assessment number (UPI); everything else left blank for the parent to complete
+  // by hand. Registered before ":id" so "bulk-print" never gets swallowed by it.
+  @Get('bulk-print/html')
+  async bulkPrintHtml(@Request() req: any, @Query('streamId') streamId: string, @Res() res: any) {
+    if (!VIEW_ROLES.includes(req.user.role)) {
+      throw new ForbiddenException('You are not permitted to print senior school selection forms.');
+    }
+    await this.ensureTable();
+    const tenantId = req.user.tenantId;
+
+    const school = await this.ds.query(
+      `SELECT name, phone, address, sub_county AS "subCounty" FROM schools WHERE tenant_id::text = $1 LIMIT 1`,
+      [tenantId],
+    ).catch(() => []);
+    const s = school[0] || {};
+
+    const learners = await this.ds.query(
+      `SELECT l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber", l.upi_number AS "upiNumber",
+              s.name AS "streamName"
+         FROM learners l
+         LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.tenant_id::text = $1 AND l.grade_level = 'grade_9'
+          AND ($2::text IS NULL OR l.stream_id::text = $2)
+        ORDER BY l.first_name`,
+      [tenantId, streamId || null],
+    ).catch(() => []);
+
+    const esc = (v: any) => String(v ?? '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] as string));
+
+    const schoolLevels = [
+      { cat: 'C1' }, { cat: 'C1' }, { cat: 'C1' }, { cat: 'C2' }, { cat: 'C2' }, { cat: 'C3' }, { cat: 'C3' }, { cat: 'C4' },
+    ];
+    const pages = learners.map((l: any) => `
+      <section class="form-page">
+        <h1>${esc(s.name || 'School')}</h1>
+        <p class="sub">GRADE 10 SENIOR SCHOOL SELECTION — PARENT/GUARDIAN CONSULTATION AND CONSENT FORM</p>
+        <table class="prefill">
+          <tr><td class="lbl">Learner's full name</td><td class="val">${esc(l.firstName)} ${esc(l.lastName)}</td>
+              <td class="lbl">Assessment No.</td><td class="val">${esc(l.upiNumber || l.admissionNumber || '')}</td></tr>
+          <tr><td class="lbl">Stream</td><td class="val">${esc(l.streamName || '')}</td>
+              <td class="lbl">Admission No.</td><td class="val">${esc(l.admissionNumber || '')}</td></tr>
+        </table>
+
+        <h2>Section B: Parent / Guardian Details</h2>
+        <table class="blank">
+          <tr><td class="lbl">Full name</td><td class="line"></td></tr>
+          <tr><td class="lbl">National ID number</td><td class="line"></td></tr>
+          <tr><td class="lbl">Relationship to learner</td><td class="line"></td></tr>
+          <tr><td class="lbl">Phone (primary / alternative)</td><td class="line"></td></tr>
+          <tr><td class="lbl">Village / Location / Address</td><td class="line"></td></tr>
+        </table>
+
+        <h2>Section C: Career Interest and Pathway</h2>
+        <p class="line-label">Career interest / aspiration: <span class="line"></span></p>
+        <table class="pathways">
+          <tr><td><b>STEM</b><br>[ ] Pure Sciences<br>[ ] Applied Sciences<br>[ ] Technical Studies</td>
+              <td><b>Social Sciences</b><br>[ ] Languages and Literature<br>[ ] Humanities and Business Studies</td>
+              <td><b>Arts and Sports Science</b><br>[ ] Fine Arts, Theatre and Film<br>[ ] Sports and Recreation</td></tr>
+        </table>
+
+        <h2>Section D: Subject Combination</h2>
+        <p>First choice: 1. _______________ 2. _______________ 3. _______________</p>
+        <p>Second choice: 1. _______________ 2. _______________ 3. _______________</p>
+
+        <h2>Section E: Senior School Choices — 8 schools</h2>
+        <table class="schools">
+          <tr><th>#</th><th>Cat.</th><th>Name of senior school</th><th>Code</th><th>Sub-county/County</th><th>Boarding/Day</th><th>Boys/Girls/Mixed</th><th>Comb.</th></tr>
+          ${schoolLevels.map((r, i) => `<tr><td>${i + 1}</td><td>${r.cat}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`).join('')}
+        </table>
+
+        <h2>Section F: Declaration and Consent</h2>
+        <p class="small">I confirm I have discussed the career interest, pathway, subject combination and the eight school choices with my child and the class teacher; that each school listed offers the chosen pathway/combination; that the C4 day school is within reasonable travel distance; that the pathway/combination cannot be changed once submitted; and that all details given are correct.</p>
+        <table class="signoff">
+          <tr><td>Learner's name: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
+          <tr><td>Parent/Guardian name: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
+          <tr><td>Class teacher: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
+        </table>
+      </section>
+    `).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>Grade 10 Selection — Blank Forms</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #111; }
+        .form-page { page-break-after: always; padding: 24px; }
+        .form-page:last-child { page-break-after: auto; }
+        h1 { text-align: center; font-size: 16px; margin: 0 0 4px; }
+        .sub { text-align: center; font-size: 10px; font-weight: bold; margin: 0 0 14px; }
+        h2 { font-size: 12px; background: #1a2e5a; color: #fff; padding: 3px 6px; margin: 12px 0 6px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+        table.prefill td, table.blank td { border: 1px solid #999; padding: 4px 6px; }
+        table.prefill .lbl, table.blank .lbl { background: #f0f0f0; font-weight: bold; width: 22%; }
+        table.blank .line { height: 20px; }
+        table.pathways td { border: 1px solid #999; padding: 6px; width: 33%; vertical-align: top; }
+        table.schools th, table.schools td { border: 1px solid #999; padding: 5px; text-align: left; font-size: 10px; }
+        table.schools td:nth-child(3) { min-width: 140px; }
+        .line { display: inline-block; border-bottom: 1px solid #333; min-width: 260px; }
+        .line.short { min-width: 100px; }
+        .line-label { margin: 4px 0 10px; }
+        .small { font-size: 9px; }
+        table.signoff td { padding: 8px 4px; }
+        @media print { .form-page { padding: 12mm; } }
+      </style>
+      </head><body>${pages || '<p style="padding:24px">No Grade 9 learners found.</p>'}</body></html>`;
+
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.send(html);
   }
 
   // ── TEACHER / ADMIN / owning PARENT: full form detail ─────
