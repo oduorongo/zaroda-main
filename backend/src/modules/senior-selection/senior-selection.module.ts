@@ -311,35 +311,36 @@ export class SeniorSelectionController {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <title>Grade 10 Selection — Blank Forms</title>
       <style>
-        @page { size: A4; margin: 10mm; }
+        @page { size: A4; margin: 8mm; }
         * { box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; font-size: 10px; color: #111; margin: 0; }
+        body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 0; }
         .form-page {
           page-break-after: always; break-after: page;
-          padding: 16px; width: 210mm; min-height: 297mm;
+          padding: 24px; width: 210mm; min-height: 297mm;
           margin: 0 auto 24px; background: #fff;
           box-shadow: 0 0 6px rgba(0,0,0,0.15);
         }
         .form-page:last-child { page-break-after: auto; break-after: auto; margin-bottom: 0; }
-        h1 { text-align: center; font-size: 15px; margin: 0 0 4px; }
-        .sub { text-align: center; font-size: 9px; font-weight: bold; margin: 0 0 10px; }
+        h1 { text-align: center; font-size: 24px; margin: 0 0 6px; }
+        .sub { text-align: center; font-size: 13px; font-weight: bold; margin: 0 0 16px; }
         h2 {
-          font-size: 11px; background: #1a2e5a; color: #fff; padding: 3px 6px;
-          margin: 10px 0 5px; break-inside: avoid;
+          font-size: 15px; background: #1a2e5a; color: #fff; padding: 6px 10px;
+          margin: 16px 0 8px; break-inside: avoid;
         }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 5px; table-layout: fixed; break-inside: avoid; }
-        table.prefill td, table.blank td { border: 1px solid #999; padding: 3px 6px; word-break: break-word; }
-        table.prefill .lbl, table.blank .lbl { background: #f0f0f0; font-weight: bold; width: 24%; }
-        table.blank .line { height: 16px; }
-        table.pathways td { border: 1px solid #999; padding: 5px; width: 33.33%; vertical-align: top; }
-        table.schools th, table.schools td { border: 1px solid #999; padding: 3px; text-align: left; font-size: 8.5px; word-break: break-word; }
+        p { font-size: 14px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; break-inside: avoid; }
+        table.prefill td, table.blank td { border: 1px solid #999; padding: 8px 10px; word-break: break-word; font-size: 14px; }
+        table.prefill .lbl, table.blank .lbl { background: #f0f0f0; font-weight: bold; width: 26%; }
+        table.blank .line { height: 26px; }
+        table.pathways td { border: 1px solid #999; padding: 10px; width: 33.33%; vertical-align: top; font-size: 13.5px; line-height: 1.9; }
+        table.schools th, table.schools td { border: 1px solid #999; padding: 8px 6px; text-align: left; font-size: 12px; word-break: break-word; height: 30px; }
         table.schools th:nth-child(1), table.schools td:nth-child(1) { width: 4%; }
         table.schools th:nth-child(2), table.schools td:nth-child(2) { width: 7%; }
-        .line { display: inline-block; border-bottom: 1px solid #333; min-width: 200px; }
-        .line.short { min-width: 80px; }
-        .line-label { margin: 3px 0 8px; }
-        .small { font-size: 8px; }
-        table.signoff td { padding: 6px 4px; }
+        .line { display: inline-block; border-bottom: 1px solid #333; min-width: 260px; }
+        .line.short { min-width: 110px; }
+        .line-label { margin: 6px 0 14px; }
+        .small { font-size: 12px; line-height: 1.5; }
+        table.signoff td { padding: 12px 6px; font-size: 14px; }
         .no-print { text-align: center; margin: 12px 0; }
         .no-print button { background: #1a2e5a; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         @media print {
