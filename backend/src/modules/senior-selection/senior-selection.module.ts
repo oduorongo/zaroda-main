@@ -304,7 +304,6 @@ export class SeniorSelectionController {
         <table class="signoff">
           <tr><td>Learner's name: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
           <tr><td>Parent/Guardian name: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
-          <tr><td>Class teacher: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
         </table>
       </section>
     `).join('');
