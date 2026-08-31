@@ -71,6 +71,20 @@ services:
         sync: false
       - key: MPESA_SHORTCODE
         sync: false
+      # Email (Resend — https://resend.com/api-keys) and SMS (Africa's Talking —
+      # https://account.africastalking.com/apps) for Communication/announcements.
+      # Without these, sends fail with "not configured" (surfaced in the UI, but
+      # easy to miss) — see sendEmail/sendSms in src/common/messaging.ts.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: AT_API_KEY
+        sync: false
+      - key: AT_USERNAME
+        sync: false
+      - key: AT_SENDER_ID
+        sync: false
 
   # ── Frontend (Next.js) ──────────────────────────────────────────────────
   - type: web
