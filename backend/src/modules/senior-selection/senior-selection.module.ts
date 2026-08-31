@@ -312,27 +312,48 @@ export class SeniorSelectionController {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <title>Grade 10 Selection — Blank Forms</title>
       <style>
-        body { font-family: Arial, sans-serif; font-size: 11px; color: #111; }
-        .form-page { page-break-after: always; padding: 24px; }
-        .form-page:last-child { page-break-after: auto; }
-        h1 { text-align: center; font-size: 16px; margin: 0 0 4px; }
-        .sub { text-align: center; font-size: 10px; font-weight: bold; margin: 0 0 14px; }
-        h2 { font-size: 12px; background: #1a2e5a; color: #fff; padding: 3px 6px; margin: 12px 0 6px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
-        table.prefill td, table.blank td { border: 1px solid #999; padding: 4px 6px; }
-        table.prefill .lbl, table.blank .lbl { background: #f0f0f0; font-weight: bold; width: 22%; }
-        table.blank .line { height: 20px; }
-        table.pathways td { border: 1px solid #999; padding: 6px; width: 33%; vertical-align: top; }
-        table.schools th, table.schools td { border: 1px solid #999; padding: 5px; text-align: left; font-size: 10px; }
-        table.schools td:nth-child(3) { min-width: 140px; }
-        .line { display: inline-block; border-bottom: 1px solid #333; min-width: 260px; }
-        .line.short { min-width: 100px; }
-        .line-label { margin: 4px 0 10px; }
-        .small { font-size: 9px; }
-        table.signoff td { padding: 8px 4px; }
-        @media print { .form-page { padding: 12mm; } }
+        @page { size: A4; margin: 10mm; }
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; font-size: 10px; color: #111; margin: 0; }
+        .form-page {
+          page-break-after: always; break-after: page;
+          padding: 16px; width: 210mm; min-height: 297mm;
+          margin: 0 auto 24px; background: #fff;
+          box-shadow: 0 0 6px rgba(0,0,0,0.15);
+        }
+        .form-page:last-child { page-break-after: auto; break-after: auto; margin-bottom: 0; }
+        h1 { text-align: center; font-size: 15px; margin: 0 0 4px; }
+        .sub { text-align: center; font-size: 9px; font-weight: bold; margin: 0 0 10px; }
+        h2 {
+          font-size: 11px; background: #1a2e5a; color: #fff; padding: 3px 6px;
+          margin: 10px 0 5px; break-inside: avoid;
+        }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 5px; table-layout: fixed; break-inside: avoid; }
+        table.prefill td, table.blank td { border: 1px solid #999; padding: 3px 6px; word-break: break-word; }
+        table.prefill .lbl, table.blank .lbl { background: #f0f0f0; font-weight: bold; width: 24%; }
+        table.blank .line { height: 16px; }
+        table.pathways td { border: 1px solid #999; padding: 5px; width: 33.33%; vertical-align: top; }
+        table.schools th, table.schools td { border: 1px solid #999; padding: 3px; text-align: left; font-size: 8.5px; word-break: break-word; }
+        table.schools th:nth-child(1), table.schools td:nth-child(1) { width: 4%; }
+        table.schools th:nth-child(2), table.schools td:nth-child(2) { width: 7%; }
+        .line { display: inline-block; border-bottom: 1px solid #333; min-width: 200px; }
+        .line.short { min-width: 80px; }
+        .line-label { margin: 3px 0 8px; }
+        .small { font-size: 8px; }
+        table.signoff td { padding: 6px 4px; }
+        .no-print { text-align: center; margin: 12px 0; }
+        .no-print button { background: #1a2e5a; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        @media print {
+          body { background: #fff; }
+          .form-page { box-shadow: none; margin: 0; width: auto; min-height: auto; }
+          .no-print { display: none; }
+        }
       </style>
-      </head><body>${pages || '<p style="padding:24px">No Grade 9 learners found.</p>'}</body></html>`;
+      </head><body>
+        <div class="no-print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+        ${pages || '<p style="padding:24px">No Grade 9 learners found.</p>'}
+        <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 400); });</script>
+      </body></html>`;
 
     res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     res.send(html);
