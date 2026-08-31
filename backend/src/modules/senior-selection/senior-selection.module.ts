@@ -265,6 +265,8 @@ export class SeniorSelectionController {
       <section class="form-page">
         <h1>${esc(s.name || 'School')}</h1>
         <p class="sub">GRADE 10 SENIOR SCHOOL SELECTION — PARENT/GUARDIAN CONSULTATION AND CONSENT FORM</p>
+
+        <h2>Section 1: Learner Details</h2>
         <table class="prefill">
           <tr><td class="lbl">Learner's full name</td><td class="val">${esc(l.firstName)} ${esc(l.lastName)}</td>
               <td class="lbl">Assessment No.</td><td class="val">${esc(l.upiNumber || l.admissionNumber || '')}</td></tr>
@@ -272,7 +274,7 @@ export class SeniorSelectionController {
               <td class="lbl">Admission No.</td><td class="val">${esc(l.admissionNumber || '')}</td></tr>
         </table>
 
-        <h2>Section B: Parent / Guardian Details</h2>
+        <h2>Section 2: Parent / Guardian Details</h2>
         <table class="blank">
           <tr><td class="lbl">Full name</td><td class="line"></td></tr>
           <tr><td class="lbl">National ID number</td><td class="line"></td></tr>
@@ -281,7 +283,7 @@ export class SeniorSelectionController {
           <tr><td class="lbl">Village / Location / Address</td><td class="line"></td></tr>
         </table>
 
-        <h2>Section C: Career Interest and Pathway</h2>
+        <h2>Section 3: Career Interest and Pathway</h2>
         <p class="line-label">Career interest / aspiration: <span class="line"></span></p>
         <table class="pathways">
           <tr><td><b>STEM</b><br>[ ] Pure Sciences<br>[ ] Applied Sciences<br>[ ] Technical Studies</td>
@@ -289,22 +291,24 @@ export class SeniorSelectionController {
               <td><b>Arts and Sports Science</b><br>[ ] Fine Arts, Theatre and Film<br>[ ] Sports and Recreation</td></tr>
         </table>
 
-        <h2>Section D: Subject Combination</h2>
+        <h2>Section 4: Subject Combination</h2>
         <p>First choice: 1. _______________ 2. _______________ 3. _______________</p>
         <p>Second choice: 1. _______________ 2. _______________ 3. _______________</p>
 
-        <h2>Section E: Senior School Choices — 8 schools</h2>
+        <h2>Section 5: Senior School Choices — 8 schools</h2>
         <table class="schools">
           <tr><th>#</th><th>Cat.</th><th>Name of senior school</th><th>Code</th><th>Sub-county/County</th><th>Boarding/Day</th><th>Boys/Girls/Mixed</th><th>Comb.</th></tr>
           ${schoolLevels.map((r, i) => `<tr><td>${i + 1}</td><td>${r.cat}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`).join('')}
         </table>
 
-        <h2>Section F: Declaration and Consent</h2>
+        <h2>Section 6: Declaration and Consent</h2>
         <p class="small">I confirm I have discussed the career interest, pathway, subject combination and the eight school choices with my child and the class teacher; that each school listed offers the chosen pathway/combination; that the C4 day school is within reasonable travel distance; that the pathway/combination cannot be changed once submitted; and that all details given are correct.</p>
         <table class="signoff">
           <tr><td>Learner's name: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
           <tr><td>Parent/Guardian name: <span class="line short"></span></td><td>Signature: <span class="line short"></span></td><td>Date: <span class="line short"></span></td></tr>
         </table>
+
+        <div class="foot">Powered by ZARODA Solutions · Reliable. Innovative. Forward. · Generated ${new Date().toLocaleDateString('en-KE')}</div>
       </section>
     `).join('');
 
@@ -341,6 +345,7 @@ export class SeniorSelectionController {
         .line-label { margin: 6px 0 14px; }
         .small { font-size: 12px; line-height: 1.5; }
         table.signoff td { padding: 12px 6px; font-size: 14px; }
+        .foot { margin-top: 16px; text-align: center; font-size: 10px; color: #666; break-inside: avoid; }
         .no-print { text-align: center; margin: 12px 0; }
         .no-print button { background: #1a2e5a; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         @media print {
