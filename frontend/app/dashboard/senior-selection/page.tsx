@@ -254,16 +254,16 @@ export default function SeniorSelectionPage() {
 
       {/* Parent form modal */}
       {activeChild && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8">
-            <div className="flex items-center justify-between p-5 border-b border-theme sticky top-0 bg-surface rounded-t-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme flex-shrink-0">
               <h3 className="text-lg font-bold text-theme-heading">
                 {activeChild.firstName} {activeChild.lastName} — Senior School Selection
               </h3>
               <button onClick={() => setActiveChild(null)}><X size={20} className="text-theme-muted" /></button>
             </div>
 
-            <div className="p-5 space-y-6">
+            <div className="p-5 space-y-6 overflow-y-auto flex-1">
               {locked && (
                 <div className="p-3 rounded-lg bg-blue-50 text-blue-700 text-sm flex items-center gap-2">
                   <CheckCircle2 size={16} /> This form has been submitted and can no longer be changed.
@@ -402,27 +402,27 @@ export default function SeniorSelectionPage() {
                   I confirm the above as {form.guardianName || 'the parent/guardian'} (digital signature)
                 </label>
               </section>
-
-              {!locked && (
-                <div className="flex gap-3 pt-1 sticky bottom-0 bg-surface pb-1">
-                  <button type="button" onClick={() => save(false)} disabled={saving} className="btn-ghost flex-1">
-                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save draft'}
-                  </button>
-                  <button type="button" onClick={() => save(true)} disabled={saving} className="btn-primary flex-1">
-                    {saving ? <Loader2 size={14} className="animate-spin" /> : <><Send size={14} /> Submit</>}
-                  </button>
-                </div>
-              )}
             </div>
+
+            {!locked && (
+              <div className="flex gap-3 p-5 border-t border-theme flex-shrink-0">
+                <button type="button" onClick={() => save(false)} disabled={saving} className="btn-ghost flex-1">
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save draft'}
+                </button>
+                <button type="button" onClick={() => save(true)} disabled={saving} className="btn-primary flex-1">
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <><Send size={14} /> Submit</>}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* Staff read-only detail modal */}
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8">
-            <div className="flex items-center justify-between p-5 border-b border-theme">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-theme flex-shrink-0">
               <h3 className="text-lg font-bold text-theme-heading">
                 {detail.learnerFirstName} {detail.learnerLastName} — Senior School Selection
               </h3>
@@ -431,7 +431,7 @@ export default function SeniorSelectionPage() {
             {detailLoading ? (
               <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto" /></div>
             ) : (
-              <div className="p-5 space-y-4 text-sm">
+              <div className="p-5 space-y-4 text-sm overflow-y-auto flex-1">
                 <div className="grid grid-cols-2 gap-3">
                   <div><span className="text-theme-muted">Assessment No.</span><br /><b>{detail.upiNumber || '—'}</b></div>
                   <div><span className="text-theme-muted">Status</span><br />
