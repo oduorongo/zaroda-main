@@ -254,8 +254,8 @@ export default function SeniorSelectionPage() {
 
       {/* Parent form modal */}
       {activeChild && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-4xl h-[95vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-theme flex-shrink-0">
               <h3 className="text-lg font-bold text-theme-heading">
                 {activeChild.firstName} {activeChild.lastName} — Senior School Selection
@@ -420,8 +420,8 @@ export default function SeniorSelectionPage() {
 
       {/* Staff read-only detail modal */}
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-4xl h-[95vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-theme flex-shrink-0">
               <h3 className="text-lg font-bold text-theme-heading">
                 {detail.learnerFirstName} {detail.learnerLastName} — Senior School Selection
