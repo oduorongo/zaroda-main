@@ -226,9 +226,11 @@ export default function SeniorSelectionPage() {
                     <td className="p-3 text-theme-muted">{r.streamName || '—'}</td>
                     <td className="p-3"><span className={`badge ${STATUS_BADGE[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
                     <td className="p-3 text-right">
-                      <button onClick={() => openDetail(r)} className="btn-ghost text-xs" disabled={!r.formId}>
-                        View
-                      </button>
+                      {r.formId ? (
+                        <button onClick={() => openDetail(r)} className="btn-ghost text-xs">View</button>
+                      ) : (
+                        <span className="text-xs text-theme-muted">Not started</span>
+                      )}
                     </td>
                   </tr>
                 ))}
