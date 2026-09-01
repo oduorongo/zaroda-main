@@ -11,6 +11,7 @@ import { User }     from './entities/user.entity';
 import { Tenant }   from './entities/tenant.entity';
 import { School }   from './entities/school.entity';
 import { SignupDto, SignupIndividualDto } from './dto';
+import { sendEmail } from '../../common/messaging';
 
 /** Parse a value to an integer, returning null for missing/blank/non-numeric input
  *  (so a stray "NaN" or undefined never reaches a smallint/integer DB column). */
@@ -152,6 +153,23 @@ export class AuthService {
       const savedUser = await queryRunner.manager.save(User, user);
 
       await queryRunner.commitTransaction();
+
+      // Fire-and-forget: sendEmail fails soft and must never block or fail signup.
+      const appUrl = process.env.APP_URL || 'https://app.zarodasolutions.app';
+      sendEmail(
+        savedUser.email,
+        `Welcome to ZARODA, ${dto.schoolName}!`,
+        `<p>Hi ${dto.adminFirstName},</p>
+         <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and your 14-day free trial has started.</p>
+         <p>A few things to do next to get your school fully set up:</p>
+         <ol>
+           <li>Create your first class / stream</li>
+           <li>Add your teachers</li>
+           <li>Admit your students</li>
+         </ol>
+         <p>Log in any time at <a href="${appUrl}">${appUrl.replace(/^https?:\/\//, '')}</a> to continue — your dashboard will show you what's left.</p>
+         <p>— The ZARODA team</p>`,
+      );
 
       const tokens = await this.generateTokens(savedUser);
       return {

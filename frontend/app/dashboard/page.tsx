@@ -6,6 +6,7 @@ import {
   Users, DollarSign, BookOpen, GraduationCap, TrendingUp, TrendingDown,
   Calendar, CheckCircle, FileText, Library, Trophy, Scale, ArrowRight,
   MessageSquare, UserPlus, ClipboardList, CheckSquare, BarChart3, Star, Heart,
+  X, Circle,
 } from 'lucide-react';
 import { useAuth, isHoi, isParent, isLearner } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const router     = useRouter();
   const [stats, setStats]     = useState<any>({});
   const [loading, setLoading] = useState(true);
+  const [checklistDismissed, setChecklistDismissed] = useState(false);
 
   // Parents and learners must not see the school-wide dashboard — send them to their
   // own portal, which is scoped to just their data.
@@ -45,6 +47,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user || isParent(user.role) || isLearner(user.role)) return;
     apiClient.get('/academic/dashboard').then(r => setStats(r.data)).catch(()=>setStats({})).finally(()=>setLoading(false));
+  }, [user]);
+
+  useEffect(() => {
+    if (user?.tenantId) setChecklistDismissed(localStorage.getItem(`setup-checklist-dismissed:${user.tenantId}`) === '1');
   }, [user]);
 
   if (!user) return null;
@@ -83,6 +89,13 @@ export default function DashboardPage() {
 
   const TOP_CLASSES = (stats.topClasses || []).map((c: any) => ({ name: c.name, score: c.score }));
 
+  const SETUP_STEPS = [
+    { done: (stats.totalStreams ?? 0) > 0,   label: 'Create your first class / stream', href: '/dashboard/academic' },
+    { done: (stats.totalTeachers ?? 0) > 0,  label: 'Add a teacher',                    href: '/dashboard/academic/teachers' },
+    { done: (stats.totalPopulation ?? 0) > 0,label: 'Admit your first student',         href: '/dashboard/academic/admissions' },
+  ];
+  const setupIncomplete = !loading && isHoi(user.role) && SETUP_STEPS.some(s => !s.done);
+
   return (
     <div className="space-y-6">
       {/* ── Welcome hero ── */}
@@ -97,6 +110,37 @@ export default function DashboardPage() {
           <p className="text-sm text-theme-muted mt-1">One system. Every student. Total control.</p>
         </div>
       </div>
+
+      {/* ── Setup checklist — nudges a newly onboarded school to finish setup ── */}
+      {setupIncomplete && !checklistDismissed && (
+        <div className="card p-5 border border-amber-300/50 bg-amber-50/50 relative">
+          <button
+            onClick={() => {
+              if (user.tenantId) localStorage.setItem(`setup-checklist-dismissed:${user.tenantId}`, '1');
+              setChecklistDismissed(true);
+            }}
+            className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading"
+          >
+            <X size={16} />
+          </button>
+          <h3 className="font-bold text-theme-heading mb-1">Finish setting up your school</h3>
+          <p className="text-sm text-theme-muted mb-3">A few steps left before {stats.schoolName || 'your school'} is fully up and running.</p>
+          <div className="space-y-2">
+            {SETUP_STEPS.map(step => (
+              <Link key={step.label} href={step.href}
+                className="flex items-center justify-between p-2.5 rounded-lg bg-surface hover:bg-surface-2 transition-colors">
+                <span className="flex items-center gap-2 text-sm">
+                  {step.done
+                    ? <CheckCircle size={16} className="text-green-600 flex-shrink-0" />
+                    : <Circle size={16} className="text-theme-muted flex-shrink-0" />}
+                  <span className={step.done ? 'text-theme-muted line-through' : 'text-theme-heading'}>{step.label}</span>
+                </span>
+                {!step.done && <ArrowRight size={14} className="text-theme-muted flex-shrink-0" />}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Overview ── */}
       <div>
