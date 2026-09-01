@@ -265,7 +265,7 @@ export class SeniorSelectionController {
       <section class="form-page">
         <h1>${esc(s.name || 'School')}</h1>
         <p class="sub">GRADE 10 SENIOR SCHOOL SELECTION — PARENT/GUARDIAN CONSULTATION AND CONSENT FORM</p>
-        <p class="kemis">Choices are submitted online on the Grade 10 Selection and Placement System (KEMIS): selection-placement.kemis.go.ke/pathways</p>
+        <p class="kemis">Choices are picked online on the Grade 10 Selection and Placement System (KEMIS): selection-placement.kemis.go.ke/pathways</p>
 
         <h2>Section 1: Learner Details</h2>
         <table class="prefill">
