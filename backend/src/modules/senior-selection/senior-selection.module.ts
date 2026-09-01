@@ -265,6 +265,7 @@ export class SeniorSelectionController {
       <section class="form-page">
         <h1>${esc(s.name || 'School')}</h1>
         <p class="sub">GRADE 10 SENIOR SCHOOL SELECTION — PARENT/GUARDIAN CONSULTATION AND CONSENT FORM</p>
+        <p class="kemis">Choices are submitted online on the Grade 10 Selection and Placement System (KEMIS): selection-placement.kemis.go.ke/pathways</p>
 
         <h2>Section 1: Learner Details</h2>
         <table class="prefill">
@@ -326,7 +327,8 @@ export class SeniorSelectionController {
         }
         .form-page:last-child { page-break-after: auto; break-after: auto; margin-bottom: 0; }
         h1 { text-align: center; font-size: 22px; margin: 0 0 4px; }
-        .sub { text-align: center; font-size: 12px; font-weight: bold; margin: 0 0 10px; }
+        .sub { text-align: center; font-size: 12px; font-weight: bold; margin: 0 0 4px; }
+        .kemis { text-align: center; font-size: 11px; margin: 0 0 10px; color: #1a2e5a; }
         h2 {
           font-size: 14px; background: #1a2e5a; color: #fff; padding: 3px 8px;
           margin: 6px 0 4px; break-inside: avoid;

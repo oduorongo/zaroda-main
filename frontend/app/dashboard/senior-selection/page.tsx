@@ -1,10 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { GraduationCap, Loader2, X, CheckCircle2, FileText, Send, Printer } from 'lucide-react';
+import { GraduationCap, Loader2, X, CheckCircle2, FileText, Send, Printer, ExternalLink } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isParent } from '@/lib/hooks/useAuth';
 import { usePdfDownload } from '@/components/pdf/pdf-buttons';
 import toast from 'react-hot-toast';
+
+const KEMIS_SELECTION_URL = 'https://selection-placement.kemis.go.ke/pathways';
 
 const PATHWAYS = [
   { group: 'STEM', options: [
@@ -270,6 +272,12 @@ export default function SeniorSelectionPage() {
                 </div>
               )}
 
+              <a href={KEMIS_SELECTION_URL} target="_blank" rel="noopener noreferrer"
+                className="p-3 rounded-lg bg-amber-50 text-amber-800 text-sm flex items-center gap-2 hover:bg-amber-100 transition-colors">
+                <ExternalLink size={16} className="flex-shrink-0" />
+                Grade 10 Selection and Placement System (KEMIS) — selection-placement.kemis.go.ke/pathways
+              </a>
+
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-theme-muted">Learner</span><br /><b>{activeChild.firstName} {activeChild.lastName}</b></div>
                 <div><span className="text-theme-muted">Assessment No.</span><br /><b>{activeChild.upiNumber || '—'}</b></div>
@@ -385,6 +393,22 @@ export default function SeniorSelectionPage() {
                     </div>
                   </div>
                 ))}
+              </section>
+
+              <section className="space-y-2">
+                <h4 className="font-bold text-theme-heading text-sm">Notes to Parents and Guardians — please read before filling the form</h4>
+                <ol className="text-xs text-theme-muted list-decimal pl-4 space-y-1.5">
+                  <li><b>Dates.</b> The selection window runs from 24 August to 11 September 2026. Learners join Grade 10 in January 2027. Do not wait for the last days.</li>
+                  <li><b>Two different systems.</b> The KEMIS learner onboarding platform and the Grade 10 Selection and Placement System are separate. Being onboarded on KEMIS does not mean the selection has been done.</li>
+                  <li><b>Number of schools.</b> Each learner chooses 8 schools — 3 C1, 2 C2, 2 C3 and 1 C4 day school.</li>
+                  <li><b>Choose the pathway first, then the school.</b> A famous school is not automatically the right school. The right school is the one that offers the pathway and subject combination your child needs, and that can support them.</li>
+                  <li><b>Second subject combination.</b> Where your first combination is not offered in a school you have chosen, the system allows a second combination for that school. It must be in the same pathway and still relevant to the career.</li>
+                  <li><b>Finality.</b> Pathway and subject choices cannot be changed after submission. Check every school name, code and spelling before signing.</li>
+                  <li><b>Private senior schools.</b> These are not listed on the portal at this stage. If you want a private school, approach it directly for vacancies, fees and admission requirements.</li>
+                  <li><b>Cost.</b> Under the C1–C4 classification, boarding fees differ by category (C1 highest, C4 day schools free of tuition). Budget for uniform, transport and personal effects as well. Confirm current rates from the latest Ministry circular.</li>
+                  <li><b>Who decides.</b> Teachers guide and advise; they do not choose for the learner. Parents should guide without imposing their own career. The learner and the family own the final decision.</li>
+                  <li><b>Help.</b> Use the career / pathway checker on the selection platform, and see the class teacher for guidance. Completed forms are handed to the ICT teacher, who keys the choices into the selection system.</li>
+                </ol>
               </section>
 
               <section className="space-y-2">
