@@ -91,7 +91,7 @@ export default function DashboardPage() {
 
   const SETUP_STEPS = [
     { done: (stats.totalStreams ?? 0) > 0,   label: 'Create your first class / stream', href: '/dashboard/academic' },
-    { done: (stats.totalTeachers ?? 0) > 0,  label: 'Add a teacher',                    href: '/dashboard/academic/teachers' },
+    { done: (stats.classroomTeacherCount ?? 0) > 0, label: 'Add a teacher',             href: '/dashboard/academic/teachers' },
     { done: (stats.totalPopulation ?? 0) > 0,label: 'Admit your first student',         href: '/dashboard/academic/admissions' },
   ];
   const setupIncomplete = !loading && isHoi(user.role) && SETUP_STEPS.some(s => !s.done);

@@ -2067,11 +2067,17 @@ export class AcademicService {
 
   // ── Dashboard summary ─────────────────────────────────────
   async getDashboard(tenantId: string) {
-    const [totalLearners, totalStreams, totalTeachers, pendingApprovals, openIncidents] = await Promise.all([
+    const [totalLearners, totalStreams, totalTeachers, classroomTeacherCount, pendingApprovals, openIncidents] = await Promise.all([
       this.learnerRepo.count({ where: { tenantId, isActive: true } }),
       this.streamRepo.count({ where: { tenantId } }),
       this.dataSource.query(
         `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois','school_admin','tenant_owner','bursar','games_dept')`,
+        [tenantId],
+      ).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
+      // Actual teaching staff only — excludes the HOI admin created at signup, so the
+      // setup checklist ("Add a teacher") doesn't report done before one really is added.
+      this.dataSource.query(
+        `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ('class_teacher','subject_teacher','overall_class_teacher')`,
         [tenantId],
       ).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
       this.dataSource.query(`SELECT COUNT(*) FROM schemes_of_work WHERE tenant_id = $1 AND status = 'submitted'`, [tenantId]).then(r => parseInt(r[0]?.count||'0')).catch(()=>0),
@@ -2219,7 +2225,7 @@ export class AcademicService {
     const enrollmentTrend = enrollmentRows;
 
     return {
-      totalLearners, totalStreams, totalTeachers,
+      totalLearners, totalStreams, totalTeachers, classroomTeacherCount,
       attendanceRate, feesCollected, newAdmissions,
       pendingApprovals, openIncidents,
       boys, girls, unspecified, totalPopulation, parentCount,

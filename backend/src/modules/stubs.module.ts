@@ -3446,6 +3446,109 @@ class AdminController {
     return result;
   }
 
+  // A school counts as "not fully set up" if it still has zero classes, zero real
+  // teaching staff (excludes the HOI admin created at signup — see classroomTeacherCount
+  // in academic.module.ts getDashboard) or zero learners. Individual (teacher-only)
+  // tenants have no school to set up and are excluded.
+  private async getIncompleteSetupTenants() {
+    return this.ds.query(
+      `SELECT t.id, t.name, t.created_at AS "createdAt",
+              admin.admin_name  AS "adminName",
+              admin.admin_email AS "adminEmail",
+              admin.admin_phone AS "adminPhone",
+              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id)                                            AS "streamCount",
+              (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id AND u.role IN ('class_teacher','subject_teacher','overall_class_teacher')) AS "teacherCount",
+              (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true)                     AS "learnerCount"
+         FROM tenants t
+         LEFT JOIN LATERAL (
+           SELECT (u.first_name || ' ' || COALESCE(u.last_name,'')) AS admin_name,
+                  u.email AS admin_email, u.phone AS admin_phone
+             FROM users u
+            WHERE u.tenant_id = t.id AND u.role IN ('hoi','tenant_owner','school_admin')
+            ORDER BY CASE u.role WHEN 'hoi' THEN 0 WHEN 'tenant_owner' THEN 1 ELSE 2 END
+            LIMIT 1
+         ) admin ON true
+        WHERE t.account_type = 'school'
+          AND (
+            (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) = 0
+            OR (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id AND u.role IN ('class_teacher','subject_teacher','overall_class_teacher')) = 0
+            OR (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) = 0
+          )
+        ORDER BY t.created_at DESC`,
+    ).catch(() => []);
+  }
+
+  // List schools that haven't finished setup (no classes, no teachers, or no learners
+  // yet), so the owner can see who to follow up with before sending reminders.
+  @Get('setup-incomplete')
+  async listIncompleteSetup(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', tenants: [] };
+    const tenants = await this.getIncompleteSetupTenants();
+    return { count: tenants.length, tenants };
+  }
+
+  // Send an email + SMS reminder ONLY to the admins of schools with incomplete setup —
+  // never a full broadcast. Each admin needs an email/phone on file to receive that
+  // channel; missing ones are just skipped for that channel and counted.
+  @Post('setup-reminders')
+  async sendSetupReminders(@Request() req: any, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const channels: string[] = Array.isArray(dto?.channels) && dto.channels.length ? dto.channels : ['sms', 'email'];
+    const tenants = await this.getIncompleteSetupTenants();
+    if (!tenants.length) return { recipients: 0, message: 'No schools with incomplete setup found.' };
+
+    const result: any = { recipients: tenants.length };
+    const defaultMessage = (name: string) =>
+      `Hi, this is a reminder from ZARODA to finish setting up ${name} — add your classes, teachers and students so your school is ready to use. Log in at https://app.zarodasolutions.app to continue.`;
+    const customMessage = String(dto?.message || '').trim();
+
+    if (channels.includes('sms')) {
+      const numbers = tenants.map((t: any) => t.adminPhone).filter(Boolean);
+      let sent = 0, failed = 0, detail: string | undefined;
+      const CHUNK = 100;
+      // Custom messages go out as one shared blast; the default falls back to a
+      // per-school message naming the actual school, so chunking by school keeps that.
+      if (customMessage) {
+        for (let i = 0; i < numbers.length; i += CHUNK) {
+          const r = await sendSms(numbers.slice(i, i + CHUNK), customMessage);
+          sent += r.sent; failed += r.failed; detail = detail || r.detail;
+        }
+      } else {
+        for (const t of tenants) {
+          if (!t.adminPhone) continue;
+          const r = await sendSms([t.adminPhone], defaultMessage(t.name));
+          sent += r.sent; failed += r.failed; detail = detail || r.detail;
+        }
+      }
+      result.sms = { attempted: numbers.length, sent, failed, detail };
+    }
+
+    if (channels.includes('email')) {
+      const withEmail = tenants.filter((t: any) => t.adminEmail);
+      const BATCH = 8;
+      const outcomes: any[] = [];
+      for (let i = 0; i < withEmail.length; i += BATCH) {
+        const batch = withEmail.slice(i, i + BATCH);
+        const batchResults = await Promise.allSettled(
+          batch.map((t: any) => {
+            const text = customMessage || defaultMessage(t.name);
+            return sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, `<p>${text.replace(/\n/g, '<br/>')}</p>`);
+          }),
+        );
+        outcomes.push(...batchResults);
+        if (i + BATCH < withEmail.length) await new Promise(res => setTimeout(res, 1100));
+      }
+      const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
+      const firstFailure = outcomes.find(o => o.status === 'fulfilled' && !(o.value as any).ok) as any;
+      result.email = {
+        attempted: withEmail.length, sent, failed: withEmail.length - sent,
+        detail: firstFailure?.value?.detail,
+      };
+    }
+
+    return result;
+  }
+
   // ── STREAM GRADE-LEVEL REPAIR (owner) ───────────────────────────────────────
   // Lists every stream with its grade level, across schools, so a mislabeled class
   // (e.g. a Grade 5 stream saved as grade_7, which makes the rubric show the wrong

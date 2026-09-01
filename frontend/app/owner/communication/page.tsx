@@ -4,13 +4,14 @@
 // (still a wa.me link — there's no server-side WhatsApp sender in this app).
 'use client';
 import { useState, useEffect } from 'react';
-import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send } from 'lucide-react';
+import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
 export default function OwnerCommunicationPage() {
-  const [audience, setAudience] = useState<'admins' | 'all'>('admins');
+  const [audience, setAudience] = useState<'admins' | 'all' | 'incomplete'>('admins');
   const [data, setData]         = useState<any>(null);
+  const [incomplete, setIncomplete] = useState<any>(null);
   const [loading, setLoading]   = useState(false);
   const [title, setTitle]       = useState('');
   const [message, setMessage]   = useState('');
@@ -19,6 +20,13 @@ export default function OwnerCommunicationPage() {
 
   const load = (aud: string) => {
     setLoading(true);
+    if (aud === 'incomplete') {
+      apiClient.get('/admin/setup-incomplete')
+        .then(r => setIncomplete(r.data))
+        .catch(() => setIncomplete(null))
+        .finally(() => setLoading(false));
+      return;
+    }
     apiClient.get('/admin/broadcast/recipients', { params: { audience: aud } })
       .then(r => setData(r.data))
       .catch(() => setData(null))
@@ -26,7 +34,10 @@ export default function OwnerCommunicationPage() {
   };
   useEffect(() => { load(audience); }, [audience]);
 
-  const recipients = data?.recipients || [];
+  const incompleteTenants = incomplete?.tenants || [];
+  const recipients = audience === 'incomplete'
+    ? incompleteTenants.map((t: any) => ({ firstName: t.adminName, lastName: '', role: 'admin', schoolName: t.name, phone: t.adminPhone, email: t.adminEmail }))
+    : (data?.recipients || []);
   const phones = recipients.map((r: any) => r.phone).filter(Boolean);
   const emails = recipients.map((r: any) => r.email).filter(Boolean);
 
@@ -47,13 +58,15 @@ export default function OwnerCommunicationPage() {
   // SMS) — no dependency on the viewer having a desktop mail app configured, unlike
   // the mailto: link this replaced.
   const sendReal = async (channel: 'email' | 'sms') => {
-    if (!title.trim()) { toast.error('Write a subject/title first'); return; }
-    if (!message.trim()) { toast.error('Write a message first'); return; }
+    if (audience !== 'incomplete') {
+      if (!title.trim()) { toast.error('Write a subject/title first'); return; }
+      if (!message.trim()) { toast.error('Write a message first'); return; }
+    }
     setSending(channel);
     try {
-      const { data: result } = await apiClient.post('/admin/broadcast', {
-        audience, title, message, channels: [channel],
-      });
+      const { data: result } = audience === 'incomplete'
+        ? await apiClient.post('/admin/setup-reminders', { channels: [channel], message: message.trim() || undefined })
+        : await apiClient.post('/admin/broadcast', { audience, title, message, channels: [channel] });
       if (result?.error) { toast.error(result.error); return; }
       const stats = result[channel];
       if (!stats) { toast.error('No response for this channel.'); return; }
@@ -73,13 +86,13 @@ export default function OwnerCommunicationPage() {
           <Megaphone className="text-theme-muted" size={20}/>
           <h1 className="text-xl font-black text-theme-heading">Communication</h1>
         </div>
-        <p className="text-sm text-theme-muted">Send a message to school admins or all users across the platform.</p>
+        <p className="text-sm text-theme-muted">Send a message to school admins, all users, or nudge schools that haven't finished setup.</p>
 
         {/* Audience */}
         <div className="card p-4 space-y-3">
           <label className="label">Audience</label>
           <div className="flex gap-1">
-            {([['admins','School admins'],['all','All users']] as const).map(([v,label]) => (
+            {([['admins','School admins'],['all','All users'],['incomplete','Incomplete setup']] as const).map(([v,label]) => (
               <button key={v} onClick={() => setAudience(v)}
                 className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium ${audience===v ? 'bg-[#1a2e5a] text-white' : 'bg-surface-2 text-theme-muted'}`}>
                 {label}
@@ -88,6 +101,14 @@ export default function OwnerCommunicationPage() {
           </div>
           {loading ? (
             <div className="flex justify-center py-3"><Loader2 className="animate-spin text-theme-muted" size={18}/></div>
+          ) : audience === 'incomplete' ? (
+            incomplete && (
+              <div className="text-xs text-theme-muted flex gap-4">
+                <span><b className="text-theme-heading">{incomplete.count}</b> schools with incomplete setup</span>
+                <span><Phone size={11} className="inline"/> {incompleteTenants.filter((t:any)=>t.adminPhone).length} with phone</span>
+                <span><Mail size={11} className="inline"/> {incompleteTenants.filter((t:any)=>t.adminEmail).length} with email</span>
+              </div>
+            )
           ) : data && (
             <div className="text-xs text-theme-muted flex gap-4">
               <span><b className="text-theme-heading">{data.count}</b> recipients</span>
@@ -97,14 +118,47 @@ export default function OwnerCommunicationPage() {
           )}
         </div>
 
+        {audience === 'incomplete' && !loading && incomplete && incompleteTenants.length > 0 && (
+          <div className="card p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading mb-2">
+              <AlertTriangle size={15} className="text-amber-500"/> Schools still setting up
+            </div>
+            <div className="max-h-48 overflow-y-auto divide-y divide-theme">
+              {incompleteTenants.map((t: any) => {
+                const missing = [
+                  Number(t.streamCount) === 0 && 'classes',
+                  Number(t.teacherCount) === 0 && 'teachers',
+                  Number(t.learnerCount) === 0 && 'students',
+                ].filter(Boolean).join(', ');
+                return (
+                  <div key={t.id} className="py-1.5 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-theme-heading">{t.name}</span>
+                      <span className="text-theme-muted text-xs">missing: {missing}</span>
+                    </div>
+                    <div className="text-theme-muted text-xs">{t.adminName || 'No admin found'} {t.adminPhone ? `· ${t.adminPhone}` : ''} {t.adminEmail ? `· ${t.adminEmail}` : ''}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Message */}
         <div className="card p-4 space-y-3">
-          <label className="label">Subject</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} className="input w-full"
-            placeholder="Subject line (used for email; ignored for SMS)"/>
-          <label className="label">Message</label>
+          {audience !== 'incomplete' && (
+            <>
+              <label className="label">Subject</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} className="input w-full"
+                placeholder="Subject line (used for email; ignored for SMS)"/>
+            </>
+          )}
+          <label className="label">Message{audience === 'incomplete' ? ' (optional — a default reminder is used if left blank)' : ''}</label>
           <textarea value={message} onChange={e => setMessage(e.target.value)} rows={6}
-            className="input w-full" placeholder="Write your announcement to schools…"/>
+            className="input w-full"
+            placeholder={audience === 'incomplete'
+              ? "Leave blank to send the default reminder to finish setup, or write your own…"
+              : "Write your announcement to schools…"}/>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button onClick={() => sendReal('email')} disabled={sending === 'email'} className="btn-primary justify-center">
@@ -113,13 +167,16 @@ export default function OwnerCommunicationPage() {
             <button onClick={() => sendReal('sms')} disabled={sending === 'sms'} className="btn-primary justify-center">
               {sending === 'sms' ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>} Send SMS
             </button>
-            <button onClick={whatsappFirst} className="btn-ghost justify-center">
-              <MessageCircle size={15}/> WhatsApp
-            </button>
+            {audience !== 'incomplete' && (
+              <button onClick={whatsappFirst} className="btn-ghost justify-center">
+                <MessageCircle size={15}/> WhatsApp
+              </button>
+            )}
           </div>
           <p className="text-[11px] text-theme-muted">
-            Email and SMS send for real to every recipient in this audience. WhatsApp has no automated sender —
-            it opens a chat with the message ready to forward manually.
+            {audience === 'incomplete'
+              ? 'Email and SMS go only to admins of schools with incomplete setup — not the full recipient list.'
+              : 'Email and SMS send for real to every recipient in this audience. WhatsApp has no automated sender — it opens a chat with the message ready to forward manually.'}
           </p>
         </div>
 
