@@ -7,7 +7,14 @@ import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneF
 // One flat fee unlocks one complete pipeline: a Scheme of Work plus every lesson
 // plan and lesson notes record generated from it. No subscription tiers — this
 // is intentionally independent of the tenant's own subscription/trial state.
-const FLOW_PRICE_KES = 50;
+//
+// Priced against estimated AI cost (Sonnet for the scheme, Haiku for lesson
+// plans/notes — see ai-generator.service.ts) for a moderate-load subject over
+// a term. Not yet verified against real usage — ANTHROPIC_API_KEY isn't live
+// yet, so this is a starting estimate, not a measured number. A subject with
+// many lessons/week (e.g. 7/week) can still exceed this in AI cost since the
+// fee is unlimited-use per pipeline — revisit once real token usage is logged.
+const FLOW_PRICE_KES = 150;
 
 function callbackUrl(): string {
   const base = (process.env.APP_URL || '').replace(/\/$/, '');

@@ -3,7 +3,11 @@
 // ============================================================
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 
-const MODEL = 'claude-sonnet-4-20250514';
+// Scheme of Work needs a full term of curriculum reasoning — kept on Sonnet.
+// Lesson plans/notes/progress are short, formulaic, single-shot generations —
+// Haiku is far cheaper and holds up fine on this kind of structured output.
+const MODEL_SCHEME = 'claude-sonnet-4-20250514';
+const MODEL_FAST = 'claude-haiku-4-5-20251001';
 
 export interface SchemeWeekData {
   weekNumber: number;
@@ -161,7 +165,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
   ]
 }`;
 
-    const response = await this.callClaude(prompt, 4096);
+    const response = await this.callClaude(prompt, 4096, MODEL_SCHEME);
     const parsed = this.parseJson(response.text, 'Scheme of Work');
 
     if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
@@ -346,11 +350,11 @@ Return ONLY valid JSON:
   }
 
   // ── PRIVATE: Call Claude ───────────────────────────────────
-  private async callClaude(prompt: string, maxTokens: number): Promise<{ text: string; tokens: number }> {
+  private async callClaude(prompt: string, maxTokens: number, model: string = MODEL_FAST): Promise<{ text: string; tokens: number }> {
     try {
       const client = this.getClient();
       const response = await client.messages.create({
-        model: MODEL,
+        model,
         max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }],
       });
