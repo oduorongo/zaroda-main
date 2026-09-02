@@ -85,6 +85,12 @@ services:
         sync: false
       - key: AT_SENDER_ID
         sync: false
+      # School subscription billing via Tuma (M-Pesa STK push) — key from your Tuma
+      # business profile's Settings > API Key. See src/common/tuma.ts.
+      - key: TUMA_EMAIL
+        sync: false
+      - key: TUMA_API_KEY
+        sync: false
 
   # ── Frontend (Next.js) ──────────────────────────────────────────────────
   - type: web

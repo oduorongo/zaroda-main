@@ -3549,6 +3549,23 @@ class AdminController {
     return result;
   }
 
+  // Platform-wide view of subscription payments (all schools), for the owner to see
+  // who has paid and follow up receipts. Table is created lazily by the billing
+  // module on first use — if no school has paid yet, this just returns [].
+  @Get('subscription-payments')
+  async listSubscriptionPayments(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', payments: [] };
+    const rows = await this.ds.query(
+      `SELECT p.id, p.amount, p.status, p.receipt_number AS "receiptNumber", p.mpesa_receipt AS "mpesaReceipt",
+              p.streams_primary_js AS "streamsPrimaryJs", p.streams_senior AS "streamsSenior",
+              p.description, p.created_at AS "createdAt", p.paid_at AS "paidAt",
+              t.name AS "schoolName", t.subscription_paid_until AS "paidUntil"
+         FROM subscription_payments p JOIN tenants t ON t.id = p.tenant_id
+        ORDER BY p.created_at DESC`,
+    ).catch(() => []);
+    return { payments: rows };
+  }
+
   // ── STREAM GRADE-LEVEL REPAIR (owner) ───────────────────────────────────────
   // Lists every stream with its grade level, across schools, so a mislabeled class
   // (e.g. a Grade 5 stream saved as grade_7, which makes the rubric show the wrong

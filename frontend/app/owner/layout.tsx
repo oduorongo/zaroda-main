@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Building2, Megaphone, GraduationCap, ShieldCheck, LogOut, BookOpen, Menu, X, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, Building2, Megaphone, GraduationCap, ShieldCheck, LogOut, BookOpen, Menu, X, Sun, Moon, Receipt } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { useTheme } from '@/lib/hooks/useTheme';
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: '/owner/schools',       label: 'Schools',       icon: Building2 },
   { href: '/owner/rubrics',       label: 'Rubrics',       icon: BookOpen },
   { href: '/owner/communication', label: 'Communication', icon: Megaphone },
+  { href: '/owner/billing',       label: 'Billing',       icon: Receipt },
   { href: '/owner/retooling',     label: 'Retooling',     icon: GraduationCap },
 ];
 
