@@ -214,7 +214,7 @@ export class ProfessionalRecordsController {
   }
 }
 
-// Safaricom calls this directly — it carries no JWT, so it lives on its own
+// Tuma calls this server-to-server — it carries no JWT, so it lives on its own
 // unguarded controller rather than inside the guarded one above.
 @Controller('professional-records')
 export class ProfessionalRecordsPaymentsController {
