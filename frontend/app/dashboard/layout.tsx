@@ -6,7 +6,7 @@ import {
   Home, BookOpen, DollarSign, MessageSquare, FileText,
   Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
   Bell, Menu, X, ChevronRight, Users, BarChart2,
-  GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp, Receipt,
+  GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -23,7 +23,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
   { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin' },
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
-  { href: '/dashboard/subscription',           icon: Receipt,      label: 'Subscription',         roles: 'admin' },
+  // Subscription nav hidden for now — page still reachable directly, just not in the sidebar.
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/senior-selection',       icon: GraduationCap,label: 'Grade 10 Selection',   roles: 'parent_ok' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
