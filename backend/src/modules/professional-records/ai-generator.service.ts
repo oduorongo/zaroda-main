@@ -298,7 +298,7 @@ Return ONLY valid JSON:
   "referenceBooks": "..."
 }`;
 
-    const response = await this.callClaude(prompt, 4096);
+    const response = await this.callClaude(prompt, 8192);
     const parsed = this.parseJson(response.text, 'Lesson Plan', response.truncated);
     return { ...parsed, tokens: response.tokens };
   }
@@ -347,7 +347,7 @@ Return ONLY valid JSON:
   "expectedResponses": "..."
 }`;
 
-    const response = await this.callClaude(prompt, 4096);
+    const response = await this.callClaude(prompt, 8192);
     const parsed = this.parseJson(response.text, 'Lesson Notes', response.truncated);
     return { ...parsed, tokens: response.tokens };
   }
