@@ -118,39 +118,57 @@ export class AiGeneratorService {
     const wantReflection = cols.has('reflection');
     const wantCorePV = cols.has('corePV');
     const specialWeeks = (params.specialWeeks || []).filter(w => w?.week && w?.label);
+    const title = `Scheme of Work — ${params.subjectName} ${grade} ${termLabel} ${params.academicYear}`;
 
-    const prompt = `You are a KICD-certified curriculum expert generating a CBC/CBE-aligned Scheme of Work for Kenyan schools.
+    // A single request asking for all weeks at once reliably gets truncated mid-JSON
+    // once totalWeeks climbs past ~8-10 with the optional columns on, regardless of
+    // how large a max_tokens budget we ask for. Generating in small week-range chunks
+    // keeps each response short enough to always finish, at the cost of a few extra
+    // (cheap, Sonnet) calls — the wallet only charges once per scheme either way.
+    const CHUNK_SIZE = 5;
+    const weeks: SchemeWeekData[] = [];
+    let totalTokens = 0;
+
+    for (let start = 1; start <= params.totalWeeks; start += CHUNK_SIZE) {
+      const end = Math.min(start + CHUNK_SIZE - 1, params.totalWeeks);
+      const chunkSpecialWeeks = specialWeeks.filter(w => w.week >= start && w.week <= end);
+      const priorContext = weeks.length
+        ? `\nSTRANDS/SUB-STRANDS ALREADY COVERED IN EARLIER WEEKS (do not repeat, continue the sequence):\n${weeks.map(w => `Week ${w.weekNumber}: ${w.strand} — ${w.subStrand}`).join('\n')}\n`
+        : '';
+
+      const prompt = `You are a KICD-certified curriculum expert generating a CBC/CBE-aligned Scheme of Work for Kenyan schools.
 
 CONTEXT:
 - Subject: ${params.subjectName}
 - Grade Level: ${grade}
 - Term: ${termLabel}, ${params.academicYear}
 - Grade Band: ${band}
-- Total Weeks: ${params.totalWeeks}
+- Total Weeks in Term: ${params.totalWeeks} (you are generating ONLY weeks ${start}-${end} of this term right now)
 - Periods per Week: ${params.periodsPerWeek}
 - School Context: ${params.schoolContext || 'Mixed day school, Kenya'}
 ${params.strandFocus?.length ? `- Priority Strands: ${params.strandFocus.join(', ')}` : ''}
-${specialWeeks.length ? `- Non-teaching weeks (mid-term breaks, summative assessments, exams — no new curriculum content): ${specialWeeks.map(w => `Week ${w.week} = ${w.label}`).join('; ')}` : ''}
-
+${chunkSpecialWeeks.length ? `- Non-teaching weeks in this range (mid-term breaks, summative assessments, exams — no new curriculum content): ${chunkSpecialWeeks.map(w => `Week ${w.week} = ${w.label}`).join('; ')}` : ''}
+${priorContext}
 REQUIREMENTS:
 1. Follow the KICD ${params.subjectName} syllabus for ${grade} exactly
-2. Distribute strands and sub-strands appropriately across ${params.totalWeeks} weeks
+2. Continue distributing strands and sub-strands appropriately — do not repeat what earlier weeks already covered
 3. Each week must have clear, measurable Specific Learning Outcomes (SLOs)
 4. Include Key Inquiry Questions that stimulate critical thinking
 5. Learning experiences must be learner-centred and activity-based (CBC approach)
 6. Assessment methods must align with CBC formative assessment principles
-7. Week 1 should include orientation/introduction activities
-8. Final week should include revision/consolidation
+${start === 1 ? '7. Week 1 should include orientation/introduction activities' : ''}
+${end === params.totalWeeks ? '8. The final week should include revision/consolidation' : ''}
 9. Use authentic Kenyan contexts, examples, and resources
 ${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs).' : ''}
-${specialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${specialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
+${chunkSpecialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${chunkSpecialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
+
+Generate ONLY weeks ${start} through ${end} (that's ${end - start + 1} week object(s) — no more, no fewer).
 
 Return ONLY valid JSON (no preamble, no markdown fences):
 {
-  "title": "Scheme of Work — ${params.subjectName} ${grade} ${termLabel} ${params.academicYear}",
   "weeks": [
     {
-      "weekNumber": 1,
+      "weekNumber": ${start},
       "dates": "Jan 6 – Jan 10, 2025",
       "strand": "Strand name from KICD syllabus",
       "subStrand": "Sub-strand name",
@@ -165,18 +183,16 @@ Return ONLY valid JSON (no preamble, no markdown fences):
   ]
 }`;
 
-    // A full scheme's JSON grows with both week count and how many optional columns
-    // are requested — 4096 tokens truncates mid-JSON well before 12+ weeks with
-    // reflection/core-competency columns are done, so scale the budget with weeks.
-    const maxTokens = Math.min(8192, 2048 + params.totalWeeks * 400);
-    const response = await this.callClaude(prompt, maxTokens, MODEL_SCHEME);
-    const parsed = this.parseJson(response.text, 'Scheme of Work', response.truncated);
-
-    if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
-      throw new BadRequestException('AI returned invalid scheme structure');
+      const response = await this.callClaude(prompt, 4096, MODEL_SCHEME);
+      const parsed = this.parseJson(response.text, `Scheme of Work (weeks ${start}-${end})`, response.truncated);
+      if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
+        throw new BadRequestException(`AI returned invalid scheme structure for weeks ${start}-${end}`);
+      }
+      weeks.push(...parsed.weeks);
+      totalTokens += response.tokens;
     }
 
-    return { weeks: parsed.weeks, title: parsed.title, tokens: response.tokens };
+    return { weeks, title, tokens: totalTokens };
   }
 
   // ── GENERATE LESSON PLAN ───────────────────────────────────
