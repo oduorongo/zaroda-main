@@ -49,6 +49,13 @@ export class RecordsService {
       const plan = await this.planRepo.findOne({ where: { id: dto.lessonPlanId, tenantId, teacherId } });
       if (!plan) throw new NotFoundException('Lesson plan not found');
 
+      // schemeWeekId is always populated below (even on the lessonPlanId path) so this
+      // dedupe check catches a duplicate regardless of which route generated the first note.
+      if (plan.schemeWeekId) {
+        const dupe = await this.notesRepo.findOne({ where: { tenantId, teacherId, schemeWeekId: plan.schemeWeekId } });
+        if (dupe) throw new BadRequestException('Lesson notes already exist for this lesson. Open them instead of generating another.');
+      }
+
       const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
       notesData = await this.aiGenerator.generateLessonNotes({
         subjectName: subject?.name || 'Subject',
@@ -61,7 +68,7 @@ export class RecordsService {
         additionalContext: dto.additionalContext,
       });
       base = {
-        lessonPlanId: plan.id, schemeId: null, schemeWeekId: null,
+        lessonPlanId: plan.id, schemeId: plan.schemeId, schemeWeekId: plan.schemeWeekId,
         streamId: plan.streamId, subjectId: plan.subjectId,
         lessonDate: plan.lessonDate || new Date(), gradeLevel: plan.gradeLevel,
         strand: plan.strand, subStrand: plan.subStrand,
@@ -71,6 +78,9 @@ export class RecordsService {
       if (!scheme) throw new NotFoundException('Scheme not found');
       const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId, schemeId: scheme.id } });
       if (!week) throw new NotFoundException('Scheme week not found');
+
+      const dupe = await this.notesRepo.findOne({ where: { tenantId, teacherId, schemeWeekId: week.id } });
+      if (dupe) throw new BadRequestException('Lesson notes already exist for this lesson. Open them instead of generating another.');
 
       const subject = await this.subjRepo.findOne({ where: { id: scheme.subjectId } });
       notesData = await this.aiGenerator.generateLessonNotes({
@@ -91,7 +101,9 @@ export class RecordsService {
       };
     }
 
-    const notes = await this.dataSource.transaction(async (manager) => {
+    let notes;
+    try {
+      notes = await this.dataSource.transaction(async (manager) => {
       const saved = await manager.save(
         this.notesRepo.create({
           tenantId,
@@ -116,7 +128,13 @@ export class RecordsService {
       );
       await this.walletService.debit(tenantId, teacherId, 'lesson_notes', saved.id, manager);
       return saved;
-    });
+      });
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new BadRequestException('Lesson notes already exist for this lesson. Open them instead of generating another.');
+      }
+      throw err;
+    }
 
     return { notesId: notes.id, status: 'draft', message: 'Lesson notes generated.' };
   }

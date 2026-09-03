@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { LessonPlan, SchemeOfWork, SchemeWeek, SubjectCatalogue, PrAudit } from './entities';
@@ -31,6 +31,13 @@ export class LessonPlanService {
     });
     if (!scheme) throw new NotFoundException('Scheme not found');
 
+    const existing = await this.planRepo.findOne({
+      where: { tenantId, teacherId, schemeId: dto.schemeId, schemeWeekId: dto.schemeWeekId },
+    });
+    if (existing) {
+      throw new BadRequestException('A lesson plan already exists for this lesson. Open it instead of generating another.');
+    }
+
     await this.walletService.assertAffordable(tenantId, teacherId, 'lesson_plan');
 
     const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId } });
@@ -51,7 +58,9 @@ export class LessonPlanService {
       lessonDate: dto.lessonDate,
     });
 
-    const plan = await this.dataSource.transaction(async (manager) => {
+    let plan;
+    try {
+      plan = await this.dataSource.transaction(async (manager) => {
       const saved = await manager.save(
         this.planRepo.create({
           tenantId,
@@ -89,7 +98,13 @@ export class LessonPlanService {
       );
       await this.walletService.debit(tenantId, teacherId, 'lesson_plan', saved.id, manager);
       return saved;
-    });
+      });
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new BadRequestException('A lesson plan already exists for this lesson. Open it instead of generating another.');
+      }
+      throw err;
+    }
 
     return { planId: plan.id, status: 'draft', message: 'Lesson plan generated. Review and submit.' };
   }
