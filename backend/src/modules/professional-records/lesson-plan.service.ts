@@ -81,7 +81,7 @@ export class LessonPlanService {
           learningMaterials: planData.learningMaterials,
           referenceBooks: planData.referenceBooks,
           aiGenerated: true,
-          aiModel: 'claude-sonnet-4-20250514',
+          aiModel: 'claude-sonnet-5',
           status: 'draft',
         }),
       );

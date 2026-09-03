@@ -188,7 +188,7 @@ export class SchemeService {
         gradeLevel: dto.gradeLevel,
         title,
         aiGenerated: true,
-        aiModel: 'claude-sonnet-4-20250514',
+        aiModel: 'claude-sonnet-5',
         generationTokens: tokens,
         // Individual accounts have no HOI to approve anything — self-certified instead.
         status: isIndividual ? 'approved' : 'draft',

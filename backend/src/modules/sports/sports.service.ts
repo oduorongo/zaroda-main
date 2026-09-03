@@ -175,7 +175,7 @@ Generate a talent assessment. Return ONLY valid JSON:
 
     try {
       const response = await claude.messages.create({
-        model: 'claude-sonnet-4-20250514', max_tokens: 512,
+        model: 'claude-sonnet-5', max_tokens: 512,
         messages: [{ role: 'user', content: prompt }],
       });
       const raw    = (response.content[0] as any).text || '';

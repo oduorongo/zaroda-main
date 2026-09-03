@@ -68,7 +68,7 @@ export class RecordsService {
           expectedResponses: notesData.expectedResponses,
           coverageStatus: 'pending',
           aiGenerated: true,
-          aiModel: 'claude-sonnet-4-20250514',
+          aiModel: 'claude-sonnet-5',
           status: 'draft',
         }),
       );

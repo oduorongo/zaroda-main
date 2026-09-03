@@ -6,7 +6,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 // Scheme of Work needs a full term of curriculum reasoning — kept on Sonnet.
 // Lesson plans/notes/progress are short, formulaic, single-shot generations —
 // Haiku is far cheaper and holds up fine on this kind of structured output.
-const MODEL_SCHEME = 'claude-sonnet-4-20250514';
+const MODEL_SCHEME = 'claude-sonnet-5';
 const MODEL_FAST = 'claude-haiku-4-5-20251001';
 
 export interface SchemeWeekData {

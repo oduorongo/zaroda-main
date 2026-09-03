@@ -351,7 +351,7 @@ export class PdfParserService {
     const base64Pdf = pdfBuffer.toString('base64');
 
     const message = await this.claude.messages.create({
-      model:      'claude-sonnet-4-20250514',
+      model:      'claude-sonnet-5',
       max_tokens: 4096,
       messages: [{
         role: 'user',
@@ -638,7 +638,7 @@ Return this exact JSON structure:
 }`;
 
     const response = await this.claude.messages.create({
-      model:      'claude-sonnet-4-20250514',
+      model:      'claude-sonnet-5',
       max_tokens: 4096,
       messages:   [{ role: 'user', content: prompt }],
     });
@@ -1122,7 +1122,7 @@ Requirements:
 
     try {
       const response = await this.claude.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         max_tokens: 200,
         messages: [{ role: 'user', content: prompt }],
       });
