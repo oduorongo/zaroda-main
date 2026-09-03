@@ -9,7 +9,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
-import { PurchaseService } from './purchase.service';
+import { WalletService, ITEM_PRICE_KES } from './wallet.service';
 import {
   GenerateSchemeDto, GenerateLessonPlanDto, GenerateLessonNotesDto,
   RecordWorkCoveredDto, GenerateLearnerProgressDto, ReviewRecordDto,
@@ -26,7 +26,7 @@ export class ProfessionalRecordsController {
     private schemeService: SchemeService,
     private lessonPlanService: LessonPlanService,
     private recordsService: RecordsService,
-    private purchaseService: PurchaseService,
+    private walletService: WalletService,
   ) {}
 
   // Subject picker for the "Generate" forms — scoped to what this user actually
@@ -37,19 +37,40 @@ export class ProfessionalRecordsController {
     return this.schemeService.listSubjectsForUser(u.tenantId, u.schoolId, u.id, u.role);
   }
 
-  // ── PAY-PER-FLOW PURCHASE (M-Pesa) ────────────────────────
-  // One payment unlocks one Scheme of Work plus every lesson plan and lesson
-  // notes record generated from it. No exemptions — everyone who generates pays.
-  @Post('purchase/initiate')
+  // ── WALLET (M-Pesa top-up, then per-item billing) ─────────
+  // A teacher tops up their wallet in any amount, then each generated item
+  // debits a fixed price: Scheme of Work KES 30, Lesson Plan KES 2, Lesson
+  // Notes KES 2. No exemptions — everyone who generates pays.
+  @Get('wallet')
   @Roles(...ALL_GENERATOR_ROLES)
-  initiatePurchase(@CurrentUser() u: AuthUser, @Body('phone') phone: string) {
-    return this.purchaseService.initiate(u.tenantId, u.id, phone);
+  getWallet(@CurrentUser() u: AuthUser) {
+    return this.walletService.getBalance(u.tenantId, u.id);
   }
 
-  @Get('purchase/status/:id')
+  @Get('wallet/transactions')
   @Roles(...ALL_GENERATOR_ROLES)
-  getPurchaseStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {
-    return this.purchaseService.getStatus(u.tenantId, u.id, id);
+  getWalletTransactions(@CurrentUser() u: AuthUser) {
+    return this.walletService.getTransactions(u.tenantId, u.id);
+  }
+
+  @Get('wallet/prices')
+  @Roles(...ALL_GENERATOR_ROLES)
+  getPrices() {
+    return ITEM_PRICE_KES;
+  }
+
+  @Post('wallet/topup')
+  @Roles(...ALL_GENERATOR_ROLES)
+  topUpWallet(
+    @CurrentUser() u: AuthUser, @Body('phone') phone: string, @Body('amount') amount: number,
+  ) {
+    return this.walletService.topUp(u.tenantId, u.id, phone, Number(amount));
+  }
+
+  @Get('wallet/topup/status/:id')
+  @Roles(...ALL_GENERATOR_ROLES)
+  getTopUpStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    return this.walletService.getTopUpStatus(u.tenantId, u.id, id);
   }
 
   // ── SCHEMES OF WORK ───────────────────────────────────────
@@ -218,11 +239,11 @@ export class ProfessionalRecordsController {
 // unguarded controller rather than inside the guarded one above.
 @Controller('professional-records')
 export class ProfessionalRecordsPaymentsController {
-  constructor(private purchaseService: PurchaseService) {}
+  constructor(private walletService: WalletService) {}
 
   @Post('mpesa/callback')
   async mpesaCallback(@Body() body: any) {
-    await this.purchaseService.handleCallback(body);
+    await this.walletService.handleCallback(body);
     return { ResultCode: 0, ResultDesc: 'Accepted' };
   }
 }

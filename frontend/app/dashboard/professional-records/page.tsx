@@ -13,6 +13,9 @@ const STATUS_CONF: Record<string, { label: string; className: string; icon: any 
   revision_requested: { label:'Needs Revision',     className:'bg-amber-100 text-amber-700', icon: Clock          },
 };
 
+// Kept in sync with ITEM_PRICE_KES in the backend's wallet.service.ts.
+const ITEM_PRICES = { scheme: 30, lesson_plan: 2, lesson_notes: 2 };
+
 const GRADES = ['pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6','grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'];
 const gradeLabel = (g: string) => g.replace('_',' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -46,16 +49,23 @@ export default function ProfessionalRecordsPage() {
   const [showNewScheme, setShowNewScheme] = useState(false);
   const [generating, setGenerating] = useState(false);
 
+  const [wallet, setWallet] = useState<{ balance: number } | null>(null);
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpForm, setTopUpForm] = useState({ phone: '', amount: 100 });
+  const [topUpStep, setTopUpStep] = useState<'form'|'waiting'>('form');
+  const [toppingUp, setToppingUp] = useState(false);
+
+  const loadWallet = () => apiClient.get('/professional-records/wallet').then(r => setWallet(r.data)).catch(() => {});
+
   const [form, setForm] = useState({
     schoolName: '', teacherName: '', tscNumber: '', signOffLine: 'Checked by D.H.O.I.',
     streamId: '', subjectId: '', streamName: '', subjectName: '', gradeLevel: 'grade_4', curriculumEdition: '',
     term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5,
-    strands: '', notes: '', specialWeeks: '', phone: '',
+    strands: '', notes: '', specialWeeks: '',
     columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
     format: 'preview' as 'pdf' | 'doc' | 'preview',
     font: 'Times New Roman',
   });
-  const [payStep, setPayStep] = useState<'form'|'waiting'>('form');
 
   useEffect(() => {
     if (!user) return;
@@ -111,7 +121,7 @@ export default function ProfessionalRecordsPage() {
     }).finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { load(); loadWallet(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
@@ -144,38 +154,18 @@ export default function ProfessionalRecordsPage() {
     } catch { toast.error('Could not open the document.'); }
   };
 
-  // Pay-per-flow: KES 50 via M-Pesa unlocks one Scheme of Work plus every lesson
-  // plan and lesson notes record generated from it. No subscription involved.
-  const payAndGenerate = async (e: React.FormEvent) => {
+  // Wallet-based, per-item: the wallet is topped up separately (see topUpWallet
+  // below); generating a scheme just debits ITEM_PRICES.scheme from the balance.
+  const generateScheme = async (e: React.FormEvent) => {
     e.preventDefault();
     if (individual) {
       if (!form.streamName || !form.subjectName) { toast.error('Enter a class/stream name and subject.'); return; }
     } else if (!form.streamId || !form.subjectId) {
       toast.error('Select a stream and subject.'); return;
     }
-    if (!form.phone) { toast.error('Enter the M-Pesa phone number to pay with.'); return; }
 
     setGenerating(true);
     try {
-      const { data } = await apiClient.post('/professional-records/purchase/initiate', { phone: form.phone });
-      toast.success(data.message || 'Check your phone for the M-Pesa prompt.');
-      setPayStep('waiting');
-
-      const purchaseId = data.purchaseId;
-      let paid = false;
-      for (let i = 0; i < 20; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        const { data: s } = await apiClient.get(`/professional-records/purchase/status/${purchaseId}`);
-        if (s.status === 'paid') { paid = true; break; }
-        if (s.status === 'failed') { toast.error('Payment failed or was cancelled.'); break; }
-      }
-      if (!paid) {
-        if (payStep === 'waiting') toast.error('Payment not confirmed in time. Please try again.');
-        setPayStep('form');
-        setGenerating(false);
-        return;
-      }
-
       const subject = subjects.find((s: any) => s.id === form.subjectId);
       const selectedColumns = Object.entries(form.columns).filter(([, on]) => on).map(([k]) => k);
       const specialWeeks = form.specialWeeks.split('\n').map(line => {
@@ -203,13 +193,49 @@ export default function ProfessionalRecordsPage() {
         columns: selectedColumns,
         defaultFont: form.font,
       });
-      toast.success('Payment confirmed — scheme of work generated! Review and submit when ready.');
+      toast.success(`Scheme of work generated (KES ${ITEM_PRICES.scheme} deducted from wallet). Review and submit when ready.`);
       setShowNewScheme(false);
-      setPayStep('form');
       load();
+      loadWallet();
       if (gen?.schemeId) exportScheme(gen.schemeId, form.format, form.font);
-    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not complete payment/generation.'); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate scheme.'); }
     finally { setGenerating(false); }
+  };
+
+  // ── WALLET TOP-UP (M-Pesa STK push) ───────────────────────
+  const topUpWallet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!topUpForm.phone) { toast.error('Enter the M-Pesa phone number to pay with.'); return; }
+    if (!topUpForm.amount || topUpForm.amount < 10) { toast.error('Enter an amount of at least KES 10.'); return; }
+
+    setToppingUp(true);
+    try {
+      const { data } = await apiClient.post('/professional-records/wallet/topup', topUpForm);
+      toast.success(data.message || 'Check your phone for the M-Pesa prompt.');
+      setTopUpStep('waiting');
+
+      const transactionId = data.transactionId;
+      let paid = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const { data: s } = await apiClient.get(`/professional-records/wallet/topup/status/${transactionId}`);
+        if (s.status === 'paid') { paid = true; break; }
+        if (s.status === 'failed') { toast.error('Payment failed or was cancelled.'); break; }
+      }
+      if (!paid) {
+        toast.error('Payment not confirmed in time. Please try again.');
+        setTopUpStep('form');
+        setToppingUp(false);
+        return;
+      }
+
+      toast.success('Wallet topped up!');
+      setShowTopUp(false);
+      setTopUpStep('form');
+      setTopUpForm(f => ({ ...f, phone: f.phone }));
+      loadWallet();
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not complete top-up.'); }
+    finally { setToppingUp(false); }
   };
 
   const openSchemeDetail = async (id: string) => {
@@ -261,9 +287,16 @@ export default function ProfessionalRecordsPage() {
           <p className="text-sm text-theme-muted">AI-generated · KICD CBC aligned · HOI approval workflow</p>
         </div>
         {canGenerate && !openScheme && (
-          <button onClick={() => setShowNewScheme(true)} className="btn-primary">
-            <Sparkles size={16}/> Generate Scheme of Work
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-[11px] text-theme-muted uppercase tracking-wide">Wallet</div>
+              <div className="font-bold text-theme-heading">KES {wallet?.balance ?? '…'}</div>
+            </div>
+            <button onClick={() => setShowTopUp(true)} className="btn-ghost">Top Up</button>
+            <button onClick={() => setShowNewScheme(true)} className="btn-primary">
+              <Sparkles size={16}/> Generate Scheme of Work
+            </button>
+          </div>
         )}
       </div>
 
@@ -385,7 +418,7 @@ export default function ProfessionalRecordsPage() {
               </div>
               <button onClick={() => setShowNewScheme(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
-            <form onSubmit={payAndGenerate} className="p-5 space-y-6">
+            <form onSubmit={generateScheme} className="p-5 space-y-6">
 
               <fieldset className="space-y-3">
                 <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Document header</legend>
@@ -547,28 +580,67 @@ export default function ProfessionalRecordsPage() {
                 </div>
               </fieldset>
 
+              <div className={`rounded-xl border p-3 text-xs flex items-center justify-between gap-3 ${
+                (wallet?.balance ?? 0) < ITEM_PRICES.scheme ? 'bg-red-50 border-red-200 text-red-700' : 'bg-purple-50 border-purple-200 text-purple-700'
+              }`}>
+                <div>
+                  <Sparkles size={12} className="inline mr-1"/>
+                  Generating a scheme costs KES {ITEM_PRICES.scheme} from your wallet. Wallet balance: <b>KES {wallet?.balance ?? '…'}</b>.
+                  {(wallet?.balance ?? 0) < ITEM_PRICES.scheme && ' Top up to continue.'}
+                </div>
+                <button type="button" onClick={() => setShowTopUp(true)} className="btn-ghost text-xs py-1 px-2 flex-shrink-0">Top Up</button>
+              </div>
+              <div className="flex gap-3 border-t border-theme pt-4">
+                <button type="button" onClick={() => setShowNewScheme(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="submit" disabled={generating} className="btn-primary flex-1">
+                  {generating
+                    ? <><Loader2 size={14} className="animate-spin"/> Generating…</>
+                    : <><Sparkles size={14}/> Generate (KES {ITEM_PRICES.scheme})</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showTopUp && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md my-8 mt-24">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <div>
+                <h3 className="text-lg font-bold text-theme-heading">Top Up Wallet</h3>
+                <p className="text-xs text-theme-muted mt-0.5">Pay via M-Pesa, then spend per item you generate.</p>
+              </div>
+              <button onClick={() => setShowTopUp(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <form onSubmit={topUpWallet} className="p-5 space-y-4">
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
+                Scheme of Work: KES {ITEM_PRICES.scheme} each &middot; Lesson Plan: KES {ITEM_PRICES.lesson_plan} each &middot; Lesson Notes: KES {ITEM_PRICES.lesson_notes} each.
+              </div>
+              <div>
+                <label className="label">Amount (KES) *</label>
+                <input required type="number" min={10} value={topUpForm.amount}
+                  onChange={(e) => setTopUpForm(f => ({ ...f, amount: Number(e.target.value) }))}
+                  className="input" disabled={topUpStep === 'waiting'}/>
+              </div>
               <div>
                 <label className="label">M-Pesa Phone Number *</label>
-                <input required type="tel" placeholder="07XXXXXXXX" value={form.phone}
-                  onChange={set('phone')} className="input" disabled={payStep === 'waiting'}/>
+                <input required type="tel" placeholder="07XXXXXXXX" value={topUpForm.phone}
+                  onChange={(e) => setTopUpForm(f => ({ ...f, phone: e.target.value }))}
+                  className="input" disabled={topUpStep === 'waiting'}/>
               </div>
-              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
-                <Sparkles size={12} className="inline mr-1"/>
-                KES 50 via M-Pesa unlocks this Scheme of Work plus every lesson plan and lesson
-                notes record you generate from it — no subscription, pay once per scheme.
-              </div>
-              {payStep === 'waiting' && (
+              {topUpStep === 'waiting' && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 flex items-center gap-2">
                   <Loader2 size={14} className="animate-spin flex-shrink-0"/>
                   Waiting for M-Pesa confirmation on your phone…
                 </div>
               )}
               <div className="flex gap-3 border-t border-theme pt-4">
-                <button type="button" onClick={() => setShowNewScheme(false)} className="btn-ghost flex-1">Cancel</button>
-                <button type="submit" disabled={generating} className="btn-primary flex-1">
-                  {generating
-                    ? <><Loader2 size={14} className="animate-spin"/> {payStep === 'waiting' ? 'Confirming payment…' : 'Starting payment…'}</>
-                    : <><Sparkles size={14}/> Pay KES 50 &amp; Generate</>}
+                <button type="button" onClick={() => setShowTopUp(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="submit" disabled={toppingUp} className="btn-primary flex-1">
+                  {toppingUp
+                    ? <><Loader2 size={14} className="animate-spin"/> {topUpStep === 'waiting' ? 'Confirming…' : 'Starting…'}</>
+                    : <><Sparkles size={14}/> Pay KES {topUpForm.amount || 0}</>}
                 </button>
               </div>
             </form>

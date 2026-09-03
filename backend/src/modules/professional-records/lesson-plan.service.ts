@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { LessonPlan, SchemeOfWork, SchemeWeek, SubjectCatalogue, PrAudit } from './entities';
 import { AiGeneratorService } from './ai-generator.service';
+import { WalletService } from './wallet.service';
 import { GenerateLessonPlanDto, ReviewRecordDto } from './dto';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class LessonPlanService {
     @InjectRepository(SubjectCatalogue) private subjRepo: Repository<SubjectCatalogue>,
     @InjectRepository(PrAudit) private auditRepo: Repository<PrAudit>,
     private aiGenerator: AiGeneratorService,
+    private walletService: WalletService,
     private dataSource: DataSource,
   ) {}
 
@@ -27,6 +29,8 @@ export class LessonPlanService {
       where: { id: dto.schemeId, tenantId, teacherId },
     });
     if (!scheme) throw new NotFoundException('Scheme not found');
+
+    await this.walletService.assertAffordable(tenantId, teacherId, 'lesson_plan');
 
     const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId } });
     if (!week) throw new NotFoundException('Scheme week not found');
@@ -46,40 +50,44 @@ export class LessonPlanService {
       lessonDate: dto.lessonDate,
     });
 
-    const plan = await this.planRepo.save(
-      this.planRepo.create({
-        tenantId,
-        teacherId,
-        schemeId: dto.schemeId,
-        schemeWeekId: dto.schemeWeekId,
-        streamId: scheme.streamId,
-        subjectId: scheme.subjectId,
-        lessonDate: dto.lessonDate ? new Date(dto.lessonDate) : null,
-        lessonNumber: week.weekNumber,
-        durationMinutes: dto.durationMinutes || 40,
-        gradeLevel: scheme.gradeLevel,
+    const plan = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(
+        this.planRepo.create({
+          tenantId,
+          teacherId,
+          schemeId: dto.schemeId,
+          schemeWeekId: dto.schemeWeekId,
+          streamId: scheme.streamId,
+          subjectId: scheme.subjectId,
+          lessonDate: dto.lessonDate ? new Date(dto.lessonDate) : null,
+          lessonNumber: week.weekNumber,
+          durationMinutes: dto.durationMinutes || 40,
+          gradeLevel: scheme.gradeLevel,
 
-        strand: planData.strand,
-        subStrand: planData.subStrand,
-        specificLearningOutcomes: planData.specificLearningOutcomes,
-        keyInquiryQuestions: planData.keyInquiryQuestions,
-        coreCompetencies: planData.coreCompetencies,
-        values: planData.values,
-        pertinentIssues: planData.pertinentIssues,
-        linkToOtherSubjects: planData.linkToOtherSubjects,
-        introduction: planData.introduction,
-        lessonDevelopment: planData.lessonDevelopment,
-        conclusion: planData.conclusion,
-        assessment: planData.assessment,
-        extendedActivities: planData.extendedActivities,
-        supportActivities: planData.supportActivities,
-        learningMaterials: planData.learningMaterials,
-        referenceBooks: planData.referenceBooks,
-        aiGenerated: true,
-        aiModel: 'claude-sonnet-4-20250514',
-        status: 'draft',
-      }),
-    );
+          strand: planData.strand,
+          subStrand: planData.subStrand,
+          specificLearningOutcomes: planData.specificLearningOutcomes,
+          keyInquiryQuestions: planData.keyInquiryQuestions,
+          coreCompetencies: planData.coreCompetencies,
+          values: planData.values,
+          pertinentIssues: planData.pertinentIssues,
+          linkToOtherSubjects: planData.linkToOtherSubjects,
+          introduction: planData.introduction,
+          lessonDevelopment: planData.lessonDevelopment,
+          conclusion: planData.conclusion,
+          assessment: planData.assessment,
+          extendedActivities: planData.extendedActivities,
+          supportActivities: planData.supportActivities,
+          learningMaterials: planData.learningMaterials,
+          referenceBooks: planData.referenceBooks,
+          aiGenerated: true,
+          aiModel: 'claude-sonnet-4-20250514',
+          status: 'draft',
+        }),
+      );
+      await this.walletService.debit(tenantId, teacherId, 'lesson_plan', saved.id, manager);
+      return saved;
+    });
 
     return { planId: plan.id, status: 'draft', message: 'Lesson plan generated. Review and submit.' };
   }

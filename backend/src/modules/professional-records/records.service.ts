@@ -7,6 +7,7 @@ import {
 } from './entities';
 import { Learner } from '../academic/academic.module';
 import { AiGeneratorService } from './ai-generator.service';
+import { WalletService } from './wallet.service';
 import { GenerateLessonNotesDto, RecordWorkCoveredDto, GenerateLearnerProgressDto } from './dto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class RecordsService {
     @InjectRepository(SubjectCatalogue) private subjRepo: Repository<SubjectCatalogue>,
     @InjectRepository(PrAudit) private auditRepo: Repository<PrAudit>,
     private aiGenerator: AiGeneratorService,
+    private walletService: WalletService,
     private dataSource: DataSource,
   ) {}
 
@@ -29,6 +31,8 @@ export class RecordsService {
       where: { id: dto.lessonPlanId, tenantId, teacherId },
     });
     if (!plan) throw new NotFoundException('Lesson plan not found');
+
+    await this.walletService.assertAffordable(tenantId, teacherId, 'lesson_notes');
 
     const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
 
@@ -43,30 +47,34 @@ export class RecordsService {
       additionalContext: dto.additionalContext,
     });
 
-    const notes = await this.notesRepo.save(
-      this.notesRepo.create({
-        tenantId,
-        teacherId,
-        lessonPlanId: dto.lessonPlanId,
-        streamId: plan.streamId,
-        subjectId: plan.subjectId,
-        lessonDate: plan.lessonDate || new Date(),
-        gradeLevel: plan.gradeLevel,
-        topic: notesData.topic,
-        subTopic: notesData.subTopic,
-        teacherContent: notesData.teacherContent,
-        boardWork: notesData.boardWork,
-        examples: notesData.examples,
-        activities: notesData.activities,
-        questions: notesData.questions,
-        assessmentEvidence: notesData.assessmentEvidence,
-        expectedResponses: notesData.expectedResponses,
-        coverageStatus: 'pending',
-        aiGenerated: true,
-        aiModel: 'claude-sonnet-4-20250514',
-        status: 'draft',
-      }),
-    );
+    const notes = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(
+        this.notesRepo.create({
+          tenantId,
+          teacherId,
+          lessonPlanId: dto.lessonPlanId,
+          streamId: plan.streamId,
+          subjectId: plan.subjectId,
+          lessonDate: plan.lessonDate || new Date(),
+          gradeLevel: plan.gradeLevel,
+          topic: notesData.topic,
+          subTopic: notesData.subTopic,
+          teacherContent: notesData.teacherContent,
+          boardWork: notesData.boardWork,
+          examples: notesData.examples,
+          activities: notesData.activities,
+          questions: notesData.questions,
+          assessmentEvidence: notesData.assessmentEvidence,
+          expectedResponses: notesData.expectedResponses,
+          coverageStatus: 'pending',
+          aiGenerated: true,
+          aiModel: 'claude-sonnet-4-20250514',
+          status: 'draft',
+        }),
+      );
+      await this.walletService.debit(tenantId, teacherId, 'lesson_notes', saved.id, manager);
+      return saved;
+    });
 
     return { notesId: notes.id, status: 'draft', message: 'Lesson notes generated.' };
   }

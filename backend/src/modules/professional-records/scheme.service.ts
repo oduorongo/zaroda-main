@@ -4,7 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } from './entities';
 import { Tenant } from '../auth/entities/tenant.entity';
 import { AiGeneratorService } from './ai-generator.service';
-import { PurchaseService } from './purchase.service';
+import { WalletService } from './wallet.service';
 import { GenerateSchemeDto, ReviewRecordDto } from './dto';
 
 @Injectable()
@@ -17,7 +17,7 @@ export class SchemeService {
     @InjectRepository(SubjectCatalogue) private subjectRepo: Repository<SubjectCatalogue>,
     @InjectRepository(Tenant) private tenantRepo: Repository<Tenant>,
     private aiGenerator: AiGeneratorService,
-    private purchaseService: PurchaseService,
+    private walletService: WalletService,
     private dataSource: DataSource,
   ) {}
 
@@ -140,11 +140,11 @@ export class SchemeService {
       await this.assertAssignedToTeach(tenantId, teacherId, role, streamId, dto.subjectName);
     }
 
-    // Pay-per-flow, not subscription: every generator (teachers, HOI, admin — no
-    // exemptions) must have an unconsumed paid M-Pesa purchase before we spend AI
-    // tokens generating anything. Re-checked atomically inside the transaction below
-    // to close the race between this pre-check and the actual consume.
-    this.purchaseService.assertPaid(await this.purchaseService.findConsumablePurchase(tenantId, teacherId));
+    // Wallet-based, not subscription: every generator (teachers, HOI, admin — no
+    // exemptions) must have enough wallet balance before we spend AI tokens
+    // generating anything. Re-debited atomically inside the transaction below,
+    // which is the race-safe check — this is just a fast fail.
+    await this.walletService.assertAffordable(tenantId, teacherId, 'scheme');
 
     const existing = await this.schemeRepo.findOne({
       where: {
@@ -179,9 +179,6 @@ export class SchemeService {
     });
 
     return this.dataSource.transaction(async (manager) => {
-      const purchase = await this.purchaseService.findConsumablePurchase(tenantId, teacherId, manager);
-      this.purchaseService.assertPaid(purchase);
-
       const scheme = manager.create(SchemeOfWork, {
         tenantId, schoolId, teacherId,
         streamId,
@@ -205,6 +202,7 @@ export class SchemeService {
         defaultFont: dto.defaultFont || 'Times New Roman',
       });
       await manager.save(SchemeOfWork, scheme);
+      await this.walletService.debit(tenantId, teacherId, 'scheme', scheme.id, manager);
 
       for (const [i, w] of weeks.entries()) {
         await manager.save(SchemeWeek, manager.create(SchemeWeek, {
@@ -227,8 +225,6 @@ export class SchemeService {
           remarks: '',
         }));
       }
-
-      await this.purchaseService.markConsumed(purchase!.id, scheme.id, manager);
 
       return {
         schemeId: scheme.id,

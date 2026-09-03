@@ -265,21 +265,37 @@ export class TeacherDocument {
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
-@Entity('pr_purchases')
-export class PrPurchase {
+// One wallet per teacher. Topped up via M-Pesa STK push, then spent per item
+// generated (see WalletService pricing constants) instead of the old
+// pay-per-flow purchase model.
+@Entity('pr_wallets')
+export class PrWallet {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ name: 'tenant_id' }) tenantId: string;
   @Column({ name: 'teacher_id' }) teacherId: string;
-  @Column({ name: 'scheme_id', nullable: true }) schemeId: string | null;
+  @Column({ type: 'numeric', default: 0 }) balance: number;
+  @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
+}
 
-  @Column({ type: 'numeric', default: 50 }) amount: number;
+@Entity('pr_wallet_transactions')
+export class PrWalletTransaction {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ name: 'tenant_id' }) tenantId: string;
+  @Column({ name: 'teacher_id' }) teacherId: string;
+  @Column() type: string; // 'topup' | 'debit'
+  @Column({ type: 'numeric' }) amount: number;
+  @Column({ name: 'balance_after', type: 'numeric', nullable: true }) balanceAfter: number;
+  @Column({ nullable: true }) description: string;
+  @Column({ name: 'reference_type', nullable: true }) referenceType: string; // 'scheme' | 'lesson_plan' | 'lesson_notes'
+  @Column({ name: 'reference_id', nullable: true }) referenceId: string;
+
   @Column({ nullable: true }) phone: string;
-
   @Column({ name: 'checkout_request_id', nullable: true }) checkoutRequestId: string;
   @Column({ name: 'merchant_request_id', nullable: true }) merchantRequestId: string;
   @Column({ name: 'mpesa_receipt_number', nullable: true }) mpesaReceiptNumber: string;
 
-  @Column({ default: 'pending' }) status: string;
+  @Column({ default: 'completed' }) status: string; // topups: 'pending'|'paid'|'failed'; debits: 'completed'
   @Column({ name: 'result_desc', type: 'text', nullable: true }) resultDesc: string;
 
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;

@@ -57,7 +57,7 @@ export default function SignupIndividualPage() {
         <div className="text-white font-black text-sm leading-tight">ZARODA SCHOOL</div>
         <div className="text-[#fdba74] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
         <h1 className="text-xl font-black text-white">Professional Records — no school account needed</h1>
-        <p className="text-white/40 text-xs mt-1">Generate schemes, lesson plans &amp; lesson notes on your own — KES 50 per scheme, pay via M-Pesa as you go.</p>
+        <p className="text-white/40 text-xs mt-1">Generate schemes, lesson plans &amp; lesson notes on your own — top up your wallet via M-Pesa, then pay KES 30 per scheme and KES 2 per lesson plan or lesson notes.</p>
       </div>
 
       <div className="bg-white rounded-2xl p-6 shadow-modal">
