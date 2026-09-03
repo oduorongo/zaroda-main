@@ -164,6 +164,7 @@ export default function ProfessionalRecordsPage() {
   // below); generating a scheme just debits ITEM_PRICES.scheme from the balance.
   const generateScheme = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.schoolName.trim()) { toast.error('Enter the school name — it is stamped as a watermark on the document.'); return; }
     if (individual) {
       if (!form.streamName || !form.subjectName) { toast.error('Enter a class/stream name and subject.'); return; }
     } else if (!form.streamId || !form.subjectId) {
@@ -430,8 +431,8 @@ export default function ProfessionalRecordsPage() {
                 <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Document header</legend>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">School</label>
-                    <input value={form.schoolName} onChange={set('schoolName')} className="input"/>
+                    <label className="label">School *</label>
+                    <input required value={form.schoolName} onChange={set('schoolName')} className="input" placeholder="Stamped as a watermark on the document"/>
                   </div>
                   <div>
                     <label className="label">Teacher</label>

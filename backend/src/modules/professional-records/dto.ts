@@ -20,7 +20,10 @@ export class GenerateSchemeDto {
   @IsOptional() @IsArray()  strandFocus?: string[];
 
   // Document header fields — printed on the generated scheme, not used for AI generation.
-  @IsOptional() @IsString() schoolName?: string;
+  // schoolName is mandatory (even for individual accounts with no school tenant) — it's
+  // stamped as a watermark on the rendered document specifically so a teacher can't
+  // generate an unattributed scheme and hand it to a teacher at another school.
+  @IsNotEmpty() @IsString() schoolName: string;
   @IsOptional() @IsString() teacherName?: string;
   @IsOptional() @IsString() tscNumber?: string;
   @IsOptional() @IsString() signOffLine?: string;
