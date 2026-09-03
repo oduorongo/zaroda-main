@@ -192,7 +192,7 @@ export default function ProfessionalRecordsPage() {
         curriculumEdition: form.curriculumEdition || undefined,
         columns: selectedColumns,
         defaultFont: form.font,
-      });
+      }, { timeout: 120000 }); // AI generation for a full-term scheme can take well over the default 30s
       toast.success(`Scheme of work generated (KES ${ITEM_PRICES.scheme} deducted from wallet). Review and submit when ready.`);
       setShowNewScheme(false);
       load();
@@ -257,7 +257,7 @@ export default function ProfessionalRecordsPage() {
 
   const generateLessonPlan = async (schemeId: string, schemeWeekId: string) => {
     try {
-      const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId });
+      const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId }, { timeout: 60000 });
       toast.success('Lesson plan generated.');
       load();
       return data;
@@ -275,7 +275,7 @@ export default function ProfessionalRecordsPage() {
   };
 
   const generateLessonNotes = async (lessonPlanId: string) => {
-    try { await apiClient.post('/professional-records/lesson-notes/generate', { lessonPlanId }); toast.success('Lesson notes generated.'); load(); setTab('notes'); }
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { lessonPlanId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); setTab('notes'); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
