@@ -266,19 +266,21 @@ LESSON CONTEXT:
 - Resources from Scheme: ${params.learningResources}
 - School Context: ${params.schoolContext || 'Mixed day school, Kenya'}
 
-REQUIREMENTS:
+REQUIREMENTS — keep every field concise and usable, not padded (approximate word limits below), so the
+whole response stays short:
 1. Follow KICD CBC lesson plan format exactly
-2. Introduction (5–10 min): set induction, link to prior learning, pose key inquiry question
-3. Lesson Development (main activity, 25–30 min): learner-centred, activity-based
-4. Conclusion (5 min): summary, exit activity, link to next lesson
-5. Assessment must be formative — observation, oral questions, written tasks
-6. Include extended activities for fast learners
-7. Include support activities for learners who need help
+2. Introduction (5–10 min): induction + link to prior learning + key inquiry question (max ~80 words)
+3. Lesson Development (main activity, 25–30 min): learner-centred, activity-based (max ~200 words)
+4. Conclusion (5 min): summary, exit activity, link to next lesson (max ~60 words)
+5. Assessment must be formative — observation, oral questions, written tasks (max ~60 words)
+6. Extended activities for fast learners (max ~40 words)
+7. Support activities for learners who need help (max ~40 words)
 8. Core Competencies: select relevant ones from: Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy
 9. Values: select from: Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity
-10. PCIs (Pertinent & Contemporary Issues): select relevant ones
+10. PCIs (Pertinent & Contemporary Issues): select relevant ones (max ~20 words)
+11. learningMaterials/referenceBooks: short lists, not paragraphs (max ~30 words each)
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no markdown fences, every field a plain string/array kept within the limits above:
 {
   "strand": "...",
   "subStrand": "...",
@@ -325,16 +327,17 @@ LESSON INFO:
 - Lesson Development Summary: ${params.lessonDevelopment}
 ${params.additionalContext ? `- Additional Context: ${params.additionalContext}` : ''}
 
-Generate comprehensive lesson notes that a teacher will use during delivery. Include:
-1. Teacher content — the actual subject matter to be taught (detailed notes)
-2. Board work — what the teacher writes on the board
-3. Worked examples — step-by-step solutions or examples
-4. Learner activities — what learners do (detailed instructions)
-5. Probing questions — questions to check understanding at each stage
-6. Expected learner responses
-7. Assessment evidence — what to look for to confirm learning
+Generate concise, usable lesson notes a teacher can read straight off the page during delivery — thorough
+enough to teach from, but not padded. Keep to these approximate limits so the response stays short:
+1. Teacher content — the subject matter to teach (max ~250 words)
+2. Board work — what goes on the board (max ~60 words)
+3. Worked examples — 1-2 short examples, step-by-step (max ~120 words)
+4. Learner activities — what learners do (max ~100 words)
+5. Probing questions — 3-4 short questions, one per line (max ~60 words)
+6. Expected learner responses — brief, one line per question (max ~60 words)
+7. Assessment evidence — what to look for to confirm learning (max ~50 words)
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no markdown fences, every field a plain string kept within the limits above:
 {
   "topic": "...",
   "subTopic": "...",
