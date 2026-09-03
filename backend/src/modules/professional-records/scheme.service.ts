@@ -6,6 +6,7 @@ import { Tenant } from '../auth/entities/tenant.entity';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateSchemeDto, ReviewRecordDto } from './dto';
+import { documentShell } from './document-render.util';
 
 @Injectable()
 export class SchemeService {
@@ -261,15 +262,6 @@ export class SchemeService {
     const grade = String(scheme.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const term = String(scheme.term || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-    // A transparent, tiled watermark of the school name on every page — so a
-    // generated scheme can't be handed to a teacher at another school without
-    // the origin school being visibly stamped across it. Not optional/removable
-    // via any column toggle; schoolName is a required field precisely for this.
-    const watermarkText = esc(scheme.schoolName || '').toUpperCase();
-    const watermarkSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='480' height='140'>` +
-      `<text x='0' y='90' font-family='Arial, sans-serif' font-size='26' font-weight='bold' fill='rgba(0,0,0,0.08)'>${watermarkText}</text></svg>`;
-    const watermarkDataUri = `data:image/svg+xml,${encodeURIComponent(watermarkSvg)}`;
-
     const headCols: string[] = ['Wk', 'Lesson', 'Strand', 'Sub-Strand'];
     if (cols.has('keyInquiry')) headCols.push('Key Inquiry Questions');
     if (cols.has('learningExperiences')) headCols.push('Learning Experiences');
@@ -342,34 +334,20 @@ export class SchemeService {
       }).join('');
     }).join('');
 
-    return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${esc(scheme.title)}</title>
-<style>
-  body{
-    font-family:'${esc(font)}',serif;margin:24px;color:#111;
-    background-image:url("${watermarkDataUri}");background-repeat:repeat;background-position:0 0;
-    -webkit-print-color-adjust:exact;print-color-adjust:exact;
-  }
-  h1{font-size:18px;text-align:center;margin:0 0 4px}
-  .meta{font-size:12px;margin-bottom:14px}
-  .meta div{margin-bottom:2px}
-  table{border-collapse:collapse;width:100%}
-  th{border:1px solid #999;padding:6px;font-size:11px;background:#f0f0f0;text-align:left}
-  .sig{margin-top:36px;font-size:12px;display:flex;justify-content:space-between}
-  @media print{@page{size:landscape;margin:12mm}}
-</style></head>
-<body onload="window.print && window.print()">
-  <h1>${esc(scheme.title)}</h1>
-  <div class="meta">
-    <div><b>School:</b> ${esc(scheme.schoolName || '')} &nbsp; <b>Teacher:</b> ${esc(scheme.teacherName || '')} ${scheme.tscNumber ? `&nbsp; <b>TSC No:</b> ${esc(scheme.tscNumber)}` : ''}</div>
-    <div><b>Grade:</b> ${esc(grade)} &nbsp; <b>Term:</b> ${esc(term)} &nbsp; <b>Year:</b> ${esc(scheme.academicYear)} ${scheme.curriculumEdition ? `&nbsp; <b>Curriculum:</b> ${esc(scheme.curriculumEdition)}` : ''}</div>
-  </div>
-  <table><thead><tr>${headCols.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-  <div class="sig">
-    <div>Prepared by: ${esc(scheme.teacherName || '_______________________')}</div>
-    <div>${esc(scheme.signOffLine || 'Checked by D.H.O.I.')}: _______________________</div>
-  </div>
-</body></html>`;
+    const headerHtml =
+      `<div><b>School:</b> ${esc(scheme.schoolName || '')} &nbsp; <b>Teacher:</b> ${esc(scheme.teacherName || '')} ${scheme.tscNumber ? `&nbsp; <b>TSC No:</b> ${esc(scheme.tscNumber)}` : ''}</div>` +
+      `<div><b>Grade:</b> ${esc(grade)} &nbsp; <b>Term:</b> ${esc(term)} &nbsp; <b>Year:</b> ${esc(scheme.academicYear)} ${scheme.curriculumEdition ? `&nbsp; <b>Curriculum:</b> ${esc(scheme.curriculumEdition)}` : ''}</div>`;
+    const bodyHtml = `<table><thead><tr>${headCols.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+
+    return documentShell({
+      title: scheme.title,
+      font,
+      schoolName: scheme.schoolName || '',
+      headerHtml,
+      bodyHtml,
+      footerHtml: `<div>Prepared by: ${esc(scheme.teacherName || '_______________________')}</div><div>${esc(scheme.signOffLine || 'Checked by D.H.O.I.')}: _______________________</div>`,
+      landscape: true,
+    });
   }
 
   // ── LIST (for teacher or admin) ────────────────────────────

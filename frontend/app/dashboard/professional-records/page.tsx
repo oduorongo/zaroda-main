@@ -291,9 +291,9 @@ export default function ProfessionalRecordsPage() {
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not review.'); }
   };
 
-  const generateLessonPlan = async (schemeId: string, schemeWeekId: string) => {
+  const generateLessonPlan = async (schemeId: string, schemeWeekId: string, lessonSlot: number) => {
     try {
-      const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId }, { timeout: 120000 });
+      const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId, lessonSlot }, { timeout: 120000 });
       toast.success('Lesson plan generated.');
       load();
       loadWallet();
@@ -317,8 +317,8 @@ export default function ProfessionalRecordsPage() {
   };
 
   // Skips the lesson plan step entirely — notes generated straight from a scheme week.
-  const generateLessonNotesFromWeek = async (schemeId: string, schemeWeekId: string) => {
-    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId }, { timeout: 120000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
+  const generateLessonNotesFromWeek = async (schemeId: string, schemeWeekId: string, lessonSlot: number) => {
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId, lessonSlot }, { timeout: 120000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
@@ -831,15 +831,15 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
   const [exportFont, setExportFont] = useState(scheme.defaultFont || 'Times New Roman');
   const weeks = [...(scheme.weeks || [])].sort((a: any, b: any) => a.weekNumber - b.weekNumber);
 
-  const handleGenNotes = async (weekId: string) => {
-    setBusyAction(`${weekId}:notes`);
-    await onGenerateLessonNotes(scheme.id, weekId);
+  const handleGenNotes = async (weekId: string, lessonSlot: number) => {
+    setBusyAction(`${weekId}:${lessonSlot}:notes`);
+    await onGenerateLessonNotes(scheme.id, weekId, lessonSlot);
     setBusyAction(null);
   };
 
-  const handleGenPlan = async (weekId: string) => {
-    setBusyAction(`${weekId}:plan`);
-    await onGenerateLessonPlan(scheme.id, weekId);
+  const handleGenPlan = async (weekId: string, lessonSlot: number) => {
+    setBusyAction(`${weekId}:${lessonSlot}:plan`);
+    await onGenerateLessonPlan(scheme.id, weekId, lessonSlot);
     setBusyAction(null);
   };
 
@@ -883,30 +883,63 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
       </div>
 
       <div className="space-y-3">
-        {weeks.map((w: any) => (
+        {weeks.map((w: any) => {
+          const isSpecial = /^n\/a\b/i.test(String(w.specificLearningOutcomes || '').trim());
+          const lessons = !isSpecial && w.lessons?.length ? w.lessons : null;
+          return (
           <div key={w.id} className="card p-4">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-theme-heading">Week {w.weekNumber} — {w.strand} / {w.subStrand}</div>
-                <p className="text-sm mt-2"><span className="font-semibold">SLOs:</span> {w.specificLearningOutcomes}</p>
-                {w.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {w.keyInquiryQuestions}</p>}
-                {w.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {w.learningExperiences}</p>}
-                {w.learningResources && <p className="text-sm mt-1"><span className="font-semibold">Resources:</span> {w.learningResources}</p>}
-                {w.assessmentMethods && <p className="text-sm mt-1"><span className="font-semibold">Assessment:</span> {w.assessmentMethods}</p>}
+            <div className="font-bold text-theme-heading mb-2">Week {w.weekNumber} — {w.strand} / {w.subStrand}</div>
+            {isSpecial ? (
+              <p className="text-sm text-theme-muted italic">{w.strand} — no lesson plan/notes for this week.</p>
+            ) : lessons ? (
+              <div className="space-y-3">
+                {lessons.map((lesson: any) => {
+                  const key = `${w.id}:${lesson.lessonNumber}`;
+                  return (
+                    <div key={key} className="flex items-start justify-between gap-3 flex-wrap border-t border-theme pt-3 first:border-0 first:pt-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-theme-heading uppercase tracking-wide">Lesson {lesson.lessonNumber}{lesson.isDouble ? ' (Double)' : ''}</div>
+                        <p className="text-sm mt-1"><span className="font-semibold">SLOs:</span> {lesson.specificLearningOutcomes}</p>
+                        {lesson.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {lesson.keyInquiryQuestions}</p>}
+                        {lesson.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {lesson.learningExperiences}</p>}
+                      </div>
+                      {teacher && (
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button onClick={() => handleGenPlan(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)} className="btn-ghost text-xs py-1.5 px-3">
+                            {busyAction === `${key}:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
+                          </button>
+                          <button onClick={() => handleGenNotes(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)} className="btn-ghost text-xs py-1.5 px-3">
+                            {busyAction === `${key}:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              {teacher && (
-                <div className="flex flex-col gap-1.5 flex-shrink-0">
-                  <button onClick={() => handleGenPlan(w.id)} disabled={busyAction?.startsWith(`${w.id}:`)} className="btn-ghost text-xs py-1.5 px-3">
-                    {busyAction === `${w.id}:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
-                  </button>
-                  <button onClick={() => handleGenNotes(w.id)} disabled={busyAction?.startsWith(`${w.id}:`)} className="btn-ghost text-xs py-1.5 px-3">
-                    {busyAction === `${w.id}:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
-                  </button>
+            ) : (
+              // Legacy week with no per-lesson breakdown — one plan/notes pair for the whole week (slot 1).
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm"><span className="font-semibold">SLOs:</span> {w.specificLearningOutcomes}</p>
+                  {w.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {w.keyInquiryQuestions}</p>}
+                  {w.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {w.learningExperiences}</p>}
                 </div>
-              )}
-            </div>
+                {teacher && (
+                  <div className="flex flex-col gap-1.5 flex-shrink-0">
+                    <button onClick={() => handleGenPlan(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)} className="btn-ghost text-xs py-1.5 px-3">
+                      {busyAction === `${w.id}:1:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
+                    </button>
+                    <button onClick={() => handleGenNotes(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)} className="btn-ghost text-xs py-1.5 px-3">
+                      {busyAction === `${w.id}:1:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

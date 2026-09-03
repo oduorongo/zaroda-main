@@ -119,7 +119,10 @@ export class LessonPlan {
   @Column({ name: 'subject_id' }) subjectId: string;
 
   @Column({ name: 'lesson_date', type: 'date', nullable: true }) lessonDate: Date | null;
+  // Historically the scheme WEEK number — kept for old rows/rendering; the actual
+  // lesson-within-week position (matching scheme_weeks.lessons[].lessonNumber) is lessonSlot.
   @Column({ name: 'lesson_number', nullable: true }) lessonNumber: number;
+  @Column({ name: 'lesson_slot', nullable: true }) lessonSlot: number;
   @Column({ name: 'duration_minutes', default: 40 }) durationMinutes: number;
   @Column({ name: 'grade_level' }) gradeLevel: string;
 
@@ -167,6 +170,7 @@ export class LessonNote {
   @Column({ name: 'lesson_plan_id', nullable: true }) lessonPlanId: string | null;
   @Column({ name: 'scheme_id', nullable: true }) schemeId: string | null;
   @Column({ name: 'scheme_week_id', nullable: true }) schemeWeekId: string | null;
+  @Column({ name: 'lesson_slot', nullable: true }) lessonSlot: number | null;
   @Column({ name: 'stream_id' }) streamId: string;
   @Column({ name: 'subject_id' }) subjectId: string;
 

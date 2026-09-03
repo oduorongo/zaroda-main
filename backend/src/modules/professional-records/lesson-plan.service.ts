@@ -31,17 +31,27 @@ export class LessonPlanService {
     });
     if (!scheme) throw new NotFoundException('Scheme not found');
 
+    const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId } });
+    if (!week) throw new NotFoundException('Scheme week not found');
+
+    // A week can hold several lessons (see SchemeWeek.lessons) — a plan is generated
+    // for ONE of them, identified by lessonSlot. Weeks predating that feature have no
+    // lessons array; fall back to the week-level fields for those, slot 1.
+    const lessons = week.lessons || [];
+    const lessonSlot = lessons.length ? (dto.lessonSlot || 1) : 1;
+    const lesson = lessons.find((l) => l.lessonNumber === lessonSlot);
+    if (lessons.length && !lesson) {
+      throw new BadRequestException(`This week has no lesson ${lessonSlot}.`);
+    }
+
     const existing = await this.planRepo.findOne({
-      where: { tenantId, teacherId, schemeId: dto.schemeId, schemeWeekId: dto.schemeWeekId },
+      where: { tenantId, teacherId, schemeId: dto.schemeId, schemeWeekId: dto.schemeWeekId, lessonSlot },
     });
     if (existing) {
       throw new BadRequestException('A lesson plan already exists for this lesson. Open it instead of generating another.');
     }
 
     await this.walletService.assertAffordable(tenantId, teacherId, 'lesson_plan');
-
-    const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId } });
-    if (!week) throw new NotFoundException('Scheme week not found');
 
     const subject = await this.subjRepo.findOne({ where: { id: scheme.subjectId } });
 
@@ -50,9 +60,9 @@ export class LessonPlanService {
       gradeLevel: scheme.gradeLevel,
       strand: week.strand,
       subStrand: week.subStrand,
-      slos: week.specificLearningOutcomes,
-      keyInquiryQuestions: week.keyInquiryQuestions || '',
-      learningExperiences: week.learningExperiences,
+      slos: lesson ? lesson.specificLearningOutcomes : week.specificLearningOutcomes,
+      keyInquiryQuestions: (lesson ? lesson.keyInquiryQuestions : week.keyInquiryQuestions) || '',
+      learningExperiences: lesson ? lesson.learningExperiences : week.learningExperiences,
       learningResources: week.learningResources || '',
       durationMinutes: dto.durationMinutes || 40,
       lessonDate: dto.lessonDate,
@@ -71,6 +81,7 @@ export class LessonPlanService {
           subjectId: scheme.subjectId,
           lessonDate: dto.lessonDate ? new Date(dto.lessonDate) : null,
           lessonNumber: week.weekNumber,
+          lessonSlot,
           durationMinutes: dto.durationMinutes || 40,
           gradeLevel: scheme.gradeLevel,
 
@@ -134,7 +145,7 @@ export class LessonPlanService {
     const headerGrid = `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
       <tr>${lbl('School')}${val(scheme?.schoolName)}${lbl('Learning Area')}${val(subject?.name)}${lbl('Grade')}${val(grade)}</tr>
       <tr>${lbl('Date')}${val(plan.lessonDate ? String(plan.lessonDate).slice(0, 10) : '')}${lbl('Time')}${val('')}${lbl('Roll')}${val('')}</tr>
-      <tr>${lbl('Week')}${val(plan.lessonNumber)}${lbl('Lesson No.')}${val('')}${lbl('Duration')}${val(`${plan.durationMinutes} min`)}</tr>
+      <tr>${lbl('Week')}${val(plan.lessonNumber)}${lbl('Lesson No.')}${val(plan.lessonSlot)}${lbl('Duration')}${val(`${plan.durationMinutes} min`)}</tr>
       <tr>${lbl('Strand')}${val(plan.strand, 5)}</tr>
       <tr>${lbl('Sub-Strand')}${val(plan.subStrand, 5)}</tr>
     </table>`;

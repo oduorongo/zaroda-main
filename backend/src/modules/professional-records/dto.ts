@@ -44,6 +44,9 @@ export class GenerateSchemeDto {
 export class GenerateLessonPlanDto {
   @IsNotEmpty() @IsUUID()   schemeId: string;
   @IsNotEmpty() @IsUUID()   schemeWeekId: string;
+  // Which lesson within the week (1-indexed, matches SchemeWeek.lessons[].lessonNumber).
+  // Optional only for legacy weeks with no per-lesson breakdown, where it's ignored.
+  @IsOptional() @IsNumber() lessonSlot?: number;
   @IsOptional() @IsString() lessonDate?: string;
   @IsOptional() @IsNumber() durationMinutes?: number;
 }
@@ -55,6 +58,8 @@ export class GenerateLessonNotesDto {
   @IsOptional() @IsUUID()   lessonPlanId?: string;
   @IsOptional() @IsUUID()   schemeId?: string;
   @IsOptional() @IsUUID()   schemeWeekId?: string;
+  // Which lesson within the week — only used on the schemeId+schemeWeekId path.
+  @IsOptional() @IsNumber() lessonSlot?: number;
   @IsOptional() @IsString() additionalContext?: string;
 }
 

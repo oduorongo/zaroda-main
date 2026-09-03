@@ -261,26 +261,31 @@ LESSON CONTEXT:
 - Grade: ${grade}
 - Strand: ${params.strand}
 - Sub-Strand: ${params.subStrand}
-- Specific Learning Outcomes: ${params.slos}
+- Specific Learning Outcomes (source context — reword to fit this single lesson, see rule 1 below): ${params.slos}
 - Key Inquiry Questions: ${params.keyInquiryQuestions}
 - Duration: ${params.durationMinutes} minutes
 - Lesson Date: ${params.lessonDate || 'TBD'}
 - Resources from Scheme: ${params.learningResources}
 - School Context: ${params.schoolContext || 'Mixed day school, Kenya'}
 
+This is ONE single lesson (${params.durationMinutes} minutes), not a week — even if the source context
+above reads like a week-level summary, scope everything below to what happens in this one sitting.
+
 REQUIREMENTS — keep every field concise and usable, not padded (approximate word limits below), so the
 whole response stays short:
-1. Follow KICD CBC lesson plan format exactly
-2. Introduction (5–10 min): induction + link to prior learning + key inquiry question (max ~80 words)
-3. Lesson Development (main activity, 25–30 min): learner-centred, activity-based (max ~200 words)
-4. Conclusion (5 min): summary, exit activity, link to next lesson (max ~60 words)
-5. Assessment must be formative — observation, oral questions, written tasks (max ~60 words)
-6. Extended activities for fast learners (max ~40 words)
-7. Support activities for learners who need help (max ~40 words)
-8. Core Competencies: select relevant ones from: Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy
-9. Values: select from: Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity
-10. PCIs (Pertinent & Contemporary Issues): select relevant ones (max ~20 words)
-11. learningMaterials/referenceBooks: short lists, not paragraphs (max ~30 words each)
+1. specificLearningOutcomes MUST read "By the end of the LESSON, the learner should be able to..." — never
+   "by the end of the week/term". Narrow the source SLOs to only what fits in this one lesson's duration.
+2. Follow KICD CBC lesson plan format exactly
+3. Introduction (5–10 min): induction + link to prior learning + key inquiry question (max ~80 words)
+4. Lesson Development (main activity, 25–30 min): learner-centred, activity-based (max ~200 words)
+5. Conclusion (5 min): summary, exit activity, link to next lesson (max ~60 words)
+6. Assessment must be formative — observation, oral questions, written tasks (max ~60 words)
+7. Extended activities for fast learners (max ~40 words)
+8. Support activities for learners who need help (max ~40 words)
+9. Core Competencies: select relevant ones from: Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy
+10. Values: select from: Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity
+11. PCIs (Pertinent & Contemporary Issues): select relevant ones (max ~20 words)
+12. learningMaterials/referenceBooks: short lists, not paragraphs (max ~30 words each)
 
 Return ONLY valid JSON, no markdown fences, every field a plain string/array kept within the limits above:
 {

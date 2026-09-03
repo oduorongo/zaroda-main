@@ -7,11 +7,21 @@ export function escHtml(s: any): string {
 // A transparent, tiled watermark of the school name on every page — so a generated
 // document can't be handed to a teacher at another school without the origin school
 // being visibly stamped across it.
-export function watermarkDataUri(schoolName: string): string {
+//
+// Deliberately rendered as real foreground text elements (position:fixed spans),
+// NOT a CSS background-image/background-color. Every browser's print dialog hides
+// backgrounds by default behind an opt-in "background graphics" checkbox, so a
+// background-image watermark is invisible in print preview and on paper unless the
+// viewer happens to have that box checked — foreground content always prints.
+export function watermarkOverlayHtml(schoolName: string): string {
   const text = escHtml(schoolName).toUpperCase();
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='480' height='140'>` +
-    `<text x='0' y='90' font-family='Arial, sans-serif' font-size='26' font-weight='bold' fill='rgba(0,0,0,0.08)'>${text}</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  if (!text) return '';
+  const rowsPct = [8, 24, 40, 56, 72, 88];
+  const colsPct = [10, 45, 80];
+  const spans = rowsPct.flatMap((top) => colsPct.map((left) =>
+    `<span style="position:absolute;top:${top}%;left:${left}%;transform:translate(-50%,-50%) rotate(-20deg);font-size:22px;font-weight:bold;color:rgba(0,0,0,0.12);white-space:nowrap;font-family:Arial,sans-serif">${text}</span>`,
+  )).join('');
+  return `<div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;overflow:hidden;pointer-events:none">${spans}</div>`;
 }
 
 export function documentShell(opts: {
@@ -22,11 +32,7 @@ export function documentShell(opts: {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escHtml(opts.title)}</title>
 <style>
-  body{
-    font-family:'${escHtml(opts.font)}',serif;margin:24px;color:#111;
-    background-image:url("${watermarkDataUri(opts.schoolName)}");background-repeat:repeat;background-position:0 0;
-    -webkit-print-color-adjust:exact;print-color-adjust:exact;
-  }
+  body{font-family:'${escHtml(opts.font)}',serif;margin:24px;color:#111;position:relative}
   h1{font-size:18px;text-align:center;margin:0 0 4px}
   .meta{font-size:12px;margin-bottom:14px}
   .meta div{margin-bottom:2px}
@@ -36,13 +42,17 @@ export function documentShell(opts: {
   .field .label{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:.4px;color:#333}
   .field .value{font-size:13px;white-space:pre-wrap;margin-top:2px}
   .sig{margin-top:36px;font-size:12px;display:flex;justify-content:space-between}
+  .doc-content{position:relative;z-index:1}
   @media print{@page{size:${opts.landscape ? 'landscape' : 'portrait'};margin:12mm}}
 </style></head>
 <body onload="window.print && window.print()">
-  <h1>${escHtml(opts.title)}</h1>
-  <div class="meta">${opts.headerHtml}</div>
-  ${opts.bodyHtml}
-  <div class="sig">${opts.footerHtml}</div>
+  ${watermarkOverlayHtml(opts.schoolName)}
+  <div class="doc-content">
+    <h1>${escHtml(opts.title)}</h1>
+    <div class="meta">${opts.headerHtml}</div>
+    ${opts.bodyHtml}
+    <div class="sig">${opts.footerHtml}</div>
+  </div>
 </body></html>`;
 }
 

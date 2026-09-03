@@ -40,7 +40,7 @@ export class RecordsService {
 
     let notesData: any;
     let base: {
-      lessonPlanId: string | null; schemeId: string | null; schemeWeekId: string | null;
+      lessonPlanId: string | null; schemeId: string | null; schemeWeekId: string | null; lessonSlot: number | null;
       streamId: string; subjectId: string; lessonDate: Date; gradeLevel: string;
       strand: string; subStrand: string;
     };
@@ -49,10 +49,11 @@ export class RecordsService {
       const plan = await this.planRepo.findOne({ where: { id: dto.lessonPlanId, tenantId, teacherId } });
       if (!plan) throw new NotFoundException('Lesson plan not found');
 
-      // schemeWeekId is always populated below (even on the lessonPlanId path) so this
-      // dedupe check catches a duplicate regardless of which route generated the first note.
+      // schemeWeekId/lessonSlot are always populated below (even on the lessonPlanId
+      // path) so this dedupe check catches a duplicate regardless of which route
+      // generated the first note for this specific lesson.
       if (plan.schemeWeekId) {
-        const dupe = await this.notesRepo.findOne({ where: { tenantId, teacherId, schemeWeekId: plan.schemeWeekId } });
+        const dupe = await this.notesRepo.findOne({ where: { tenantId, teacherId, schemeWeekId: plan.schemeWeekId, lessonSlot: plan.lessonSlot } });
         if (dupe) throw new BadRequestException('Lesson notes already exist for this lesson. Open them instead of generating another.');
       }
 
@@ -68,7 +69,7 @@ export class RecordsService {
         additionalContext: dto.additionalContext,
       });
       base = {
-        lessonPlanId: plan.id, schemeId: plan.schemeId, schemeWeekId: plan.schemeWeekId,
+        lessonPlanId: plan.id, schemeId: plan.schemeId, schemeWeekId: plan.schemeWeekId, lessonSlot: plan.lessonSlot,
         streamId: plan.streamId, subjectId: plan.subjectId,
         lessonDate: plan.lessonDate || new Date(), gradeLevel: plan.gradeLevel,
         strand: plan.strand, subStrand: plan.subStrand,
@@ -79,7 +80,13 @@ export class RecordsService {
       const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId, schemeId: scheme.id } });
       if (!week) throw new NotFoundException('Scheme week not found');
 
-      const dupe = await this.notesRepo.findOne({ where: { tenantId, teacherId, schemeWeekId: week.id } });
+      // A week can hold several lessons — notes are generated for ONE of them.
+      const lessons = week.lessons || [];
+      const lessonSlot = lessons.length ? (dto.lessonSlot || 1) : 1;
+      const lesson = lessons.find((l) => l.lessonNumber === lessonSlot);
+      if (lessons.length && !lesson) throw new BadRequestException(`This week has no lesson ${lessonSlot}.`);
+
+      const dupe = await this.notesRepo.findOne({ where: { tenantId, teacherId, schemeWeekId: week.id, lessonSlot } });
       if (dupe) throw new BadRequestException('Lesson notes already exist for this lesson. Open them instead of generating another.');
 
       const subject = await this.subjRepo.findOne({ where: { id: scheme.subjectId } });
@@ -88,13 +95,13 @@ export class RecordsService {
         gradeLevel: scheme.gradeLevel,
         strand: week.strand,
         subStrand: week.subStrand,
-        slos: week.specificLearningOutcomes,
-        lessonDevelopment: week.learningExperiences,
+        slos: lesson ? lesson.specificLearningOutcomes : week.specificLearningOutcomes,
+        lessonDevelopment: lesson ? lesson.learningExperiences : week.learningExperiences,
         assessment: week.assessmentMethods || '',
         additionalContext: dto.additionalContext,
       });
       base = {
-        lessonPlanId: null, schemeId: scheme.id, schemeWeekId: week.id,
+        lessonPlanId: null, schemeId: scheme.id, schemeWeekId: week.id, lessonSlot,
         streamId: scheme.streamId, subjectId: scheme.subjectId,
         lessonDate: new Date(), gradeLevel: scheme.gradeLevel,
         strand: week.strand, subStrand: week.subStrand,
