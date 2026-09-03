@@ -5,7 +5,7 @@ import { LessonPlan, SchemeOfWork, SchemeWeek, SubjectCatalogue, PrAudit } from 
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateLessonPlanDto, ReviewRecordDto } from './dto';
-import { documentShell, field, escHtml } from './document-render.util';
+import { documentShell, escHtml } from './document-render.util';
 
 @Injectable()
 export class LessonPlanService {
@@ -100,42 +100,64 @@ export class LessonPlanService {
   }
 
   // ── RENDER PRINTABLE DOCUMENT (PDF/Word, watermarked) ─────
+  // Mirrors the official KICD lesson-plan grid template (School/Learning Area/Grade,
+  // Date/Time/Roll, Week/Lesson No./Duration, Strand/Sub-Strand, SLOs, KIQ, Resources,
+  // Organisation of Learning, Extended Activities, Core Competencies/Values/PCIs,
+  // Links, Assessment, Reflection) rather than a generic field list.
   async renderHtml(tenantId: string, planId: string, fontOverride?: string): Promise<string> {
     const plan = await this.findOne(tenantId, planId);
     const scheme = await this.schemeRepo.findOne({ where: { id: plan.schemeId, tenantId } });
+    const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
     const font = fontOverride || scheme?.defaultFont || 'Times New Roman';
     const grade = String(plan.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-    const headerHtml =
-      `<div><b>School:</b> ${escHtml(scheme?.schoolName || '')} &nbsp; <b>Teacher:</b> ${escHtml(scheme?.teacherName || '')} ${scheme?.tscNumber ? `&nbsp; <b>TSC No:</b> ${escHtml(scheme.tscNumber)}` : ''}</div>` +
-      `<div><b>Grade:</b> ${escHtml(grade)} &nbsp; <b>Duration:</b> ${escHtml(plan.durationMinutes)} min ${plan.lessonDate ? `&nbsp; <b>Date:</b> ${escHtml(String(plan.lessonDate).slice(0, 10))}` : ''}</div>`;
+    const lbl = (s: string) => `<td style="border:1px solid #999;padding:5px;font-size:11px;font-weight:bold;background:#f0f0f0;white-space:nowrap">${escHtml(s)}</td>`;
+    const val = (v: any, colspan = 1) => `<td colspan="${colspan}" style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(v || '')}</td>`;
+    const sectionLabel = (s: string) => `<tr>${lbl(s)}${val('', 5)}</tr>`;
 
-    const bodyHtml = [
-      field('Strand', plan.strand),
-      field('Sub-Strand', plan.subStrand),
-      field('Specific Learning Outcomes', plan.specificLearningOutcomes),
-      field('Key Inquiry Questions', plan.keyInquiryQuestions),
-      field('Core Competencies', plan.coreCompetencies),
-      field('Values', plan.values),
-      field('Pertinent Issues', plan.pertinentIssues),
-      field('Link to Other Subjects', plan.linkToOtherSubjects),
-      field('Introduction', plan.introduction),
-      field('Lesson Development', plan.lessonDevelopment),
-      field('Conclusion', plan.conclusion),
-      field('Assessment', plan.assessment),
-      field('Extended Activities', plan.extendedActivities),
-      field('Support Activities', plan.supportActivities),
-      field('Learning Materials', plan.learningMaterials),
-      field('Reference Books', plan.referenceBooks),
-    ].join('');
+    const headerGrid = `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+      <tr>${lbl('School')}${val(scheme?.schoolName)}${lbl('Learning Area')}${val(subject?.name)}${lbl('Grade')}${val(grade)}</tr>
+      <tr>${lbl('Date')}${val(plan.lessonDate ? String(plan.lessonDate).slice(0, 10) : '')}${lbl('Time')}${val('')}${lbl('Roll')}${val('')}</tr>
+      <tr>${lbl('Week')}${val(plan.lessonNumber)}${lbl('Lesson No.')}${val('')}${lbl('Duration')}${val(`${plan.durationMinutes} min`)}</tr>
+      <tr>${lbl('Strand')}${val(plan.strand, 5)}</tr>
+      <tr>${lbl('Sub-Strand')}${val(plan.subStrand, 5)}</tr>
+    </table>`;
+
+    const detailsGrid = `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+      <tr>${lbl('Specific Learning Outcomes')}${val(plan.specificLearningOutcomes, 5)}</tr>
+      <tr>${lbl('Key Inquiry Question(s)')}${val(plan.keyInquiryQuestions, 5)}</tr>
+      <tr>${lbl('Learning Resources')}${val([plan.learningMaterials, plan.referenceBooks].filter(Boolean).join('; '), 5)}</tr>
+    </table>`;
+
+    const stage = (name: string, teacher: string, learner: string) =>
+      `<tr>${lbl(name)}<td style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(teacher)}</td><td style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(learner)}</td></tr>`;
+
+    const organisationGrid = `<div style="font-size:12px;font-weight:bold;margin:6px 0 2px">Organisation of Learning</div>
+    <table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+      <tr>${lbl('Stage')}<th style="border:1px solid #999;padding:5px;font-size:11px;background:#f0f0f0">Teacher Activities</th><th style="border:1px solid #999;padding:5px;font-size:11px;background:#f0f0f0">Learner Activities</th></tr>
+      ${stage('Introduction', '', plan.introduction)}
+      ${stage('Lesson Development', '', plan.lessonDevelopment)}
+      ${stage('Conclusion', '', plan.conclusion)}
+    </table>`;
+
+    const tailGrid = `<table style="border-collapse:collapse;width:100%">
+      <tr>${lbl('Extended Activities')}${val([plan.extendedActivities, plan.supportActivities ? `Support: ${plan.supportActivities}` : ''].filter(Boolean).join(' — '), 5)}</tr>
+      <tr>${lbl('Core Competencies')}<td style="border:1px solid #999;padding:5px;font-size:11px">${escHtml((plan.coreCompetencies || []).join(', '))}</td>${lbl('Values')}<td style="border:1px solid #999;padding:5px;font-size:11px">${escHtml((plan.values || []).join(', '))}</td>${lbl('PCIs')}<td style="border:1px solid #999;padding:5px;font-size:11px">${escHtml(plan.pertinentIssues)}</td></tr>
+      <tr>${lbl('Links to Other Learning Areas')}${val(plan.linkToOtherSubjects, 5)}</tr>
+      <tr>${lbl('Assessment')}${val(plan.assessment, 5)}</tr>
+      <tr>${lbl('Reflection / Self-Evaluation')}${val('', 5)}</tr>
+    </table>`;
+
+    const bodyHtml = headerGrid + detailsGrid + organisationGrid + tailGrid;
 
     return documentShell({
       title: `Lesson Plan — ${plan.strand} / ${plan.subStrand}`,
       font,
       schoolName: scheme?.schoolName || '',
-      headerHtml,
+      headerHtml: '',
       bodyHtml,
-      footerHtml: `<div>Prepared by: ${escHtml(scheme?.teacherName || '_______________________')}</div><div>Checked by: _______________________</div>`,
+      footerHtml: `<div>Teacher: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; Sign: ________ &nbsp; Date: ________</div>` +
+        `<div>Checked by D.H.O.I.: ________ &nbsp; Sign: ________ &nbsp; Date: ________</div>`,
     });
   }
 

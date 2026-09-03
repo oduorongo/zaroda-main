@@ -728,7 +728,7 @@ function ExportBar({ format, setFormat, font, setFont, onExport }: {
         <option>Times New Roman</option>
         <option>Arial</option>
       </select>
-      <button onClick={onExport} className="btn-ghost text-xs py-1.5 px-3">Export</button>
+      <button type="button" onClick={onExport} className="btn-ghost text-xs py-1.5 px-3">Export</button>
     </div>
   );
 }
