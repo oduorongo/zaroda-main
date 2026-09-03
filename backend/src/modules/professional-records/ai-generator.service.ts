@@ -211,6 +211,24 @@ Return ONLY valid JSON (no preamble, no markdown fences):
       if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
         throw new BadRequestException(`AI returned invalid scheme structure for weeks ${start}-${end}`);
       }
+
+      // The model sometimes drops the "lessons" breakdown on an ordinary teaching week
+      // despite the instruction — synthesize one from the week-level summary rather than
+      // let that week silently lose its per-lesson rows (or, worse, get misread as a
+      // non-teaching week downstream, since that's detected by an empty lessons array).
+      for (const week of parsed.weeks) {
+        const isNonTeaching = /^n\/a\b/i.test(String(week.specificLearningOutcomes || '').trim());
+        if (!isNonTeaching && (!Array.isArray(week.lessons) || week.lessons.length === 0)) {
+          week.lessons = Array.from({ length: lessonsPerWeek }, (_, i) => ({
+            lessonNumber: i + 1,
+            isDouble: doubleSlots.includes(i + 1),
+            specificLearningOutcomes: week.specificLearningOutcomes,
+            keyInquiryQuestions: week.keyInquiryQuestions,
+            learningExperiences: week.learningExperiences,
+          }));
+        }
+      }
+
       weeks.push(...parsed.weeks);
       totalTokens += response.tokens;
     }

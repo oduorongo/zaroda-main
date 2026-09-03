@@ -283,15 +283,33 @@ export class SchemeService {
     const td = (c: string, extra = '') =>
       `<td style="border:1px solid #999;padding:6px;vertical-align:top;font-size:11px;white-space:pre-wrap${extra}">${c}</td>`;
 
+    // A non-teaching week (mid-term break, summative assessment, exam week) is marked
+    // by the generator setting specificLearningOutcomes to "N/A — ...", NOT merely by
+    // having an empty lessons array — the AI can omit the lessons breakdown on an
+    // ordinary teaching week too, and that must never be mistaken for a break/exam week.
+    const isNonTeachingWeek = (w: any) => /^n\/a\b/i.test(String(w.specificLearningOutcomes || '').trim());
+
     const rows = weeks.map((w) => {
-      // A non-teaching week (mid-term break, summative assessment, exam week) has no
-      // lessons — give it its own clearly marked row spanning the whole table instead
-      // of trying to fit a break/exam label into per-lesson rows.
-      if (!w.lessons || w.lessons.length === 0) {
+      if (isNonTeachingWeek(w)) {
         return `<tr style="background:#fdf3d8">` +
           td(String(w.weekNumber), ';font-weight:bold;text-align:center') +
           `<td colspan="${totalCols - 1}" style="border:1px solid #999;padding:6px;font-size:12px;font-weight:bold;text-align:center;text-transform:uppercase;letter-spacing:.5px">${esc(w.strand)}</td>` +
           `</tr>`;
+      }
+
+      // A teaching week whose per-lesson breakdown never got generated/saved (older
+      // schemes from before this feature, or the AI omitting the field) — fall back to
+      // one row of the week-level content rather than misrendering it as a break week.
+      if (!w.lessons || w.lessons.length === 0) {
+        const cells: string[] = [String(w.weekNumber), '', esc(w.strand), esc(w.subStrand)];
+        if (cols.has('keyInquiry')) cells.push(esc(w.keyInquiryQuestions));
+        if (cols.has('learningExperiences')) cells.push(esc(w.learningExperiences));
+        cells.push(esc(w.specificLearningOutcomes));
+        if (cols.has('resources')) cells.push(esc(w.learningResources));
+        if (cols.has('assessment')) cells.push(esc(w.assessmentMethods));
+        if (cols.has('corePV')) cells.push(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | ')));
+        if (cols.has('reflection')) cells.push(esc(w.reflectionNotes));
+        return `<tr>${cells.map((c) => td(c)).join('')}</tr>`;
       }
 
       // Each lesson is its own row — Wk/Strand/Sub-Strand and the week-level columns
