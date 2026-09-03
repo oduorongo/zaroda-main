@@ -9,7 +9,7 @@ import { Learner } from '../academic/academic.module';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateLessonNotesDto, RecordWorkCoveredDto, GenerateLearnerProgressDto } from './dto';
-import { documentShell, field, escHtml } from './document-render.util';
+import { documentShell, escHtml } from './document-render.util';
 
 @Injectable()
 export class RecordsService {
@@ -42,6 +42,7 @@ export class RecordsService {
     let base: {
       lessonPlanId: string | null; schemeId: string | null; schemeWeekId: string | null;
       streamId: string; subjectId: string; lessonDate: Date; gradeLevel: string;
+      strand: string; subStrand: string;
     };
 
     if (dto.lessonPlanId) {
@@ -63,6 +64,7 @@ export class RecordsService {
         lessonPlanId: plan.id, schemeId: null, schemeWeekId: null,
         streamId: plan.streamId, subjectId: plan.subjectId,
         lessonDate: plan.lessonDate || new Date(), gradeLevel: plan.gradeLevel,
+        strand: plan.strand, subStrand: plan.subStrand,
       };
     } else {
       const scheme = await this.schemeRepo.findOne({ where: { id: dto.schemeId, tenantId, teacherId } });
@@ -85,6 +87,7 @@ export class RecordsService {
         lessonPlanId: null, schemeId: scheme.id, schemeWeekId: week.id,
         streamId: scheme.streamId, subjectId: scheme.subjectId,
         lessonDate: new Date(), gradeLevel: scheme.gradeLevel,
+        strand: week.strand, subStrand: week.subStrand,
       };
     }
 
@@ -96,14 +99,14 @@ export class RecordsService {
           ...base,
           topic: notesData.topic,
           subTopic: notesData.subTopic,
+          slosCovered: notesData.slosCovered,
+          introduction: notesData.introduction,
           teacherContent: notesData.teacherContent,
+          keyVocabulary: notesData.keyVocabulary,
+          summary: notesData.summary,
+          reviewQuestions: notesData.reviewQuestions,
+          referenceMaterials: notesData.referenceMaterials,
           learnerContent: notesData.learnerContent,
-          boardWork: notesData.boardWork,
-          examples: notesData.examples,
-          activities: notesData.activities,
-          questions: notesData.questions,
-          assessmentEvidence: notesData.assessmentEvidence,
-          expectedResponses: notesData.expectedResponses,
           coverageStatus: 'pending',
           aiGenerated: true,
           aiModel: 'claude-sonnet-5',
@@ -138,39 +141,58 @@ export class RecordsService {
   // ── RENDER PRINTABLE DOCUMENT (PDF/Word, watermarked) ─────
   // variant 'teacher' includes the full teaching notes; 'learner' is the
   // simplified, plain-language handout version of the same lesson.
+  // Mirrors the official KICD Lesson Notes grid template (School/Learning Area/Grade,
+  // Term/Week/Date, Strand/Sub-Strand, SLOs Covered, Introduction, Content, Key
+  // Vocabulary, Summary, Review Questions with answers, References). variant
+  // 'learner' renders just the simplified learner-facing content instead.
   async renderNotesHtml(tenantId: string, notesId: string, fontOverride?: string, variant: 'teacher' | 'learner' = 'teacher'): Promise<string> {
     const notes = await this.notesRepo.findOne({ where: { id: notesId, tenantId } });
     if (!notes) throw new NotFoundException('Lesson notes not found');
     const scheme = await this.resolveNoteScheme(tenantId, notes);
+    const subject = await this.subjRepo.findOne({ where: { id: notes.subjectId } });
+    const week = notes.schemeWeekId
+      ? await this.weekRepo.findOne({ where: { id: notes.schemeWeekId } })
+      : (notes.lessonPlanId ? await this.planRepo.findOne({ where: { id: notes.lessonPlanId } }) : null);
     const font = fontOverride || scheme?.defaultFont || 'Times New Roman';
     const grade = String(notes.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const term = scheme?.term ? String(scheme.term).replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+    const weekNumber = (week as any)?.weekNumber ?? (week as any)?.lessonNumber ?? '';
 
-    const headerHtml =
-      `<div><b>School:</b> ${escHtml(scheme?.schoolName || '')} &nbsp; <b>Teacher:</b> ${escHtml(scheme?.teacherName || '')}</div>` +
-      `<div><b>Grade:</b> ${escHtml(grade)} &nbsp; <b>Date:</b> ${escHtml(String(notes.lessonDate).slice(0, 10))}</div>`;
+    const lbl = (s: string) => `<td style="border:1px solid #999;padding:5px;font-size:11px;font-weight:bold;background:#f0f0f0;white-space:nowrap">${escHtml(s)}</td>`;
+    const val = (v: any, colspan = 1) => `<td colspan="${colspan}" style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(v || '')}</td>`;
+
+    const headerGrid = `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+      <tr>${lbl('School')}${val(scheme?.schoolName)}${lbl('Learning Area')}${val(subject?.name)}${lbl('Grade')}${val(grade)}</tr>
+      <tr>${lbl('Term')}${val(term)}${lbl('Week')}${val(weekNumber)}${lbl('Date')}${val(String(notes.lessonDate).slice(0, 10))}</tr>
+      <tr>${lbl('Strand')}${val(notes.strand, 5)}</tr>
+      <tr>${lbl('Sub-Strand')}${val(notes.subStrand, 5)}</tr>
+      <tr>${lbl('Specific Learning Outcomes Covered')}${val(notes.slosCovered, 5)}</tr>
+    </table>`;
 
     const bodyHtml = variant === 'learner'
-      ? [field('Topic', notes.subTopic ? `${notes.topic} — ${notes.subTopic}` : notes.topic), field('Lesson Content', notes.learnerContent || notes.teacherContent)].join('')
-      : [
-          field('Topic', notes.subTopic ? `${notes.topic} — ${notes.subTopic}` : notes.topic),
-          field('Teacher Content', notes.teacherContent),
-          field('Board Work', notes.boardWork),
-          field('Examples', notes.examples),
-          field('Activities', notes.activities),
-          field('Questions', notes.questions),
-          field('Assessment Evidence', notes.assessmentEvidence),
-          field('Expected Responses', notes.expectedResponses),
-        ].join('');
+      ? `<table style="border-collapse:collapse;width:100%">
+          <tr>${lbl('Topic')}${val(notes.subTopic ? `${notes.topic} — ${notes.subTopic}` : notes.topic, 5)}</tr>
+          <tr>${lbl('Content')}${val(notes.learnerContent || notes.teacherContent, 5)}</tr>
+        </table>`
+      : `<table style="border-collapse:collapse;width:100%">
+          <tr>${lbl('Introduction')}${val(notes.introduction, 5)}</tr>
+          <tr>${lbl('Content')}${val(notes.teacherContent, 5)}</tr>
+          <tr>${lbl('Key Vocabulary')}${val(notes.keyVocabulary, 5)}</tr>
+          <tr>${lbl('Summary')}${val(notes.summary, 5)}</tr>
+          <tr>${lbl('Review Questions (with answers)')}${val(notes.reviewQuestions, 5)}</tr>
+          <tr>${lbl('References')}${val(notes.referenceMaterials, 5)}</tr>
+        </table>`;
 
     return documentShell({
       title: `Lesson Notes${variant === 'learner' ? ' (Learner Copy)' : ''} — ${notes.topic}`,
       font,
       schoolName: scheme?.schoolName || '',
-      headerHtml,
-      bodyHtml,
+      headerHtml: '',
+      bodyHtml: headerGrid + bodyHtml,
       footerHtml: variant === 'learner'
-        ? `<div>Name: _______________________</div><div>Class: _______________________</div>`
-        : `<div>Prepared by: ${escHtml(scheme?.teacherName || '_______________________')}</div><div>Checked by: _______________________</div>`,
+        ? `<div>Name: ________________________</div><div>Class: ________________________</div>`
+        : `<div>Teacher: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; Sign: ________ &nbsp; Date: ________</div>` +
+          `<div>Checked by D.H.O.I.: ________ &nbsp; Sign: ________ &nbsp; Date: ________</div>`,
     });
   }
 

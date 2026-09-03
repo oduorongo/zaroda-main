@@ -57,17 +57,18 @@ export interface LessonPlanData {
   referenceBooks: string;
 }
 
+// Mirrors the official KICD Lesson Notes template.
 export interface LessonNotesData {
   topic: string;
   subTopic: string;
-  teacherContent: string;
+  slosCovered: string;
+  introduction: string;
+  teacherContent: string; // "Content" section
+  keyVocabulary: string;
+  summary: string;
+  reviewQuestions: string; // questions with answers
+  referenceMaterials: string;
   learnerContent: string;
-  boardWork: string;
-  examples: string;
-  activities: string;
-  questions: string;
-  assessmentEvidence: string;
-  expectedResponses: string;
 }
 
 export interface LearnerProgressData {
@@ -319,7 +320,8 @@ Return ONLY valid JSON, no markdown fences, every field a plain string/array kep
   }): Promise<LessonNotesData & { tokens: number }> {
     const grade = params.gradeLevel.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-    const prompt = `You are a KICD-certified Kenyan teacher writing detailed lesson notes.
+    const prompt = `You are a KICD-certified Kenyan teacher writing lesson notes in the official KICD
+Lesson Notes format.
 
 LESSON INFO:
 - Subject: ${params.subjectName}, ${grade}
@@ -329,29 +331,30 @@ LESSON INFO:
 ${params.additionalContext ? `- Additional Context: ${params.additionalContext}` : ''}
 
 Generate concise, usable lesson notes a teacher can read straight off the page during delivery — thorough
-enough to teach from, but not padded. Keep to these approximate limits so the response stays short:
-1. Teacher content — the subject matter to teach, pedagogy notes included (max ~250 words)
-2. Learner content — the SAME subject matter rewritten as a simple, plain-language handout a learner
-   reads themselves (short sentences, no teacher-only instructions, define any hard terms) (max ~200 words)
-3. Board work — what goes on the board (max ~60 words)
-4. Worked examples — 1-2 short examples, step-by-step (max ~120 words)
-5. Learner activities — what learners do (max ~100 words)
-6. Probing questions — 3-4 short questions, one per line (max ~60 words)
-7. Expected learner responses — brief, one line per question (max ~60 words)
-8. Assessment evidence — what to look for to confirm learning (max ~50 words)
+enough to teach from, but not padded. Fill these KICD template sections, keeping to the approximate word
+limits below so the response stays short:
+1. SLOs covered — restate the SLOs actually addressed (max ~50 words)
+2. Introduction — concept framing / link to previous learning (max ~60 words)
+3. Content — explanations, definitions, worked examples, organised by SLO (max ~300 words)
+4. Key vocabulary — new terms and their meanings, one per line (max ~80 words)
+5. Summary — consolidation of the main points (max ~60 words)
+6. Review questions with answers — 3-4 short Q&A pairs, format "Q: ...\\nA: ..." per pair (max ~100 words)
+7. References — book titles + page numbers or digital sources, one per line, or "Not specified" if none (max ~30 words)
+8. Learner content — the CONTENT section rewritten as a simple, plain-language handout a learner reads
+   themselves (short sentences, no teacher-only instructions, define any hard terms) (max ~200 words)
 
 Return ONLY valid JSON, no markdown fences, every field a plain string kept within the limits above:
 {
   "topic": "...",
   "subTopic": "...",
+  "slosCovered": "...",
+  "introduction": "...",
   "teacherContent": "...",
-  "learnerContent": "...",
-  "boardWork": "...",
-  "examples": "...",
-  "activities": "...",
-  "questions": "...",
-  "assessmentEvidence": "...",
-  "expectedResponses": "..."
+  "keyVocabulary": "...",
+  "summary": "...",
+  "reviewQuestions": "...",
+  "referenceMaterials": "...",
+  "learnerContent": "..."
 }`;
 
     const response = await this.callClaude(prompt, 8192);

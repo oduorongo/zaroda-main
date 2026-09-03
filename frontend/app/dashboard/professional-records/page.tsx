@@ -797,13 +797,13 @@ function LessonNotesModal({ notes, onClose, onExport }: { notes: any; onClose: (
             <DetailField label="Lesson Content (Learner Copy)" value={notes.learnerContent || notes.teacherContent}/>
           ) : (
             <>
-              <DetailField label="Teacher Content" value={notes.teacherContent}/>
-              <DetailField label="Board Work" value={notes.boardWork}/>
-              <DetailField label="Examples" value={notes.examples}/>
-              <DetailField label="Activities" value={notes.activities}/>
-              <DetailField label="Questions" value={notes.questions}/>
-              <DetailField label="Assessment Evidence" value={notes.assessmentEvidence}/>
-              <DetailField label="Expected Responses" value={notes.expectedResponses}/>
+              <DetailField label="Specific Learning Outcomes Covered" value={notes.slosCovered}/>
+              <DetailField label="Introduction" value={notes.introduction}/>
+              <DetailField label="Content" value={notes.teacherContent}/>
+              <DetailField label="Key Vocabulary" value={notes.keyVocabulary}/>
+              <DetailField label="Summary" value={notes.summary}/>
+              <DetailField label="Review Questions (with answers)" value={notes.reviewQuestions}/>
+              <DetailField label="References" value={notes.referenceMaterials}/>
             </>
           )}
         </div>

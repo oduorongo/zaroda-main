@@ -171,18 +171,28 @@ export class LessonNote {
 
   @Column({ name: 'lesson_date', type: 'date' }) lessonDate: Date;
   @Column({ name: 'grade_level' }) gradeLevel: string;
+  @Column({ nullable: true }) strand: string;
+  @Column({ name: 'sub_strand', nullable: true }) subStrand: string;
   @Column() topic: string;
   @Column({ name: 'sub_topic', nullable: true }) subTopic: string;
 
-  @Column({ name: 'teacher_content', type: 'text' }) teacherContent: string;
+  // Mirrors the official KICD Lesson Notes template sections.
+  @Column({ name: 'slos_covered', type: 'text', nullable: true }) slosCovered: string;
+  @Column({ type: 'text', nullable: true }) introduction: string;
+  @Column({ name: 'teacher_content', type: 'text' }) teacherContent: string; // "Content" section
+  @Column({ name: 'key_vocabulary', type: 'text', nullable: true }) keyVocabulary: string;
+  @Column({ type: 'text', nullable: true }) summary: string;
+  @Column({ name: 'review_questions', type: 'text', nullable: true }) reviewQuestions: string; // questions with answers
+  @Column({ name: 'reference_materials', type: 'text', nullable: true }) referenceMaterials: string;
   // Simplified, learner-facing version of the same content — plain language,
   // no teacher-only pedagogy notes — so a learner handout can be printed from it.
   @Column({ name: 'learner_content', type: 'text', nullable: true }) learnerContent: string;
+
+  // Pre-KICD-template fields — kept for older notes, no longer populated by generation.
   @Column({ name: 'board_work', type: 'text', nullable: true }) boardWork: string;
   @Column({ type: 'text', nullable: true }) examples: string;
-  @Column({ type: 'text' }) activities: string;
+  @Column({ type: 'text', nullable: true }) activities: string;
   @Column({ type: 'text', nullable: true }) questions: string;
-
   @Column({ name: 'assessment_evidence', type: 'text', nullable: true }) assessmentEvidence: string;
   @Column({ name: 'expected_responses', type: 'text', nullable: true }) expectedResponses: string;
 
