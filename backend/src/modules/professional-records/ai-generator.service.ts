@@ -298,7 +298,7 @@ Return ONLY valid JSON:
   "referenceBooks": "..."
 }`;
 
-    const response = await this.callClaude(prompt, 2048);
+    const response = await this.callClaude(prompt, 4096);
     const parsed = this.parseJson(response.text, 'Lesson Plan', response.truncated);
     return { ...parsed, tokens: response.tokens };
   }
@@ -347,7 +347,7 @@ Return ONLY valid JSON:
   "expectedResponses": "..."
 }`;
 
-    const response = await this.callClaude(prompt, 2048);
+    const response = await this.callClaude(prompt, 4096);
     const parsed = this.parseJson(response.text, 'Lesson Notes', response.truncated);
     return { ...parsed, tokens: response.tokens };
   }
@@ -399,7 +399,9 @@ Return ONLY valid JSON:
   ]
 }`;
 
-    const response = await this.callClaude(prompt, 2048);
+    // One record per learner — a large class needs proportionally more room.
+    const maxTokens = Math.min(8192, 1024 + params.learners.length * 150);
+    const response = await this.callClaude(prompt, maxTokens);
     const parsed = this.parseJson(response.text, 'Learner Progress', response.truncated);
 
     const mapped = parsed.records.map((r: any, i: number) => ({
