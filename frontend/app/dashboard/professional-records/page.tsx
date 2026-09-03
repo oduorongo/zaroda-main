@@ -131,27 +131,33 @@ export default function ProfessionalRecordsPage() {
   // Opens the printable scheme document — 'preview' just drills into the in-app
   // detail view (already a live preview), 'pdf' opens a print-ready tab, 'doc'
   // triggers a Word (.doc) download. Same server-rendered HTML underneath.
+  //
+  // Navigates directly to a blob URL rather than opening a blank tab and
+  // document.write()-ing into it — some embedded/sandboxed browser contexts
+  // silently block document.write into a fresh window with no visible error,
+  // which looked like the Export button "doing nothing".
   const exportScheme = async (schemeId: string, format: 'pdf' | 'doc' | 'preview', font: string) => {
     if (format === 'preview') { openSchemeDetail(schemeId); return; }
     try {
+      const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, {
+        params: { font, ...(format === 'doc' ? { download: 'doc' } : {}) },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: format === 'doc' ? 'application/msword' : 'text/html' });
+      const url = URL.createObjectURL(blob);
+
       if (format === 'doc') {
-        const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, {
-          params: { font, download: 'doc' }, responseType: 'blob',
-        });
-        const blob = new Blob([res.data], { type: 'application/msword' });
-        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = `scheme-of-work-${schemeId}.doc`;
         document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
       } else {
-        const win = window.open('', '_blank');
-        const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, { params: { font }, responseType: 'text' });
-        const html = typeof res.data === 'string' ? res.data : String(res.data);
-        if (win) { win.document.write(html); win.document.close(); }
-        else toast.error('Please allow pop-ups to open the print view.');
+        const win = window.open(url, '_blank');
+        if (!win) toast.error('Please allow pop-ups to open the print view.');
       }
-    } catch { toast.error('Could not open the document.'); }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not open the document.');
+    }
   };
 
   // Wallet-based, per-item: the wallet is topped up separately (see topUpWallet
