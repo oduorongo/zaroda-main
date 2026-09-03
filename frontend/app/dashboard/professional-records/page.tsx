@@ -267,7 +267,7 @@ export default function ProfessionalRecordsPage() {
 
   const generateLessonPlan = async (schemeId: string, schemeWeekId: string) => {
     try {
-      const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId }, { timeout: 60000 });
+      const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId }, { timeout: 120000 });
       toast.success('Lesson plan generated.');
       load();
       loadWallet();
@@ -286,13 +286,13 @@ export default function ProfessionalRecordsPage() {
   };
 
   const generateLessonNotes = async (lessonPlanId: string) => {
-    try { await apiClient.post('/professional-records/lesson-notes/generate', { lessonPlanId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { lessonPlanId }, { timeout: 120000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
   // Skips the lesson plan step entirely — notes generated straight from a scheme week.
   const generateLessonNotesFromWeek = async (schemeId: string, schemeWeekId: string) => {
-    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId }, { timeout: 120000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
