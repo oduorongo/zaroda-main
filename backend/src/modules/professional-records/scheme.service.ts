@@ -165,7 +165,7 @@ export class SchemeService {
       ? dto.columns
       : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection'];
 
-    const { weeks, title, tokens } = await this.aiGenerator.generateSchemeOfWork({
+    const { weeks, title, tokens, lessonsPerWeek } = await this.aiGenerator.generateSchemeOfWork({
       subjectName: dto.subjectName,
       gradeLevel: dto.gradeLevel,
       term: dto.term,
@@ -176,6 +176,7 @@ export class SchemeService {
       strandFocus: dto.strandFocus,
       columns,
       specialWeeks: dto.specialWeeks,
+      doubleLessonSlots: dto.doubleLessonSlots,
     });
 
     return this.dataSource.transaction(async (manager) => {
@@ -200,6 +201,7 @@ export class SchemeService {
         startWeek,
         columns,
         defaultFont: dto.defaultFont || 'Times New Roman',
+        lessonsPerWeek,
       });
       await manager.save(SchemeOfWork, scheme);
       await this.walletService.debit(tenantId, teacherId, 'scheme', scheme.id, manager);
@@ -209,7 +211,6 @@ export class SchemeService {
           tenantId,
           schemeId: scheme.id,
           weekNumber: startWeek + i,
-          dates: w.dates,
           strand: w.strand,
           subStrand: w.subStrand,
           specificLearningOutcomes: w.specificLearningOutcomes,
@@ -223,6 +224,7 @@ export class SchemeService {
           pertinentIssues: w.pertinentIssues,
           periods: w.periods || periodsPerWeek,
           remarks: '',
+          lessons: w.lessons || [],
         }));
       }
 
@@ -268,20 +270,41 @@ export class SchemeService {
       `<text x='0' y='90' font-family='Arial, sans-serif' font-size='26' font-weight='bold' fill='rgba(0,0,0,0.08)'>${watermarkText}</text></svg>`;
     const watermarkDataUri = `data:image/svg+xml,${encodeURIComponent(watermarkSvg)}`;
 
-    const headCols: string[] = ['Wk', 'Dates', 'Strand', 'Sub-Strand', 'SLOs'];
-    if (cols.has('keyInquiry')) headCols.push('Key Inquiry Questions');
-    if (cols.has('learningExperiences')) headCols.push('Learning Experiences');
+    // Each lesson in the week gets its own column (double lessons already merged
+    // into one entry upstream) instead of lumping the whole week into one row.
+    const maxLessons = scheme.lessonsPerWeek || Math.max(1, ...weeks.map(w => (w.lessons || []).length));
+
+    const headCols: string[] = ['Wk', 'Strand', 'Sub-Strand'];
+    for (let i = 1; i <= maxLessons; i++) headCols.push(`Lesson ${i}`);
     if (cols.has('resources')) headCols.push('Resources');
     if (cols.has('assessment')) headCols.push('Assessment');
     if (cols.has('corePV')) headCols.push('Core Competencies / Values / PCIs');
     if (cols.has('reflection')) headCols.push('Reflection');
+    const totalCols = headCols.length;
 
     const rows = weeks.map((w) => {
-      const cells: string[] = [
-        String(w.weekNumber), esc(w.dates), esc(w.strand), esc(w.subStrand), esc(w.specificLearningOutcomes),
-      ];
-      if (cols.has('keyInquiry')) cells.push(esc(w.keyInquiryQuestions));
-      if (cols.has('learningExperiences')) cells.push(esc(w.learningExperiences));
+      // A non-teaching week (mid-term break, summative assessment, exam week) has no
+      // lessons — give it its own clearly marked row spanning the whole table instead
+      // of splitting a break/exam label across lesson columns.
+      if (!w.lessons || w.lessons.length === 0) {
+        return `<tr style="background:#fdf3d8">` +
+          `<td style="border:1px solid #999;padding:6px;font-size:11px;font-weight:bold;text-align:center">${w.weekNumber}</td>` +
+          `<td colspan="${totalCols - 1}" style="border:1px solid #999;padding:6px;font-size:12px;font-weight:bold;text-align:center;text-transform:uppercase;letter-spacing:.5px">${esc(w.strand)}</td>` +
+          `</tr>`;
+      }
+
+      const lessonCells: string[] = [];
+      for (let i = 0; i < maxLessons; i++) {
+        const lesson = w.lessons[i];
+        if (!lesson) { lessonCells.push(''); continue; }
+        const parts: string[] = [`<b>SLO:</b> ${esc(lesson.specificLearningOutcomes)}`];
+        if (cols.has('keyInquiry') && lesson.keyInquiryQuestions) parts.push(`<b>KIQ:</b> ${esc(lesson.keyInquiryQuestions)}`);
+        if (cols.has('learningExperiences') && lesson.learningExperiences) parts.push(`<b>Activity:</b> ${esc(lesson.learningExperiences)}`);
+        if (lesson.isDouble) parts.push(`<i>(Double Lesson)</i>`);
+        lessonCells.push(parts.join('<br/><br/>'));
+      }
+
+      const cells: string[] = [String(w.weekNumber), esc(w.strand), esc(w.subStrand), ...lessonCells];
       if (cols.has('resources')) cells.push(esc(w.learningResources));
       if (cols.has('assessment')) cells.push(esc(w.assessmentMethods));
       if (cols.has('corePV')) cells.push(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | ')));

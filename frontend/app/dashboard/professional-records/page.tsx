@@ -60,7 +60,7 @@ export default function ProfessionalRecordsPage() {
   const [form, setForm] = useState({
     schoolName: '', teacherName: '', tscNumber: '', signOffLine: 'Checked by D.H.O.I.',
     streamId: '', subjectId: '', streamName: '', subjectName: '', gradeLevel: 'grade_4', curriculumEdition: '',
-    term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5,
+    term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5, doubleLessonSlots: '',
     strands: '', notes: '', specialWeeks: '',
     columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
     format: 'preview' as 'pdf' | 'doc' | 'preview',
@@ -189,6 +189,7 @@ export default function ProfessionalRecordsPage() {
         startWeek: Number(form.startWeek) || 1,
         totalWeeks: Number(form.totalWeeks) || 12,
         periodsPerWeek: Number(form.periodsPerWeek) || 5,
+        doubleLessonSlots: form.doubleLessonSlots.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0),
         strandFocus: form.strands.split('\n').map(s => s.trim()).filter(Boolean),
         specialWeeks,
         schoolContext: form.notes || undefined,
@@ -286,6 +287,12 @@ export default function ProfessionalRecordsPage() {
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
+  // Skips the lesson plan step entirely — notes generated straight from a scheme week.
+  const generateLessonNotesFromWeek = async (schemeId: string, schemeWeekId: string) => {
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); setTab('notes'); }
+    catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
+  };
+
   return (
     <div className="space-y-5">
       <div className="page-header">
@@ -335,6 +342,7 @@ export default function ProfessionalRecordsPage() {
           onSubmit={() => submitScheme(openScheme.id)}
           onReview={(a: any) => reviewScheme(openScheme.id, a)}
           onGenerateLessonPlan={generateLessonPlan}
+          onGenerateLessonNotes={generateLessonNotesFromWeek}
           onExport={(format: 'pdf' | 'doc' | 'preview', font: string) => exportScheme(openScheme.id, format, font)}
         />
       ) : tab === 'schemes' ? (
@@ -532,6 +540,11 @@ export default function ProfessionalRecordsPage() {
                   </div>
                 </div>
                 <div>
+                  <label className="label">Double lesson slot(s)</label>
+                  <input value={form.doubleLessonSlots} onChange={set('doubleLessonSlots')} className="input" placeholder="e.g. 2 or 2,4 — leave blank if none"/>
+                  <p className="hint text-[11px] text-theme-muted mt-1">Which lesson number(s) each week run as a double period (2 lessons combined). Each of the {form.periodsPerWeek} lessons/week gets its own column in the scheme — a double lesson merges two of them into one.</p>
+                </div>
+                <div>
                   <label className="label">Strands and sub-strands to cover</label>
                   <textarea value={form.strands} onChange={set('strands')} className="input" rows={3}
                     placeholder="One strand per line, sub-strands after a colon. Leave blank to follow the KICD sequence for the term."/>
@@ -668,11 +681,17 @@ function EmptyState({ label, cta }: { label: string; cta?: { label: string; onCl
   );
 }
 
-function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onExport }: any) {
+function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onGenerateLessonNotes, onExport }: any) {
   const [busyWeek, setBusyWeek] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<'pdf'|'doc'|'preview'>('pdf');
   const [exportFont, setExportFont] = useState(scheme.defaultFont || 'Times New Roman');
   const weeks = [...(scheme.weeks || [])].sort((a: any, b: any) => a.weekNumber - b.weekNumber);
+
+  const handleGenNotes = async (weekId: string) => {
+    setBusyWeek(weekId);
+    await onGenerateLessonNotes(scheme.id, weekId);
+    setBusyWeek(null);
+  };
 
   const handleGenPlan = async (weekId: string) => {
     setBusyWeek(weekId);
@@ -725,7 +744,6 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-theme-heading">Week {w.weekNumber} — {w.strand} / {w.subStrand}</div>
-                {w.dates && <p className="text-xs text-theme-muted">{w.dates}</p>}
                 <p className="text-sm mt-2"><span className="font-semibold">SLOs:</span> {w.specificLearningOutcomes}</p>
                 {w.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {w.keyInquiryQuestions}</p>}
                 {w.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {w.learningExperiences}</p>}
@@ -733,9 +751,14 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
                 {w.assessmentMethods && <p className="text-sm mt-1"><span className="font-semibold">Assessment:</span> {w.assessmentMethods}</p>}
               </div>
               {teacher && (
-                <button onClick={() => handleGenPlan(w.id)} disabled={busyWeek === w.id} className="btn-ghost text-xs py-1.5 px-3 flex-shrink-0">
-                  {busyWeek === w.id ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
-                </button>
+                <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  <button onClick={() => handleGenPlan(w.id)} disabled={busyWeek === w.id} className="btn-ghost text-xs py-1.5 px-3">
+                    {busyWeek === w.id ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
+                  </button>
+                  <button onClick={() => handleGenNotes(w.id)} disabled={busyWeek === w.id} className="btn-ghost text-xs py-1.5 px-3">
+                    {busyWeek === w.id ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
+                  </button>
+                </div>
               )}
             </div>
           </div>

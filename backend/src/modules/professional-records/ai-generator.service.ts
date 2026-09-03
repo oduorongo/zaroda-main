@@ -9,6 +9,14 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 const MODEL_SCHEME = 'claude-sonnet-5';
 const MODEL_FAST = 'claude-haiku-4-5-20251001';
 
+export interface SchemeLessonData {
+  lessonNumber: number;
+  isDouble?: boolean;
+  specificLearningOutcomes: string;
+  keyInquiryQuestions?: string;
+  learningExperiences: string;
+}
+
 export interface SchemeWeekData {
   weekNumber: number;
   dates?: string;
@@ -25,6 +33,9 @@ export interface SchemeWeekData {
   pertinentIssues?: string;
   periods?: number;
   remarks?: string;
+  // Per-lesson breakdown of this week — one entry per lesson slot (double
+  // lessons merged into one entry). Empty for a non-teaching week.
+  lessons?: SchemeLessonData[];
 }
 
 export interface LessonPlanData {
@@ -110,7 +121,11 @@ export class AiGeneratorService {
     strandFocus?: string[];
     columns?: string[];
     specialWeeks?: { week: number; label: string }[];
-  }): Promise<{ weeks: SchemeWeekData[]; title: string; tokens: number }> {
+    // 1-indexed lesson-slot positions (within a week's lesson sequence, not raw
+    // period numbers) that run as a double lesson — each one merges 2 periods
+    // into a single lesson/column, so lessonsPerWeek = periodsPerWeek - count.
+    doubleLessonSlots?: number[];
+  }): Promise<{ weeks: SchemeWeekData[]; title: string; tokens: number; lessonsPerWeek: number }> {
     const band = gradeBand(params.gradeLevel);
     const grade = params.gradeLevel.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const termLabel = params.term.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -120,12 +135,17 @@ export class AiGeneratorService {
     const specialWeeks = (params.specialWeeks || []).filter(w => w?.week && w?.label);
     const title = `Scheme of Work — ${params.subjectName} ${grade} ${termLabel} ${params.academicYear}`;
 
+    const doubleSlots = Array.from(new Set((params.doubleLessonSlots || []).filter(n => n >= 1 && n <= params.periodsPerWeek)));
+    const lessonsPerWeek = Math.max(1, params.periodsPerWeek - doubleSlots.length);
+
     // A single request asking for all weeks at once reliably gets truncated mid-JSON
     // once totalWeeks climbs past ~8-10 with the optional columns on, regardless of
     // how large a max_tokens budget we ask for. Generating in small week-range chunks
     // keeps each response short enough to always finish, at the cost of a few extra
     // (cheap, Sonnet) calls — the wallet only charges once per scheme either way.
-    const CHUNK_SIZE = 5;
+    // Smaller than before (was 5) because each week's JSON is now heavier — it carries
+    // a per-lesson breakdown in addition to the week-level summary.
+    const CHUNK_SIZE = 3;
     const weeks: SchemeWeekData[] = [];
     let totalTokens = 0;
 
@@ -144,7 +164,7 @@ CONTEXT:
 - Term: ${termLabel}, ${params.academicYear}
 - Grade Band: ${band}
 - Total Weeks in Term: ${params.totalWeeks} (you are generating ONLY weeks ${start}-${end} of this term right now)
-- Periods per Week: ${params.periodsPerWeek}
+- Periods per Week: ${params.periodsPerWeek} (${lessonsPerWeek} lesson slot(s) per teaching week${doubleSlots.length ? `, with lesson slot(s) ${doubleSlots.join(', ')} run as a double lesson (2 periods combined into one lesson)` : ''})
 - School Context: ${params.schoolContext || 'Mixed day school, Kenya'}
 ${params.strandFocus?.length ? `- Priority Strands: ${params.strandFocus.join(', ')}` : ''}
 ${chunkSpecialWeeks.length ? `- Non-teaching weeks in this range (mid-term breaks, summative assessments, exams — no new curriculum content): ${chunkSpecialWeeks.map(w => `Week ${w.week} = ${w.label}`).join('; ')}` : ''}
@@ -160,7 +180,8 @@ ${start === 1 ? '7. Week 1 should include orientation/introduction activities' :
 ${end === params.totalWeeks ? '8. The final week should include revision/consolidation' : ''}
 9. Use authentic Kenyan contexts, examples, and resources
 ${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs).' : ''}
-${chunkSpecialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${chunkSpecialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
+${chunkSpecialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${chunkSpecialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, set "lessons" to an empty array, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
+12. For every TEACHING week (not a non-teaching week listed above), also break the week down into exactly ${lessonsPerWeek} entries in a "lessons" array — one per lesson slot, in order. ${doubleSlots.length ? `Lesson slot(s) ${doubleSlots.join(', ')} must have "isDouble": true and cover proportionally more content (2 periods' worth); all others "isDouble": false.` : 'None of them are double lessons.'} Each lesson's specificLearningOutcomes/keyInquiryQuestions/learningExperiences should be that single lesson's actual content (progressing across the week), not a repeat of the week-level summary.
 
 Generate ONLY weeks ${start} through ${end} (that's ${end - start + 1} week object(s) — no more, no fewer).
 
@@ -169,21 +190,23 @@ Return ONLY valid JSON (no preamble, no markdown fences):
   "weeks": [
     {
       "weekNumber": ${start},
-      "dates": "Jan 6 – Jan 10, 2025",
       "strand": "Strand name from KICD syllabus",
       "subStrand": "Sub-strand name",
-      "specificLearningOutcomes": "By the end of the lesson, the learner should be able to...",
+      "specificLearningOutcomes": "Week-level summary — by the end of the week, the learner should be able to...",
       "keyInquiryQuestions": "1. ...\\n2. ...",
-      "learningExperiences": "Learners will...",
+      "learningExperiences": "Week-level summary of learner activities...",
       "learningResources": "Textbook pg X, charts, realia...",
       "assessmentMethods": "Observation, oral questions, written exercise",
       "periods": ${params.periodsPerWeek},
-      "remarks": ""${wantReflection ? ',\n      "reflectionNotes": "Leave as an empty string — filled in by the teacher after delivery"' : ''}${wantCorePV ? ',\n      "coreCompetencies": ["..."],\n      "values": ["..."],\n      "pertinentIssues": "..."' : ''}
+      "remarks": ""${wantReflection ? ',\n      "reflectionNotes": "Leave as an empty string — filled in by the teacher after delivery"' : ''}${wantCorePV ? ',\n      "coreCompetencies": ["..."],\n      "values": ["..."],\n      "pertinentIssues": "..."' : ''},
+      "lessons": [
+        { "lessonNumber": 1, "isDouble": false, "specificLearningOutcomes": "By the end of THIS lesson, the learner should be able to...", "keyInquiryQuestions": "...", "learningExperiences": "What learners actually do in this specific lesson..." }
+      ]
     }
   ]
 }`;
 
-      const response = await this.callClaude(prompt, 4096, MODEL_SCHEME);
+      const response = await this.callClaude(prompt, 6144, MODEL_SCHEME);
       const parsed = this.parseJson(response.text, `Scheme of Work (weeks ${start}-${end})`, response.truncated);
       if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
         throw new BadRequestException(`AI returned invalid scheme structure for weeks ${start}-${end}`);
@@ -192,7 +215,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
       totalTokens += response.tokens;
     }
 
-    return { weeks, title, tokens: totalTokens };
+    return { weeks, title, tokens: totalTokens, lessonsPerWeek };
   }
 
   // ── GENERATE LESSON PLAN ───────────────────────────────────

@@ -16,6 +16,9 @@ export class GenerateSchemeDto {
   @IsNotEmpty() @IsEnum(['term_1', 'term_2', 'term_3']) term: string;
   @IsOptional() @IsNumber() totalWeeks?: number;
   @IsOptional() @IsNumber() periodsPerWeek?: number;
+  // 1-indexed lesson-slot positions (within the week's lesson sequence) that run as
+  // a double lesson — each merges 2 periods into a single lesson/column.
+  @IsOptional() @IsArray()  doubleLessonSlots?: number[];
   @IsOptional() @IsString() schoolContext?: string;
   @IsOptional() @IsArray()  strandFocus?: string[];
 
@@ -46,7 +49,12 @@ export class GenerateLessonPlanDto {
 }
 
 export class GenerateLessonNotesDto {
-  @IsNotEmpty() @IsUUID()   lessonPlanId: string;
+  // Either lessonPlanId (notes for an existing plan), or schemeId+schemeWeekId
+  // (generate notes straight from a scheme week, skipping the lesson plan step) —
+  // exactly one path is required, enforced in RecordsService.generateNotes().
+  @IsOptional() @IsUUID()   lessonPlanId?: string;
+  @IsOptional() @IsUUID()   schemeId?: string;
+  @IsOptional() @IsUUID()   schemeWeekId?: string;
   @IsOptional() @IsString() additionalContext?: string;
 }
 

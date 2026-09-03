@@ -1,9 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import {
   LessonNote, LessonPlan, RecordOfWork, LearnerProgressEntry,
-  SubjectCatalogue, PrAudit, TeacherDocument,
+  SubjectCatalogue, PrAudit, TeacherDocument, SchemeOfWork, SchemeWeek,
 } from './entities';
 import { Learner } from '../academic/academic.module';
 import { AiGeneratorService } from './ai-generator.service';
@@ -15,6 +15,8 @@ export class RecordsService {
   constructor(
     @InjectRepository(LessonNote) public notesRepo: Repository<LessonNote>,
     @InjectRepository(LessonPlan) private planRepo: Repository<LessonPlan>,
+    @InjectRepository(SchemeOfWork) private schemeRepo: Repository<SchemeOfWork>,
+    @InjectRepository(SchemeWeek) private weekRepo: Repository<SchemeWeek>,
     @InjectRepository(RecordOfWork) private rowRepo: Repository<RecordOfWork>,
     @InjectRepository(LearnerProgressEntry) public lpeRepo: Repository<LearnerProgressEntry>,
     @InjectRepository(Learner) private learnerRepo: Repository<Learner>,
@@ -26,37 +28,71 @@ export class RecordsService {
   ) {}
 
   // ── GENERATE LESSON NOTES ──────────────────────────────────
+  // Either from an existing lesson plan, or directly from a scheme week —
+  // letting a teacher skip the lesson plan step entirely when they just want notes.
   async generateNotes(tenantId: string, teacherId: string, dto: GenerateLessonNotesDto) {
-    const plan = await this.planRepo.findOne({
-      where: { id: dto.lessonPlanId, tenantId, teacherId },
-    });
-    if (!plan) throw new NotFoundException('Lesson plan not found');
+    if (!dto.lessonPlanId && !(dto.schemeId && dto.schemeWeekId)) {
+      throw new BadRequestException('Provide either lessonPlanId, or schemeId + schemeWeekId.');
+    }
 
     await this.walletService.assertAffordable(tenantId, teacherId, 'lesson_notes');
 
-    const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
+    let notesData: any;
+    let base: {
+      lessonPlanId: string | null; schemeId: string | null; schemeWeekId: string | null;
+      streamId: string; subjectId: string; lessonDate: Date; gradeLevel: string;
+    };
 
-    const notesData = await this.aiGenerator.generateLessonNotes({
-      subjectName: subject?.name || 'Subject',
-      gradeLevel: plan.gradeLevel,
-      strand: plan.strand,
-      subStrand: plan.subStrand,
-      slos: plan.specificLearningOutcomes,
-      lessonDevelopment: plan.lessonDevelopment,
-      assessment: plan.assessment,
-      additionalContext: dto.additionalContext,
-    });
+    if (dto.lessonPlanId) {
+      const plan = await this.planRepo.findOne({ where: { id: dto.lessonPlanId, tenantId, teacherId } });
+      if (!plan) throw new NotFoundException('Lesson plan not found');
+
+      const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
+      notesData = await this.aiGenerator.generateLessonNotes({
+        subjectName: subject?.name || 'Subject',
+        gradeLevel: plan.gradeLevel,
+        strand: plan.strand,
+        subStrand: plan.subStrand,
+        slos: plan.specificLearningOutcomes,
+        lessonDevelopment: plan.lessonDevelopment,
+        assessment: plan.assessment,
+        additionalContext: dto.additionalContext,
+      });
+      base = {
+        lessonPlanId: plan.id, schemeId: null, schemeWeekId: null,
+        streamId: plan.streamId, subjectId: plan.subjectId,
+        lessonDate: plan.lessonDate || new Date(), gradeLevel: plan.gradeLevel,
+      };
+    } else {
+      const scheme = await this.schemeRepo.findOne({ where: { id: dto.schemeId, tenantId, teacherId } });
+      if (!scheme) throw new NotFoundException('Scheme not found');
+      const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId, schemeId: scheme.id } });
+      if (!week) throw new NotFoundException('Scheme week not found');
+
+      const subject = await this.subjRepo.findOne({ where: { id: scheme.subjectId } });
+      notesData = await this.aiGenerator.generateLessonNotes({
+        subjectName: subject?.name || 'Subject',
+        gradeLevel: scheme.gradeLevel,
+        strand: week.strand,
+        subStrand: week.subStrand,
+        slos: week.specificLearningOutcomes,
+        lessonDevelopment: week.learningExperiences,
+        assessment: week.assessmentMethods || '',
+        additionalContext: dto.additionalContext,
+      });
+      base = {
+        lessonPlanId: null, schemeId: scheme.id, schemeWeekId: week.id,
+        streamId: scheme.streamId, subjectId: scheme.subjectId,
+        lessonDate: new Date(), gradeLevel: scheme.gradeLevel,
+      };
+    }
 
     const notes = await this.dataSource.transaction(async (manager) => {
       const saved = await manager.save(
         this.notesRepo.create({
           tenantId,
           teacherId,
-          lessonPlanId: dto.lessonPlanId,
-          streamId: plan.streamId,
-          subjectId: plan.subjectId,
-          lessonDate: plan.lessonDate || new Date(),
-          gradeLevel: plan.gradeLevel,
+          ...base,
           topic: notesData.topic,
           subTopic: notesData.subTopic,
           teacherContent: notesData.teacherContent,

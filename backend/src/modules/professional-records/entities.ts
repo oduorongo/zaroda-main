@@ -62,6 +62,9 @@ export class SchemeOfWork {
   @Column({ name: 'start_week', default: 1 }) startWeek: number;
   @Column({ type: 'text', array: true, nullable: true }) columns: string[];
   @Column({ name: 'default_font', nullable: true, default: 'Times New Roman' }) defaultFont: string;
+  // Consistent lesson-column count for the printed table — computed once at generation
+  // time from periodsPerWeek minus double-lesson slots (see ai-generator.service.ts).
+  @Column({ name: 'lessons_per_week', nullable: true }) lessonsPerWeek: number;
 
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
@@ -92,6 +95,11 @@ export class SchemeWeek {
   @Column({ name: 'pertinent_issues', type: 'text', nullable: true }) pertinentIssues: string;
   @Column({ default: 5 }) periods: number;
   @Column({ type: 'text', nullable: true }) remarks: string;
+  // Per-lesson breakdown for a teaching week — one entry per lesson slot, double
+  // lessons merged into a single entry with isDouble=true. Empty/null for a
+  // non-teaching week (mid-term break, exam week, etc — see `strand`/`subStrand`
+  // carrying the special label instead). See SchemeLessonData in ai-generator.service.ts.
+  @Column({ type: 'jsonb', nullable: true }) lessons: { lessonNumber: number; isDouble?: boolean; specificLearningOutcomes: string; keyInquiryQuestions?: string; learningExperiences: string }[];
 
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 
@@ -153,7 +161,11 @@ export class LessonNote {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ name: 'tenant_id' }) tenantId: string;
   @Column({ name: 'teacher_id' }) teacherId: string;
-  @Column({ name: 'lesson_plan_id' }) lessonPlanId: string;
+  // Nullable: notes can be generated directly from a scheme week without a lesson
+  // plan — in that case schemeId/schemeWeekId carry the source instead.
+  @Column({ name: 'lesson_plan_id', nullable: true }) lessonPlanId: string | null;
+  @Column({ name: 'scheme_id', nullable: true }) schemeId: string | null;
+  @Column({ name: 'scheme_week_id', nullable: true }) schemeWeekId: string | null;
   @Column({ name: 'stream_id' }) streamId: string;
   @Column({ name: 'subject_id' }) subjectId: string;
 
