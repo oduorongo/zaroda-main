@@ -46,6 +46,8 @@ export default function ProfessionalRecordsPage() {
   const [loading, setLoading] = useState(true);
 
   const [openScheme, setOpenScheme] = useState<any>(null); // scheme + weeks, when drilled in
+  const [openPlan, setOpenPlan] = useState<any>(null);
+  const [openNotes, setOpenNotes] = useState<any>(null);
   const [showNewScheme, setShowNewScheme] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -268,6 +270,7 @@ export default function ProfessionalRecordsPage() {
       const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId }, { timeout: 60000 });
       toast.success('Lesson plan generated.');
       load();
+      loadWallet();
       return data;
     } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson plan.'); }
   };
@@ -283,13 +286,13 @@ export default function ProfessionalRecordsPage() {
   };
 
   const generateLessonNotes = async (lessonPlanId: string) => {
-    try { await apiClient.post('/professional-records/lesson-notes/generate', { lessonPlanId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); setTab('notes'); }
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { lessonPlanId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
   // Skips the lesson plan step entirely — notes generated straight from a scheme week.
   const generateLessonNotesFromWeek = async (schemeId: string, schemeWeekId: string) => {
-    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); setTab('notes'); }
+    try { await apiClient.post('/professional-records/lesson-notes/generate', { schemeId, schemeWeekId }, { timeout: 60000 }); toast.success('Lesson notes generated.'); load(); loadWallet(); setTab('notes'); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate lesson notes.'); }
   };
 
@@ -377,7 +380,7 @@ export default function ProfessionalRecordsPage() {
         plans.length === 0 ? <EmptyState label="No lesson plans yet — generate one from a scheme week"/> : (
           <div className="space-y-3">
             {plans.map((p: any) => (
-              <div key={p.id} className="card p-4">
+              <div key={p.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => setOpenPlan(p)}>
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center flex-shrink-0"><BookOpen size={18} className="text-[#d4af37]"/></div>
                   <div className="flex-1 min-w-0">
@@ -388,7 +391,7 @@ export default function ProfessionalRecordsPage() {
                     <p className="text-xs text-theme-muted mt-1">{gradeLabel(p.gradeLevel)} · {p.durationMinutes} min{p.lessonDate ? ` · ${String(p.lessonDate).slice(0,10)}` : ''}</p>
                     {p.reviewComment && <p className="text-xs mt-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {p.reviewComment}</p>}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end" onClick={(e) => e.stopPropagation()}>
                     {p.status === 'draft' && canGenerate && <button onClick={() => submitLessonPlan(p.id)} className="btn-ghost text-xs py-1.5 px-3">Submit →</button>}
                     {p.status === 'approved' && canGenerate && <button onClick={() => generateLessonNotes(p.id)} className="btn-ghost text-xs py-1.5 px-3"><Sparkles size={12}/> Notes</button>}
                     {p.status === 'submitted' && hoi && (
@@ -407,7 +410,7 @@ export default function ProfessionalRecordsPage() {
         notes.length === 0 ? <EmptyState label="No lesson notes yet — generate one from an approved lesson plan"/> : (
           <div className="space-y-3">
             {notes.map((n: any) => (
-              <div key={n.id} className="card p-4">
+              <div key={n.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => setOpenNotes(n)}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-theme-heading">{n.topic}</span>
                   {n.subTopic && <span className="text-xs text-theme-muted">— {n.subTopic}</span>}
@@ -667,6 +670,77 @@ export default function ProfessionalRecordsPage() {
           </div>
         </div>
       )}
+
+      {openPlan && <LessonPlanModal plan={openPlan} onClose={() => setOpenPlan(null)}/>}
+      {openNotes && <LessonNotesModal notes={openNotes} onClose={() => setOpenNotes(null)}/>}
+    </div>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: any }) {
+  if (!value || (Array.isArray(value) && value.length === 0)) return null;
+  return (
+    <div>
+      <div className="text-xs font-black uppercase tracking-wide text-[#1a2e5a]">{label}</div>
+      <p className="text-sm mt-0.5 whitespace-pre-wrap">{Array.isArray(value) ? value.join(', ') : value}</p>
+    </div>
+  );
+}
+
+function LessonPlanModal({ plan, onClose }: { plan: any; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+      <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-12">
+        <div className="flex items-center justify-between p-5 border-b border-theme">
+          <div>
+            <h3 className="text-lg font-bold text-theme-heading">{plan.strand} — {plan.subStrand}</h3>
+            <p className="text-xs text-theme-muted mt-0.5">{gradeLabel(plan.gradeLevel)} · {plan.durationMinutes} min{plan.lessonDate ? ` · ${String(plan.lessonDate).slice(0,10)}` : ''}</p>
+          </div>
+          <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
+        </div>
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          <DetailField label="Specific Learning Outcomes" value={plan.specificLearningOutcomes}/>
+          <DetailField label="Key Inquiry Questions" value={plan.keyInquiryQuestions}/>
+          <DetailField label="Core Competencies" value={plan.coreCompetencies}/>
+          <DetailField label="Values" value={plan.values}/>
+          <DetailField label="Pertinent Issues" value={plan.pertinentIssues}/>
+          <DetailField label="Link to Other Subjects" value={plan.linkToOtherSubjects}/>
+          <DetailField label="Introduction" value={plan.introduction}/>
+          <DetailField label="Lesson Development" value={plan.lessonDevelopment}/>
+          <DetailField label="Conclusion" value={plan.conclusion}/>
+          <DetailField label="Assessment" value={plan.assessment}/>
+          <DetailField label="Extended Activities" value={plan.extendedActivities}/>
+          <DetailField label="Support Activities" value={plan.supportActivities}/>
+          <DetailField label="Learning Materials" value={plan.learningMaterials}/>
+          <DetailField label="Reference Books" value={plan.referenceBooks}/>
+          {plan.reviewComment && <DetailField label="HOI Comment" value={plan.reviewComment}/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LessonNotesModal({ notes, onClose }: { notes: any; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+      <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-12">
+        <div className="flex items-center justify-between p-5 border-b border-theme">
+          <div>
+            <h3 className="text-lg font-bold text-theme-heading">{notes.topic}{notes.subTopic ? ` — ${notes.subTopic}` : ''}</h3>
+            <p className="text-xs text-theme-muted mt-0.5">{gradeLabel(notes.gradeLevel)} · {String(notes.lessonDate).slice(0,10)}</p>
+          </div>
+          <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
+        </div>
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          <DetailField label="Teacher Content" value={notes.teacherContent}/>
+          <DetailField label="Board Work" value={notes.boardWork}/>
+          <DetailField label="Examples" value={notes.examples}/>
+          <DetailField label="Activities" value={notes.activities}/>
+          <DetailField label="Questions" value={notes.questions}/>
+          <DetailField label="Assessment Evidence" value={notes.assessmentEvidence}/>
+          <DetailField label="Expected Responses" value={notes.expectedResponses}/>
+        </div>
+      </div>
     </div>
   );
 }
@@ -682,21 +756,24 @@ function EmptyState({ label, cta }: { label: string; cta?: { label: string; onCl
 }
 
 function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onGenerateLessonNotes, onExport }: any) {
-  const [busyWeek, setBusyWeek] = useState<string | null>(null);
+  // Tracks which button on which week is busy, e.g. "week123:plan" — keyed by
+  // action too, not just week id, so generating a plan doesn't also show the
+  // Notes button on the same week as busy/disabled (and vice versa).
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<'pdf'|'doc'|'preview'>('pdf');
   const [exportFont, setExportFont] = useState(scheme.defaultFont || 'Times New Roman');
   const weeks = [...(scheme.weeks || [])].sort((a: any, b: any) => a.weekNumber - b.weekNumber);
 
   const handleGenNotes = async (weekId: string) => {
-    setBusyWeek(weekId);
+    setBusyAction(`${weekId}:notes`);
     await onGenerateLessonNotes(scheme.id, weekId);
-    setBusyWeek(null);
+    setBusyAction(null);
   };
 
   const handleGenPlan = async (weekId: string) => {
-    setBusyWeek(weekId);
+    setBusyAction(`${weekId}:plan`);
     await onGenerateLessonPlan(scheme.id, weekId);
-    setBusyWeek(null);
+    setBusyAction(null);
   };
 
   return (
@@ -752,11 +829,11 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
               </div>
               {teacher && (
                 <div className="flex flex-col gap-1.5 flex-shrink-0">
-                  <button onClick={() => handleGenPlan(w.id)} disabled={busyWeek === w.id} className="btn-ghost text-xs py-1.5 px-3">
-                    {busyWeek === w.id ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
+                  <button onClick={() => handleGenPlan(w.id)} disabled={busyAction?.startsWith(`${w.id}:`)} className="btn-ghost text-xs py-1.5 px-3">
+                    {busyAction === `${w.id}:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
                   </button>
-                  <button onClick={() => handleGenNotes(w.id)} disabled={busyWeek === w.id} className="btn-ghost text-xs py-1.5 px-3">
-                    {busyWeek === w.id ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
+                  <button onClick={() => handleGenNotes(w.id)} disabled={busyAction?.startsWith(`${w.id}:`)} className="btn-ghost text-xs py-1.5 px-3">
+                    {busyAction === `${w.id}:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
                   </button>
                 </div>
               )}
