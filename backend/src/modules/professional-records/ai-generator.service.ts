@@ -165,8 +165,12 @@ Return ONLY valid JSON (no preamble, no markdown fences):
   ]
 }`;
 
-    const response = await this.callClaude(prompt, 4096, MODEL_SCHEME);
-    const parsed = this.parseJson(response.text, 'Scheme of Work');
+    // A full scheme's JSON grows with both week count and how many optional columns
+    // are requested — 4096 tokens truncates mid-JSON well before 12+ weeks with
+    // reflection/core-competency columns are done, so scale the budget with weeks.
+    const maxTokens = Math.min(8192, 2048 + params.totalWeeks * 400);
+    const response = await this.callClaude(prompt, maxTokens, MODEL_SCHEME);
+    const parsed = this.parseJson(response.text, 'Scheme of Work', response.truncated);
 
     if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
       throw new BadRequestException('AI returned invalid scheme structure');
@@ -238,7 +242,7 @@ Return ONLY valid JSON:
 }`;
 
     const response = await this.callClaude(prompt, 2048);
-    const parsed = this.parseJson(response.text, 'Lesson Plan');
+    const parsed = this.parseJson(response.text, 'Lesson Plan', response.truncated);
     return { ...parsed, tokens: response.tokens };
   }
 
@@ -287,7 +291,7 @@ Return ONLY valid JSON:
 }`;
 
     const response = await this.callClaude(prompt, 2048);
-    const parsed = this.parseJson(response.text, 'Lesson Notes');
+    const parsed = this.parseJson(response.text, 'Lesson Notes', response.truncated);
     return { ...parsed, tokens: response.tokens };
   }
 
@@ -339,7 +343,7 @@ Return ONLY valid JSON:
 }`;
 
     const response = await this.callClaude(prompt, 2048);
-    const parsed = this.parseJson(response.text, 'Learner Progress');
+    const parsed = this.parseJson(response.text, 'Learner Progress', response.truncated);
 
     const mapped = parsed.records.map((r: any, i: number) => ({
       ...r,
@@ -350,7 +354,7 @@ Return ONLY valid JSON:
   }
 
   // ── PRIVATE: Call Claude ───────────────────────────────────
-  private async callClaude(prompt: string, maxTokens: number, model: string = MODEL_FAST): Promise<{ text: string; tokens: number }> {
+  private async callClaude(prompt: string, maxTokens: number, model: string = MODEL_FAST): Promise<{ text: string; tokens: number; truncated: boolean }> {
     try {
       const client = this.getClient();
       const response = await client.messages.create({
@@ -364,18 +368,24 @@ Return ONLY valid JSON:
         .map((b: any) => b.text)
         .join('');
 
-      return { text, tokens: response.usage?.output_tokens || 0 };
+      return { text, tokens: response.usage?.output_tokens || 0, truncated: response.stop_reason === 'max_tokens' };
     } catch (err: any) {
       this.logger.error(`Claude API error: ${err.message}`);
       throw new BadRequestException(`AI generation failed: ${err.message}`);
     }
   }
 
-  private parseJson(raw: string, context: string): any {
+  private parseJson(raw: string, context: string, truncated = false): any {
     try {
       const clean = raw.replace(/```json|```/g, '').trim();
       return JSON.parse(clean);
     } catch {
+      if (truncated) {
+        throw new BadRequestException(
+          `The AI response for ${context} was cut off before it finished (too long for the request). ` +
+          `Try fewer weeks, fewer columns, or try again.`,
+        );
+      }
       throw new BadRequestException(`Could not parse AI response for ${context}. Please try again.`);
     }
   }
