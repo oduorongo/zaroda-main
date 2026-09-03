@@ -38,7 +38,8 @@ async function getToken(): Promise<string> {
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(`Tuma auth failed (${resp.status}): ${JSON.stringify(data).slice(0, 300)}`);
 
-  const token = data.token || data.access_token || data.jwt;
+  const token = data.token || data.access_token || data.jwt
+    || data.data?.token || data.data?.access_token || data.data?.jwt;
   if (!token) throw new Error(`Tuma auth response had no token: ${JSON.stringify(data).slice(0, 300)}`);
 
   // Fall back to a 23h TTL (their sample tokens are valid 24h) if exp can't be read.
