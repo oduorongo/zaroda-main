@@ -9,6 +9,7 @@ import { Learner } from '../academic/academic.module';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateLessonNotesDto, RecordWorkCoveredDto, GenerateLearnerProgressDto } from './dto';
+import { documentShell, field, escHtml } from './document-render.util';
 
 @Injectable()
 export class RecordsService {
@@ -96,6 +97,7 @@ export class RecordsService {
           topic: notesData.topic,
           subTopic: notesData.subTopic,
           teacherContent: notesData.teacherContent,
+          learnerContent: notesData.learnerContent,
           boardWork: notesData.boardWork,
           examples: notesData.examples,
           activities: notesData.activities,
@@ -119,6 +121,56 @@ export class RecordsService {
     return this.notesRepo.find({
       where: { tenantId, ...filters },
       order: { createdAt: 'DESC' as any },
+    });
+  }
+
+  // Resolves the scheme a lesson note belongs to, whichever path it was generated
+  // from — via its lesson plan, or directly (schemeId set on the note itself).
+  private async resolveNoteScheme(tenantId: string, note: LessonNote): Promise<SchemeOfWork | null> {
+    if (note.schemeId) return this.schemeRepo.findOne({ where: { id: note.schemeId, tenantId } });
+    if (note.lessonPlanId) {
+      const plan = await this.planRepo.findOne({ where: { id: note.lessonPlanId, tenantId } });
+      if (plan) return this.schemeRepo.findOne({ where: { id: plan.schemeId, tenantId } });
+    }
+    return null;
+  }
+
+  // ── RENDER PRINTABLE DOCUMENT (PDF/Word, watermarked) ─────
+  // variant 'teacher' includes the full teaching notes; 'learner' is the
+  // simplified, plain-language handout version of the same lesson.
+  async renderNotesHtml(tenantId: string, notesId: string, fontOverride?: string, variant: 'teacher' | 'learner' = 'teacher'): Promise<string> {
+    const notes = await this.notesRepo.findOne({ where: { id: notesId, tenantId } });
+    if (!notes) throw new NotFoundException('Lesson notes not found');
+    const scheme = await this.resolveNoteScheme(tenantId, notes);
+    const font = fontOverride || scheme?.defaultFont || 'Times New Roman';
+    const grade = String(notes.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+    const headerHtml =
+      `<div><b>School:</b> ${escHtml(scheme?.schoolName || '')} &nbsp; <b>Teacher:</b> ${escHtml(scheme?.teacherName || '')}</div>` +
+      `<div><b>Grade:</b> ${escHtml(grade)} &nbsp; <b>Date:</b> ${escHtml(String(notes.lessonDate).slice(0, 10))}</div>`;
+
+    const bodyHtml = variant === 'learner'
+      ? [field('Topic', notes.subTopic ? `${notes.topic} — ${notes.subTopic}` : notes.topic), field('Lesson Content', notes.learnerContent || notes.teacherContent)].join('')
+      : [
+          field('Topic', notes.subTopic ? `${notes.topic} — ${notes.subTopic}` : notes.topic),
+          field('Teacher Content', notes.teacherContent),
+          field('Board Work', notes.boardWork),
+          field('Examples', notes.examples),
+          field('Activities', notes.activities),
+          field('Questions', notes.questions),
+          field('Assessment Evidence', notes.assessmentEvidence),
+          field('Expected Responses', notes.expectedResponses),
+        ].join('');
+
+    return documentShell({
+      title: `Lesson Notes${variant === 'learner' ? ' (Learner Copy)' : ''} — ${notes.topic}`,
+      font,
+      schoolName: scheme?.schoolName || '',
+      headerHtml,
+      bodyHtml,
+      footerHtml: variant === 'learner'
+        ? `<div>Name: _______________________</div><div>Class: _______________________</div>`
+        : `<div>Prepared by: ${escHtml(scheme?.teacherName || '_______________________')}</div><div>Checked by: _______________________</div>`,
     });
   }
 

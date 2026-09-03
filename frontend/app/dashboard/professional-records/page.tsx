@@ -162,6 +162,32 @@ export default function ProfessionalRecordsPage() {
     }
   };
 
+  // Generic version of the same export flow, used by Lesson Plan / Lesson Notes
+  // detail modals (both PDF-print and Word .doc, watermarked server-side).
+  const exportDocument = async (
+    url: string, filenamePrefix: string, format: 'pdf' | 'doc', font: string, extraParams: Record<string, string> = {},
+  ) => {
+    try {
+      const res = await apiClient.get(url, {
+        params: { font, ...(format === 'doc' ? { download: 'doc' } : {}), ...extraParams },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: format === 'doc' ? 'application/msword' : 'text/html' });
+      const objUrl = URL.createObjectURL(blob);
+      if (format === 'doc') {
+        const a = document.createElement('a');
+        a.href = objUrl; a.download = `${filenamePrefix}.doc`;
+        document.body.appendChild(a); a.click(); a.remove();
+      } else {
+        const win = window.open(objUrl, '_blank');
+        if (!win) toast.error('Please allow pop-ups to open the print view.');
+      }
+      setTimeout(() => URL.revokeObjectURL(objUrl), 60000);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not open the document.');
+    }
+  };
+
   // Wallet-based, per-item: the wallet is topped up separately (see topUpWallet
   // below); generating a scheme just debits ITEM_PRICES.scheme from the balance.
   const generateScheme = async (e: React.FormEvent) => {
@@ -671,8 +697,8 @@ export default function ProfessionalRecordsPage() {
         </div>
       )}
 
-      {openPlan && <LessonPlanModal plan={openPlan} onClose={() => setOpenPlan(null)}/>}
-      {openNotes && <LessonNotesModal notes={openNotes} onClose={() => setOpenNotes(null)}/>}
+      {openPlan && <LessonPlanModal plan={openPlan} onClose={() => setOpenPlan(null)} onExport={exportDocument}/>}
+      {openNotes && <LessonNotesModal notes={openNotes} onClose={() => setOpenNotes(null)} onExport={exportDocument}/>}
     </div>
   );
 }
@@ -687,7 +713,29 @@ function DetailField({ label, value }: { label: string; value: any }) {
   );
 }
 
-function LessonPlanModal({ plan, onClose }: { plan: any; onClose: () => void }) {
+function ExportBar({ format, setFormat, font, setFont, onExport }: {
+  format: 'pdf' | 'doc'; setFormat: (f: 'pdf' | 'doc') => void;
+  font: string; setFont: (f: string) => void;
+  onExport: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 p-5 pt-0">
+      <select value={format} onChange={(e) => setFormat(e.target.value as any)} className="input text-xs py-1.5 w-auto">
+        <option value="pdf">Print / Save as PDF</option>
+        <option value="doc">Word (.doc)</option>
+      </select>
+      <select value={font} onChange={(e) => setFont(e.target.value)} className="input text-xs py-1.5 w-auto">
+        <option>Times New Roman</option>
+        <option>Arial</option>
+      </select>
+      <button onClick={onExport} className="btn-ghost text-xs py-1.5 px-3">Export</button>
+    </div>
+  );
+}
+
+function LessonPlanModal({ plan, onClose, onExport }: { plan: any; onClose: () => void; onExport: (url: string, prefix: string, format: 'pdf'|'doc', font: string) => void }) {
+  const [format, setFormat] = useState<'pdf'|'doc'>('pdf');
+  const [font, setFont] = useState('Times New Roman');
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
       <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-12">
@@ -698,7 +746,9 @@ function LessonPlanModal({ plan, onClose }: { plan: any; onClose: () => void }) 
           </div>
           <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
         </div>
-        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <ExportBar format={format} setFormat={setFormat} font={font} setFont={setFont}
+          onExport={() => onExport(`/professional-records/lesson-plans/${plan.id}/html`, `lesson-plan-${plan.id}`, format, font)}/>
+        <div className="p-5 pt-0 space-y-4 max-h-[70vh] overflow-y-auto">
           <DetailField label="Specific Learning Outcomes" value={plan.specificLearningOutcomes}/>
           <DetailField label="Key Inquiry Questions" value={plan.keyInquiryQuestions}/>
           <DetailField label="Core Competencies" value={plan.coreCompetencies}/>
@@ -720,7 +770,10 @@ function LessonPlanModal({ plan, onClose }: { plan: any; onClose: () => void }) 
   );
 }
 
-function LessonNotesModal({ notes, onClose }: { notes: any; onClose: () => void }) {
+function LessonNotesModal({ notes, onClose, onExport }: { notes: any; onClose: () => void; onExport: (url: string, prefix: string, format: 'pdf'|'doc', font: string, extra?: Record<string,string>) => void }) {
+  const [format, setFormat] = useState<'pdf'|'doc'>('pdf');
+  const [font, setFont] = useState('Times New Roman');
+  const [variant, setVariant] = useState<'teacher'|'learner'>('teacher');
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
       <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-12">
@@ -731,14 +784,28 @@ function LessonNotesModal({ notes, onClose }: { notes: any; onClose: () => void 
           </div>
           <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
         </div>
-        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-          <DetailField label="Teacher Content" value={notes.teacherContent}/>
-          <DetailField label="Board Work" value={notes.boardWork}/>
-          <DetailField label="Examples" value={notes.examples}/>
-          <DetailField label="Activities" value={notes.activities}/>
-          <DetailField label="Questions" value={notes.questions}/>
-          <DetailField label="Assessment Evidence" value={notes.assessmentEvidence}/>
-          <DetailField label="Expected Responses" value={notes.expectedResponses}/>
+        <div className="flex flex-wrap items-center gap-2 p-5 pb-0">
+          <select value={variant} onChange={(e) => setVariant(e.target.value as any)} className="input text-xs py-1.5 w-auto">
+            <option value="teacher">Teacher copy</option>
+            <option value="learner">Learner copy</option>
+          </select>
+        </div>
+        <ExportBar format={format} setFormat={setFormat} font={font} setFont={setFont}
+          onExport={() => onExport(`/professional-records/lesson-notes/${notes.id}/html`, `lesson-notes-${variant}-${notes.id}`, format, font, { variant })}/>
+        <div className="p-5 pt-0 space-y-4 max-h-[70vh] overflow-y-auto">
+          {variant === 'learner' ? (
+            <DetailField label="Lesson Content (Learner Copy)" value={notes.learnerContent || notes.teacherContent}/>
+          ) : (
+            <>
+              <DetailField label="Teacher Content" value={notes.teacherContent}/>
+              <DetailField label="Board Work" value={notes.boardWork}/>
+              <DetailField label="Examples" value={notes.examples}/>
+              <DetailField label="Activities" value={notes.activities}/>
+              <DetailField label="Questions" value={notes.questions}/>
+              <DetailField label="Assessment Evidence" value={notes.assessmentEvidence}/>
+              <DetailField label="Expected Responses" value={notes.expectedResponses}/>
+            </>
+          )}
         </div>
       </div>
     </div>

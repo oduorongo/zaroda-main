@@ -154,6 +154,25 @@ export class ProfessionalRecordsController {
     return this.lessonPlanService.findOne(u.tenantId, id);
   }
 
+  @Get('lesson-plans/:id/html')
+  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
+  async getLessonPlanHtml(
+    @CurrentUser() u: AuthUser, @Param('id') id: string,
+    @Query('font') font: string, @Query('download') download: string,
+    @Res() res: any,
+  ) {
+    const html = await this.lessonPlanService.renderHtml(u.tenantId, id, font);
+    if (download === 'doc') {
+      res.set({
+        'Content-Type': 'application/msword; charset=utf-8',
+        'Content-Disposition': `attachment; filename="lesson-plan-${id}.doc"`,
+      });
+    } else {
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    }
+    res.send(html);
+  }
+
   @Post('lesson-plans/:id/submit')
   @Roles(...ALL_GENERATOR_ROLES)
   submitLessonPlan(@CurrentUser() u: AuthUser, @Param('id') id: string) {
@@ -178,6 +197,26 @@ export class ProfessionalRecordsController {
   listLessonNotes(@CurrentUser() u: AuthUser, @Query() filters: any) {
     const teacherFilter = ['hoi', 'dhois'].includes(u.role) ? filters : { ...filters, teacherId: u.id };
     return this.recordsService.findNotes(u.tenantId, teacherFilter);
+  }
+
+  @Get('lesson-notes/:id/html')
+  @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
+  async getLessonNotesHtml(
+    @CurrentUser() u: AuthUser, @Param('id') id: string,
+    @Query('font') font: string, @Query('download') download: string, @Query('variant') variant: string,
+    @Res() res: any,
+  ) {
+    const v = variant === 'learner' ? 'learner' : 'teacher';
+    const html = await this.recordsService.renderNotesHtml(u.tenantId, id, font, v);
+    if (download === 'doc') {
+      res.set({
+        'Content-Type': 'application/msword; charset=utf-8',
+        'Content-Disposition': `attachment; filename="lesson-notes-${v}-${id}.doc"`,
+      });
+    } else {
+      res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    }
+    res.send(html);
   }
 
   // ── RECORDS OF WORK ───────────────────────────────────────

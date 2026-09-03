@@ -5,6 +5,7 @@ import { LessonPlan, SchemeOfWork, SchemeWeek, SubjectCatalogue, PrAudit } from 
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateLessonPlanDto, ReviewRecordDto } from './dto';
+import { documentShell, field, escHtml } from './document-render.util';
 
 @Injectable()
 export class LessonPlanService {
@@ -96,6 +97,46 @@ export class LessonPlanService {
     const plan = await this.planRepo.findOne({ where: { id: planId, tenantId } });
     if (!plan) throw new NotFoundException('Lesson plan not found');
     return plan;
+  }
+
+  // ── RENDER PRINTABLE DOCUMENT (PDF/Word, watermarked) ─────
+  async renderHtml(tenantId: string, planId: string, fontOverride?: string): Promise<string> {
+    const plan = await this.findOne(tenantId, planId);
+    const scheme = await this.schemeRepo.findOne({ where: { id: plan.schemeId, tenantId } });
+    const font = fontOverride || scheme?.defaultFont || 'Times New Roman';
+    const grade = String(plan.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+    const headerHtml =
+      `<div><b>School:</b> ${escHtml(scheme?.schoolName || '')} &nbsp; <b>Teacher:</b> ${escHtml(scheme?.teacherName || '')} ${scheme?.tscNumber ? `&nbsp; <b>TSC No:</b> ${escHtml(scheme.tscNumber)}` : ''}</div>` +
+      `<div><b>Grade:</b> ${escHtml(grade)} &nbsp; <b>Duration:</b> ${escHtml(plan.durationMinutes)} min ${plan.lessonDate ? `&nbsp; <b>Date:</b> ${escHtml(String(plan.lessonDate).slice(0, 10))}` : ''}</div>`;
+
+    const bodyHtml = [
+      field('Strand', plan.strand),
+      field('Sub-Strand', plan.subStrand),
+      field('Specific Learning Outcomes', plan.specificLearningOutcomes),
+      field('Key Inquiry Questions', plan.keyInquiryQuestions),
+      field('Core Competencies', plan.coreCompetencies),
+      field('Values', plan.values),
+      field('Pertinent Issues', plan.pertinentIssues),
+      field('Link to Other Subjects', plan.linkToOtherSubjects),
+      field('Introduction', plan.introduction),
+      field('Lesson Development', plan.lessonDevelopment),
+      field('Conclusion', plan.conclusion),
+      field('Assessment', plan.assessment),
+      field('Extended Activities', plan.extendedActivities),
+      field('Support Activities', plan.supportActivities),
+      field('Learning Materials', plan.learningMaterials),
+      field('Reference Books', plan.referenceBooks),
+    ].join('');
+
+    return documentShell({
+      title: `Lesson Plan — ${plan.strand} / ${plan.subStrand}`,
+      font,
+      schoolName: scheme?.schoolName || '',
+      headerHtml,
+      bodyHtml,
+      footerHtml: `<div>Prepared by: ${escHtml(scheme?.teacherName || '_______________________')}</div><div>Checked by: _______________________</div>`,
+    });
   }
 
   async findAll(tenantId: string, filters: { teacherId?: string; schemeId?: string; status?: string }) {

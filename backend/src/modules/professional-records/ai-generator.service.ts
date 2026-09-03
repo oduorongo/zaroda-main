@@ -61,6 +61,7 @@ export interface LessonNotesData {
   topic: string;
   subTopic: string;
   teacherContent: string;
+  learnerContent: string;
   boardWork: string;
   examples: string;
   activities: string;
@@ -329,19 +330,22 @@ ${params.additionalContext ? `- Additional Context: ${params.additionalContext}`
 
 Generate concise, usable lesson notes a teacher can read straight off the page during delivery — thorough
 enough to teach from, but not padded. Keep to these approximate limits so the response stays short:
-1. Teacher content — the subject matter to teach (max ~250 words)
-2. Board work — what goes on the board (max ~60 words)
-3. Worked examples — 1-2 short examples, step-by-step (max ~120 words)
-4. Learner activities — what learners do (max ~100 words)
-5. Probing questions — 3-4 short questions, one per line (max ~60 words)
-6. Expected learner responses — brief, one line per question (max ~60 words)
-7. Assessment evidence — what to look for to confirm learning (max ~50 words)
+1. Teacher content — the subject matter to teach, pedagogy notes included (max ~250 words)
+2. Learner content — the SAME subject matter rewritten as a simple, plain-language handout a learner
+   reads themselves (short sentences, no teacher-only instructions, define any hard terms) (max ~200 words)
+3. Board work — what goes on the board (max ~60 words)
+4. Worked examples — 1-2 short examples, step-by-step (max ~120 words)
+5. Learner activities — what learners do (max ~100 words)
+6. Probing questions — 3-4 short questions, one per line (max ~60 words)
+7. Expected learner responses — brief, one line per question (max ~60 words)
+8. Assessment evidence — what to look for to confirm learning (max ~50 words)
 
 Return ONLY valid JSON, no markdown fences, every field a plain string kept within the limits above:
 {
   "topic": "...",
   "subTopic": "...",
   "teacherContent": "...",
+  "learnerContent": "...",
   "boardWork": "...",
   "examples": "...",
   "activities": "...",

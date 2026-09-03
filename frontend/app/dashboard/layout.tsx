@@ -18,6 +18,7 @@ import clsx from 'clsx';
 const NAV_ITEMS = [
   { href: '/dashboard',                        icon: Home,         label: 'Dashboard',            roles: 'staff' },
   { href: '/dashboard/teacher',                icon: GraduationCap,label: 'My Workspace',         roles: 'teacher_only' },
+  { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher', highlight: true },
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
@@ -26,7 +27,6 @@ const NAV_ITEMS = [
   // Subscription nav hidden for now — page still reachable directly, just not in the sidebar.
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/senior-selection',       icon: GraduationCap,label: 'Grade 10 Selection',   roles: 'parent_ok' },
-  { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher' },
   { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling',      roles: 'staff' },
   { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all' },
   { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
@@ -131,7 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return (
             <Link key={item.href} href={item.href}
               onClick={() => setSidebarOpen(false)}
-              className={clsx('nav-item group', active && 'nav-item-active')}>
+              className={clsx('nav-item group', active && 'nav-item-active', (item as any).highlight && 'text-[#d4af37]')}>
               <Icon size={18} className="flex-shrink-0"/>
               <span className="flex-1">{item.label}</span>
               {item.badge && (

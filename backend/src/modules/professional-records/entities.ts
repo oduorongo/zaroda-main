@@ -175,6 +175,9 @@ export class LessonNote {
   @Column({ name: 'sub_topic', nullable: true }) subTopic: string;
 
   @Column({ name: 'teacher_content', type: 'text' }) teacherContent: string;
+  // Simplified, learner-facing version of the same content — plain language,
+  // no teacher-only pedagogy notes — so a learner handout can be printed from it.
+  @Column({ name: 'learner_content', type: 'text', nullable: true }) learnerContent: string;
   @Column({ name: 'board_work', type: 'text', nullable: true }) boardWork: string;
   @Column({ type: 'text', nullable: true }) examples: string;
   @Column({ type: 'text' }) activities: string;
