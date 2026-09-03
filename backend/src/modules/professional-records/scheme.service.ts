@@ -270,46 +270,58 @@ export class SchemeService {
       `<text x='0' y='90' font-family='Arial, sans-serif' font-size='26' font-weight='bold' fill='rgba(0,0,0,0.08)'>${watermarkText}</text></svg>`;
     const watermarkDataUri = `data:image/svg+xml,${encodeURIComponent(watermarkSvg)}`;
 
-    // Each lesson in the week gets its own column (double lessons already merged
-    // into one entry upstream) instead of lumping the whole week into one row.
-    const maxLessons = scheme.lessonsPerWeek || Math.max(1, ...weeks.map(w => (w.lessons || []).length));
-
-    const headCols: string[] = ['Wk', 'Strand', 'Sub-Strand'];
-    for (let i = 1; i <= maxLessons; i++) headCols.push(`Lesson ${i}`);
+    const headCols: string[] = ['Wk', 'Lesson', 'Strand', 'Sub-Strand'];
+    if (cols.has('keyInquiry')) headCols.push('Key Inquiry Questions');
+    if (cols.has('learningExperiences')) headCols.push('Learning Experiences');
+    headCols.push('SLOs');
     if (cols.has('resources')) headCols.push('Resources');
     if (cols.has('assessment')) headCols.push('Assessment');
     if (cols.has('corePV')) headCols.push('Core Competencies / Values / PCIs');
     if (cols.has('reflection')) headCols.push('Reflection');
     const totalCols = headCols.length;
 
+    const td = (c: string, extra = '') =>
+      `<td style="border:1px solid #999;padding:6px;vertical-align:top;font-size:11px;white-space:pre-wrap${extra}">${c}</td>`;
+
     const rows = weeks.map((w) => {
       // A non-teaching week (mid-term break, summative assessment, exam week) has no
       // lessons — give it its own clearly marked row spanning the whole table instead
-      // of splitting a break/exam label across lesson columns.
+      // of trying to fit a break/exam label into per-lesson rows.
       if (!w.lessons || w.lessons.length === 0) {
         return `<tr style="background:#fdf3d8">` +
-          `<td style="border:1px solid #999;padding:6px;font-size:11px;font-weight:bold;text-align:center">${w.weekNumber}</td>` +
+          td(String(w.weekNumber), ';font-weight:bold;text-align:center') +
           `<td colspan="${totalCols - 1}" style="border:1px solid #999;padding:6px;font-size:12px;font-weight:bold;text-align:center;text-transform:uppercase;letter-spacing:.5px">${esc(w.strand)}</td>` +
           `</tr>`;
       }
 
-      const lessonCells: string[] = [];
-      for (let i = 0; i < maxLessons; i++) {
-        const lesson = w.lessons[i];
-        if (!lesson) { lessonCells.push(''); continue; }
-        const parts: string[] = [`<b>SLO:</b> ${esc(lesson.specificLearningOutcomes)}`];
-        if (cols.has('keyInquiry') && lesson.keyInquiryQuestions) parts.push(`<b>KIQ:</b> ${esc(lesson.keyInquiryQuestions)}`);
-        if (cols.has('learningExperiences') && lesson.learningExperiences) parts.push(`<b>Activity:</b> ${esc(lesson.learningExperiences)}`);
-        if (lesson.isDouble) parts.push(`<i>(Double Lesson)</i>`);
-        lessonCells.push(parts.join('<br/><br/>'));
-      }
+      // Each lesson is its own row — Wk/Strand/Sub-Strand and the week-level columns
+      // (Resources/Assessment/CorePV/Reflection) are row-spanned down the week's rows
+      // instead of repeating on every lesson.
+      const weekSpanCell = (c: string) => `<td rowspan="${w.lessons.length}" style="border:1px solid #999;padding:6px;vertical-align:top;font-size:11px;white-space:pre-wrap">${c}</td>`;
+      const resourcesCell = cols.has('resources') ? weekSpanCell(esc(w.learningResources)) : '';
+      const assessmentCell = cols.has('assessment') ? weekSpanCell(esc(w.assessmentMethods)) : '';
+      const corePVCell = cols.has('corePV') ? weekSpanCell(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | '))) : '';
+      const reflectionCell = cols.has('reflection') ? weekSpanCell(esc(w.reflectionNotes)) : '';
 
-      const cells: string[] = [String(w.weekNumber), esc(w.strand), esc(w.subStrand), ...lessonCells];
-      if (cols.has('resources')) cells.push(esc(w.learningResources));
-      if (cols.has('assessment')) cells.push(esc(w.assessmentMethods));
-      if (cols.has('corePV')) cells.push(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | ')));
-      if (cols.has('reflection')) cells.push(esc(w.reflectionNotes));
-      return `<tr>${cells.map((c) => `<td style="border:1px solid #999;padding:6px;vertical-align:top;font-size:11px;white-space:pre-wrap">${c}</td>`).join('')}</tr>`;
+      return w.lessons.map((lesson, i) => {
+        const lessonLabel = `${lesson.lessonNumber}${lesson.isDouble ? ' (Double)' : ''}`;
+        const rowCells: string[] = [];
+        if (i === 0) {
+          rowCells.push(weekSpanCell(String(w.weekNumber)));
+          rowCells.push(td(esc(lessonLabel)));
+          rowCells.push(weekSpanCell(esc(w.strand)));
+          rowCells.push(weekSpanCell(esc(w.subStrand)));
+        } else {
+          rowCells.push(td(esc(lessonLabel)));
+        }
+        if (cols.has('keyInquiry')) rowCells.push(td(esc(lesson.keyInquiryQuestions)));
+        if (cols.has('learningExperiences')) rowCells.push(td(esc(lesson.learningExperiences)));
+        rowCells.push(td(esc(lesson.specificLearningOutcomes)));
+        if (i === 0) {
+          rowCells.push(resourcesCell, assessmentCell, corePVCell, reflectionCell);
+        }
+        return `<tr>${rowCells.join('')}</tr>`;
+      }).join('');
     }).join('');
 
     return `<!doctype html>
