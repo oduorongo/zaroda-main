@@ -144,6 +144,7 @@ export class LessonPlan {
 
   @Column({ name: 'ai_generated', default: false }) aiGenerated: boolean;
   @Column({ name: 'ai_model', nullable: true }) aiModel: string;
+  @Column({ name: 'generation_tokens', nullable: true, type: 'int' }) generationTokens: number;
 
   @Column({ default: 'draft' }) status: string;
   @Column({ name: 'submitted_at', nullable: true }) submittedAt: Date;
@@ -202,6 +203,7 @@ export class LessonNote {
 
   @Column({ name: 'ai_generated', default: false }) aiGenerated: boolean;
   @Column({ name: 'ai_model', nullable: true }) aiModel: string;
+  @Column({ name: 'generation_tokens', nullable: true, type: 'int' }) generationTokens: number;
   @Column({ name: 'pdf_url', nullable: true }) pdfUrl: string;
 
   @Column({ default: 'draft' }) status: string;

@@ -82,7 +82,8 @@ export class LessonPlanService {
           learningMaterials: planData.learningMaterials,
           referenceBooks: planData.referenceBooks,
           aiGenerated: true,
-          aiModel: 'claude-sonnet-5',
+          aiModel: 'claude-haiku-4-5-20251001',
+          generationTokens: planData.tokens,
           status: 'draft',
         }),
       );

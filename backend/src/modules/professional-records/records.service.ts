@@ -109,7 +109,8 @@ export class RecordsService {
           learnerContent: notesData.learnerContent,
           coverageStatus: 'pending',
           aiGenerated: true,
-          aiModel: 'claude-sonnet-5',
+          aiModel: 'claude-haiku-4-5-20251001',
+          generationTokens: notesData.tokens,
           status: 'draft',
         }),
       );
