@@ -627,7 +627,7 @@ export default function ProfessionalRecordsPage() {
                     ['resources', 'Learning resources'],
                     ['assessment', 'Assessment methods'],
                     ['reflection', 'Reflection'],
-                    ['corePV', 'Core competencies, values, PCIs'],
+                    ['corePV', 'Values, PCIs'],
                   ] as const).map(([key, label]) => (
                     <label key={key} className="flex items-start gap-2 border border-theme rounded-lg p-2 text-xs cursor-pointer">
                       <input type="checkbox" checked={form.columns[key]} onChange={() => toggleColumn(key)} className="mt-0.5"/>

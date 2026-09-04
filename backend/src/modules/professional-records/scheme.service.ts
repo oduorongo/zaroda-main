@@ -274,13 +274,15 @@ export class SchemeService {
     const term = String(scheme.term || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const L = (s: string) => label(s, kiswahili);
 
-    const headCols: string[] = [L('Wk'), L('Lesson'), L('Strand'), L('Sub-Strand')];
+    // SLOs always precede Learning Experiences (and Key Inquiry Questions), matching
+    // the standard KICD scheme layout — Strand, Sub-Strand, SLOs, then the rest.
+    const headCols: string[] = [L('Wk'), L('Lesson'), L('Strand'), L('Sub-Strand'), L('SLOs')];
     if (cols.has('keyInquiry')) headCols.push(L('Key Inquiry Questions'));
     if (cols.has('learningExperiences')) headCols.push(L('Learning Experiences'));
-    headCols.push(L('SLOs'));
     if (cols.has('resources')) headCols.push(L('Resources'));
     if (cols.has('assessment')) headCols.push(L('Assessment'));
-    if (cols.has('corePV')) headCols.push(L('Core Competencies / Values / PCIs'));
+    // Core Competencies live on the Lesson Plan only — this column is Values/PCIs only.
+    if (cols.has('corePV')) headCols.push(L('Values / PCIs'));
     if (cols.has('reflection')) headCols.push(L('Reflection'));
     const totalCols = headCols.length;
 
@@ -305,24 +307,23 @@ export class SchemeService {
       // schemes from before this feature, or the AI omitting the field) — fall back to
       // one row of the week-level content rather than misrendering it as a break week.
       if (!w.lessons || w.lessons.length === 0) {
-        const cells: string[] = [String(w.weekNumber), '', esc(w.strand), esc(w.subStrand)];
+        const cells: string[] = [String(w.weekNumber), '', esc(w.strand), esc(w.subStrand), esc(w.specificLearningOutcomes)];
         if (cols.has('keyInquiry')) cells.push(esc(w.keyInquiryQuestions));
         if (cols.has('learningExperiences')) cells.push(esc(w.learningExperiences));
-        cells.push(esc(w.specificLearningOutcomes));
         if (cols.has('resources')) cells.push(esc(w.learningResources));
         if (cols.has('assessment')) cells.push(esc(w.assessmentMethods));
-        if (cols.has('corePV')) cells.push(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | ')));
+        if (cols.has('corePV')) cells.push(esc([w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | ')));
         if (cols.has('reflection')) cells.push(esc(w.reflectionNotes));
         return `<tr>${cells.map((c) => td(c)).join('')}</tr>`;
       }
 
       // Each lesson is its own row — Wk/Strand/Sub-Strand and the week-level columns
-      // (Resources/Assessment/CorePV/Reflection) are row-spanned down the week's rows
-      // instead of repeating on every lesson.
+      // (Resources/Assessment/Values-PCIs/Reflection) are row-spanned down the week's
+      // rows instead of repeating on every lesson.
       const weekSpanCell = (c: string) => `<td rowspan="${w.lessons.length}" style="border:1px solid #999;padding:6px;vertical-align:top;font-size:11px;white-space:pre-wrap">${c}</td>`;
       const resourcesCell = cols.has('resources') ? weekSpanCell(esc(w.learningResources)) : '';
       const assessmentCell = cols.has('assessment') ? weekSpanCell(esc(w.assessmentMethods)) : '';
-      const corePVCell = cols.has('corePV') ? weekSpanCell(esc([w.coreCompetencies?.join(', '), w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | '))) : '';
+      const valuesPCICell = cols.has('corePV') ? weekSpanCell(esc([w.values?.join(', '), w.pertinentIssues].filter(Boolean).join(' | '))) : '';
       const reflectionCell = cols.has('reflection') ? weekSpanCell(esc(w.reflectionNotes)) : '';
 
       return w.lessons.map((lesson, i) => {
@@ -336,11 +337,11 @@ export class SchemeService {
         } else {
           rowCells.push(td(esc(lessonLabel)));
         }
+        rowCells.push(td(esc(lesson.specificLearningOutcomes)));
         if (cols.has('keyInquiry')) rowCells.push(td(esc(lesson.keyInquiryQuestions)));
         if (cols.has('learningExperiences')) rowCells.push(td(esc(lesson.learningExperiences)));
-        rowCells.push(td(esc(lesson.specificLearningOutcomes)));
         if (i === 0) {
-          rowCells.push(resourcesCell, assessmentCell, corePVCell, reflectionCell);
+          rowCells.push(resourcesCell, assessmentCell, valuesPCICell, reflectionCell);
         }
         return `<tr>${rowCells.join('')}</tr>`;
       }).join('');

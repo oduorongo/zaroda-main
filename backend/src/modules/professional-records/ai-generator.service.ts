@@ -153,7 +153,9 @@ export class AiGeneratorService {
     const termLabel = params.term.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const cols = new Set(params.columns?.length ? params.columns : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection']);
     const wantReflection = cols.has('reflection');
-    const wantCorePV = cols.has('corePV');
+    // Core Competencies belong on the Lesson Plan, not the Scheme of Work — this
+    // toggle now only covers Values and PCIs at the scheme level.
+    const wantValuesPCI = cols.has('corePV');
     const specialWeeks = (params.specialWeeks || []).filter(w => w?.week && w?.label);
     const title = `Scheme of Work — ${params.subjectName} ${grade} ${termLabel} ${params.academicYear}`;
 
@@ -197,7 +199,8 @@ response stays short:
 1. Follow the KICD ${params.subjectName} syllabus for ${grade} exactly
 2. Continue distributing strands and sub-strands appropriately — do not repeat what earlier weeks already covered
 3. Each week's specificLearningOutcomes: clear, measurable, week-level summary, opening with
-   "${sloOpeningPhrase(params.subjectName, 'week')}" (max ~40 words)
+   "${sloOpeningPhrase(params.subjectName, 'week')}", and covering all three learning domains —
+   Knowledge, Skill, and Attitude (max ~40 words)
 4. keyInquiryQuestions: 1-2 short questions (max ~30 words)
 5. learningExperiences: week-level summary of activities (max ~40 words)
 6. learningResources / assessmentMethods: short lists, not paragraphs (max ~20 words each). Describe
@@ -206,9 +209,9 @@ response stays short:
 ${start === 1 ? '7. Week 1 should include orientation/introduction activities' : ''}
 ${end === params.totalWeeks ? '8. The final week should include revision/consolidation' : ''}
 9. Use authentic Kenyan contexts, examples, and resources
-${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs, max ~15 words).' : ''}
+${wantValuesPCI ? '10. For each week, also select relevant Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity) and Pertinent & Contemporary Issues (PCIs, max ~15 words). Do NOT include Core Competencies here — those belong on the Lesson Plan only.' : ''}
 ${chunkSpecialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${chunkSpecialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, set "lessons" to an empty array, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
-12. For every TEACHING week (not a non-teaching week listed above), also break the week down into exactly ${lessonsPerWeek} entries in a "lessons" array — one per lesson slot, in order. ${doubleSlots.length ? `Lesson slot(s) ${doubleSlots.join(', ')} must have "isDouble": true and cover proportionally more content (2 periods' worth); all others "isDouble": false.` : 'None of them are double lessons.'} Each lesson's specificLearningOutcomes (max ~25 words) / keyInquiryQuestions (max ~20 words) / learningExperiences (max ~30 words) should be that single lesson's actual content (progressing across the week), not a repeat of the week-level summary.
+12. For every TEACHING week (not a non-teaching week listed above), also break the week down into exactly ${lessonsPerWeek} entries in a "lessons" array — one per lesson slot, in order. ${doubleSlots.length ? `Lesson slot(s) ${doubleSlots.join(', ')} must have "isDouble": true and cover proportionally more content (2 periods' worth); all others "isDouble": false.` : 'None of them are double lessons.'} Each lesson's specificLearningOutcomes (max ~25 words, covering Knowledge, Skill, and Attitude) / keyInquiryQuestions (max ~20 words) / learningExperiences (max ~30 words) should be that single lesson's actual content (progressing across the week), not a repeat of the week-level summary.
 
 Generate ONLY weeks ${start} through ${end} (that's ${end - start + 1} week object(s) — no more, no fewer).
 
@@ -225,7 +228,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
       "learningResources": "Coursebook, charts, realia, digital aids — no page numbers...",
       "assessmentMethods": "Observation, oral questions, written exercise",
       "periods": ${params.periodsPerWeek},
-      "remarks": ""${wantReflection ? ',\n      "reflectionNotes": "Leave as an empty string — filled in by the teacher after delivery"' : ''}${wantCorePV ? ',\n      "coreCompetencies": ["..."],\n      "values": ["..."],\n      "pertinentIssues": "..."' : ''},
+      "remarks": ""${wantReflection ? ',\n      "reflectionNotes": "Leave as an empty string — filled in by the teacher after delivery"' : ''}${wantValuesPCI ? ',\n      "values": ["..."],\n      "pertinentIssues": "..."' : ''},
       "lessons": [
         { "lessonNumber": 1, "isDouble": false, "specificLearningOutcomes": "${sloOpeningPhrase(params.subjectName, 'LESSON')} ...", "keyInquiryQuestions": "...", "learningExperiences": "What learners actually do in this specific lesson..." }
       ]
@@ -300,7 +303,8 @@ REQUIREMENTS — keep every field concise and usable, not padded (approximate wo
 whole response stays short:
 1. specificLearningOutcomes MUST open with "${sloOpeningPhrase(params.subjectName, 'LESSON')}" (in whichever
    language this lesson is being written in — see LANGUAGE above) — never "by the end of the week/term".
-   Narrow the source SLOs to only what fits in this one lesson's duration.
+   Cover all three learning domains — Knowledge, Skill, and Attitude. Narrow the source SLOs to only
+   what fits in this one lesson's duration.
 2. Follow KICD CBC lesson plan format exactly
 3. Introduction (5–10 min): induction + link to prior learning + key inquiry question (max ~80 words)
 4. Lesson Development (main activity, 25–30 min): learner-centred, activity-based (max ~200 words)
