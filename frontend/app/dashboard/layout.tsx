@@ -145,10 +145,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   toast((t) => (
                     <div className="text-sm">
                       <div className="font-semibold text-theme-heading">This needs a school account</div>
-                      <div className="text-xs text-theme-muted mt-0.5 mb-2">Your individual account only includes Professional Records. Sign up your school to unlock the rest.</div>
-                      <button onClick={() => { router.push('/auth/signup'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign up your school →</button>
+                      <div className="text-xs text-theme-muted mt-0.5 mb-2">Your individual account only includes Professional Records. Sign up your school to unlock the rest — or sign in if you already have a Zaroda school account.</div>
+                      <div className="flex gap-3">
+                        <button onClick={() => { router.push('/auth/signup'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign up your school →</button>
+                        <button onClick={() => { router.push('/auth/login'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign in →</button>
+                      </div>
                     </div>
-                  ), { duration: 6000 });
+                  ), { duration: 8000 });
                   return;
                 }
                 setSidebarOpen(false);

@@ -348,7 +348,7 @@ export default function ProfessionalRecordsPage() {
       <div className="page-header">
         <div>
           <h1 className="text-2xl font-black text-theme-heading">Professional Records</h1>
-          <p className="text-sm text-theme-muted">AI-generated · KICD CBC aligned · HOI approval workflow</p>
+          <p className="text-sm text-theme-muted">AI-generated · CBE KICD aligned · HOI approval workflow</p>
         </div>
         {canGenerate && !openScheme && (
           <div className="flex items-center gap-3">
