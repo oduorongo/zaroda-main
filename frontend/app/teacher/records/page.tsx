@@ -13,7 +13,7 @@ export default function TeacherRecords() {
     <div className="space-y-5">
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-black text-theme-heading">Schemes &amp; Records</h1>
+          <h1 className="text-2xl font-black text-theme-heading">Professional Records</h1>
           <p className="text-sm text-theme-muted">AI-powered professional documents for your teaching</p>
         </div>
       </div>
