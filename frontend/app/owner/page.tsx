@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRight, ShieldCheck, Layers } from 'lucide-react';
+import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRight, ShieldCheck, Layers, UserCircle, Sparkles } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 
@@ -11,6 +11,7 @@ export default function OwnerDashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const [stats, setStats]     = useState<any>(null);
+  const [prCosts, setPrCosts] = useState<any>(null);
   const [schools, setSchools] = useState<any[]>([]);
   const [search, setSearch]   = useState('');
   const [ownershipFilter, setOwnershipFilter] = useState<''|'public'|'private'>('');
@@ -96,9 +97,11 @@ export default function OwnerDashboard() {
       apiClient.get('/admin/tenants', {
         params: { search, ownership: ownershipFilter || undefined, accountType },
       }).catch(() => ({ data: { data: [] } })),
-    ]).then(([s, t]) => {
+      apiClient.get('/admin/professional-records-costs').catch(() => ({ data: null })),
+    ]).then(([s, t, c]) => {
       setStats(s.data || {});
       setSchools(t.data?.data || []);
+      setPrCosts(c.data?.error ? null : c.data);
     }).finally(() => setLoading(false));
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [ownershipFilter, accountType]);
@@ -137,6 +140,7 @@ export default function OwnerDashboard() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
                 { label: 'Schools',   value: stats?.totalTenants ?? 0,    icon: Building2,     sub: `${stats?.activeTenants ?? 0} active · ${stats?.trialTenants ?? 0} trial` },
+                { label: 'Individual Accounts', value: stats?.individualTenants ?? 0, icon: UserCircle, sub: 'teachers without a school tenant' },
                 { label: 'Suspended', value: stats?.suspendedTenants ?? 0, icon: Activity },
                 { label: 'Learners',  value: stats?.totalLearners ?? 0,    icon: GraduationCap },
                 { label: 'Users',     value: stats?.totalUsers ?? 0,       icon: Users },
@@ -152,6 +156,34 @@ export default function OwnerDashboard() {
                 </div>
               ))}
             </div>
+
+            {prCosts && (
+              <div className="card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={16} className="text-theme-muted"/>
+                  <span className="text-sm font-bold text-theme-heading">Professional Records — AI cost vs wallet revenue</span>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Generated</div>
+                    <div className="text-sm font-semibold text-theme-heading">{prCosts.schemeCount} schemes · {prCosts.planCount} plans · {prCosts.notesCount} notes</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Output Tokens</div>
+                    <div className="text-sm font-semibold text-theme-heading">{(prCosts.schemeOutputTokens + prCosts.haikuOutputTokens).toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Est. AI Cost (output only)</div>
+                    <div className="text-sm font-semibold text-theme-heading">KES {prCosts.estimatedOutputCostKes}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Wallet Revenue Collected</div>
+                    <div className="text-sm font-semibold text-theme-heading">KES {prCosts.walletRevenueKes} <span className={prCosts.marginKes >= 0 ? 'text-green-600' : 'text-red-600'}>({prCosts.marginKes >= 0 ? '+' : ''}{prCosts.marginKes} margin)</span></div>
+                  </div>
+                </div>
+                <p className="text-[11px] text-theme-muted mt-3">{prCosts.note}</p>
+              </div>
+            )}
 
             {/* Charts: school status + subscription tier + category breakdown — meaningless
                 for individual accounts (always the same tier/category), so schools-only. */}
