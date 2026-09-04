@@ -6,7 +6,7 @@ import { Tenant } from '../auth/entities/tenant.entity';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateSchemeDto, ReviewRecordDto } from './dto';
-import { documentShell } from './document-render.util';
+import { documentShell, isKiswahiliSubject, label } from './document-render.util';
 
 @Injectable()
 export class SchemeService {
@@ -264,21 +264,24 @@ export class SchemeService {
   // print-to-PDF flow and the Word (.doc) download — same HTML either way.
   async renderHtml(tenantId: string, schemeId: string, fontOverride?: string, wordSafe?: boolean): Promise<string> {
     const scheme = await this.findOne(tenantId, schemeId);
+    const subject = await this.subjectRepo.findOne({ where: { id: scheme.subjectId } });
+    const kiswahili = isKiswahiliSubject(subject?.name);
     const weeks = [...(scheme.weeks || [])].sort((a, b) => a.weekNumber - b.weekNumber);
     const cols = new Set(scheme.columns?.length ? scheme.columns : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection']);
     const font = fontOverride || scheme.defaultFont || 'Times New Roman';
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const grade = String(scheme.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const term = String(scheme.term || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const L = (s: string) => label(s, kiswahili);
 
-    const headCols: string[] = ['Wk', 'Lesson', 'Strand', 'Sub-Strand'];
-    if (cols.has('keyInquiry')) headCols.push('Key Inquiry Questions');
-    if (cols.has('learningExperiences')) headCols.push('Learning Experiences');
-    headCols.push('SLOs');
-    if (cols.has('resources')) headCols.push('Resources');
-    if (cols.has('assessment')) headCols.push('Assessment');
-    if (cols.has('corePV')) headCols.push('Core Competencies / Values / PCIs');
-    if (cols.has('reflection')) headCols.push('Reflection');
+    const headCols: string[] = [L('Wk'), L('Lesson'), L('Strand'), L('Sub-Strand')];
+    if (cols.has('keyInquiry')) headCols.push(L('Key Inquiry Questions'));
+    if (cols.has('learningExperiences')) headCols.push(L('Learning Experiences'));
+    headCols.push(L('SLOs'));
+    if (cols.has('resources')) headCols.push(L('Resources'));
+    if (cols.has('assessment')) headCols.push(L('Assessment'));
+    if (cols.has('corePV')) headCols.push(L('Core Competencies / Values / PCIs'));
+    if (cols.has('reflection')) headCols.push(L('Reflection'));
     const totalCols = headCols.length;
 
     const td = (c: string, extra = '') =>
@@ -344,8 +347,8 @@ export class SchemeService {
     }).join('');
 
     const headerHtml =
-      `<div><b>School:</b> ${esc(scheme.schoolName || '')} &nbsp; <b>Teacher:</b> ${esc(scheme.teacherName || '')} ${scheme.tscNumber ? `&nbsp; <b>TSC No:</b> ${esc(scheme.tscNumber)}` : ''}</div>` +
-      `<div><b>Grade:</b> ${esc(grade)} &nbsp; <b>Term:</b> ${esc(term)} &nbsp; <b>Year:</b> ${esc(scheme.academicYear)} ${scheme.curriculumEdition ? `&nbsp; <b>Curriculum:</b> ${esc(scheme.curriculumEdition)}` : ''}</div>`;
+      `<div><b>${L('School')}:</b> ${esc(scheme.schoolName || '')} &nbsp; <b>${L('Teacher')}:</b> ${esc(scheme.teacherName || '')} ${scheme.tscNumber ? `&nbsp; <b>${L('TSC No')}:</b> ${esc(scheme.tscNumber)}` : ''}</div>` +
+      `<div><b>${L('Grade')}:</b> ${esc(grade)} &nbsp; <b>${L('Term')}:</b> ${esc(term)} &nbsp; <b>${L('Year')}:</b> ${esc(scheme.academicYear)} ${scheme.curriculumEdition ? `&nbsp; <b>${L('Curriculum')}:</b> ${esc(scheme.curriculumEdition)}` : ''}</div>`;
     const bodyHtml = `<table><thead><tr>${headCols.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
 
     return documentShell({
@@ -354,7 +357,7 @@ export class SchemeService {
       schoolName: scheme.schoolName || '',
       headerHtml,
       bodyHtml,
-      footerHtml: `<div>Prepared by: ${esc(scheme.teacherName || '_______________________')}</div><div>${esc(scheme.signOffLine || 'Checked by D.H.O.I.')}: _______________________</div>`,
+      footerHtml: `<div>${L('Prepared by')}: ${esc(scheme.teacherName || '_______________________')}</div><div>${esc(scheme.signOffLine || label('Checked by D.H.O.I.', kiswahili))}: _______________________</div>`,
       landscape: true,
       wordSafe,
     });

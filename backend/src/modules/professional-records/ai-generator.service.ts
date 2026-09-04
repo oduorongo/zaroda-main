@@ -2,6 +2,16 @@
 // Core Claude AI generation engine for Professional Records
 // ============================================================
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { isKiswahiliSubject } from './document-render.util';
+
+// Kiswahili is taught IN Kiswahili — every generated field (SLOs, content, questions,
+// etc.) should be written in the language, not just about it. English stays for every
+// other subject, including when Kiswahili is a medium-of-instruction note elsewhere.
+function languageInstruction(subjectName: string): string {
+  return isKiswahiliSubject(subjectName)
+    ? '\nLANGUAGE: This is a Kiswahili lesson — write EVERY generated field (outcomes, questions, content, activities, vocabulary, etc.) in the KISWAHILI LANGUAGE, not English. Keep JSON keys in English exactly as specified below; only the values change.\n'
+    : '';
+}
 
 // Scheme of Work needs a full term of curriculum reasoning — kept on Sonnet.
 // Lesson plans/notes/progress are short, formulaic, single-shot generations —
@@ -160,7 +170,7 @@ export class AiGeneratorService {
         : '';
 
       const prompt = `You are a KICD-certified curriculum expert generating a CBC/CBE-aligned Scheme of Work for Kenyan schools.
-
+${languageInstruction(params.subjectName)}
 CONTEXT:
 - Subject: ${params.subjectName}
 - Grade Level: ${grade}
@@ -257,7 +267,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
     const grade = params.gradeLevel.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
     const prompt = `You are a KICD-certified Kenyan teacher generating a detailed CBC/CBE lesson plan.
-
+${languageInstruction(params.subjectName)}
 LESSON CONTEXT:
 - Subject: ${params.subjectName}
 - Grade: ${grade}
@@ -329,7 +339,7 @@ Return ONLY valid JSON, no markdown fences, every field a plain string/array kep
 
     const prompt = `You are a KICD-certified Kenyan teacher writing lesson notes in the official KICD
 Lesson Notes format.
-
+${languageInstruction(params.subjectName)}
 LESSON INFO:
 - Subject: ${params.subjectName}, ${grade}
 - Strand: ${params.strand} / ${params.subStrand}
@@ -387,7 +397,7 @@ Return ONLY valid JSON, no markdown fences, every field a plain string kept with
       .join('\n');
 
     const prompt = `You are a CBC-trained Kenyan teacher recording learner progress.
-
+${languageInstruction(params.subjectName)}
 ASSESSMENT CONTEXT:
 - Subject: ${params.subjectName}, ${grade}
 - Strand: ${params.strand}

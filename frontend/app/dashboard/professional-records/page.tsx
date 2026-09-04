@@ -237,13 +237,24 @@ export default function ProfessionalRecordsPage() {
         curriculumEdition: form.curriculumEdition || undefined,
         columns: selectedColumns,
         defaultFont: form.font,
-      }, { timeout: 120000 }); // AI generation for a full-term scheme can take well over the default 30s
+      }, { timeout: 300000 }); // a full-term scheme is generated in several sequential AI calls (2 weeks at a time) and can take minutes
       toast.success(`Scheme of work generated (KES ${ITEM_PRICES.scheme} deducted from wallet). Review and submit when ready.`);
       setShowNewScheme(false);
       load();
       loadWallet();
       if (gen?.schemeId) exportScheme(gen.schemeId, form.format, form.font);
-    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not generate scheme.'); }
+    } catch (err: any) {
+      // A client-side timeout doesn't mean generation failed server-side — it may
+      // well have completed after the response took too long to come back. Refresh
+      // the list/wallet so a successful generation shows up instead of looking lost.
+      if (err?.code === 'ECONNABORTED') {
+        toast.error('Taking longer than expected — check the Schemes list, it may have completed.');
+        load();
+        loadWallet();
+      } else {
+        toast.error(err?.response?.data?.message || 'Could not generate scheme.');
+      }
+    }
     finally { setGenerating(false); }
   };
 

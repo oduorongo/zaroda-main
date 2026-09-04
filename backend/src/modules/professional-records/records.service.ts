@@ -9,7 +9,7 @@ import { Learner } from '../academic/academic.module';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateLessonNotesDto, RecordWorkCoveredDto, GenerateLearnerProgressDto } from './dto';
-import { documentShell, escHtml } from './document-render.util';
+import { documentShell, escHtml, isKiswahiliSubject, label as translate } from './document-render.util';
 
 @Injectable()
 export class RecordsService {
@@ -176,6 +176,7 @@ export class RecordsService {
     if (!notes) throw new NotFoundException('Lesson notes not found');
     const scheme = await this.resolveNoteScheme(tenantId, notes);
     const subject = await this.subjRepo.findOne({ where: { id: notes.subjectId } });
+    const kiswahili = isKiswahiliSubject(subject?.name);
     const week = notes.schemeWeekId
       ? await this.weekRepo.findOne({ where: { id: notes.schemeWeekId } })
       : (notes.lessonPlanId ? await this.planRepo.findOne({ where: { id: notes.lessonPlanId } }) : null);
@@ -183,8 +184,9 @@ export class RecordsService {
     const grade = String(notes.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const term = scheme?.term ? String(scheme.term).replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
     const weekNumber = (week as any)?.weekNumber ?? (week as any)?.lessonNumber ?? '';
+    const L = (s: string) => translate(s, kiswahili);
 
-    const lbl = (s: string) => `<td style="border:1px solid #999;padding:5px;font-size:11px;font-weight:bold;background:#f0f0f0;white-space:nowrap">${escHtml(s)}</td>`;
+    const lbl = (s: string) => `<td style="border:1px solid #999;padding:5px;font-size:11px;font-weight:bold;background:#f0f0f0;white-space:nowrap">${escHtml(L(s))}</td>`;
     const val = (v: any, colspan = 1) => `<td colspan="${colspan}" style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(v || '')}</td>`;
 
     const headerGrid = `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
@@ -216,9 +218,9 @@ export class RecordsService {
       headerHtml: '',
       bodyHtml: headerGrid + bodyHtml,
       footerHtml: variant === 'learner'
-        ? `<div>Name: ________________________</div><div>Class: ________________________</div>`
-        : `<div>Teacher: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; Sign: ________ &nbsp; Date: ________</div>` +
-          `<div>Checked by D.H.O.I.: ________ &nbsp; Sign: ________ &nbsp; Date: ________</div>`,
+        ? `<div>${L('Name')}: ________________________</div><div>${L('Class')}: ________________________</div>`
+        : `<div>${L('Teacher')}: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>` +
+          `<div>${L('Checked by D.H.O.I.')}: ________ &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>`,
       wordSafe,
     });
   }

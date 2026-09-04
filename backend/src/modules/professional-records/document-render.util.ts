@@ -4,6 +4,79 @@ export function escHtml(s: any): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// A Kiswahili document (schemes, lesson plans, notes) should have its labels/column
+// titles in Kiswahili too, not just the AI-generated content — the printed KICD grid
+// is bilingual across schools depending on the learning area, and this is the one we
+// control. Matches "Kiswahili" as a whole subject name, not a substring of something else.
+export function isKiswahiliSubject(subjectName?: string | null): boolean {
+  return /\bkiswahili\b/i.test(String(subjectName || ''));
+}
+
+// English -> Kiswahili label glossary for every field/column title used across the
+// three document templates. Falls back to the English key itself if untranslated.
+const SW_LABELS: Record<string, string> = {
+  'School': 'Shule',
+  'Learning Area': 'Eneo la Kujifunza',
+  'Grade': 'Darasa',
+  'Date': 'Tarehe',
+  'Time': 'Muda',
+  'Roll': 'Idadi ya Wanafunzi',
+  'Week': 'Wiki',
+  'Wk': 'Wiki',
+  'Lesson': 'Somo',
+  'Lesson No.': 'Somo Na.',
+  'Duration': 'Muda',
+  'Term': 'Muhula',
+  'Year': 'Mwaka',
+  'Curriculum': 'Mtaala',
+  'Strand': 'Mada Kuu',
+  'Sub-Strand': 'Mada Ndogo',
+  'Specific Learning Outcomes': 'Matokeo Mahususi ya Kujifunza',
+  'Specific Learning Outcomes Covered': 'Matokeo Mahususi ya Kujifunza Yaliyoshughulikiwa',
+  'SLOs': 'Matokeo ya Kujifunza',
+  'Key Inquiry Question(s)': 'Swali/Maswali Muhimu ya Uchunguzi',
+  'Key Inquiry Questions': 'Maswali Muhimu ya Uchunguzi',
+  'Learning Resources': 'Nyenzo za Kujifunzia',
+  'Learning Experiences': 'Uzoefu wa Kujifunza',
+  'Resources': 'Nyenzo',
+  'Assessment': 'Tathmini',
+  'Core Competencies / Values / PCIs': 'Umahiri wa Msingi / Maadili / Masuala Mtambuka',
+  'Reflection': 'Tafakari',
+  'Organisation of Learning': 'Mpangilio wa Kujifunza',
+  'Teacher Activities': 'Shughuli za Mwalimu',
+  'Learner Activities': 'Shughuli za Mwanafunzi',
+  'Introduction': 'Utangulizi',
+  'Lesson Development': 'Ukuzaji wa Somo',
+  'Conclusion': 'Hitimisho',
+  'Extended Activities': 'Shughuli za Ziada',
+  'Core Competencies': 'Umahiri wa Msingi',
+  'Values': 'Maadili',
+  'PCIs': 'Masuala Mtambuka',
+  'Links to Other Learning Areas': 'Uhusiano na Maeneo Mengine ya Kujifunza',
+  'Reflection / Self-Evaluation': 'Tafakari / Tathmini Binafsi',
+  'Introduction (concept framing / link to previous learning)': 'Utangulizi (dhana na uhusiano na mafunzo yaliyopita)',
+  'Content': 'Maudhui',
+  'Key Vocabulary': 'Msamiati Muhimu',
+  'Summary': 'Muhtasari',
+  'Review Questions (with answers)': 'Maswali ya Mapitio (na Majibu)',
+  'References': 'Marejeleo',
+  'Teacher': 'Mwalimu',
+  'TSC No': 'Na. ya TSC',
+  'Prepared by': 'Imeandaliwa na',
+  'Checked by D.H.O.I.': 'Imekaguliwa na D.H.O.I.',
+  'Checked by': 'Imekaguliwa na',
+  'Sign': 'Sahihi',
+  'Support': 'Msaada',
+  'Stage': 'Hatua',
+  'Topic': 'Mada',
+  'Name': 'Jina',
+  'Class': 'Darasa',
+};
+
+export function label(text: string, kiswahili: boolean): string {
+  return kiswahili ? (SW_LABELS[text] || text) : text;
+}
+
 // A transparent, tiled watermark of the school name on every page — so a generated
 // document can't be handed to a teacher at another school without the origin school
 // being visibly stamped across it.
@@ -50,9 +123,6 @@ export function documentShell(opts: {
   .meta div{margin-bottom:2px}
   table{border-collapse:collapse;width:100%}
   th{border:1px solid #999;padding:6px;font-size:11px;background:#f0f0f0;text-align:left}
-  .field{margin-bottom:12px}
-  .field .label{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:.4px;color:#333}
-  .field .value{font-size:13px;white-space:pre-wrap;margin-top:2px}
   .sig{margin-top:36px;font-size:12px;display:flex;justify-content:space-between}
   .doc-content{position:relative;z-index:1}
   @media print{@page{size:${opts.landscape ? 'landscape' : 'portrait'};margin:12mm}}
@@ -69,8 +139,3 @@ export function documentShell(opts: {
 </body></html>`;
 }
 
-export function field(label: string, value: any): string {
-  if (!value || (Array.isArray(value) && value.length === 0)) return '';
-  const v = Array.isArray(value) ? value.join(', ') : value;
-  return `<div class="field"><div class="label">${escHtml(label)}</div><div class="value">${escHtml(v)}</div></div>`;
-}

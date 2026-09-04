@@ -5,7 +5,7 @@ import { LessonPlan, SchemeOfWork, SchemeWeek, SubjectCatalogue, PrAudit } from 
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
 import { GenerateLessonPlanDto, ReviewRecordDto } from './dto';
-import { documentShell, escHtml } from './document-render.util';
+import { documentShell, escHtml, isKiswahiliSubject, label as translate } from './document-render.util';
 
 @Injectable()
 export class LessonPlanService {
@@ -135,12 +135,13 @@ export class LessonPlanService {
     const plan = await this.findOne(tenantId, planId);
     const scheme = await this.schemeRepo.findOne({ where: { id: plan.schemeId, tenantId } });
     const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
+    const kiswahili = isKiswahiliSubject(subject?.name);
     const font = fontOverride || scheme?.defaultFont || 'Times New Roman';
     const grade = String(plan.gradeLevel || '').replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const L = (s: string) => translate(s, kiswahili);
 
-    const lbl = (s: string) => `<td style="border:1px solid #999;padding:5px;font-size:11px;font-weight:bold;background:#f0f0f0;white-space:nowrap">${escHtml(s)}</td>`;
+    const lbl = (s: string) => `<td style="border:1px solid #999;padding:5px;font-size:11px;font-weight:bold;background:#f0f0f0;white-space:nowrap">${escHtml(L(s))}</td>`;
     const val = (v: any, colspan = 1) => `<td colspan="${colspan}" style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(v || '')}</td>`;
-    const sectionLabel = (s: string) => `<tr>${lbl(s)}${val('', 5)}</tr>`;
 
     const headerGrid = `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
       <tr>${lbl('School')}${val(scheme?.schoolName)}${lbl('Learning Area')}${val(subject?.name)}${lbl('Grade')}${val(grade)}</tr>
@@ -159,16 +160,16 @@ export class LessonPlanService {
     const stage = (name: string, teacher: string, learner: string) =>
       `<tr>${lbl(name)}<td style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(teacher)}</td><td style="border:1px solid #999;padding:5px;font-size:11px;white-space:pre-wrap">${escHtml(learner)}</td></tr>`;
 
-    const organisationGrid = `<div style="font-size:12px;font-weight:bold;margin:6px 0 2px">Organisation of Learning</div>
+    const organisationGrid = `<div style="font-size:12px;font-weight:bold;margin:6px 0 2px">${escHtml(L('Organisation of Learning'))}</div>
     <table style="border-collapse:collapse;width:100%;margin-bottom:8px">
-      <tr>${lbl('Stage')}<th style="border:1px solid #999;padding:5px;font-size:11px;background:#f0f0f0">Teacher Activities</th><th style="border:1px solid #999;padding:5px;font-size:11px;background:#f0f0f0">Learner Activities</th></tr>
+      <tr>${lbl('Stage')}<th style="border:1px solid #999;padding:5px;font-size:11px;background:#f0f0f0">${escHtml(L('Teacher Activities'))}</th><th style="border:1px solid #999;padding:5px;font-size:11px;background:#f0f0f0">${escHtml(L('Learner Activities'))}</th></tr>
       ${stage('Introduction', '', plan.introduction)}
       ${stage('Lesson Development', '', plan.lessonDevelopment)}
       ${stage('Conclusion', '', plan.conclusion)}
     </table>`;
 
     const tailGrid = `<table style="border-collapse:collapse;width:100%">
-      <tr>${lbl('Extended Activities')}${val([plan.extendedActivities, plan.supportActivities ? `Support: ${plan.supportActivities}` : ''].filter(Boolean).join(' — '), 5)}</tr>
+      <tr>${lbl('Extended Activities')}${val([plan.extendedActivities, plan.supportActivities ? `${L('Support')}: ${plan.supportActivities}` : ''].filter(Boolean).join(' — '), 5)}</tr>
       <tr>${lbl('Core Competencies')}<td style="border:1px solid #999;padding:5px;font-size:11px">${escHtml((plan.coreCompetencies || []).join(', '))}</td>${lbl('Values')}<td style="border:1px solid #999;padding:5px;font-size:11px">${escHtml((plan.values || []).join(', '))}</td>${lbl('PCIs')}<td style="border:1px solid #999;padding:5px;font-size:11px">${escHtml(plan.pertinentIssues)}</td></tr>
       <tr>${lbl('Links to Other Learning Areas')}${val(plan.linkToOtherSubjects, 5)}</tr>
       <tr>${lbl('Assessment')}${val(plan.assessment, 5)}</tr>
@@ -183,8 +184,8 @@ export class LessonPlanService {
       schoolName: scheme?.schoolName || '',
       headerHtml: '',
       bodyHtml,
-      footerHtml: `<div>Teacher: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; Sign: ________ &nbsp; Date: ________</div>` +
-        `<div>Checked by D.H.O.I.: ________ &nbsp; Sign: ________ &nbsp; Date: ________</div>`,
+      footerHtml: `<div>${L('Teacher')}: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>` +
+        `<div>${L('Checked by D.H.O.I.')}: ________ &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>`,
       wordSafe,
     });
   }
