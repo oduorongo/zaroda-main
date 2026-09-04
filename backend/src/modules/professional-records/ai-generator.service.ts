@@ -145,9 +145,10 @@ export class AiGeneratorService {
     // how large a max_tokens budget we ask for. Generating in small week-range chunks
     // keeps each response short enough to always finish, at the cost of a few extra
     // (cheap, Sonnet) calls — the wallet only charges once per scheme either way.
-    // Smaller than before (was 5) because each week's JSON is now heavier — it carries
-    // a per-lesson breakdown in addition to the week-level summary.
-    const CHUNK_SIZE = 3;
+    // Smaller than before (was 5, then 3) because each week's JSON is now heavier — it
+    // carries a per-lesson breakdown (up to periodsPerWeek entries) in addition to the
+    // week-level summary.
+    const CHUNK_SIZE = 2;
     const weeks: SchemeWeekData[] = [];
     let totalTokens = 0;
 
@@ -171,19 +172,20 @@ CONTEXT:
 ${params.strandFocus?.length ? `- Priority Strands: ${params.strandFocus.join(', ')}` : ''}
 ${chunkSpecialWeeks.length ? `- Non-teaching weeks in this range (mid-term breaks, summative assessments, exams — no new curriculum content): ${chunkSpecialWeeks.map(w => `Week ${w.week} = ${w.label}`).join('; ')}` : ''}
 ${priorContext}
-REQUIREMENTS:
+REQUIREMENTS — keep every field concise (approximate word limits below), not padded, so the whole
+response stays short:
 1. Follow the KICD ${params.subjectName} syllabus for ${grade} exactly
 2. Continue distributing strands and sub-strands appropriately — do not repeat what earlier weeks already covered
-3. Each week must have clear, measurable Specific Learning Outcomes (SLOs)
-4. Include Key Inquiry Questions that stimulate critical thinking
-5. Learning experiences must be learner-centred and activity-based (CBC approach)
-6. Assessment methods must align with CBC formative assessment principles
+3. Each week's specificLearningOutcomes: clear, measurable, week-level summary (max ~40 words)
+4. keyInquiryQuestions: 1-2 short questions (max ~30 words)
+5. learningExperiences: week-level summary of activities (max ~40 words)
+6. learningResources / assessmentMethods: short lists, not paragraphs (max ~20 words each)
 ${start === 1 ? '7. Week 1 should include orientation/introduction activities' : ''}
 ${end === params.totalWeeks ? '8. The final week should include revision/consolidation' : ''}
 9. Use authentic Kenyan contexts, examples, and resources
-${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs).' : ''}
+${wantCorePV ? '10. For each week, also select relevant Core Competencies (e.g. Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy), Values (e.g. Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity), and Pertinent & Contemporary Issues (PCIs, max ~15 words).' : ''}
 ${chunkSpecialWeeks.length ? `11. For every week listed above as non-teaching, set both "strand" and "subStrand" to that week's exact label, set "specificLearningOutcomes" to "N/A — ${chunkSpecialWeeks.map(w=>w.label).join('/')}", leave "keyInquiryQuestions"/"learningExperiences"/"learningResources"/"assessmentMethods" empty, set "lessons" to an empty array, and do NOT plan any new curriculum content into that week — shift the affected teaching into the remaining weeks instead.` : ''}
-12. For every TEACHING week (not a non-teaching week listed above), also break the week down into exactly ${lessonsPerWeek} entries in a "lessons" array — one per lesson slot, in order. ${doubleSlots.length ? `Lesson slot(s) ${doubleSlots.join(', ')} must have "isDouble": true and cover proportionally more content (2 periods' worth); all others "isDouble": false.` : 'None of them are double lessons.'} Each lesson's specificLearningOutcomes/keyInquiryQuestions/learningExperiences should be that single lesson's actual content (progressing across the week), not a repeat of the week-level summary.
+12. For every TEACHING week (not a non-teaching week listed above), also break the week down into exactly ${lessonsPerWeek} entries in a "lessons" array — one per lesson slot, in order. ${doubleSlots.length ? `Lesson slot(s) ${doubleSlots.join(', ')} must have "isDouble": true and cover proportionally more content (2 periods' worth); all others "isDouble": false.` : 'None of them are double lessons.'} Each lesson's specificLearningOutcomes (max ~25 words) / keyInquiryQuestions (max ~20 words) / learningExperiences (max ~30 words) should be that single lesson's actual content (progressing across the week), not a repeat of the week-level summary.
 
 Generate ONLY weeks ${start} through ${end} (that's ${end - start + 1} week object(s) — no more, no fewer).
 
@@ -208,7 +210,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
   ]
 }`;
 
-      const response = await this.callClaude(prompt, 6144, MODEL_SCHEME);
+      const response = await this.callClaude(prompt, 8192, MODEL_SCHEME);
       const parsed = this.parseJson(response.text, `Scheme of Work (weeks ${start}-${end})`, response.truncated);
       if (!parsed.weeks || !Array.isArray(parsed.weeks)) {
         throw new BadRequestException(`AI returned invalid scheme structure for weeks ${start}-${end}`);
