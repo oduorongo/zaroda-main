@@ -368,18 +368,23 @@ LESSON INFO:
 ${params.additionalContext ? `- Additional Context: ${params.additionalContext}` : ''}
 
 Generate concise, usable lesson notes a teacher can read straight off the page during delivery — thorough
-enough to teach from, but not padded. Fill these KICD template sections, keeping to the approximate word
-limits below so the response stays short:
-1. SLOs covered — restate the SLOs actually addressed (max ~50 words)
-2. Introduction — concept framing / link to previous learning (max ~60 words)
-3. Content — explanations, definitions, worked examples, organised by SLO (max ~300 words)
-4. Key vocabulary — new terms and their meanings, one per line (max ~80 words)
-5. Summary — consolidation of the main points (max ~60 words)
+enough to teach from, but not padded. WRITE IN POINT FORM THROUGHOUT, not prose/essay paragraphs — every
+section below (except Review Questions, which already has its own Q/A format) must be short bullet lines,
+each starting with "- " and separated by \\n, not flowing sentences joined into a paragraph. Keep to the
+approximate word limits below so the response stays short:
+1. SLOs covered — restate the SLOs actually addressed, one bullet per SLO (max ~50 words)
+2. Introduction — concept framing / link to previous learning, 2-3 bullets (max ~60 words)
+3. Content — explanations, definitions, worked examples, organised by SLO — one bullet per fact/step/
+   example, not paragraphs (max ~300 words)
+4. Key vocabulary — new terms and their meanings, one bullet per term (max ~80 words)
+5. Summary — consolidation of the main points, 2-3 bullets (max ~60 words)
 6. Review questions with answers — 3-4 short Q&A pairs, format "Q: ...\\nA: ..." per pair (max ~100 words)
-7. References — general book titles/course materials or digital sources, one per line, or "Not specified"
-   if none (max ~30 words). Never invent a specific page number — you cannot verify one and will get it wrong.
+7. References — general book titles/course materials or digital sources, one bullet per source, or
+   "Not specified" if none (max ~30 words). Never invent a specific page number — you cannot verify one
+   and will get it wrong.
 8. Learner content — the CONTENT section rewritten as a simple, plain-language handout a learner reads
-   themselves (short sentences, no teacher-only instructions, define any hard terms) (max ~200 words)
+   themselves — still point form, short bullets, no teacher-only instructions, define any hard terms
+   (max ~200 words)
 
 Return ONLY valid JSON, no markdown fences, every field a plain string kept within the limits above:
 {
