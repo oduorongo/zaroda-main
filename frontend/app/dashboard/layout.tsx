@@ -8,17 +8,25 @@ import {
   Bell, Menu, X, ChevronRight, Users, BarChart2,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
 } from 'lucide-react';
-import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 import { useTheme } from '@/lib/hooks/useTheme';
 import { ShareZaroda } from '@/components/ShareZaroda';
 import clsx from 'clsx';
+import toast from 'react-hot-toast';
+
+// Individual accounts (a teacher without a school tenant — see migration 043) have
+// no real school data behind any module except Professional Records, which they
+// pay for and use directly. Every other nav item exists (so the sidebar looks the
+// same for everyone) but reminds them to sign up a school instead of opening a
+// page with nothing in it.
+const INDIVIDUAL_ALLOWED_HREF = '/dashboard/professional-records';
 
 // ── Navigation definition ──────────────────────────────────
 const NAV_ITEMS = [
   { href: '/dashboard',                        icon: Home,         label: 'Dashboard',            roles: 'staff' },
-  { href: '/dashboard/teacher',                icon: GraduationCap,label: 'My Workspace',         roles: 'teacher_only' },
   { href: '/dashboard/professional-records',   icon: FileText,     label: 'Professional Records', roles: 'teacher', highlight: true },
+  { href: '/dashboard/teacher',                icon: GraduationCap,label: 'My Workspace',         roles: 'teacher_only' },
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
@@ -128,9 +136,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {navItems.map(item => {
           const Icon   = item.icon;
           const active = isActive(item.href);
+          const blocked = isIndividualAccount(user.accountType) && item.href !== INDIVIDUAL_ALLOWED_HREF;
           return (
-            <Link key={item.href} href={item.href}
-              onClick={() => setSidebarOpen(false)}
+            <Link key={item.href} href={blocked ? '#' : item.href}
+              onClick={(e) => {
+                if (blocked) {
+                  e.preventDefault();
+                  toast((t) => (
+                    <div className="text-sm">
+                      <div className="font-semibold text-theme-heading">This needs a school account</div>
+                      <div className="text-xs text-theme-muted mt-0.5 mb-2">Your individual account only includes Professional Records. Sign up your school to unlock the rest.</div>
+                      <button onClick={() => { router.push('/auth/signup'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign up your school →</button>
+                    </div>
+                  ), { duration: 6000 });
+                  return;
+                }
+                setSidebarOpen(false);
+              }}
               className={clsx('nav-item group', active && 'nav-item-active', (item as any).highlight && 'text-[#d4af37]')}>
               <Icon size={18} className="flex-shrink-0"/>
               <span className="flex-1">{item.label}</span>
