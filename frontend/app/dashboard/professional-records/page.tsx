@@ -75,7 +75,6 @@ export default function ProfessionalRecordsPage() {
     // An individual account has no real streams/subject_catalogue to pick from — the
     // generate form uses free-text inputs for it instead, so skip these lookups.
     if (individual) return;
-    apiClient.get('/professional-records/subjects').then(r => setSubjects(r.data || [])).catch(() => setSubjects([]));
     apiClient.get('/schools/settings').then(r => {
       const name = r.data?.schoolName;
       if (name) setForm(f => ({ ...f, schoolName: f.schoolName || name }));
@@ -93,6 +92,16 @@ export default function ProfessionalRecordsPage() {
       setStreams(mineStreams.length ? mineStreams : all);
     });
   }, [user, teacher, individual]);
+
+  // Re-scope the Learning Area list to exactly what's taught in the selected stream —
+  // since a stream is a single grade, this is also an automatic grade filter, and it
+  // covers HOI/admin (who otherwise saw every subject school-wide with no stream picked).
+  useEffect(() => {
+    if (individual) return;
+    const params = form.streamId ? { streamId: form.streamId } : undefined;
+    apiClient.get('/professional-records/subjects', { params }).then(r => setSubjects(r.data || [])).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.streamId, individual]);
 
   // Subjects a teacher may pick for the currently-selected stream — the full assignment
   // list if they're that stream's class teacher (no per-subject record), otherwise only
@@ -505,7 +514,11 @@ export default function ProfessionalRecordsPage() {
                       <div>
                         <label className="label">Stream / Class *</label>
                         <select required value={form.streamId}
-                          onChange={(e) => setForm(f => ({ ...f, streamId: e.target.value, subjectId: '' }))}
+                          onChange={(e) => {
+                            const streamId = e.target.value;
+                            const stream = streams.find((s: any) => s.id === streamId);
+                            setForm(f => ({ ...f, streamId, subjectId: '', gradeLevel: stream?.gradeLevel || f.gradeLevel }));
+                          }}
                           className="input">
                           <option value="">Select a stream…</option>
                           {streams.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}

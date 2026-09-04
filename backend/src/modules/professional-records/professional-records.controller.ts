@@ -33,8 +33,8 @@ export class ProfessionalRecordsController {
   // teaches (or, for HOI/admin, every subject taught anywhere in the school).
   @Get('subjects')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
-  listSubjects(@CurrentUser() u: AuthUser) {
-    return this.schemeService.listSubjectsForUser(u.tenantId, u.schoolId, u.id, u.role);
+  listSubjects(@CurrentUser() u: AuthUser, @Query('streamId') streamId?: string) {
+    return this.schemeService.listSubjectsForUser(u.tenantId, u.schoolId, u.id, u.role, streamId);
   }
 
   // ── WALLET (M-Pesa top-up, then per-item billing) ─────────

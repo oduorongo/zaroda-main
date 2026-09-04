@@ -27,28 +27,37 @@ export class SchemeService {
   // require a pre-populated catalogue, self-heal it here: derive the real subject names
   // this user actually teaches from teacher_stream_subjects, and find-or-create a
   // subject_catalogue row per name so it has a stable id to hang scheme records off.
-  async listSubjectsForUser(tenantId: string, schoolId: string, teacherId: string, role: string) {
+  // streamId, when given, narrows the result to only subjects actually taught in
+  // that one stream — used by the scheme-generation form so picking a stream
+  // (and therefore a grade, since a stream belongs to exactly one grade) filters
+  // the Learning Area picker down instead of showing every subject school-wide.
+  async listSubjectsForUser(tenantId: string, schoolId: string, teacherId: string, role: string, streamId?: string) {
     const isPriv = ['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(role);
 
     let names: string[];
     if (isPriv) {
-      const rows = await this.dataSource.query(
-        `SELECT DISTINCT subject FROM teacher_stream_subjects WHERE tenant_id::text = $1`,
-        [tenantId],
-      ).catch(() => []);
+      const rows = streamId
+        ? await this.dataSource.query(
+            `SELECT DISTINCT subject FROM teacher_stream_subjects WHERE tenant_id::text = $1 AND stream_id::text = $2`,
+            [tenantId, streamId],
+          ).catch(() => [])
+        : await this.dataSource.query(
+            `SELECT DISTINCT subject FROM teacher_stream_subjects WHERE tenant_id::text = $1`,
+            [tenantId],
+          ).catch(() => []);
       names = rows.map((r: any) => r.subject);
     } else {
       const ownRows = await this.dataSource.query(
         `SELECT DISTINCT subject FROM teacher_stream_subjects
-          WHERE tenant_id::text = $1 AND teacher_id::text = $2`,
-        [tenantId, teacherId],
+          WHERE tenant_id::text = $1 AND teacher_id::text = $2 ${streamId ? 'AND stream_id::text = $3' : ''}`,
+        streamId ? [tenantId, teacherId, streamId] : [tenantId, teacherId],
       ).catch(() => []);
       // Class teacher of a stream may generate for any subject taught in that stream.
       const classRows = await this.dataSource.query(
         `SELECT DISTINCT tss.subject FROM teacher_stream_subjects tss
            JOIN streams s ON s.id = tss.stream_id
-          WHERE s.tenant_id::text = $1 AND s.class_teacher_id::text = $2`,
-        [tenantId, teacherId],
+          WHERE s.tenant_id::text = $1 AND s.class_teacher_id::text = $2 ${streamId ? 'AND tss.stream_id::text = $3' : ''}`,
+        streamId ? [tenantId, teacherId, streamId] : [tenantId, teacherId],
       ).catch(() => []);
       names = Array.from(new Set([...ownRows, ...classRows].map((r: any) => r.subject)));
     }
