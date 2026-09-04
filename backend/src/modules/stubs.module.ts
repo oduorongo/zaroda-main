@@ -3353,6 +3353,51 @@ class AdminController {
     return r[0] || {};
   }
 
+  // Professional Records: real AI spend vs wallet revenue collected, platform-wide.
+  // Only generation_tokens (output tokens) are recorded per record — input tokens
+  // aren't logged anywhere, so the cost figure here is a floor, not the full bill;
+  // labelled as such rather than guessed at. FX rate is a rough constant, not live.
+  @Get('professional-records-costs')
+  async getProfessionalRecordsCosts(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const KES_PER_USD = 130;
+    const SONNET_OUTPUT_PER_MTOK = 10; // USD, Claude Sonnet 5
+    const HAIKU_OUTPUT_PER_MTOK = 5;   // USD, Claude Haiku 4.5
+
+    const r = await this.ds.query(
+      `SELECT
+         (SELECT COUNT(*) FROM schemes_of_work WHERE ai_generated = true)                    AS "schemeCount",
+         (SELECT COALESCE(SUM(generation_tokens),0) FROM schemes_of_work WHERE ai_generated = true) AS "schemeOutputTokens",
+         (SELECT COUNT(*) FROM lesson_plans WHERE ai_generated = true)                       AS "planCount",
+         (SELECT COALESCE(SUM(generation_tokens),0) FROM lesson_plans WHERE ai_generated = true)    AS "planOutputTokens",
+         (SELECT COUNT(*) FROM lesson_notes WHERE ai_generated = true)                       AS "notesCount",
+         (SELECT COALESCE(SUM(generation_tokens),0) FROM lesson_notes WHERE ai_generated = true)    AS "notesOutputTokens",
+         (SELECT COALESCE(SUM(amount),0) FROM pr_wallet_transactions WHERE type = 'debit')          AS "walletRevenueKes",
+         (SELECT COALESCE(SUM(amount),0) FROM pr_wallet_transactions WHERE type = 'topup' AND status = 'paid') AS "walletTopupsKes"`,
+    ).catch(() => [{}]);
+    const row = r[0] || {};
+
+    const schemeOutputTokens = Number(row.schemeOutputTokens) || 0;
+    const haikuOutputTokens = (Number(row.planOutputTokens) || 0) + (Number(row.notesOutputTokens) || 0);
+    const schemeCostUsd = (schemeOutputTokens / 1_000_000) * SONNET_OUTPUT_PER_MTOK;
+    const haikuCostUsd = (haikuOutputTokens / 1_000_000) * HAIKU_OUTPUT_PER_MTOK;
+    const outputCostKes = (schemeCostUsd + haikuCostUsd) * KES_PER_USD;
+    const walletRevenueKes = Number(row.walletRevenueKes) || 0;
+
+    return {
+      schemeCount: Number(row.schemeCount) || 0,
+      planCount: Number(row.planCount) || 0,
+      notesCount: Number(row.notesCount) || 0,
+      schemeOutputTokens,
+      haikuOutputTokens,
+      estimatedOutputCostKes: Math.round(outputCostKes * 100) / 100,
+      walletRevenueKes,
+      walletTopupsKes: Number(row.walletTopupsKes) || 0,
+      marginKes: Math.round((walletRevenueKes - outputCostKes) * 100) / 100,
+      note: 'estimatedOutputCostKes covers OUTPUT tokens only (input tokens are not logged per record) at a fixed FX rate — treat as a floor on real API spend, not the full bill.',
+    };
+  }
+
   // Gather broadcast recipients across ALL schools for an owner message. audience:
   // 'admins' (HOI/admin/owner roles) or 'all' (every active user). Returns names with
   // phones + emails so the owner can message via WhatsApp / email / SMS. This works
