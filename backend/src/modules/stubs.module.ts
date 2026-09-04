@@ -3338,12 +3338,16 @@ class AdminController {
   @Get('stats')
   async getStats(@Request() req: any) {
     if (!this.isOwner(req)) return { totalTenants: 0, activeTenants: 0, trialTenants: 0, suspendedTenants: 0, totalLearners: 0, totalUsers: 0, totalStreams: 0, schoolTenants: 0, individualTenants: 0 };
+    // totalTenants/activeTenants/trialTenants/suspendedTenants back the "Schools"
+    // card — scoped to account_type = 'school' so individual teacher accounts
+    // (auto-provisioned one-person tenants for Professional Records, see migration
+    // 043) don't inflate the school count. individualTenants is reported separately.
     const r = await this.ds.query(
       `SELECT
-         (SELECT COUNT(*) FROM tenants)                                   AS "totalTenants",
-         (SELECT COUNT(*) FROM tenants WHERE status = 'active')           AS "activeTenants",
-         (SELECT COUNT(*) FROM tenants WHERE status = 'trial')            AS "trialTenants",
-         (SELECT COUNT(*) FROM tenants WHERE status = 'suspended')        AS "suspendedTenants",
+         (SELECT COUNT(*) FROM tenants WHERE account_type = 'school')                       AS "totalTenants",
+         (SELECT COUNT(*) FROM tenants WHERE account_type = 'school' AND status = 'active')  AS "activeTenants",
+         (SELECT COUNT(*) FROM tenants WHERE account_type = 'school' AND status = 'trial')   AS "trialTenants",
+         (SELECT COUNT(*) FROM tenants WHERE account_type = 'school' AND status = 'suspended') AS "suspendedTenants",
          (SELECT COUNT(*) FROM learners WHERE is_active = true)           AS "totalLearners",
          (SELECT COUNT(*) FROM users)                                     AS "totalUsers",
          (SELECT COUNT(*) FROM streams)                                   AS "totalStreams",
