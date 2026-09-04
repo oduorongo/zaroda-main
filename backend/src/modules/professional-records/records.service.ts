@@ -171,7 +171,7 @@ export class RecordsService {
   // Term/Week/Date, Strand/Sub-Strand, SLOs Covered, Introduction, Content, Key
   // Vocabulary, Summary, Review Questions with answers, References). variant
   // 'learner' renders just the simplified learner-facing content instead.
-  async renderNotesHtml(tenantId: string, notesId: string, fontOverride?: string, variant: 'teacher' | 'learner' = 'teacher'): Promise<string> {
+  async renderNotesHtml(tenantId: string, notesId: string, fontOverride?: string, variant: 'teacher' | 'learner' = 'teacher', wordSafe?: boolean): Promise<string> {
     const notes = await this.notesRepo.findOne({ where: { id: notesId, tenantId } });
     if (!notes) throw new NotFoundException('Lesson notes not found');
     const scheme = await this.resolveNoteScheme(tenantId, notes);
@@ -219,6 +219,7 @@ export class RecordsService {
         ? `<div>Name: ________________________</div><div>Class: ________________________</div>`
         : `<div>Teacher: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; Sign: ________ &nbsp; Date: ________</div>` +
           `<div>Checked by D.H.O.I.: ________ &nbsp; Sign: ________ &nbsp; Date: ________</div>`,
+      wordSafe,
     });
   }
 

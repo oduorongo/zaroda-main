@@ -262,7 +262,7 @@ export class SchemeService {
   // Honors the columns selected at generation time and an optional font override
   // (falls back to the scheme's own default). Used for both the browser
   // print-to-PDF flow and the Word (.doc) download — same HTML either way.
-  async renderHtml(tenantId: string, schemeId: string, fontOverride?: string): Promise<string> {
+  async renderHtml(tenantId: string, schemeId: string, fontOverride?: string, wordSafe?: boolean): Promise<string> {
     const scheme = await this.findOne(tenantId, schemeId);
     const weeks = [...(scheme.weeks || [])].sort((a, b) => a.weekNumber - b.weekNumber);
     const cols = new Set(scheme.columns?.length ? scheme.columns : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection']);
@@ -356,6 +356,7 @@ export class SchemeService {
       bodyHtml,
       footerHtml: `<div>Prepared by: ${esc(scheme.teacherName || '_______________________')}</div><div>${esc(scheme.signOffLine || 'Checked by D.H.O.I.')}: _______________________</div>`,
       landscape: true,
+      wordSafe,
     });
   }
 

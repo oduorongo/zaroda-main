@@ -24,10 +24,22 @@ export function watermarkOverlayHtml(schoolName: string): string {
   return `<div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;overflow:hidden;pointer-events:none">${spans}</div>`;
 }
 
+// Word opens a .doc export through its own legacy HTML renderer, which doesn't
+// support position:fixed/absolute — it dumps every watermark span as ordinary
+// stacked text at the top of the document instead of positioning them behind the
+// content (looks fine in real browsers and mobile viewers, badly broken in Word).
+// For that renderer, fall back to one plain in-flow line instead of the tiled overlay.
+export function watermarkInlineHtml(schoolName: string): string {
+  const text = escHtml(schoolName).toUpperCase();
+  if (!text) return '';
+  return `<div style="text-align:center;font-size:10px;letter-spacing:2px;color:#999;margin-bottom:10px">— ${text} —</div>`;
+}
+
 export function documentShell(opts: {
   title: string; font: string; schoolName: string;
   headerHtml: string; bodyHtml: string; footerHtml: string;
   landscape?: boolean;
+  wordSafe?: boolean;
 }): string {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escHtml(opts.title)}</title>
@@ -45,9 +57,10 @@ export function documentShell(opts: {
   .doc-content{position:relative;z-index:1}
   @media print{@page{size:${opts.landscape ? 'landscape' : 'portrait'};margin:12mm}}
 </style></head>
-<body onload="window.print && window.print()">
-  ${watermarkOverlayHtml(opts.schoolName)}
+<body${opts.wordSafe ? '' : ' onload="window.print && window.print()"'}>
+  ${opts.wordSafe ? '' : watermarkOverlayHtml(opts.schoolName)}
   <div class="doc-content">
+    ${opts.wordSafe ? watermarkInlineHtml(opts.schoolName) : ''}
     <h1>${escHtml(opts.title)}</h1>
     <div class="meta">${opts.headerHtml}</div>
     ${opts.bodyHtml}

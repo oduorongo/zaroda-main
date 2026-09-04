@@ -104,7 +104,7 @@ export class ProfessionalRecordsController {
     @Query('font') font: string, @Query('download') download: string,
     @Res() res: any,
   ) {
-    const html = await this.schemeService.renderHtml(u.tenantId, id, font);
+    const html = await this.schemeService.renderHtml(u.tenantId, id, font, download === 'doc');
     if (download === 'doc') {
       res.set({
         'Content-Type': 'application/msword; charset=utf-8',
@@ -161,7 +161,7 @@ export class ProfessionalRecordsController {
     @Query('font') font: string, @Query('download') download: string,
     @Res() res: any,
   ) {
-    const html = await this.lessonPlanService.renderHtml(u.tenantId, id, font);
+    const html = await this.lessonPlanService.renderHtml(u.tenantId, id, font, download === 'doc');
     if (download === 'doc') {
       res.set({
         'Content-Type': 'application/msword; charset=utf-8',
@@ -207,7 +207,7 @@ export class ProfessionalRecordsController {
     @Res() res: any,
   ) {
     const v = variant === 'learner' ? 'learner' : 'teacher';
-    const html = await this.recordsService.renderNotesHtml(u.tenantId, id, font, v);
+    const html = await this.recordsService.renderNotesHtml(u.tenantId, id, font, v, download === 'doc');
     if (download === 'doc') {
       res.set({
         'Content-Type': 'application/msword; charset=utf-8',

@@ -131,7 +131,7 @@ export class LessonPlanService {
   // Date/Time/Roll, Week/Lesson No./Duration, Strand/Sub-Strand, SLOs, KIQ, Resources,
   // Organisation of Learning, Extended Activities, Core Competencies/Values/PCIs,
   // Links, Assessment, Reflection) rather than a generic field list.
-  async renderHtml(tenantId: string, planId: string, fontOverride?: string): Promise<string> {
+  async renderHtml(tenantId: string, planId: string, fontOverride?: string, wordSafe?: boolean): Promise<string> {
     const plan = await this.findOne(tenantId, planId);
     const scheme = await this.schemeRepo.findOne({ where: { id: plan.schemeId, tenantId } });
     const subject = await this.subjRepo.findOne({ where: { id: plan.subjectId } });
@@ -185,6 +185,7 @@ export class LessonPlanService {
       bodyHtml,
       footerHtml: `<div>Teacher: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; Sign: ________ &nbsp; Date: ________</div>` +
         `<div>Checked by D.H.O.I.: ________ &nbsp; Sign: ________ &nbsp; Date: ________</div>`,
+      wordSafe,
     });
   }
 
