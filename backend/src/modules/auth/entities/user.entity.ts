@@ -40,6 +40,11 @@ export class User {
   @Column({ name: 'id_number', nullable: true })
   idNumber: string;
 
+  // Professional Records referral: which teacher's link they signed up through.
+  // Set once at signup, never changes. Drives the one-time referral wallet bonus.
+  @Column({ name: 'referred_by', nullable: true })
+  referredBy: string;
+
   @Column({ name: 'tsc_number', nullable: true })
   tscNumber: string;
 

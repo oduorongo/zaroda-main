@@ -2,7 +2,13 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, DataSource } from 'typeorm';
 import { PrWallet, PrWalletTransaction } from './entities';
+import { User } from '../auth/entities/user.entity';
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../../common/tuma';
+
+// Referral reward: a teacher who refers another teacher gets this flat wallet
+// credit the first time the REFERRED teacher pays for a generation — not at
+// signup, so a throwaway account costs the abuser a real debit to trigger.
+const REFERRAL_BONUS_KES = 30;
 
 // Wallet-based, per-item billing: a teacher tops up their wallet via M-Pesa
 // STK push in whatever amount they like, then each generated item debits a
@@ -39,6 +45,7 @@ export class WalletService {
   constructor(
     @InjectRepository(PrWallet) private walletRepo: Repository<PrWallet>,
     @InjectRepository(PrWalletTransaction) private txnRepo: Repository<PrWalletTransaction>,
+    @InjectRepository(User) private userRepo: Repository<User>,
     private dataSource: DataSource,
   ) {}
 
@@ -188,9 +195,42 @@ export class WalletService {
         tenantId, teacherId, type: 'debit', amount: price, balanceAfter,
         description: ITEM_LABEL[itemType], referenceType: itemType, referenceId, status: 'completed',
       }));
+
+      // Referral bonus: only on this teacher's very first-ever debit (this row we
+      // just inserted), so a referral only pays out once real money changed hands.
+      // The referee's wallet row is locked for the whole transaction (see the
+      // SELECT ... FOR UPDATE above), so this count is race-safe per referee.
+      const priorDebits = await m.getRepository(PrWalletTransaction).count({ where: { tenantId, teacherId, type: 'debit' } });
+      if (priorDebits === 1) {
+        const referee = await m.getRepository(User).findOne({ where: { id: teacherId } });
+        if (referee?.referredBy) await this.creditReferralBonus(referee.referredBy, teacherId, m);
+      }
     };
 
     if (manager) return run(manager);
     return this.dataSource.transaction(run);
+  }
+
+  // Credits the referrer's wallet once for a given referee — the partial unique
+  // index on (reference_id) WHERE reference_type='referral' is the real guard
+  // against double-crediting; inserting the transaction row before touching the
+  // balance means a duplicate attempt fails before any money moves.
+  private async creditReferralBonus(referrerId: string, refereeId: string, manager: EntityManager) {
+    const referrer = await manager.getRepository(User).findOne({ where: { id: referrerId } });
+    if (!referrer?.tenantId) return;
+
+    const wallet = await this.findOrCreateWallet(referrer.tenantId, referrerId, manager);
+    try {
+      await manager.getRepository(PrWalletTransaction).save(manager.getRepository(PrWalletTransaction).create({
+        tenantId: referrer.tenantId, teacherId: referrerId, type: 'topup', amount: REFERRAL_BONUS_KES,
+        balanceAfter: Number(wallet.balance) + REFERRAL_BONUS_KES,
+        description: 'Referral bonus — your referral generated their first item',
+        referenceType: 'referral', referenceId: refereeId, status: 'paid',
+      }));
+    } catch (err: any) {
+      if (err?.code === '23505') return; // already credited for this referee
+      throw err;
+    }
+    await manager.getRepository(PrWallet).update(wallet.id, { balance: Number(wallet.balance) + REFERRAL_BONUS_KES });
   }
 }

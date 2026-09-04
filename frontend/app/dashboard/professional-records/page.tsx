@@ -53,6 +53,7 @@ export default function ProfessionalRecordsPage() {
 
   const [wallet, setWallet] = useState<{ balance: number } | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [showReferral, setShowReferral] = useState(false);
   const [topUpForm, setTopUpForm] = useState({ phone: '', amount: 100 });
   const [topUpStep, setTopUpStep] = useState<'form'|'waiting'>('form');
   const [toppingUp, setToppingUp] = useState(false);
@@ -356,6 +357,7 @@ export default function ProfessionalRecordsPage() {
               <div className="font-bold text-theme-heading">KES {wallet?.balance ?? '…'}</div>
             </div>
             <button onClick={() => setShowTopUp(true)} className="btn-ghost">Top Up</button>
+            <button onClick={() => setShowReferral(true)} className="btn-ghost">Refer &amp; Earn</button>
             <button onClick={() => setShowNewScheme(true)} className="btn-primary">
               <Sparkles size={16}/> Generate Scheme of Work
             </button>
@@ -721,6 +723,8 @@ export default function ProfessionalRecordsPage() {
         </div>
       )}
 
+      {showReferral && user && <ReferralModal userId={user.id} onClose={() => setShowReferral(false)}/>}
+
       {openPlan && <LessonPlanModal plan={openPlan} onClose={() => setOpenPlan(null)} onExport={exportDocument}/>}
       {openNotes && <LessonNotesModal notes={openNotes} onClose={() => setOpenNotes(null)} onExport={exportDocument}/>}
     </div>
@@ -753,6 +757,40 @@ function ExportBar({ format, setFormat, font, setFont, onExport }: {
         <option>Arial</option>
       </select>
       <button type="button" onClick={onExport} className="btn-ghost text-xs py-1.5 px-3">Export</button>
+    </div>
+  );
+}
+
+function ReferralModal({ userId, onClose }: { userId: string; onClose: () => void }) {
+  const link = typeof window !== 'undefined' ? `${window.location.origin}/auth/signup-individual?ref=${userId}` : '';
+  const copy = () => { navigator.clipboard?.writeText(link); toast.success('Referral link copied'); };
+  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`Generate CBC schemes, lesson plans & notes with AI on Zaroda — sign up with my link: ${link}`)}`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+      <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md my-8 mt-24">
+        <div className="flex items-center justify-between p-5 border-b border-theme">
+          <div>
+            <h3 className="text-lg font-bold text-theme-heading">Refer &amp; Earn</h3>
+            <p className="text-xs text-theme-muted mt-0.5">Get KES 30 (one free scheme) when a teacher you refer generates their first item.</p>
+          </div>
+          <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
+            Share your link below. The reward is credited to your wallet automatically once the teacher you referred pays for their first scheme, lesson plan, or lesson notes — not just for signing up.
+          </div>
+          <div>
+            <label className="label">Your referral link</label>
+            <div className="flex gap-2">
+              <input readOnly value={link} className="input flex-1 text-xs"/>
+              <button type="button" onClick={copy} className="btn-ghost text-xs px-3 flex-shrink-0">Copy</button>
+            </div>
+          </div>
+          <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" className="btn-primary w-full justify-center">
+            Share on WhatsApp
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

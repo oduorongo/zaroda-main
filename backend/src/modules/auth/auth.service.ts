@@ -226,6 +226,15 @@ export class AuthService {
       });
       const savedSchool = await queryRunner.manager.save(School, school);
 
+      // Referral is attributed at signup but rewarded later — only once the referred
+      // teacher actually pays for their first generation (see WalletService.debit).
+      // A bad/self-referencing id is silently ignored rather than blocking signup.
+      let referredBy: string | undefined;
+      if (dto.ref) {
+        const referrer = await queryRunner.manager.findOne(User, { where: { id: dto.ref } });
+        if (referrer && referrer.email.toLowerCase() !== dto.email.toLowerCase()) referredBy = referrer.id;
+      }
+
       const passwordHash = await bcrypt.hash(dto.password, 12);
       const user = this.userRepo.create({
         email: dto.email.toLowerCase().trim(),
@@ -238,6 +247,7 @@ export class AuthService {
         schoolId: savedSchool.id,
         isActive: true,
         emailVerified: false,
+        referredBy,
       });
       const savedUser = await queryRunner.manager.save(User, user);
 

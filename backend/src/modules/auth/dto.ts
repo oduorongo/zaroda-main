@@ -33,6 +33,8 @@ export class SignupIndividualDto {
   @IsString()  @MinLength(8) password: string;
 
   @IsOptional() @IsString() phone?: string;
+  // Referring teacher's user id, from their Professional Records referral link.
+  @IsOptional() @IsString() ref?: string;
 }
 
 export class LoginDto {

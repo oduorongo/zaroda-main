@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -10,7 +10,17 @@ import toast from 'react-hot-toast';
 const API = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/v1`;
 
 export default function SignupIndividualPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupIndividualForm/>
+    </Suspense>
+  );
+}
+
+function SignupIndividualForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const ref = searchParams.get('ref') || undefined;
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState(false);
   const [form, setForm] = useState({
@@ -32,7 +42,7 @@ export default function SignupIndividualPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstName: form.firstName, lastName: form.lastName,
-          email: form.email, phone: form.phone, password: form.password,
+          email: form.email, phone: form.phone, password: form.password, ref,
         }),
       });
       const data = await res.json();
