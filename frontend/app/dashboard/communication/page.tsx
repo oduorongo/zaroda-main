@@ -26,7 +26,7 @@ export default function CommunicationPage() {
   const [loading,setLoading]= useState(true);
   const [showNew,setShowNew]= useState(false);
   const [saving, setSaving] = useState(false);
-  const [form,   setForm]   = useState({ title:'', content:'', audience:'all', priority:'normal', channel:'push' });
+  const [form,   setForm]   = useState({ title:'', content:'', audience:'all', priority:'normal', channel:'sms' });
   const [reminderTerm, setReminderTerm] = useState('term_1');
   const [reminderChannel, setReminderChannel] = useState('sms');
   const [sendingReminders, setSendingReminders] = useState(false);
@@ -56,7 +56,7 @@ export default function CommunicationPage() {
       if (data.sms?.detail && data.sms.sent === 0) toast.error(`SMS: ${data.sms.detail}`);
       if (data.email?.detail && data.email.sent === 0) toast.error(`Email: ${data.email.detail}`);
       setShowNew(false);
-      setForm({ title:'', content:'', audience:'all', priority:'normal', channel:'push' });
+      setForm({ title:'', content:'', audience:'all', priority:'normal', channel:'sms' });
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not send announcement');
@@ -212,10 +212,10 @@ export default function CommunicationPage() {
                 <div>
                   <label className="label">Channel</label>
                   <select value={form.channel} onChange={set('channel')} className="input">
-                    <option value="push">Save only (no send)</option>
                     <option value="sms">SMS</option>
                     <option value="email">Email</option>
                     <option value="all">SMS + Email</option>
+                    <option value="push">Don't send — save as in-app notice only</option>
                   </select>
                 </div>
               </div>
