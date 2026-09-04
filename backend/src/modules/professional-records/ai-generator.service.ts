@@ -9,8 +9,18 @@ import { isKiswahiliSubject } from './document-render.util';
 // other subject, including when Kiswahili is a medium-of-instruction note elsewhere.
 function languageInstruction(subjectName: string): string {
   return isKiswahiliSubject(subjectName)
-    ? '\nLANGUAGE: This is a Kiswahili lesson — write EVERY generated field (outcomes, questions, content, activities, vocabulary, etc.) in the KISWAHILI LANGUAGE, not English. Keep JSON keys in English exactly as specified below; only the values change.\n'
+    ? '\nLANGUAGE: This is a Kiswahili lesson — write EVERY generated field (outcomes, questions, content, activities, vocabulary, etc.) in the KISWAHILI LANGUAGE, not English — including standard openings like "By the end of the lesson..." (use "Kufikia mwisho wa somo, mwanafunzi aweze..." or similar), which must NOT be left in English while the rest is translated. Keep JSON keys in English exactly as specified below; only the values change.\n'
     : '';
+}
+
+// The literal opening phrase for a Specific Learning Outcome, in the right language —
+// used inside REQUIREMENTS rules that otherwise hardcode English wording the model
+// would follow verbatim even on a Kiswahili lesson.
+function sloOpeningPhrase(subjectName: string, scope: 'LESSON' | 'week'): string {
+  if (isKiswahiliSubject(subjectName)) {
+    return scope === 'LESSON' ? 'Kufikia mwisho wa somo, mwanafunzi aweze...' : 'Kufikia mwisho wa wiki, mwanafunzi aweze...';
+  }
+  return scope === 'LESSON' ? 'By the end of the LESSON, the learner should be able to...' : 'By the end of the week, the learner should be able to...';
 }
 
 // Scheme of Work needs a full term of curriculum reasoning — kept on Sonnet.
@@ -186,10 +196,13 @@ REQUIREMENTS — keep every field concise (approximate word limits below), not p
 response stays short:
 1. Follow the KICD ${params.subjectName} syllabus for ${grade} exactly
 2. Continue distributing strands and sub-strands appropriately — do not repeat what earlier weeks already covered
-3. Each week's specificLearningOutcomes: clear, measurable, week-level summary (max ~40 words)
+3. Each week's specificLearningOutcomes: clear, measurable, week-level summary, opening with
+   "${sloOpeningPhrase(params.subjectName, 'week')}" (max ~40 words)
 4. keyInquiryQuestions: 1-2 short questions (max ~30 words)
 5. learningExperiences: week-level summary of activities (max ~40 words)
-6. learningResources / assessmentMethods: short lists, not paragraphs (max ~20 words each)
+6. learningResources / assessmentMethods: short lists, not paragraphs (max ~20 words each). Describe
+   resource TYPES generically (e.g. "Grade ${grade} coursebook, wall charts, realia, digital aids") —
+   never cite a specific textbook title or page number, since you cannot verify one and will get it wrong.
 ${start === 1 ? '7. Week 1 should include orientation/introduction activities' : ''}
 ${end === params.totalWeeks ? '8. The final week should include revision/consolidation' : ''}
 9. Use authentic Kenyan contexts, examples, and resources
@@ -206,15 +219,15 @@ Return ONLY valid JSON (no preamble, no markdown fences):
       "weekNumber": ${start},
       "strand": "Strand name from KICD syllabus",
       "subStrand": "Sub-strand name",
-      "specificLearningOutcomes": "Week-level summary — by the end of the week, the learner should be able to...",
+      "specificLearningOutcomes": "${sloOpeningPhrase(params.subjectName, 'week')} ...",
       "keyInquiryQuestions": "1. ...\\n2. ...",
       "learningExperiences": "Week-level summary of learner activities...",
-      "learningResources": "Textbook pg X, charts, realia...",
+      "learningResources": "Coursebook, charts, realia, digital aids — no page numbers...",
       "assessmentMethods": "Observation, oral questions, written exercise",
       "periods": ${params.periodsPerWeek},
       "remarks": ""${wantReflection ? ',\n      "reflectionNotes": "Leave as an empty string — filled in by the teacher after delivery"' : ''}${wantCorePV ? ',\n      "coreCompetencies": ["..."],\n      "values": ["..."],\n      "pertinentIssues": "..."' : ''},
       "lessons": [
-        { "lessonNumber": 1, "isDouble": false, "specificLearningOutcomes": "By the end of THIS lesson, the learner should be able to...", "keyInquiryQuestions": "...", "learningExperiences": "What learners actually do in this specific lesson..." }
+        { "lessonNumber": 1, "isDouble": false, "specificLearningOutcomes": "${sloOpeningPhrase(params.subjectName, 'LESSON')} ...", "keyInquiryQuestions": "...", "learningExperiences": "What learners actually do in this specific lesson..." }
       ]
     }
   ]
@@ -285,8 +298,9 @@ above reads like a week-level summary, scope everything below to what happens in
 
 REQUIREMENTS — keep every field concise and usable, not padded (approximate word limits below), so the
 whole response stays short:
-1. specificLearningOutcomes MUST read "By the end of the LESSON, the learner should be able to..." — never
-   "by the end of the week/term". Narrow the source SLOs to only what fits in this one lesson's duration.
+1. specificLearningOutcomes MUST open with "${sloOpeningPhrase(params.subjectName, 'LESSON')}" (in whichever
+   language this lesson is being written in — see LANGUAGE above) — never "by the end of the week/term".
+   Narrow the source SLOs to only what fits in this one lesson's duration.
 2. Follow KICD CBC lesson plan format exactly
 3. Introduction (5–10 min): induction + link to prior learning + key inquiry question (max ~80 words)
 4. Lesson Development (main activity, 25–30 min): learner-centred, activity-based (max ~200 words)
@@ -297,7 +311,9 @@ whole response stays short:
 9. Core Competencies: select relevant ones from: Communication & Collaboration, Critical Thinking & Problem Solving, Creativity & Imagination, Citizenship, Digital Literacy, Learning to Learn, Self-Efficacy
 10. Values: select from: Love, Responsibility, Respect, Unity, Peace, Patriotism, Social Justice, Integrity
 11. PCIs (Pertinent & Contemporary Issues): select relevant ones (max ~20 words)
-12. learningMaterials/referenceBooks: short lists, not paragraphs (max ~30 words each)
+12. learningMaterials/referenceBooks: short lists, not paragraphs (max ~30 words each). Name resource
+    TYPES or general titles only — never cite a specific page number, since you cannot verify one and
+    will get it wrong.
 
 Return ONLY valid JSON, no markdown fences, every field a plain string/array kept within the limits above:
 {
@@ -356,7 +372,8 @@ limits below so the response stays short:
 4. Key vocabulary — new terms and their meanings, one per line (max ~80 words)
 5. Summary — consolidation of the main points (max ~60 words)
 6. Review questions with answers — 3-4 short Q&A pairs, format "Q: ...\\nA: ..." per pair (max ~100 words)
-7. References — book titles + page numbers or digital sources, one per line, or "Not specified" if none (max ~30 words)
+7. References — general book titles/course materials or digital sources, one per line, or "Not specified"
+   if none (max ~30 words). Never invent a specific page number — you cannot verify one and will get it wrong.
 8. Learner content — the CONTENT section rewritten as a simple, plain-language handout a learner reads
    themselves (short sentences, no teacher-only instructions, define any hard terms) (max ~200 words)
 
