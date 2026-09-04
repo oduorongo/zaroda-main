@@ -12,6 +12,8 @@ export default function OwnerDashboard() {
   const router = useRouter();
   const [stats, setStats]     = useState<any>(null);
   const [prCosts, setPrCosts] = useState<any>(null);
+  const [referralForm, setReferralForm] = useState({ referrerEmail: '', refereeEmail: '' });
+  const [creditingReferral, setCreditingReferral] = useState(false);
   const [schools, setSchools] = useState<any[]>([]);
   const [search, setSearch]   = useState('');
   const [ownershipFilter, setOwnershipFilter] = useState<''|'public'|'private'>('');
@@ -40,6 +42,19 @@ export default function OwnerDashboard() {
       else alert(r.data?.message || 'Could not delete school');
     } catch { alert('Could not delete school'); }
     finally { setActing(false); }
+  };
+  // One-off backfill for a referral that never got linked automatically — e.g. the
+  // referee's signup hit a stale cached build of the signup page from before the
+  // ?ref= capture shipped. Idempotent: the backend refuses a duplicate credit.
+  const creditReferral = async () => {
+    if (!referralForm.referrerEmail || !referralForm.refereeEmail) { alert('Enter both emails.'); return; }
+    setCreditingReferral(true);
+    try {
+      const r = await apiClient.post('/admin/professional-records-referral-credit', referralForm);
+      if (r.data?.credited) { alert(`Credited KES ${r.data.amountKes} to ${referralForm.referrerEmail}.`); setReferralForm({ referrerEmail: '', refereeEmail: '' }); }
+      else alert(r.data?.error || 'Could not credit referral.');
+    } catch (err: any) { alert(err?.response?.data?.message || 'Could not credit referral.'); }
+    finally { setCreditingReferral(false); }
   };
   const setStatus = async (id: string, status: string) => {
     const verb = status === 'suspended' ? 'Suspend' : 'Reactivate';
@@ -182,6 +197,22 @@ export default function OwnerDashboard() {
                   </div>
                 </div>
                 <p className="text-[11px] text-theme-muted mt-3">{prCosts.note}</p>
+
+                <div className="mt-4 pt-4 border-t border-theme">
+                  <div className="text-xs font-bold text-theme-heading mb-1">Manually credit a referral bonus</div>
+                  <p className="text-[11px] text-theme-muted mb-2">For a referral that never got linked automatically (e.g. a stale cached signup page). Refuses a duplicate credit for the same referee.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input placeholder="Referrer email" value={referralForm.referrerEmail}
+                      onChange={(e) => setReferralForm(f => ({ ...f, referrerEmail: e.target.value }))}
+                      className="input text-xs py-1.5 flex-1 min-w-[180px]"/>
+                    <input placeholder="Referee email" value={referralForm.refereeEmail}
+                      onChange={(e) => setReferralForm(f => ({ ...f, refereeEmail: e.target.value }))}
+                      className="input text-xs py-1.5 flex-1 min-w-[180px]"/>
+                    <button onClick={creditReferral} disabled={creditingReferral} className="btn-ghost text-xs py-1.5 px-3 flex-shrink-0">
+                      {creditingReferral ? 'Crediting…' : 'Credit KES 30'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

@@ -1,6 +1,12 @@
 // ============================================================
 // app/auth/layout.tsx
 // ============================================================
+// Auth pages change often (signup forms in particular) and must never be frozen
+// as a static snapshot — confirmed root cause of a referral going uncredited: the
+// referred teacher's signup hit an old cached build of /auth/signup-individual from
+// before the referral `?ref=` capture code shipped, so it never reached the backend.
+export const dynamic = 'force-dynamic';
+
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen bg-[#0f1c38] flex items-center justify-center p-4 overflow-hidden">

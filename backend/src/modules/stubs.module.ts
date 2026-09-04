@@ -3398,6 +3398,59 @@ class AdminController {
     };
   }
 
+  // Manually backfill a referral bonus (owner-only). Needed because the automatic
+  // path (users.referred_by set at signup, credited on the referee's first debit)
+  // can miss a real referral if the referee's signup happened while an old cached
+  // build of the signup page — from before the ?ref= capture code shipped — was
+  // still being served, so their account never got referred_by set in the first
+  // place. Links the referral (if not already linked) and credits the flat bonus,
+  // guarded by the same one-bonus-per-referee unique index the automatic path uses.
+  @Post('professional-records-referral-credit')
+  async creditReferralBonus(@Request() req: any, @Body() body: { referrerEmail: string; refereeEmail: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const BONUS_KES = 30;
+
+    const referrerRows = await this.ds.query(
+      `SELECT id, tenant_id FROM users WHERE email = $1`, [String(body.referrerEmail || '').toLowerCase().trim()],
+    ).catch(() => []);
+    const refereeRows = await this.ds.query(
+      `SELECT id FROM users WHERE email = $1`, [String(body.refereeEmail || '').toLowerCase().trim()],
+    ).catch(() => []);
+    if (!referrerRows.length) return { error: 'referrer not found' };
+    if (!refereeRows.length) return { error: 'referee not found' };
+    const referrer = referrerRows[0];
+    const referee = refereeRows[0];
+    if (referrer.id === referee.id) return { error: 'cannot refer yourself' };
+
+    await this.ds.query(
+      `UPDATE users SET referred_by = $1 WHERE id = $2 AND referred_by IS NULL`, [referrer.id, referee.id],
+    ).catch(() => null);
+
+    await this.ds.query(
+      `INSERT INTO pr_wallets (tenant_id, teacher_id, balance) VALUES ($1, $2, 0)
+       ON CONFLICT (tenant_id, teacher_id) DO NOTHING`,
+      [referrer.tenant_id, referrer.id],
+    ).catch(() => null);
+
+    try {
+      await this.ds.query(
+        `INSERT INTO pr_wallet_transactions
+           (tenant_id, teacher_id, type, amount, description, reference_type, reference_id, status)
+         VALUES ($1, $2, 'topup', $3, 'Referral bonus — your referral generated their first item', 'referral', $4, 'paid')`,
+        [referrer.tenant_id, referrer.id, BONUS_KES, referee.id],
+      );
+    } catch (err: any) {
+      if (err?.code === '23505') return { error: 'already credited for this referee' };
+      throw err;
+    }
+    await this.ds.query(
+      `UPDATE pr_wallets SET balance = balance + $1 WHERE tenant_id = $2 AND teacher_id = $3`,
+      [BONUS_KES, referrer.tenant_id, referrer.id],
+    );
+
+    return { credited: true, amountKes: BONUS_KES };
+  }
+
   // Gather broadcast recipients across ALL schools for an owner message. audience:
   // 'admins' (HOI/admin/owner roles) or 'all' (every active user). Returns names with
   // phones + emails so the owner can message via WhatsApp / email / SMS. This works

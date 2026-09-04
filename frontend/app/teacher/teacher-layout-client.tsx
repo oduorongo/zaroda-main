@@ -13,7 +13,7 @@ import { useTheme } from '@/lib/hooks/useTheme';
 // Teacher-only navigation — nothing admin here
 const TEACHER_NAV = [
   { href: '/teacher',            icon: Home,        label: 'My Dashboard' },
-  { href: '/teacher/records',    icon: Sparkles,    label: 'Professional Records' },
+  { href: '/teacher/records',    icon: Sparkles,    label: 'Professional Records', highlight: true },
   { href: '/teacher/classes',    icon: Users,       label: 'My Classes' },
   { href: '/teacher/learners',   icon: UserPlus,    label: 'My Learners' },
   { href: '/teacher/attendance', icon: CheckSquare, label: 'Attendance' },
@@ -71,7 +71,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
           return (
             <Link key={n.href} href={n.href} onClick={() => setSidebarOpen(false)}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all
-                ${isActive(n.href) ? 'bg-[#2563eb] text-white' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
+                ${isActive(n.href) ? 'bg-[#2563eb] text-white' : (n as any).highlight ? 'text-[#d4af37] hover:bg-white/10' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
               <Icon size={18}/> {n.label}
             </Link>
           );
