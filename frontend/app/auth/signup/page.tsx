@@ -228,6 +228,19 @@ export default function SignupPage() {
 
       <div className="bg-white rounded-2xl p-6 shadow-modal">
 
+        {/* Account type — a teacher landing here from a generic "Get started" link
+            (not the dedicated individual-signup banner) needs a way out to the
+            individual flow without a whole school's worth of details. */}
+        <div className="grid grid-cols-2 gap-2 mb-5 p-1 bg-[#f4f6fb] rounded-xl">
+          <div className="text-center text-xs font-bold py-2 rounded-lg bg-white text-[#1a2e5a] shadow-sm">
+            🏫 My School
+          </div>
+          <Link href="/auth/signup-individual"
+            className="text-center text-xs font-bold py-2 rounded-lg text-[#7a82a8] hover:text-[#1a2e5a] transition-colors">
+            👤 Just Me (Individual Teacher)
+          </Link>
+        </div>
+
         {/* Step indicator */}
         <div className="flex items-center gap-3 mb-6">
           {[1, 2].map(s => (
