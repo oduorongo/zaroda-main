@@ -470,7 +470,7 @@ export default function ProfessionalRecordsPage() {
           </div>
         )
       ) : tab === 'pending' && hoi ? (
-        <PendingApprovals pending={pending} onReviewScheme={reviewScheme} onReviewPlan={reviewLessonPlan} onOpenScheme={openSchemeDetail}/>
+        <PendingApprovals pending={pending} onReviewScheme={reviewScheme} onReviewPlan={reviewLessonPlan} onOpenScheme={openSchemeDetail} onOpenPlan={setOpenPlan} onOpenNotes={setOpenNotes}/>
       ) : null}
 
       {/* Generate Scheme Modal */}
@@ -1007,7 +1007,7 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
   );
 }
 
-function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme }: any) {
+function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme, onOpenPlan, onOpenNotes }: any) {
   if (!pending) return <div className="card p-10 text-center text-theme-muted">Loading…</div>;
   if (pending.total === 0) {
     return <div className="card p-10 text-center"><CheckCircle size={36} className="mx-auto text-green-300 mb-2"/><p className="text-theme-muted font-medium">Nothing pending — you're all caught up.</p></div>;
@@ -1039,10 +1039,10 @@ function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme 
           <div className="space-y-2">
             {pending.lessonPlans.map((p: any) => (
               <div key={p.id} className="card p-3 flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
+                <button onClick={() => onOpenPlan(p)} className="text-left flex-1 min-w-0">
                   <span className="font-semibold text-theme-heading">{p.strand} — {p.subStrand}</span>
                   <p className="text-xs text-theme-muted">{gradeLabel(p.gradeLevel)}</p>
-                </div>
+                </button>
                 <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => onReviewPlan(p.id,'approved')} className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700">Approve</button>
                   <button onClick={() => onReviewPlan(p.id,'rejected')} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-lg hover:bg-red-200">Reject</button>
@@ -1057,10 +1057,10 @@ function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme 
           <h3 className="font-bold text-theme-heading mb-2">Lesson Notes</h3>
           <div className="space-y-2">
             {pending.lessonNotes.map((n: any) => (
-              <div key={n.id} className="card p-3">
+              <button key={n.id} onClick={() => onOpenNotes(n)} className="card p-3 text-left w-full block">
                 <span className="font-semibold text-theme-heading">{n.topic}</span>
                 <p className="text-xs text-theme-muted">{n.subTopic}</p>
-              </div>
+              </button>
             ))}
           </div>
         </div>
