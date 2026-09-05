@@ -12,7 +12,7 @@ import { AssessmentModule }         from './modules/assessment/assessment.module
 import {
   FinanceModule, CommunicationModule,
   LibraryModule, SportsModule, DisciplineModule, ReferralModule, PdfModule,
-  AdminModule, RetoolingModule,
+  AdminModule, RetoolingModule, TestimonialModule,
 } from './modules/stubs.module';
 import { LocationModule }           from './modules/location/location.module';
 import { TeacherOnboardModule }     from './modules/onboarding/teacher-onboard.module';
@@ -81,6 +81,7 @@ import { BillingModule }            from './modules/billing/billing.module';
     PdfModule,
     AdminModule,
     RetoolingModule,
+    TestimonialModule,
     TeacherOnboardModule,
     SeniorSelectionModule,
     BillingModule,

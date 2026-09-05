@@ -3895,3 +3895,76 @@ class RetoolingController {
 
 @Module({ controllers: [RetoolingController] })
 export class RetoolingModule {}
+
+// ── TESTIMONIALS: real users' written experience with Zaroda ─────────────────
+// Any authenticated user can submit one. Only the platform owner (super_admin)
+// can list them across every tenant — this exists to gather genuine evidence
+// of impact (award submissions, case studies), never to fabricate quotes.
+@Controller('testimonials')
+@UseGuards(JwtAuthGuard)
+class TestimonialController {
+  constructor(private readonly ds: DataSource) {}
+
+  private isOwner(req: any): boolean { return req.user?.role === 'super_admin'; }
+
+  @Post()
+  async submit(@Request() req: any, @Body() dto: any) {
+    if (!dto?.message || !dto.message.trim()) return { error: 'Please write a few words about your experience.' };
+    const user = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName", role,
+              (SELECT name FROM tenants WHERE id = u.tenant_id) AS "tenantName"
+         FROM users u WHERE id = $1`,
+      [req.user.id],
+    ).catch(() => []);
+    const u = user[0] || {};
+    const rating = Number(dto.rating);
+    await this.ds.query(
+      `INSERT INTO testimonials (tenant_id, user_id, author_name, author_role, school_name, message, rating, allow_public_use, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+      [
+        req.user.tenantId, req.user.id,
+        `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'A Zaroda user',
+        u.role || req.user.role, u.tenantName || null,
+        dto.message.trim(), Number.isFinite(rating) && rating >= 1 && rating <= 5 ? rating : null,
+        dto.allowPublicUse !== false,
+      ],
+    ).catch((e: any) => { throw e; });
+    return { message: 'Thank you — your testimonial has been recorded.' };
+  }
+
+  // Whether the current user has already submitted one (the prompt shouldn't nag twice).
+  @Get('mine')
+  async mine(@Request() req: any) {
+    const rows = await this.ds.query(
+      `SELECT id FROM testimonials WHERE user_id = $1 LIMIT 1`, [req.user.id],
+    ).catch(() => []);
+    return { submitted: rows.length > 0 };
+  }
+
+  // Platform-wide list, owner only — for compiling award/case-study evidence.
+  @Get()
+  async list(@Request() req: any, @Query() q: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
+    const status = ['submitted', 'featured', 'archived'].includes(q.status) ? q.status : null;
+    const rows = await this.ds.query(
+      `SELECT id, author_name AS "authorName", author_role AS "authorRole", school_name AS "schoolName",
+              message, rating, allow_public_use AS "allowPublicUse", status, created_at AS "createdAt"
+         FROM testimonials
+        ${status ? 'WHERE status = $1' : ''}
+        ORDER BY created_at DESC`,
+      status ? [status] : [],
+    ).catch(() => []);
+    return rows;
+  }
+
+  @Patch(':id')
+  async updateStatus(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    if (!['submitted', 'featured', 'archived'].includes(dto.status)) return { error: 'Invalid status.' };
+    await this.ds.query(`UPDATE testimonials SET status = $2 WHERE id::text = $1`, [id, dto.status]).catch(() => null);
+    return { id, updated: true };
+  }
+}
+
+@Module({ controllers: [TestimonialController] })
+export class TestimonialModule {}

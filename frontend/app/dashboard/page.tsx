@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAuth, isHoi, isParent, isLearner } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
+import toast from 'react-hot-toast';
 
 // ── Overview stat card (matches the design) ────────────────
 function StatCard({ icon: Icon, label, value, trend, trendUp, iconBg }: any) {
@@ -35,6 +36,8 @@ export default function DashboardPage() {
   const [stats, setStats]     = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [checklistDismissed, setChecklistDismissed] = useState(false);
+  const [testimonialDismissed, setTestimonialDismissed] = useState(true); // default hidden until we know it's needed
+  const [showTestimonialForm, setShowTestimonialForm] = useState(false);
 
   // Parents and learners must not see the school-wide dashboard — send them to their
   // own portal, which is scoped to just their data.
@@ -52,6 +55,33 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user?.tenantId) setChecklistDismissed(localStorage.getItem(`setup-checklist-dismissed:${user.tenantId}`) === '1');
   }, [user]);
+
+  // Only show the "share your experience" prompt if this user hasn't already
+  // submitted one and hasn't dismissed it before.
+  useEffect(() => {
+    if (!user) return;
+    if (localStorage.getItem(`testimonial-dismissed:${user.id}`) === '1') return;
+    apiClient.get('/testimonials/mine').then(r => setTestimonialDismissed(!!r.data?.submitted)).catch(() => {});
+  }, [user]);
+
+  const [testimonialForm, setTestimonialForm] = useState({ message: '', rating: 5, allowPublicUse: true });
+  const [submittingTestimonial, setSubmittingTestimonial] = useState(false);
+  const submitTestimonial = async () => {
+    if (!testimonialForm.message.trim()) return;
+    setSubmittingTestimonial(true);
+    try {
+      await apiClient.post('/testimonials', testimonialForm);
+      toast.success('Thank you — your experience has been recorded!');
+      setShowTestimonialForm(false);
+      setTestimonialDismissed(true);
+      if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, '1');
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Could not submit — try again.'); }
+    finally { setSubmittingTestimonial(false); }
+  };
+  const dismissTestimonial = () => {
+    setTestimonialDismissed(true);
+    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, '1');
+  };
 
   if (!user) return null;
   if (isParent(user.role) || isLearner(user.role)) return null;  // redirecting
@@ -139,6 +169,50 @@ export default function DashboardPage() {
               </Link>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Share your experience ── */}
+      {!testimonialDismissed && (
+        <div className="card p-5 border border-blue-200/60 bg-blue-50/40 relative">
+          <button onClick={dismissTestimonial} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading">
+            <X size={16}/>
+          </button>
+          {!showTestimonialForm ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Share your experience with Zaroda</h3>
+              <p className="text-sm text-theme-muted mb-3">A short testimonial helps us understand and showcase the real impact this system has on teaching and learning in Kenya.</p>
+              <button onClick={() => setShowTestimonialForm(true)} className="btn-primary text-sm">Write a testimonial</button>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <textarea
+                value={testimonialForm.message}
+                onChange={(e) => setTestimonialForm(f => ({ ...f, message: e.target.value }))}
+                className="input resize-y" rows={4}
+                placeholder="How has Zaroda changed the way you teach, plan, or run your school?"
+              />
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} type="button" onClick={() => setTestimonialForm(f => ({ ...f, rating: n }))}>
+                      <Star size={18} className={n <= testimonialForm.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-theme-muted'}/>
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-theme-muted">
+                  <input type="checkbox" checked={testimonialForm.allowPublicUse} onChange={(e) => setTestimonialForm(f => ({ ...f, allowPublicUse: e.target.checked }))}/>
+                  OK to use publicly (with my name)
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={submitTestimonial} disabled={submittingTestimonial || !testimonialForm.message.trim()} className="btn-primary text-sm">
+                  {submittingTestimonial ? 'Submitting…' : 'Submit'}
+                </button>
+                <button onClick={() => setShowTestimonialForm(false)} className="btn-ghost text-sm">Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
