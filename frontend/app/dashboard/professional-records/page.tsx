@@ -665,8 +665,8 @@ export default function ProfessionalRecordsPage() {
                     <label className="label">Export format</label>
                     <select value={form.format} onChange={set('format')} className="input">
                       <option value="preview">Preview in app</option>
-                      <option value="pdf">Print / Save as PDF</option>
                       <option value="doc">Word (.doc)</option>
+                      <option value="pdf">Print / Save as PDF</option>
                     </select>
                   </div>
                   <div>
@@ -774,8 +774,8 @@ function ExportBar({ format, setFormat, font, setFont, onExport }: {
   return (
     <div className="flex flex-wrap items-center gap-2 p-5 pt-0">
       <select value={format} onChange={(e) => setFormat(e.target.value as any)} className="input text-xs py-1.5 w-auto">
-        <option value="pdf">Print / Save as PDF</option>
         <option value="doc">Word (.doc)</option>
+        <option value="pdf">Print / Save as PDF</option>
       </select>
       <select value={font} onChange={(e) => setFont(e.target.value)} className="input text-xs py-1.5 w-auto">
         <option>Times New Roman</option>
@@ -1058,8 +1058,8 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
         <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-theme">
           <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)} className="input text-xs py-1.5 w-auto">
             <option value="preview">Preview in app</option>
-            <option value="pdf">Print / Save as PDF</option>
             <option value="doc">Word (.doc)</option>
+            <option value="pdf">Print / Save as PDF</option>
           </select>
           <select value={exportFont} onChange={(e) => setExportFont(e.target.value)} className="input text-xs py-1.5 w-auto">
             <option>Times New Roman</option>
