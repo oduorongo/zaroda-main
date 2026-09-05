@@ -121,8 +121,15 @@ export class LessonPlanService {
   }
 
   async findOne(tenantId: string, planId: string) {
-    const plan = await this.planRepo.findOne({ where: { id: planId, tenantId } });
+    const plan: any = await this.planRepo.findOne({ where: { id: planId, tenantId } });
     if (!plan) throw new NotFoundException('Lesson plan not found');
+    if (plan.reviewedBy) {
+      const rows = await this.dataSource.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
+        [plan.reviewedBy],
+      ).catch(() => []);
+      if (rows[0]) plan.reviewerName = `${rows[0].firstName} ${rows[0].lastName}`;
+    }
     return plan;
   }
 
@@ -185,7 +192,9 @@ export class LessonPlanService {
       headerHtml: '',
       bodyHtml,
       footerHtml: `<div>${L('Teacher')}: ${escHtml(scheme?.teacherName || '_______________________')} &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>` +
-        `<div>${L('Checked by D.H.O.I.')}: ________ &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>`,
+        (plan.status === 'approved' && plan.reviewerName
+          ? `<div>${L('Checked by D.H.O.I.')}: ${escHtml(plan.reviewerName)} &nbsp; ${L('Approved')}: ${new Date(plan.reviewedAt).toLocaleDateString('en-KE')}</div>`
+          : `<div>${L('Checked by D.H.O.I.')}: ________ &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>`),
       wordSafe,
     });
   }

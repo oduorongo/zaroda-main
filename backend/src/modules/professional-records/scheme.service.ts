@@ -250,11 +250,18 @@ export class SchemeService {
 
   // ── GET SCHEME (with weeks) ────────────────────────────────
   async findOne(tenantId: string, schemeId: string) {
-    const scheme = await this.schemeRepo.findOne({
+    const scheme: any = await this.schemeRepo.findOne({
       where: { id: schemeId, tenantId },
       relations: ['weeks'],
     });
     if (!scheme) throw new NotFoundException('Scheme of work not found');
+    if (scheme.reviewedBy) {
+      const rows = await this.dataSource.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
+        [scheme.reviewedBy],
+      ).catch(() => []);
+      if (rows[0]) scheme.reviewerName = `${rows[0].firstName} ${rows[0].lastName}`;
+    }
     return scheme;
   }
 
@@ -358,7 +365,11 @@ export class SchemeService {
       schoolName: scheme.schoolName || '',
       headerHtml,
       bodyHtml,
-      footerHtml: `<div>${L('Prepared by')}: ${esc(scheme.teacherName || '_______________________')}</div><div>${esc(scheme.signOffLine || label('Checked by D.H.O.I.', kiswahili))}: _______________________</div>`,
+      footerHtml: `<div>${L('Prepared by')}: ${esc(scheme.teacherName || '_______________________')}</div><div>${esc(scheme.signOffLine || label('Checked by D.H.O.I.', kiswahili))}: ${
+        scheme.status === 'approved' && scheme.reviewerName
+          ? `${esc(scheme.reviewerName)} (${L('Approved')} ${new Date(scheme.reviewedAt).toLocaleDateString('en-KE')})`
+          : '_______________________'
+      }</div>`,
       landscape: true,
       wordSafe,
     });

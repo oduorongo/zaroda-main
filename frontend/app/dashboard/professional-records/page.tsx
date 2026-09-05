@@ -302,6 +302,13 @@ export default function ProfessionalRecordsPage() {
     } catch { toast.error('Could not load scheme.'); }
   };
 
+  const openPlanDetail = async (p: { id: string }) => {
+    try {
+      const { data } = await apiClient.get(`/professional-records/lesson-plans/${p.id}`);
+      setOpenPlan(data);
+    } catch { toast.error('Could not load lesson plan.'); }
+  };
+
   const submitScheme = async (id: string) => {
     try { await apiClient.post(`/professional-records/schemes/${id}/submit`); toast.success('Submitted for HOI approval!'); load(); if (openScheme?.id === id) openSchemeDetail(id); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not submit.'); }
@@ -428,7 +435,7 @@ export default function ProfessionalRecordsPage() {
         plans.length === 0 ? <EmptyState label="No lesson plans yet — generate one from a scheme week"/> : (
           <div className="space-y-3">
             {plans.map((p: any) => (
-              <div key={p.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => setOpenPlan(p)}>
+              <div key={p.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => openPlanDetail(p)}>
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center flex-shrink-0"><BookOpen size={18} className="text-[#d4af37]"/></div>
                   <div className="flex-1 min-w-0">
@@ -470,7 +477,7 @@ export default function ProfessionalRecordsPage() {
           </div>
         )
       ) : tab === 'pending' && hoi ? (
-        <PendingApprovals pending={pending} onReviewScheme={reviewScheme} onReviewPlan={reviewLessonPlan} onOpenScheme={openSchemeDetail} onOpenPlan={setOpenPlan} onOpenNotes={setOpenNotes}/>
+        <PendingApprovals pending={pending} onReviewScheme={reviewScheme} onReviewPlan={reviewLessonPlan} onOpenScheme={openSchemeDetail} onOpenPlan={openPlanDetail} onOpenNotes={setOpenNotes}/>
       ) : null}
 
       {/* Generate Scheme Modal */}
@@ -805,6 +812,10 @@ function LessonPlanModal({ plan, onClose, onExport }: { plan: any; onClose: () =
           <div>
             <h3 className="text-lg font-bold text-theme-heading">{plan.strand} — {plan.subStrand}</h3>
             <p className="text-xs text-theme-muted mt-0.5">{gradeLabel(plan.gradeLevel)} · {plan.durationMinutes} min{plan.lessonDate ? ` · ${String(plan.lessonDate).slice(0,10)}` : ''}</p>
+            {plan.status === 'approved' && plan.reviewerName && (
+              <p className="text-xs mt-1 text-green-700">✓ Approved by {plan.reviewerName}{plan.reviewedAt ? ` on ${new Date(plan.reviewedAt).toLocaleDateString('en-KE')}` : ''}</p>
+            )}
+            {plan.reviewComment && <p className="text-xs mt-1 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {plan.reviewComment}</p>}
           </div>
           <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
         </div>
@@ -916,6 +927,9 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
               <StatusBadge status={scheme.status}/>
             </div>
             <p className="text-xs text-theme-muted mt-1">{gradeLabel(scheme.gradeLevel)} · {scheme.term?.replace('_',' ')} · {scheme.academicYear} · {weeks.length} weeks</p>
+            {scheme.status === 'approved' && scheme.reviewerName && (
+              <p className="text-xs mt-2 text-green-700">✓ Approved by {scheme.reviewerName}{scheme.reviewedAt ? ` on ${new Date(scheme.reviewedAt).toLocaleDateString('en-KE')}` : ''}</p>
+            )}
             {scheme.reviewComment && <p className="text-xs mt-2 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {scheme.reviewComment}</p>}
           </div>
           <div className="flex gap-2">
