@@ -34,6 +34,12 @@ export default function OwnerTestimonialsPage() {
     catch { toast.error('Could not update'); }
   };
 
+  const remove = async (id: string) => {
+    if (!confirm('Permanently delete this testimonial?')) return;
+    try { await apiClient.delete(`/testimonials/${id}`); toast.success('Deleted'); load(); }
+    catch { toast.error('Could not delete'); }
+  };
+
   const copyAll = () => {
     const text = items.map(t =>
       `"${t.message}"\n— ${t.authorName}, ${t.authorRole}${t.schoolName ? `, ${t.schoolName}` : ''}${t.rating ? ` (${t.rating}/5)` : ''}`
@@ -84,7 +90,8 @@ export default function OwnerTestimonialsPage() {
                   </div>
                   <div className="flex gap-1.5">
                     {t.status !== 'featured' && <button onClick={() => setItemStatus(t.id, 'featured')} className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700">Feature</button>}
-                    {t.status !== 'archived' && <button onClick={() => setItemStatus(t.id, 'archived')} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-lg hover:bg-red-200">Archive</button>}
+                    {t.status !== 'archived' && <button onClick={() => setItemStatus(t.id, 'archived')} className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-lg hover:bg-amber-200">Archive</button>}
+                    <button onClick={() => remove(t.id)} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-lg hover:bg-red-200">Delete</button>
                   </div>
                 </div>
               </div>

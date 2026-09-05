@@ -3918,9 +3918,9 @@ class TestimonialController {
     ).catch(() => []);
     const u = user[0] || {};
     const rating = Number(dto.rating);
-    await this.ds.query(
+    const rows = await this.ds.query(
       `INSERT INTO testimonials (tenant_id, user_id, author_name, author_role, school_name, message, rating, allow_public_use, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) RETURNING id`,
       [
         req.user.tenantId, req.user.id,
         `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'A Zaroda user',
@@ -3929,28 +3929,31 @@ class TestimonialController {
         dto.allowPublicUse !== false,
       ],
     ).catch((e: any) => { throw e; });
-    return { message: 'Thank you — your testimonial has been recorded.' };
+    return { id: rows[0]?.id, message: 'Thank you — your testimonial has been recorded.' };
   }
 
   // Whether the current user has already submitted one (the prompt shouldn't nag twice).
   @Get('mine')
   async mine(@Request() req: any) {
     const rows = await this.ds.query(
-      `SELECT id FROM testimonials WHERE user_id = $1 LIMIT 1`, [req.user.id],
+      `SELECT id, message, rating FROM testimonials WHERE user_id = $1 LIMIT 1`, [req.user.id],
     ).catch(() => []);
-    return { submitted: rows.length > 0 };
+    return { submitted: rows.length > 0, testimonial: rows[0] || null };
   }
 
   // Platform-wide list, owner only — for compiling award/case-study evidence.
+  // Archived testimonials are hidden unless explicitly requested (status=archived
+  // or status=all) — that's the point of archiving one.
   @Get()
   async list(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
     const status = ['submitted', 'featured', 'archived'].includes(q.status) ? q.status : null;
+    const where = status ? 'WHERE status = $1' : (q.status === 'all' ? '' : `WHERE status <> 'archived'`);
     const rows = await this.ds.query(
       `SELECT id, author_name AS "authorName", author_role AS "authorRole", school_name AS "schoolName",
               message, rating, allow_public_use AS "allowPublicUse", status, created_at AS "createdAt"
          FROM testimonials
-        ${status ? 'WHERE status = $1' : ''}
+        ${where}
         ORDER BY created_at DESC`,
       status ? [status] : [],
     ).catch(() => []);
@@ -3963,6 +3966,18 @@ class TestimonialController {
     if (!['submitted', 'featured', 'archived'].includes(dto.status)) return { error: 'Invalid status.' };
     await this.ds.query(`UPDATE testimonials SET status = $2 WHERE id::text = $1`, [id, dto.status]).catch(() => null);
     return { id, updated: true };
+  }
+
+  // Permanently remove — the owner can delete any; a regular user can delete
+  // only their own (retracting a testimonial they wrote).
+  @Delete(':id')
+  async remove(@Request() req: any, @Param('id') id: string) {
+    const owner = this.isOwner(req);
+    const result = await this.ds.query(
+      `DELETE FROM testimonials WHERE id::text = $1 ${owner ? '' : 'AND user_id = $2'}`,
+      owner ? [id] : [id, req.user.id],
+    ).catch(() => null);
+    return { deleted: true };
   }
 }
 

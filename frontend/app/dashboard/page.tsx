@@ -56,12 +56,18 @@ export default function DashboardPage() {
     if (user?.tenantId) setChecklistDismissed(localStorage.getItem(`setup-checklist-dismissed:${user.tenantId}`) === '1');
   }, [user]);
 
-  // Only show the "share your experience" prompt if this user hasn't already
-  // submitted one and hasn't dismissed it before.
+  const [myTestimonial, setMyTestimonial] = useState<any>(null);
+
+  // Only show the "share your experience" prompt if this user hasn't dismissed it
+  // before. If they've already submitted one, show it (with a delete option)
+  // instead of the write-a-testimonial prompt.
   useEffect(() => {
     if (!user) return;
-    if (localStorage.getItem(`testimonial-dismissed:${user.id}`) === '1') return;
-    apiClient.get('/testimonials/mine').then(r => setTestimonialDismissed(!!r.data?.submitted)).catch(() => {});
+    if (localStorage.getItem(`testimonial-dismissed:${user.id}`) === '1') { setTestimonialDismissed(true); return; }
+    apiClient.get('/testimonials/mine').then(r => {
+      setMyTestimonial(r.data?.testimonial || null);
+      setTestimonialDismissed(false);
+    }).catch(() => {});
   }, [user]);
 
   const [testimonialForm, setTestimonialForm] = useState({ message: '', rating: 5, allowPublicUse: true });
@@ -70,13 +76,20 @@ export default function DashboardPage() {
     if (!testimonialForm.message.trim()) return;
     setSubmittingTestimonial(true);
     try {
-      await apiClient.post('/testimonials', testimonialForm);
+      const { data } = await apiClient.post('/testimonials', testimonialForm);
       toast.success('Thank you — your experience has been recorded!');
       setShowTestimonialForm(false);
-      setTestimonialDismissed(true);
-      if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, '1');
+      setMyTestimonial({ id: data?.id, message: testimonialForm.message, rating: testimonialForm.rating });
     } catch (err: any) { toast.error(err?.response?.data?.error || 'Could not submit — try again.'); }
     finally { setSubmittingTestimonial(false); }
+  };
+  const deleteMyTestimonial = async () => {
+    if (!myTestimonial?.id) return;
+    try {
+      await apiClient.delete(`/testimonials/${myTestimonial.id}`);
+      toast.success('Testimonial removed.');
+      setMyTestimonial(null);
+    } catch { toast.error('Could not remove — try again.'); }
   };
   const dismissTestimonial = () => {
     setTestimonialDismissed(true);
@@ -178,7 +191,13 @@ export default function DashboardPage() {
           <button onClick={dismissTestimonial} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading">
             <X size={16}/>
           </button>
-          {!showTestimonialForm ? (
+          {myTestimonial ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Your testimonial</h3>
+              <p className="text-sm text-theme-muted italic mb-3">&ldquo;{myTestimonial.message}&rdquo;</p>
+              <button onClick={deleteMyTestimonial} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-200">Delete</button>
+            </>
+          ) : !showTestimonialForm ? (
             <>
               <h3 className="font-bold text-theme-heading mb-1">Share your experience with Zaroda</h3>
               <p className="text-sm text-theme-muted mb-3">A short testimonial helps us understand and showcase the real impact this system has on teaching and learning in Kenya.</p>
