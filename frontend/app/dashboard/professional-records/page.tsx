@@ -352,12 +352,12 @@ export default function ProfessionalRecordsPage() {
         </div>
         {canGenerate && !openScheme && (
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <div className="text-right mr-1">
-              <div className="text-[10px] text-theme-muted uppercase tracking-wide">Wallet</div>
-              <div className="font-bold text-theme-heading text-sm">KES {wallet?.balance ?? '…'}</div>
+            <div className="text-center rounded-xl px-3 py-1.5 bg-[#1a2e5a] text-white">
+              <div className="text-[10px] text-[#d4af37] uppercase tracking-wide leading-none">Wallet</div>
+              <div className="font-bold text-sm leading-tight">KES {wallet?.balance ?? '…'}</div>
             </div>
-            <button onClick={() => setShowTopUp(true)} className="btn-ghost text-xs px-2.5 py-1.5">Top Up</button>
-            <button onClick={() => setShowReferral(true)} className="btn-ghost text-xs px-2.5 py-1.5">Refer &amp; Earn</button>
+            <button onClick={() => setShowTopUp(true)} className="btn-primary text-xs px-2.5 py-1.5">Top Up</button>
+            <button onClick={() => setShowReferral(true)} className="btn-primary text-xs px-2.5 py-1.5">Refer &amp; Earn</button>
             <button onClick={() => setShowNewScheme(true)} className="btn-primary text-xs px-3 py-1.5 w-full sm:w-auto justify-center">
               <Sparkles size={14}/> Generate Scheme of Work
             </button>
@@ -367,7 +367,7 @@ export default function ProfessionalRecordsPage() {
 
       {/* Tabs */}
       {!openScheme && (
-        <div className="flex border-b border-theme gap-1 overflow-x-auto">
+        <div className="flex flex-wrap border-b border-theme gap-1">
           {[
             { key:'schemes', label:'📋 Schemes of Work' },
             { key:'plans',   label:'📝 Lesson Plans'   },
@@ -375,7 +375,7 @@ export default function ProfessionalRecordsPage() {
             ...(hoi ? [{ key:'pending', label:`⏳ Pending Approval${pending?.total ? ` (${pending.total})` : ''}` }] : []),
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as any)}
-              className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${tab===t.key?'border-[#1a2e5a] text-theme-heading':'border-transparent text-theme-muted hover:text-theme-heading'}`}>
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${tab===t.key?'border-[#1a2e5a] text-theme-heading':'border-transparent text-theme-muted hover:text-theme-heading'}`}>
               {t.label}
             </button>
           ))}
