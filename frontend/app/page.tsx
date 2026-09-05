@@ -1,12 +1,14 @@
 // app/page.tsx — Public marketing homepage (feature showcase)
 'use client';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
 import {
   BookOpen, DollarSign, MessageSquare, FileText, Library,
   Trophy, Scale, Zap, Sparkles, ShieldCheck, MapPin,
-  ArrowRight, Check, Phone, PlayCircle,
+  ArrowRight, Check, Phone, PlayCircle, Quote, Star,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import apiClient from '@/lib/api/client';
 
 const MODULES = [
   { icon: BookOpen,      title: 'Academic Core',        desc: 'Teachers enter marks online — mark lists and CBC report cards generate automatically, with real-time analytics. Learners, streams, attendance, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
@@ -33,6 +35,10 @@ const TRUST = [
 
 export default function HomePage() {
   const { user } = useAuth();
+  const [testimonials, setTestimonials] = useState<any[]>([]);
+  useEffect(() => {
+    apiClient.get('/public/testimonials').then(r => setTestimonials(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+  }, []);
 
   // The homepage is always the first page for everyone.
   // Logged-in users simply see a "Go to Dashboard" button in the nav.
@@ -228,6 +234,37 @@ export default function HomePage() {
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> ZARODA Sports always free</span>
         </div>
       </section>
+
+      {/* ───── Testimonials ───── */}
+      {testimonials.length > 0 && (
+        <section className="bg-[#f4f6fb] py-20">
+          <div className="max-w-6xl mx-auto px-4">
+            <div className="text-center mb-14">
+              <p className="text-[#f5820a] font-bold text-sm uppercase tracking-widest mb-2">In their words</p>
+              <h2 className="text-3xl md:text-4xl font-black text-[#1a2e5a]">What teachers and heads are saying</h2>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {testimonials.map((t, i) => (
+                <div key={i} className="card p-6 bg-white flex flex-col">
+                  <Quote size={22} className="text-[#d4af37] mb-3"/>
+                  <p className="text-[#4a5278] text-sm leading-relaxed flex-1">&ldquo;{t.message}&rdquo;</p>
+                  {t.rating && (
+                    <div className="flex mt-4">
+                      {Array.from({ length: 5 }).map((_, n) => (
+                        <Star key={n} size={14} className={n < t.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-[#e2e6f0]'}/>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-3 pt-3 border-t border-[#e2e6f0]">
+                    <p className="font-bold text-[#1a2e5a] text-sm">{t.authorName}</p>
+                    <p className="text-xs text-[#7a82a8]">{t.authorRole}{t.schoolName ? ` · ${t.schoolName}` : ''}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ───── CTA ───── */}
       <section className="bg-[#1a2e5a] text-white">

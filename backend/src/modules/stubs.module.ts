@@ -3981,5 +3981,25 @@ class TestimonialController {
   }
 }
 
-@Module({ controllers: [TestimonialController] })
+// Public, unauthenticated — the landing page pulls only testimonials the
+// author explicitly agreed to have used publicly, and only ones the owner
+// has featured. No auth guard on purpose.
+@Controller('public/testimonials')
+class PublicTestimonialController {
+  constructor(private readonly ds: DataSource) {}
+
+  @Get()
+  async list() {
+    return this.ds.query(
+      `SELECT author_name AS "authorName", author_role AS "authorRole", school_name AS "schoolName",
+              message, rating, created_at AS "createdAt"
+         FROM testimonials
+        WHERE status = 'featured' AND allow_public_use = true
+        ORDER BY created_at DESC
+        LIMIT 12`,
+    ).catch(() => []);
+  }
+}
+
+@Module({ controllers: [TestimonialController, PublicTestimonialController] })
 export class TestimonialModule {}
