@@ -309,6 +309,23 @@ export default function ProfessionalRecordsPage() {
     } catch { toast.error('Could not load lesson plan.'); }
   };
 
+  // Edit-and-resubmit (free) for a scheme week that's a draft or was sent back for revision.
+  const editSchemeWeek = async (weekId: string, fields: Record<string, any>) => {
+    try {
+      await apiClient.patch(`/professional-records/scheme-weeks/${weekId}`, fields);
+      toast.success('Week updated.');
+      if (openScheme) openSchemeDetail(openScheme.id);
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save changes.'); }
+  };
+
+  const editLessonPlan = async (planId: string, fields: Record<string, any>) => {
+    try {
+      await apiClient.patch(`/professional-records/lesson-plans/${planId}`, fields);
+      toast.success('Lesson plan updated.');
+      openPlanDetail({ id: planId });
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save changes.'); }
+  };
+
   const submitScheme = async (id: string) => {
     try { await apiClient.post(`/professional-records/schemes/${id}/submit`); toast.success('Submitted for HOI approval!'); load(); if (openScheme?.id === id) openSchemeDetail(id); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not submit.'); }
@@ -402,6 +419,7 @@ export default function ProfessionalRecordsPage() {
           onGenerateLessonPlan={generateLessonPlan}
           onGenerateLessonNotes={generateLessonNotesFromWeek}
           onExport={(format: 'pdf' | 'doc' | 'preview', font: string) => exportScheme(openScheme.id, format, font)}
+          onEditWeek={editSchemeWeek}
         />
       ) : tab === 'schemes' ? (
         schemes.length === 0 ? (
@@ -732,7 +750,7 @@ export default function ProfessionalRecordsPage() {
 
       {showReferral && user && <ReferralModal userId={user.id} onClose={() => setShowReferral(false)}/>}
 
-      {openPlan && <LessonPlanModal plan={openPlan} onClose={() => setOpenPlan(null)} onExport={exportDocument}/>}
+      {openPlan && <LessonPlanModal plan={openPlan} teacher={canGenerate} onClose={() => setOpenPlan(null)} onExport={exportDocument} onEdit={editLessonPlan}/>}
       {openNotes && <LessonNotesModal notes={openNotes} onClose={() => setOpenNotes(null)} onExport={exportDocument}/>}
     </div>
   );
@@ -802,9 +820,43 @@ function ReferralModal({ userId, onClose }: { userId: string; onClose: () => voi
   );
 }
 
-function LessonPlanModal({ plan, onClose, onExport }: { plan: any; onClose: () => void; onExport: (url: string, prefix: string, format: 'pdf'|'doc', font: string) => void }) {
+const EDITABLE_PLAN_FIELDS = [
+  ['specificLearningOutcomes', 'Specific Learning Outcomes'],
+  ['keyInquiryQuestions', 'Key Inquiry Questions'],
+  ['pertinentIssues', 'Pertinent Issues'],
+  ['linkToOtherSubjects', 'Link to Other Subjects'],
+  ['introduction', 'Introduction'],
+  ['lessonDevelopment', 'Lesson Development'],
+  ['conclusion', 'Conclusion'],
+  ['assessment', 'Assessment'],
+  ['extendedActivities', 'Extended Activities'],
+  ['supportActivities', 'Support Activities'],
+  ['learningMaterials', 'Learning Materials'],
+  ['referenceBooks', 'Reference Books'],
+] as const;
+
+function LessonPlanModal({ plan, teacher, onClose, onExport, onEdit }: { plan: any; teacher?: boolean; onClose: () => void; onExport: (url: string, prefix: string, format: 'pdf'|'doc', font: string) => void; onEdit?: (id: string, fields: Record<string, any>) => Promise<void> }) {
   const [format, setFormat] = useState<'pdf'|'doc'>('pdf');
   const [font, setFont] = useState('Times New Roman');
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const canEdit = teacher && onEdit && ['draft', 'revision_requested'].includes(plan.status);
+
+  const startEdit = () => {
+    const f: Record<string, string> = {};
+    for (const [key] of EDITABLE_PLAN_FIELDS) f[key] = plan[key] || '';
+    setForm(f);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    await onEdit!(plan.id, form);
+    setSaving(false);
+    setEditing(false);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
       <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-12">
@@ -819,24 +871,44 @@ function LessonPlanModal({ plan, onClose, onExport }: { plan: any; onClose: () =
           </div>
           <button onClick={onClose}><X size={20} className="text-theme-muted"/></button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 px-5 pt-4">
+          {canEdit && !editing && <button onClick={startEdit} className="btn-ghost text-xs py-1.5 px-3">Edit</button>}
+          {editing && (
+            <>
+              <button onClick={save} disabled={saving} className="btn-primary text-xs py-1.5 px-3">{saving ? 'Saving…' : 'Save changes'}</button>
+              <button onClick={() => setEditing(false)} className="btn-ghost text-xs py-1.5 px-3">Cancel</button>
+            </>
+          )}
+        </div>
         <ExportBar format={format} setFormat={setFormat} font={font} setFont={setFont}
           onExport={() => onExport(`/professional-records/lesson-plans/${plan.id}/html`, `lesson-plan-${plan.id}`, format, font)}/>
         <div className="p-5 pt-0 space-y-4 max-h-[70vh] overflow-y-auto">
-          <DetailField label="Specific Learning Outcomes" value={plan.specificLearningOutcomes}/>
-          <DetailField label="Key Inquiry Questions" value={plan.keyInquiryQuestions}/>
-          <DetailField label="Core Competencies" value={plan.coreCompetencies}/>
-          <DetailField label="Values" value={plan.values}/>
-          <DetailField label="Pertinent Issues" value={plan.pertinentIssues}/>
-          <DetailField label="Link to Other Subjects" value={plan.linkToOtherSubjects}/>
-          <DetailField label="Introduction" value={plan.introduction}/>
-          <DetailField label="Lesson Development" value={plan.lessonDevelopment}/>
-          <DetailField label="Conclusion" value={plan.conclusion}/>
-          <DetailField label="Assessment" value={plan.assessment}/>
-          <DetailField label="Extended Activities" value={plan.extendedActivities}/>
-          <DetailField label="Support Activities" value={plan.supportActivities}/>
-          <DetailField label="Learning Materials" value={plan.learningMaterials}/>
-          <DetailField label="Reference Books" value={plan.referenceBooks}/>
-          {plan.reviewComment && <DetailField label="HOI Comment" value={plan.reviewComment}/>}
+          {editing ? (
+            EDITABLE_PLAN_FIELDS.map(([key, label]) => (
+              <div key={key}>
+                <label className="label">{label}</label>
+                <textarea value={form[key]} onChange={(e) => setForm(f => ({ ...f, [key]: e.target.value }))} className="input resize-y" rows={key === 'lessonDevelopment' ? 6 : 3}/>
+              </div>
+            ))
+          ) : (
+            <>
+              <DetailField label="Specific Learning Outcomes" value={plan.specificLearningOutcomes}/>
+              <DetailField label="Key Inquiry Questions" value={plan.keyInquiryQuestions}/>
+              <DetailField label="Core Competencies" value={plan.coreCompetencies}/>
+              <DetailField label="Values" value={plan.values}/>
+              <DetailField label="Pertinent Issues" value={plan.pertinentIssues}/>
+              <DetailField label="Link to Other Subjects" value={plan.linkToOtherSubjects}/>
+              <DetailField label="Introduction" value={plan.introduction}/>
+              <DetailField label="Lesson Development" value={plan.lessonDevelopment}/>
+              <DetailField label="Conclusion" value={plan.conclusion}/>
+              <DetailField label="Assessment" value={plan.assessment}/>
+              <DetailField label="Extended Activities" value={plan.extendedActivities}/>
+              <DetailField label="Support Activities" value={plan.supportActivities}/>
+              <DetailField label="Learning Materials" value={plan.learningMaterials}/>
+              <DetailField label="Reference Books" value={plan.referenceBooks}/>
+              {plan.reviewComment && <DetailField label="HOI Comment" value={plan.reviewComment}/>}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -895,7 +967,7 @@ function EmptyState({ label, cta }: { label: string; cta?: { label: string; onCl
   );
 }
 
-function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onGenerateLessonNotes, onExport }: any) {
+function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onGenerateLessonNotes, onExport, onEditWeek }: any) {
   // Tracks which button on which week is busy, e.g. "week123:plan" — keyed by
   // action too, not just week id, so generating a plan doesn't also show the
   // Notes button on the same week as busy/disabled (and vice versa).
@@ -903,6 +975,45 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
   const [exportFormat, setExportFormat] = useState<'pdf'|'doc'|'preview'>('pdf');
   const [exportFont, setExportFont] = useState(scheme.defaultFont || 'Times New Roman');
   const weeks = [...(scheme.weeks || [])].sort((a: any, b: any) => a.weekNumber - b.weekNumber);
+  const canEdit = teacher && onEditWeek && ['draft', 'revision_requested'].includes(scheme.status);
+
+  // Which lesson (or legacy week) is currently being edited, keyed "weekId:lessonNumber".
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ slo: '', kiq: '', exp: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEditLesson = (weekId: string, lessonNumber: number, lesson: any) => {
+    setEditForm({ slo: lesson.specificLearningOutcomes || '', kiq: lesson.keyInquiryQuestions || '', exp: lesson.learningExperiences || '' });
+    setEditingKey(`${weekId}:${lessonNumber}`);
+  };
+
+  const startEditLegacyWeek = (w: any) => {
+    setEditForm({ slo: w.specificLearningOutcomes || '', kiq: w.keyInquiryQuestions || '', exp: w.learningExperiences || '' });
+    setEditingKey(`${w.id}:1`);
+  };
+
+  const saveLessonEdit = async (weekId: string, lessonNumber: number) => {
+    setSavingEdit(true);
+    await onEditWeek(weekId, {
+      lessonNumber,
+      lessonSpecificLearningOutcomes: editForm.slo,
+      lessonKeyInquiryQuestions: editForm.kiq,
+      lessonLearningExperiences: editForm.exp,
+    });
+    setSavingEdit(false);
+    setEditingKey(null);
+  };
+
+  const saveLegacyWeekEdit = async (weekId: string) => {
+    setSavingEdit(true);
+    await onEditWeek(weekId, {
+      specificLearningOutcomes: editForm.slo,
+      keyInquiryQuestions: editForm.kiq,
+      learningExperiences: editForm.exp,
+    });
+    setSavingEdit(false);
+    setEditingKey(null);
+  };
 
   const handleGenNotes = async (weekId: string, lessonSlot: number) => {
     setBusyAction(`${weekId}:${lessonSlot}:notes`);
@@ -971,16 +1082,32 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
               <div className="space-y-3">
                 {lessons.map((lesson: any) => {
                   const key = `${w.id}:${lesson.lessonNumber}`;
+                  const isEditing = editingKey === key;
                   return (
                     <div key={key} className="flex items-start justify-between gap-3 flex-wrap border-t border-theme pt-3 first:border-0 first:pt-0">
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-bold text-theme-heading uppercase tracking-wide">Lesson {lesson.lessonNumber}{lesson.isDouble ? ' (Double)' : ''}</div>
-                        <p className="text-sm mt-1"><span className="font-semibold">SLOs:</span> {lesson.specificLearningOutcomes}</p>
-                        {lesson.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {lesson.keyInquiryQuestions}</p>}
-                        {lesson.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {lesson.learningExperiences}</p>}
+                        {isEditing ? (
+                          <div className="space-y-2 mt-2">
+                            <div><label className="label">SLOs</label><textarea value={editForm.slo} onChange={(e) => setEditForm(f => ({ ...f, slo: e.target.value }))} className="input resize-y" rows={2}/></div>
+                            <div><label className="label">Key Inquiry Questions</label><textarea value={editForm.kiq} onChange={(e) => setEditForm(f => ({ ...f, kiq: e.target.value }))} className="input resize-y" rows={2}/></div>
+                            <div><label className="label">Learning Experiences</label><textarea value={editForm.exp} onChange={(e) => setEditForm(f => ({ ...f, exp: e.target.value }))} className="input resize-y" rows={3}/></div>
+                            <div className="flex gap-2">
+                              <button onClick={() => saveLessonEdit(w.id, lesson.lessonNumber)} disabled={savingEdit} className="btn-primary text-xs py-1.5 px-3">{savingEdit ? 'Saving…' : 'Save'}</button>
+                              <button onClick={() => setEditingKey(null)} className="btn-ghost text-xs py-1.5 px-3">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-sm mt-1"><span className="font-semibold">SLOs:</span> {lesson.specificLearningOutcomes}</p>
+                            {lesson.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {lesson.keyInquiryQuestions}</p>}
+                            {lesson.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {lesson.learningExperiences}</p>}
+                          </>
+                        )}
                       </div>
-                      {teacher && (
+                      {teacher && !isEditing && (
                         <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          {canEdit && <button onClick={() => startEditLesson(w.id, lesson.lessonNumber, lesson)} className="btn-ghost text-xs py-1.5 px-3">Edit</button>}
                           <button onClick={() => handleGenPlan(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)} className="btn-ghost text-xs py-1.5 px-3">
                             {busyAction === `${key}:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
                           </button>
@@ -997,12 +1124,27 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
               // Legacy week with no per-lesson breakdown — one plan/notes pair for the whole week (slot 1).
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm"><span className="font-semibold">SLOs:</span> {w.specificLearningOutcomes}</p>
-                  {w.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {w.keyInquiryQuestions}</p>}
-                  {w.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {w.learningExperiences}</p>}
+                  {editingKey === `${w.id}:1` ? (
+                    <div className="space-y-2">
+                      <div><label className="label">SLOs</label><textarea value={editForm.slo} onChange={(e) => setEditForm(f => ({ ...f, slo: e.target.value }))} className="input resize-y" rows={2}/></div>
+                      <div><label className="label">Key Inquiry Questions</label><textarea value={editForm.kiq} onChange={(e) => setEditForm(f => ({ ...f, kiq: e.target.value }))} className="input resize-y" rows={2}/></div>
+                      <div><label className="label">Learning Experiences</label><textarea value={editForm.exp} onChange={(e) => setEditForm(f => ({ ...f, exp: e.target.value }))} className="input resize-y" rows={3}/></div>
+                      <div className="flex gap-2">
+                        <button onClick={() => saveLegacyWeekEdit(w.id)} disabled={savingEdit} className="btn-primary text-xs py-1.5 px-3">{savingEdit ? 'Saving…' : 'Save'}</button>
+                        <button onClick={() => setEditingKey(null)} className="btn-ghost text-xs py-1.5 px-3">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm"><span className="font-semibold">SLOs:</span> {w.specificLearningOutcomes}</p>
+                      {w.keyInquiryQuestions && <p className="text-sm mt-1"><span className="font-semibold">Key Inquiry Questions:</span> {w.keyInquiryQuestions}</p>}
+                      {w.learningExperiences && <p className="text-sm mt-1"><span className="font-semibold">Learning Experiences:</span> {w.learningExperiences}</p>}
+                    </>
+                  )}
                 </div>
-                {teacher && (
+                {teacher && editingKey !== `${w.id}:1` && (
                   <div className="flex flex-col gap-1.5 flex-shrink-0">
+                    {canEdit && <button onClick={() => startEditLegacyWeek(w)} className="btn-ghost text-xs py-1.5 px-3">Edit</button>}
                     <button onClick={() => handleGenPlan(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)} className="btn-ghost text-xs py-1.5 px-3">
                       {busyAction === `${w.id}:1:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
                     </button>

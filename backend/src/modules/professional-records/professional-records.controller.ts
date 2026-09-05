@@ -13,6 +13,7 @@ import { WalletService, ITEM_PRICE_KES } from './wallet.service';
 import {
   GenerateSchemeDto, GenerateLessonPlanDto, GenerateLessonNotesDto,
   RecordWorkCoveredDto, GenerateLearnerProgressDto, ReviewRecordDto,
+  EditSchemeWeekDto, EditLessonPlanDto,
 } from './dto';
 
 type AuthUser = { id: string; tenantId: string; schoolId?: string; role: string };
@@ -132,6 +133,14 @@ export class ProfessionalRecordsController {
     return this.schemeService.review(u.tenantId, id, u.id, dto);
   }
 
+  // Fix a week's content after 'revision_requested' (or while still a draft) — free,
+  // no wallet charge, only while the parent scheme hasn't been submitted/approved.
+  @Patch('scheme-weeks/:id')
+  @Roles(...ALL_GENERATOR_ROLES)
+  editSchemeWeek(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: EditSchemeWeekDto) {
+    return this.schemeService.editWeek(u.tenantId, u.id, id, dto);
+  }
+
   // ── LESSON PLANS ──────────────────────────────────────────
   @Post('lesson-plans/generate')
   @Roles(...ALL_GENERATOR_ROLES)
@@ -183,6 +192,14 @@ export class ProfessionalRecordsController {
   @Roles('hoi', 'dhois', 'school_admin', 'tenant_owner')
   reviewLessonPlan(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: ReviewRecordDto) {
     return this.lessonPlanService.review(u.tenantId, id, u.id, dto);
+  }
+
+  // Fix a plan's content after 'revision_requested' (or while still a draft) — free,
+  // no wallet charge, only while it hasn't been submitted/approved.
+  @Patch('lesson-plans/:id')
+  @Roles(...ALL_GENERATOR_ROLES)
+  editLessonPlan(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: EditLessonPlanDto) {
+    return this.lessonPlanService.edit(u.tenantId, u.id, id, dto);
   }
 
   // ── LESSON NOTES ──────────────────────────────────────────

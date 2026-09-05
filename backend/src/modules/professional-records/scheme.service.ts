@@ -5,7 +5,7 @@ import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } 
 import { Tenant } from '../auth/entities/tenant.entity';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
-import { GenerateSchemeDto, ReviewRecordDto } from './dto';
+import { GenerateSchemeDto, ReviewRecordDto, EditSchemeWeekDto } from './dto';
 import { documentShell, isKiswahiliSubject, label } from './document-render.util';
 
 @Injectable()
@@ -391,6 +391,36 @@ export class SchemeService {
     if (filters.status) qb.andWhere('s.status = :status', { status: filters.status });
 
     return qb.getMany();
+  }
+
+  // ── EDIT A WEEK (fix and resubmit, no wallet charge) ───────
+  // Only while the parent scheme is still 'draft' or 'revision_requested' — once
+  // submitted/approved, editing content would drift from what was actually reviewed.
+  async editWeek(tenantId: string, teacherId: string, weekId: string, dto: EditSchemeWeekDto) {
+    const week = await this.weekRepo.findOne({ where: { id: weekId, tenantId } });
+    if (!week) throw new NotFoundException('Scheme week not found');
+    const scheme = await this.schemeRepo.findOne({ where: { id: week.schemeId, tenantId, teacherId } });
+    if (!scheme) throw new NotFoundException('Scheme not found');
+    if (!['draft', 'revision_requested'].includes(scheme.status)) {
+      throw new BadRequestException(`Cannot edit — scheme status is "${scheme.status}". Only a draft or a scheme sent back for revision can be edited.`);
+    }
+    const { lessonNumber, lessonSpecificLearningOutcomes, lessonKeyInquiryQuestions, lessonLearningExperiences, ...weekFields } = dto;
+    if (lessonNumber != null && Array.isArray(week.lessons)) {
+      const lessons = week.lessons.map((l) => l.lessonNumber === lessonNumber ? {
+        ...l,
+        specificLearningOutcomes: lessonSpecificLearningOutcomes ?? l.specificLearningOutcomes,
+        keyInquiryQuestions: lessonKeyInquiryQuestions ?? l.keyInquiryQuestions,
+        learningExperiences: lessonLearningExperiences ?? l.learningExperiences,
+      } : l);
+      await this.weekRepo.update(weekId, { lessons, ...weekFields });
+    } else {
+      await this.weekRepo.update(weekId, weekFields);
+    }
+    await this.auditRepo.save({
+      tenantId, recordType: 'scheme_of_work', recordId: scheme.id,
+      action: 'edited', actorId: teacherId, actorRole: 'teacher',
+    });
+    return this.weekRepo.findOne({ where: { id: weekId } });
   }
 
   // ── SUBMIT FOR APPROVAL ────────────────────────────────────

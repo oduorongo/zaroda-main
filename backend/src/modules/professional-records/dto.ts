@@ -102,3 +102,42 @@ export class ReviewRecordDto {
   @IsNotEmpty() @IsEnum(['approved', 'rejected', 'revision_requested']) action: string;
   @IsOptional() @IsString() comment?: string;
 }
+
+// Edit-and-resubmit: lets a teacher fix a scheme week that came back with
+// 'revision_requested' (or is still a plain 'draft') without paying to regenerate.
+export class EditSchemeWeekDto {
+  @IsOptional() @IsString() strand?: string;
+  @IsOptional() @IsString() subStrand?: string;
+  @IsOptional() @IsString() specificLearningOutcomes?: string;
+  @IsOptional() @IsString() keyInquiryQuestions?: string;
+  @IsOptional() @IsString() learningExperiences?: string;
+  @IsOptional() @IsString() learningResources?: string;
+  @IsOptional() @IsString() assessmentMethods?: string;
+  @IsOptional() @IsString() reflectionNotes?: string;
+  @IsOptional() @IsArray()  coreCompetencies?: string[];
+  @IsOptional() @IsArray()  values?: string[];
+  @IsOptional() @IsString() pertinentIssues?: string;
+  // When the week has a per-lesson breakdown (modern schemes), edit just one lesson
+  // entry in the `lessons` JSONB array instead of the week-level scalar fields above.
+  @IsOptional() @IsNumber() lessonNumber?: number;
+  @IsOptional() @IsString() lessonSpecificLearningOutcomes?: string;
+  @IsOptional() @IsString() lessonKeyInquiryQuestions?: string;
+  @IsOptional() @IsString() lessonLearningExperiences?: string;
+}
+
+export class EditLessonPlanDto {
+  @IsOptional() @IsString() specificLearningOutcomes?: string;
+  @IsOptional() @IsString() keyInquiryQuestions?: string;
+  @IsOptional() @IsArray()  coreCompetencies?: string[];
+  @IsOptional() @IsArray()  values?: string[];
+  @IsOptional() @IsString() pertinentIssues?: string;
+  @IsOptional() @IsString() linkToOtherSubjects?: string;
+  @IsOptional() @IsString() introduction?: string;
+  @IsOptional() @IsString() lessonDevelopment?: string;
+  @IsOptional() @IsString() conclusion?: string;
+  @IsOptional() @IsString() assessment?: string;
+  @IsOptional() @IsString() extendedActivities?: string;
+  @IsOptional() @IsString() supportActivities?: string;
+  @IsOptional() @IsString() learningMaterials?: string;
+  @IsOptional() @IsString() referenceBooks?: string;
+}

@@ -4,7 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { LessonPlan, SchemeOfWork, SchemeWeek, SubjectCatalogue, PrAudit } from './entities';
 import { AiGeneratorService } from './ai-generator.service';
 import { WalletService } from './wallet.service';
-import { GenerateLessonPlanDto, ReviewRecordDto } from './dto';
+import { GenerateLessonPlanDto, ReviewRecordDto, EditLessonPlanDto } from './dto';
 import { documentShell, escHtml, isKiswahiliSubject, label as translate } from './document-render.util';
 
 @Injectable()
@@ -197,6 +197,23 @@ export class LessonPlanService {
           : `<div>${L('Checked by D.H.O.I.')}: ________ &nbsp; ${L('Sign')}: ________ &nbsp; ${L('Date')}: ________</div>`),
       wordSafe,
     });
+  }
+
+  // ── EDIT (fix and resubmit, no wallet charge) ──────────────
+  // Only while the plan is still 'draft' or 'revision_requested' — once submitted/
+  // approved, editing content would drift from what was actually reviewed.
+  async edit(tenantId: string, teacherId: string, planId: string, dto: EditLessonPlanDto) {
+    const plan = await this.planRepo.findOne({ where: { id: planId, tenantId, teacherId } });
+    if (!plan) throw new NotFoundException('Lesson plan not found');
+    if (!['draft', 'revision_requested'].includes(plan.status)) {
+      throw new BadRequestException(`Cannot edit — plan status is "${plan.status}". Only a draft or a plan sent back for revision can be edited.`);
+    }
+    await this.planRepo.update(planId, dto);
+    await this.auditRepo.save({
+      tenantId, recordType: 'lesson_plan', recordId: planId,
+      action: 'edited', actorId: teacherId, actorRole: 'teacher',
+    });
+    return this.findOne(tenantId, planId);
   }
 
   async findAll(tenantId: string, filters: { teacherId?: string; schemeId?: string; status?: string }) {
