@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { FileText, Sparkles, CheckCircle, Clock, XCircle, Loader2, X, ChevronRight, ChevronLeft, BookOpen } from 'lucide-react';
+import { FileText, Sparkles, CheckCircle, Clock, XCircle, Loader2, X, ChevronRight, ChevronLeft, BookOpen, Star } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -47,6 +47,43 @@ export default function ProfessionalRecordsPage() {
   const dismissGuide = () => {
     setGuideDismissed(true);
     if (user?.id) localStorage.setItem(`pr-guide-dismissed:${user.id}`, '1');
+  };
+
+  // Individual accounts never see the main /dashboard (they're redirected straight
+  // here), so this is where they get the "share your experience" testimonial prompt
+  // that school-account users see on their dashboard home instead.
+  const [testimonialDismissed, setTestimonialDismissed] = useState(true);
+  const [showTestimonialForm, setShowTestimonialForm] = useState(false);
+  const [myTestimonial, setMyTestimonial] = useState<any>(null);
+  const [testimonialForm, setTestimonialForm] = useState({ message: '', rating: 5, allowPublicUse: true });
+  const [submittingTestimonial, setSubmittingTestimonial] = useState(false);
+  useEffect(() => {
+    if (!individual || !user) return;
+    if (localStorage.getItem(`testimonial-dismissed:${user.id}`) === '1') { setTestimonialDismissed(true); return; }
+    apiClient.get('/testimonials/mine').then(r => {
+      setMyTestimonial(r.data?.testimonial || null);
+      setTestimonialDismissed(false);
+    }).catch(() => {});
+  }, [individual, user]);
+  const dismissTestimonial = () => {
+    setTestimonialDismissed(true);
+    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, '1');
+  };
+  const submitTestimonial = async () => {
+    if (!testimonialForm.message.trim()) return;
+    setSubmittingTestimonial(true);
+    try {
+      const { data } = await apiClient.post('/testimonials', testimonialForm);
+      toast.success('Thank you — your experience has been recorded!');
+      setShowTestimonialForm(false);
+      setMyTestimonial({ id: data?.id, message: testimonialForm.message, rating: testimonialForm.rating });
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Could not submit — try again.'); }
+    finally { setSubmittingTestimonial(false); }
+  };
+  const deleteMyTestimonial = async () => {
+    if (!myTestimonial?.id) return;
+    try { await apiClient.delete(`/testimonials/${myTestimonial.id}`); toast.success('Testimonial removed.'); setMyTestimonial(null); }
+    catch { toast.error('Could not remove — try again.'); }
   };
   const [plans, setPlans] = useState<any[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
@@ -428,6 +465,54 @@ export default function ProfessionalRecordsPage() {
             <li className="flex gap-2"><span className="font-black text-purple-700">3.</span> From the plan (or straight from the week), tap <b>Lesson Notes</b> for the content you'll actually teach from.</li>
           </ol>
           <p className="text-xs text-theme-muted mt-3">A scheme costs KES {ITEM_PRICES.scheme}, a lesson plan KES {ITEM_PRICES.lesson_plan}, and lesson notes KES {ITEM_PRICES.lesson_notes} — top up your wallet above first.</p>
+        </div>
+      )}
+
+      {/* ── Share your experience (individual accounts only — they don't see /dashboard) ── */}
+      {individual && !testimonialDismissed && (
+        <div className="card p-5 border border-blue-200/60 bg-blue-50/40 relative">
+          <button onClick={dismissTestimonial} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading"><X size={16}/></button>
+          {myTestimonial ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Your testimonial</h3>
+              <p className="text-sm text-theme-muted italic mb-3">&ldquo;{myTestimonial.message}&rdquo;</p>
+              <button onClick={deleteMyTestimonial} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-200">Delete</button>
+            </>
+          ) : !showTestimonialForm ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Share your experience with Zaroda</h3>
+              <p className="text-sm text-theme-muted mb-3">A short testimonial helps us understand and showcase the real impact this system has on teaching and learning in Kenya.</p>
+              <button onClick={() => setShowTestimonialForm(true)} className="btn-primary text-sm">Write a testimonial</button>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <textarea
+                value={testimonialForm.message}
+                onChange={(e) => setTestimonialForm(f => ({ ...f, message: e.target.value }))}
+                className="input resize-y" rows={4}
+                placeholder="How has Zaroda changed the way you plan lessons or teach?"
+              />
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} type="button" onClick={() => setTestimonialForm(f => ({ ...f, rating: n }))}>
+                      <Star size={18} className={n <= testimonialForm.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-theme-muted'}/>
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-theme-muted">
+                  <input type="checkbox" checked={testimonialForm.allowPublicUse} onChange={(e) => setTestimonialForm(f => ({ ...f, allowPublicUse: e.target.checked }))}/>
+                  OK to use publicly (with my name)
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={submitTestimonial} disabled={submittingTestimonial || !testimonialForm.message.trim()} className="btn-primary text-sm">
+                  {submittingTestimonial ? 'Submitting…' : 'Submit'}
+                </button>
+                <button onClick={() => setShowTestimonialForm(false)} className="btn-ghost text-sm">Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

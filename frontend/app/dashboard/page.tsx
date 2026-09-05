@@ -8,7 +8,7 @@ import {
   MessageSquare, UserPlus, ClipboardList, CheckSquare, BarChart3, Star, Heart,
   X, Circle,
 } from 'lucide-react';
-import { useAuth, isHoi, isParent, isLearner } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, isParent, isLearner, isIndividualAccount } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -45,6 +45,10 @@ export default function DashboardPage() {
     if (!user) return;
     if (isParent(user.role))  { router.replace('/dashboard/parent'); return; }
     if (isLearner(user.role)) { router.replace('/dashboard/learner'); return; }
+    // An individual account has no school — the academic overview below (streams,
+    // admissions, attendance…) is all zeros and every quick action is blocked.
+    // Send them straight to the one page that actually works for them.
+    if (isIndividualAccount(user.accountType)) { router.replace('/dashboard/professional-records'); return; }
   }, [user, router]);
 
   useEffect(() => {
@@ -98,6 +102,7 @@ export default function DashboardPage() {
 
   if (!user) return null;
   if (isParent(user.role) || isLearner(user.role)) return null;  // redirecting
+  if (isIndividualAccount(user.accountType)) return null;  // redirecting
 
   const OVERVIEW = [
     { icon: Users,        label: 'Students',       value: (stats.totalPopulation ?? stats.totalLearners ?? 0).toLocaleString('en-KE'), trend: `${stats.boys ?? 0} boys · ${stats.girls ?? 0} girls`,  trendUp: true,  iconBg: 'bg-blue-600' },
