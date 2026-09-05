@@ -40,6 +40,14 @@ export default function ProfessionalRecordsPage() {
   const [myAssignments, setMyAssignments] = useState<{ streamId: string; subjects: string[] }[]>([]);
 
   const [schemes, setSchemes] = useState<any[]>([]);
+  const [guideDismissed, setGuideDismissed] = useState(true);
+  useEffect(() => {
+    if (user?.id) setGuideDismissed(localStorage.getItem(`pr-guide-dismissed:${user.id}`) === '1');
+  }, [user?.id]);
+  const dismissGuide = () => {
+    setGuideDismissed(true);
+    if (user?.id) localStorage.setItem(`pr-guide-dismissed:${user.id}`, '1');
+  };
   const [plans, setPlans] = useState<any[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
   const [pending, setPending] = useState<any>(null);
@@ -403,6 +411,23 @@ export default function ProfessionalRecordsPage() {
               {t.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* ── Getting started guide for individual accounts ── */}
+      {individual && !openScheme && schemes.length === 0 && !guideDismissed && (
+        <div className="card p-5 border border-purple-200/60 bg-purple-50/40 relative">
+          <button onClick={dismissGuide} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading"><X size={16}/></button>
+          <h3 className="font-bold text-theme-heading mb-1">New here? Here's how to get your first documents</h3>
+          <p className="text-sm text-theme-muted mb-3">
+            Your individual account works differently from a school account — there's no HOI, so everything you generate is self-certified and approved automatically. Follow these 3 steps:
+          </p>
+          <ol className="space-y-2 text-sm text-theme-heading">
+            <li className="flex gap-2"><span className="font-black text-purple-700">1.</span> Tap <b>Generate Scheme of Work</b> above, pick your subject, grade and term — you'll have a full term's scheme in seconds.</li>
+            <li className="flex gap-2"><span className="font-black text-purple-700">2.</span> Open the scheme, pick a week/lesson, and tap <b>Lesson Plan</b> to generate that lesson's plan.</li>
+            <li className="flex gap-2"><span className="font-black text-purple-700">3.</span> From the plan (or straight from the week), tap <b>Lesson Notes</b> for the content you'll actually teach from.</li>
+          </ol>
+          <p className="text-xs text-theme-muted mt-3">A scheme costs KES {ITEM_PRICES.scheme}, a lesson plan KES {ITEM_PRICES.lesson_plan}, and lesson notes KES {ITEM_PRICES.lesson_notes} — top up your wallet above first.</p>
         </div>
       )}
 
