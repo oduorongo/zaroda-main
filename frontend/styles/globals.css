@@ -108,7 +108,7 @@
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
   }
   .page-header {
-    @apply flex items-center justify-between mb-6 pb-5;
+    @apply flex flex-wrap items-center justify-between gap-3 mb-6 pb-5;
     border-bottom: 1px solid var(--border);
   }
   .section-title {

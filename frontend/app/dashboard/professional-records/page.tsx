@@ -351,15 +351,15 @@ export default function ProfessionalRecordsPage() {
           <p className="text-sm text-theme-muted">AI-generated · CBE KICD aligned · HOI approval workflow</p>
         </div>
         {canGenerate && !openScheme && (
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <div className="text-[11px] text-theme-muted uppercase tracking-wide">Wallet</div>
-              <div className="font-bold text-theme-heading">KES {wallet?.balance ?? '…'}</div>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="text-right mr-1">
+              <div className="text-[10px] text-theme-muted uppercase tracking-wide">Wallet</div>
+              <div className="font-bold text-theme-heading text-sm">KES {wallet?.balance ?? '…'}</div>
             </div>
-            <button onClick={() => setShowTopUp(true)} className="btn-ghost">Top Up</button>
-            <button onClick={() => setShowReferral(true)} className="btn-ghost">Refer &amp; Earn</button>
-            <button onClick={() => setShowNewScheme(true)} className="btn-primary">
-              <Sparkles size={16}/> Generate Scheme of Work
+            <button onClick={() => setShowTopUp(true)} className="btn-ghost text-xs px-2.5 py-1.5">Top Up</button>
+            <button onClick={() => setShowReferral(true)} className="btn-ghost text-xs px-2.5 py-1.5">Refer &amp; Earn</button>
+            <button onClick={() => setShowNewScheme(true)} className="btn-primary text-xs px-3 py-1.5 w-full sm:w-auto justify-center">
+              <Sparkles size={14}/> Generate Scheme of Work
             </button>
           </div>
         )}
