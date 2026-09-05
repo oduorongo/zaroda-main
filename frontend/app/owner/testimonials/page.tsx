@@ -58,7 +58,7 @@ export default function OwnerTestimonialsPage() {
           </div>
         </div>
         <p className="text-sm text-theme-muted">
-          Real, unedited submissions from teachers and HOIs using Zaroda — collected from their dashboards. Use these as genuine evidence; nothing here is generated.
+          Unedited submissions from teachers and HOIs using Zaroda, collected from their dashboards.
         </p>
 
         {loading ? (
