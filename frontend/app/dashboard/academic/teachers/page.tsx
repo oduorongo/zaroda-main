@@ -180,9 +180,14 @@ export default function TeachersPage() {
     const lastName  = parts.join(' ');
     setSaving(true);
     try {
-      const res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, subjects: form.subjects });
+      let res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, subjects: form.subjects });
+      if (res.data?.requiresConfirmation) {
+        const ok = window.confirm(res.data.message);
+        if (!ok) { setSaving(false); return; }
+        res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, subjects: form.subjects, confirmConvert: true });
+      }
       const creds = res.data?.credentials;
-      toast.success(`${firstName} ${lastName} onboarded`);
+      toast.success(res.data?.converted ? res.data.message : `${firstName} ${lastName} onboarded`);
       setShowNew(false);
       setForm({ fullName:'', email:'', phone:'', gender:'', idNumber:'', tscNumber:'', role:'subject_teacher', streamId:'', streamName:'', subjects:[], streamSubjects:[{ streamId:'', subjects:[] }] });
       setTeachGrade('');

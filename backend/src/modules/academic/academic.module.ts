@@ -2342,10 +2342,34 @@ export class AcademicService {
     // Email is the teacher's username (now required).
     const email = dto.email.toLowerCase().trim();
 
-    // Block duplicate emails (clean error instead of a DB crash)
-    const existing = await this.dataSource.query(`SELECT id FROM users WHERE email = $1`, [email]).catch(() => []);
+    // Block duplicate emails (clean error instead of a DB crash) — unless the existing
+    // account is a one-person "individual" tenant, in which case we offer to convert it
+    // into a school user instead of leaving the admin stuck.
+    const existing = await this.dataSource.query(
+      `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.tenant_id AS "tenantId",
+              t.account_type AS "accountType"
+         FROM users u JOIN tenants t ON t.id = u.tenant_id
+        WHERE u.email = $1`,
+      [email],
+    ).catch(() => []);
     if (existing.length) {
-      throw new BadRequestException('A user with this email already exists. Use a different email.');
+      const match = existing[0];
+      if (match.accountType !== 'individual') {
+        throw new BadRequestException('A user with this email already exists. Use a different email.');
+      }
+      if (!dto.confirmConvert) {
+        return {
+          requiresConfirmation: true,
+          conversionCandidate: {
+            userId: match.id,
+            firstName: match.firstName,
+            lastName: match.lastName,
+            email,
+          },
+          message: `${match.firstName} ${match.lastName} already has an individual Professional Records account with this email. Add them as a school user and move their existing wallet balance and generated documents over? Resubmit with confirmConvert to proceed.`,
+        };
+      }
+      return this.convertIndividualToSchoolUser(match.id, match.tenantId, tenantId, schoolId, dto, email);
     }
 
     const rows = await this.dataSource.query(
@@ -2373,6 +2397,62 @@ export class AcademicService {
       message: 'Teacher onboarded',
       teacher: rows[0],
       credentials: { username: email, password: plainPassword },
+    };
+  }
+
+  /**
+   * Convert an existing individual (one-person-tenant) teacher account into a school user.
+   * Individual tenants are always 1:1 with their single teacher — nothing else was ever
+   * created under them — so every row still tagged with the old tenant_id belongs to this
+   * teacher exclusively, and can be re-pointed at the new school tenant wholesale. This
+   * preserves their wallet balance, purchase history, and generated schemes/lesson plans/notes.
+   */
+  private async convertIndividualToSchoolUser(
+    userId: string, oldTenantId: string, newTenantId: string, newSchoolId: string, dto: any, email: string,
+  ) {
+    const subjectsCsv = Array.isArray(dto.subjects) ? dto.subjects.join(',') : (dto.subjects || '');
+    const result = await this.dataSource.transaction(async (manager) => {
+      // Re-home every tenant-scoped table an individual account could have populated.
+      const tables = [
+        'streams', 'subject_catalogue', 'schemes_of_work', 'scheme_weeks', 'lesson_plans',
+        'lesson_notes', 'record_of_work', 'learner_progress_entries', 'teacher_documents',
+        'professional_records_audit', 'pr_wallets', 'pr_wallet_transactions', 'teacher_stream_subjects',
+      ];
+      for (const table of tables) {
+        await manager.query(`UPDATE ${table} SET tenant_id = $1 WHERE tenant_id = $2`, [newTenantId, oldTenantId]).catch(() => null);
+      }
+      // school_id columns that need to follow the tenant move too.
+      for (const table of ['streams', 'subject_catalogue', 'schemes_of_work']) {
+        await manager.query(`UPDATE ${table} SET school_id = $1 WHERE tenant_id = $2`, [newSchoolId, newTenantId]).catch(() => null);
+      }
+
+      const rows = await manager.query(
+        `UPDATE users
+            SET tenant_id = $1, school_id = $2, role = $3,
+                first_name = COALESCE($4, first_name), last_name = COALESCE($5, last_name),
+                phone = COALESCE($6, phone), gender = COALESCE($7, gender),
+                id_number = COALESCE($8, id_number), tsc_number = COALESCE($9, tsc_number),
+                stream_id = $10, stream_name = $11, subjects = $12, updated_at = NOW()
+          WHERE id = $13
+        RETURNING id, email, first_name AS "firstName", last_name AS "lastName", subjects`,
+        [
+          newTenantId, newSchoolId, dto.role || 'subject_teacher',
+          dto.firstName || null, dto.lastName || null, dto.phone || null,
+          (['male','female'].includes(String(dto.gender||'').toLowerCase()) ? String(dto.gender).toLowerCase() : null),
+          dto.idNumber || null, dto.tscNumber || null,
+          dto.streamId || null, dto.streamName || null, subjectsCsv,
+          userId,
+        ],
+      );
+      return rows[0];
+    });
+
+    await this.saveStreamSubjects(newTenantId, userId, dto.streamSubjects);
+
+    return {
+      message: `${result.firstName} ${result.lastName}'s existing account was converted to a school user — their wallet balance and generated Professional Records were preserved.`,
+      teacher: result,
+      converted: true,
     };
   }
 
