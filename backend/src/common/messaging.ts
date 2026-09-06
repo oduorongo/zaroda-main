@@ -135,9 +135,14 @@ export async function sendSms(to: string[], message: string): Promise<SendSmsRes
     // internal SMS wallet, has run out) looks identical to scattered per-number
     // problems unless you can see how many recipients hit each one.
     const rejected = recipients.filter((r: any) => r.status !== 'Success');
+    // Group by status + statusCode together — AT support explicitly needs the numeric
+    // code (not just the status name) to diagnose a rejection reason precisely.
     const tally = new Map<string, number>();
-    for (const r of rejected) tally.set(r.status, (tally.get(r.status) || 0) + 1);
-    const reasonBreakdown = Array.from(tally.entries()).map(([status, n]) => `${n} ${status}`).join(', ');
+    for (const r of rejected) {
+      const key = r.statusCode != null ? `${r.status} (code ${r.statusCode})` : r.status;
+      tally.set(key, (tally.get(key) || 0) + 1);
+    }
+    const reasonBreakdown = Array.from(tally.entries()).map(([key, n]) => `${n} ${key}`).join(', ');
     // On a 401 specifically, name exactly what's deployed (masked — never the real key)
     // so a mismatched/stale credential is obvious without exposing the secret.
     const authHint = resp.status === 401
@@ -146,10 +151,13 @@ export async function sendSms(to: string[], message: string): Promise<SendSmsRes
     const unnormalisableHint = unnormalisable > 0
       ? ` (${unnormalisable} of ${to.length} recipient number${unnormalisable === 1 ? '' : 's'} couldn't be recognised as a phone number and were never sent — check how they're stored)`
       : '';
-    const insufficientBalanceHint = tally.has('InsufficientBalance')
+    const insufficientBalanceHint = Array.from(tally.keys()).some(k => k.startsWith('InsufficientBalance'))
       ? ' — top up the actual Africa\'s Talking account balance (not the ZARODA SMS wallet), it\'s a separate real airtime balance.'
       : '';
-    const detail = (reasonBreakdown ? `${reasonBreakdown}${insufficientBalanceHint}${unnormalisableHint}` : undefined)
+    const blacklistHint = Array.from(tally.keys()).some(k => k.startsWith('UserInBlackList') || k.startsWith('UserInBlacklist'))
+      ? ' — these numbers are opted out/blocked recipients on the telco side (not a balance or Sender ID issue); share this exact statusCode with Africa\'s Talking support for that specific batch.'
+      : '';
+    const detail = (reasonBreakdown ? `${reasonBreakdown}${insufficientBalanceHint}${blacklistHint}${unnormalisableHint}` : undefined)
       || (!resp.ok ? `HTTP ${resp.status}${authHint}` : undefined)
       || (unnormalisable > 0 ? `${sent}/${to.length} sent${unnormalisableHint}` : undefined)
       || data?.SMSMessageData?.Message
