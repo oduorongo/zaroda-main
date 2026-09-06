@@ -1193,7 +1193,10 @@ class CommunicationController {
 
     if (wantsSms) {
       const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean))) as string[];
-      const body = `${title}\n\n${content}`;
+      // Title is a record label / email subject, not part of the SMS text — folding
+      // it into the SMS body wasted characters and could tip a message into an
+      // extra billed segment for no reason.
+      const body = content;
       const segments = smsSegmentCount(body);
       await this.smsWallet.assertAffordable(tenantId, phones.length * segments);
       let sent = 0, failed = 0, detail: string | undefined;

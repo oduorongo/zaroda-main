@@ -269,18 +269,22 @@ export default function CommunicationPage() {
               <div>
                 <label className="label">Title *</label>
                 <input required value={form.title} onChange={set('title')} className="input" placeholder="Staff meeting reminder"/>
+                <p className="text-xs text-theme-muted mt-1">
+                  {form.channel === 'sms'
+                    ? "Just a label for this announcement's history — not sent in the SMS text."
+                    : 'Used as the email subject line, and as this announcement\'s label in its history.'}
+                </p>
               </div>
               <div>
                 <label className="label">Message *</label>
                 <textarea required value={form.content} onChange={set('content') as any} rows={4}
                   className="input resize-none" placeholder="Your announcement here…"/>
-                {(form.channel === 'sms' || form.channel === 'all') && (form.title || form.content) && (() => {
-                  const smsBody = `${form.title}\n\n${form.content}`;
-                  const seg = smsSegments(smsBody);
+                {(form.channel === 'sms' || form.channel === 'all') && form.content && (() => {
+                  const seg = smsSegments(form.content);
                   const cost = seg.count * (wallet?.pricePerSms ?? 1);
                   return (
                     <p className={`text-xs mt-1.5 ${seg.count > 1 ? 'text-amber-600' : 'text-theme-muted'}`}>
-                      {smsBody.length} characters ({seg.charset}) — {seg.count} SMS {seg.count === 1 ? 'segment' : 'segments'} per recipient
+                      {form.content.length} characters ({seg.charset}) — {seg.count} SMS {seg.count === 1 ? 'segment' : 'segments'} per recipient
                       {seg.count > 1 ? ' (billed as multiple messages)' : ''} · KES {cost} per recipient
                     </p>
                   );
