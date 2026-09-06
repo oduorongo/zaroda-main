@@ -1200,12 +1200,16 @@ class CommunicationController {
       const segments = smsSegmentCount(body);
       await this.smsWallet.assertAffordable(tenantId, phones.length * segments);
       let sent = 0, failed = 0, detail: string | undefined;
+      const failedNumbers: string[] = [];
       for (let i = 0; i < phones.length; i += 100) {
         const r = await sendSms(phones.slice(i, i + 100), body);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
+        failedNumbers.push(...r.failedNumbers);
       }
       if (sent > 0) await this.smsWallet.debit(tenantId, sent * segments, `Announcement: ${title}`);
-      result.sms = { attempted: phones.length, sent, failed, segments, detail };
+      // Kept so a retry can target only these numbers — resending to everyone
+      // again would re-annoy recipients who already got it successfully.
+      result.sms = { attempted: phones.length, sent, failed, segments, detail, failedNumbers };
     }
     if (wantsEmail) {
       const emails = Array.from(new Set(recipients.map(r => r.email).filter(Boolean))) as string[];
@@ -1243,6 +1247,43 @@ class CommunicationController {
     );
 
     return { ...rows[0], ...sendResult, message: 'Announcement sent' };
+  }
+
+  // Resends SMS only to the numbers that failed last time — never re-sends to
+  // anyone who already received it, so a retry can't double/triple-annoy the
+  // recipients that already went through.
+  @Post('announcements/:id/retry-sms')
+  async retryAnnouncementSms(@Request() req: any, @Param('id') id: string) {
+    const tenantId = req.user.tenantId;
+    const rows = await this.ds.query(
+      `SELECT body AS content, audience_filter AS delivery FROM announcements WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, tenantId],
+    );
+    if (!rows.length) return { error: 'Announcement not found.' };
+    const delivery = rows[0].delivery || {};
+    const failedNumbers: string[] = delivery.sms?.failedNumbers || [];
+    if (!failedNumbers.length) return { error: 'Nothing to retry — no recorded failed SMS recipients.' };
+
+    const segments = smsSegmentCount(rows[0].content);
+    await this.smsWallet.assertAffordable(tenantId, failedNumbers.length * segments);
+    const r = await sendSms(failedNumbers, rows[0].content);
+    if (r.sent > 0) await this.smsWallet.debit(tenantId, r.sent * segments, 'Announcement SMS retry');
+
+    // Merge into the stored delivery record: successes move out of failedNumbers,
+    // sent/failed counts accumulate, detail reflects this retry's outcome.
+    const updated = {
+      ...delivery,
+      sms: {
+        attempted: (delivery.sms?.attempted || 0),
+        sent: (delivery.sms?.sent || 0) + r.sent,
+        failed: (delivery.sms?.failed || 0) - r.sent,
+        segments, detail: r.detail,
+        failedNumbers: r.failedNumbers,
+      },
+    };
+    await this.ds.query(`UPDATE announcements SET audience_filter = $2 WHERE id::text = $1`, [id, JSON.stringify(updated)]);
+
+    return { message: `Retried ${failedNumbers.length} — ${r.sent} sent, ${r.failedNumbers.length} still failed.`, sms: updated.sms };
   }
 
   @Get('messages')

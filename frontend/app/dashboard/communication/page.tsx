@@ -50,6 +50,7 @@ export default function CommunicationPage() {
   const [reminderTerm, setReminderTerm] = useState('term_1');
   const [reminderChannel, setReminderChannel] = useState('sms');
   const [sendingReminders, setSendingReminders] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const [wallet, setWallet] = useState<{ balance: number; pricePerSms: number } | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
@@ -133,6 +134,23 @@ export default function CommunicationPage() {
       toast.error(err?.response?.data?.message || err?.message || 'Could not send announcement');
     }
     finally { setSaving(false); }
+  };
+
+  const retrySms = async (id: string) => {
+    const ok = window.confirm('Retry SMS for only the recipients that failed last time? Anyone who already received it will not be messaged again.');
+    if (!ok) return;
+    setRetrying(id);
+    try {
+      const { data } = await apiClient.post(`/communication/announcements/${id}/retry-sms`);
+      if (data.error) { toast.error(data.error); return; }
+      toast.success(data.message || 'Retry complete.');
+      load();
+      loadWallet();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not retry.');
+    } finally {
+      setRetrying(null);
+    }
   };
 
   const sendFeeReminders = async () => {
@@ -232,6 +250,12 @@ export default function CommunicationPage() {
                     )}
                     {a.delivery?.email?.failed > 0 && a.delivery.email.detail && (
                       <p className="text-[11px] text-red-600 mt-1">Email: {a.delivery.email.detail}</p>
+                    )}
+                    {a.delivery?.sms?.failedNumbers?.length > 0 && (
+                      <button onClick={() => retrySms(a.id)} disabled={retrying === a.id}
+                        className="text-[11px] font-semibold text-[#1a2e5a] hover:underline mt-1">
+                        {retrying === a.id ? 'Retrying…' : `Retry SMS for the ${a.delivery.sms.failedNumbers.length} that failed →`}
+                      </button>
                     )}
                   </div>
                 </div>
