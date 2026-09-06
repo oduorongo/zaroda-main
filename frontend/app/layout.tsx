@@ -1,17 +1,24 @@
 // ============================================================
 // app/layout.tsx  — Root layout
 // ============================================================
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import '@/styles/globals.css';
 import { Toaster } from 'react-hot-toast';
+import InstallPrompt from '@/components/install-prompt';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
 export const metadata: Metadata = {
   title:       'ZARODA School Management System',
   description: 'Kenya CBC/CBE-aligned school management — INNOVATIVE. RELIABLE. FORWARD.',
-  icons:       { icon: '/favicon.ico' },
+  manifest:    '/manifest.json',
+  icons:       { icon: '/favicon.ico', apple: '/apple-touch-icon.png' },
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'ZARODA SMS' },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#1a2e5a',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -24,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         {children}
+        <InstallPrompt />
         <Toaster
           position="top-right"
           toastOptions={{

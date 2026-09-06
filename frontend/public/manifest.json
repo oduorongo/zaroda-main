@@ -1,0 +1,16 @@
+{
+  "name": "ZARODA School Management System",
+  "short_name": "ZARODA SMS",
+  "description": "AI-powered CBC/CBE school management for Kenyan schools — academics, finance, communication, and Professional Records.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1c38",
+  "theme_color": "#1a2e5a",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
