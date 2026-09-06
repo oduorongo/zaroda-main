@@ -71,6 +71,19 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   const [showShare, setShowShare] = useState(false);
   const [schoolName, setSchoolName] = useState('');
 
+  // Re-offered after 7 days rather than dismissed forever — this is an actionable
+  // problem (they're missing real messages), not just a nag.
+  const [smsNoticeDismissed, setSmsNoticeDismissed] = useState(true);
+  useEffect(() => {
+    if (!user) return;
+    const dismissedAt = Number(localStorage.getItem(`sms-optout-notice-dismissed:${user.id}`) || 0);
+    setSmsNoticeDismissed(!!dismissedAt && (Date.now() - dismissedAt) / 86400000 < 7);
+  }, [user]);
+  const dismissSmsNotice = () => {
+    setSmsNoticeDismissed(true);
+    if (user) localStorage.setItem(`sms-optout-notice-dismissed:${user.id}`, String(Date.now()));
+  };
+
   const [ready, setReady] = useState(false);
   // Belt-and-braces: once mounted on the client, give hydration a tick to settle, then
   // proceed regardless. This guarantees the app can never get permanently stuck behind the
@@ -277,6 +290,15 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+            {user?.smsOptedOut && !smsNoticeDismissed && (
+              <div className="card p-4 mb-4 border border-amber-300/60 bg-amber-50/50 relative">
+                <button onClick={dismissSmsNotice} className="absolute top-3 right-3 text-theme-muted hover:text-theme-heading"><X size={15}/></button>
+                <p className="text-sm font-bold text-theme-heading mb-1">You're not receiving SMS from us</p>
+                <p className="text-sm text-theme-muted">
+                  Your phone number has opted out of promotional SMS with your network. To start receiving messages from Zaroda again: dial <b>*456*9#</b>, choose <b>Option 5 — Marketing messages</b>, then select <b>Activate all promo messages</b>.
+                </p>
+              </div>
+            )}
             {children}
           </div>
         </main>

@@ -11,6 +11,7 @@ import { User }     from './entities/user.entity';
 import { Tenant }   from './entities/tenant.entity';
 import { School }   from './entities/school.entity';
 import { SignupDto, SignupIndividualDto } from './dto';
+import { normalisePhone } from '../../common/messaging';
 import { sendEmail } from '../../common/messaging';
 
 /** Parse a value to an integer, returning null for missing/blank/non-numeric input
@@ -315,7 +316,19 @@ export class AuthService {
       accountType = (t.length && t[0].accountType) || 'school';
     }
 
-    return { ...user, schoolLevels, ownership, accountType };
+    // Whether this user's own phone is on record as having opted out of
+    // promotional SMS (Africa's Talking status UserInBlacklist) — only shown to
+    // the affected person, since it can't be communicated to them by SMS at all.
+    let smsOptedOut = false;
+    const normalisedPhone = user.phone ? normalisePhone(user.phone) : null;
+    if (normalisedPhone) {
+      const b = await this.dataSource.query(
+        `SELECT 1 FROM sms_blacklist WHERE phone_number = $1 LIMIT 1`, [normalisedPhone],
+      ).catch(() => []);
+      smsOptedOut = b.length > 0;
+    }
+
+    return { ...user, schoolLevels, ownership, accountType, smsOptedOut };
   }
 
   async logout(_userId: string) {

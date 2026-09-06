@@ -24,6 +24,9 @@ export interface AppUser {
   // 'school' | 'individual' — an individual account is a teacher using
   // Professional Records without their school being a ZARODA tenant.
   accountType?: string;
+  // Whether this user's own phone is on record as having opted out of
+  // promotional SMS with the telco — only meaningful to show to them.
+  smsOptedOut?: boolean;
 }
 
 interface AuthState {
