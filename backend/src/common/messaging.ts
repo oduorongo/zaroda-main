@@ -92,8 +92,11 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
   if (!apiKey || !username) {
     return { ok: false, sent: 0, failed: to.length, segments, detail: 'SMS not configured (AT_API_KEY / AT_USERNAME missing).' };
   }
+  // Numbers that don't normalise (bad/legacy data — missing, a landline, a typo)
+  // must still count as failed, not silently vanish from both sent and failed.
+  const unnormalisable = to.length - to.map(normalisePhone).filter(Boolean).length;
   const numbers = to.map(normalisePhone).filter(Boolean) as string[];
-  if (!numbers.length) return { ok: false, sent: 0, failed: to.length, segments, detail: 'No valid phone numbers.' };
+  if (!numbers.length) return { ok: false, sent: 0, failed: to.length, segments, detail: 'No valid phone numbers — check the stored phone number format.' };
   try {
     const body = new URLSearchParams({
       username,
@@ -114,7 +117,7 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     const data: any = await resp.json().catch(() => ({}));
     const recipients = data?.SMSMessageData?.Recipients || [];
     const sent = recipients.filter((r: any) => r.status === 'Success').length;
-    const failed = numbers.length - sent;
+    const failed = (numbers.length - sent) + unnormalisable;
     // The top-level Message is often just a generic summary ("Sent to 1/1...") even on
     // total failure — the real reason (InsufficientBalance, InvalidSenderId,
     // UserInBlackList, etc.) is per-recipient, so surface the first rejected one.
@@ -124,8 +127,12 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     const authHint = resp.status === 401
       ? ` — deployed as username "${username}", key ending "…${apiKey.slice(-4)}" (${apiKey.length} chars). Check these match the AT dashboard exactly.`
       : '';
-    const detail = (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}` : undefined)
+    const unnormalisableHint = unnormalisable > 0
+      ? ` (${unnormalisable} of ${to.length} recipient number${unnormalisable === 1 ? '' : 's'} couldn't be recognised as a phone number and were never sent — check how they're stored)`
+      : '';
+    const detail = (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}${unnormalisableHint}` : undefined)
       || (!resp.ok ? `HTTP ${resp.status}${authHint}` : undefined)
+      || (unnormalisable > 0 ? `${sent}/${to.length} sent${unnormalisableHint}` : undefined)
       || data?.SMSMessageData?.Message
       || (recipients.length === 0 ? `Unexpected response: ${JSON.stringify(data).slice(0, 200)}` : undefined);
     return { ok: sent > 0, sent, failed, segments, detail };
