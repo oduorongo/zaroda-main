@@ -33,6 +33,12 @@ interface AuthState {
   login:   (email: string, password: string) => Promise<void>;
   logout:  () => void;
   isRole:  (...roles: string[]) => boolean;
+  // Re-fetches the user from the server and merges it into the cached copy —
+  // the persisted `user` is otherwise captured once at login and never updated,
+  // so anything that changes server-side after login (a role change, an
+  // individual account converted into a school user, accountType itself) would
+  // silently keep showing stale data forever without this.
+  refreshUser: () => Promise<void>;
 }
 
 export const useAuth = create<AuthState>()(
@@ -65,6 +71,17 @@ export const useAuth = create<AuthState>()(
       isRole: (...roles) => {
         const user = get().user;
         return user ? roles.includes(user.role) : false;
+      },
+
+      refreshUser: async () => {
+        if (!get().user) return;
+        try {
+          const { data } = await apiClient.get('/auth/me');
+          if (data) set({ user: { ...get().user, ...data } as AppUser });
+        } catch {
+          // Fails soft — an expired/invalid token is already handled by the
+          // response interceptor's refresh/logout flow, nothing extra to do here.
+        }
       },
     }),
     {

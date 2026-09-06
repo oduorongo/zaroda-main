@@ -63,7 +63,7 @@ function canSee(roleKey: string, userRole: string): boolean {
 }
 
 export default function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
-  const { user, hydrated, logout } = useAuth();
+  const { user, hydrated, logout, refreshUser } = useAuth();
   const { theme, toggle } = useTheme();
   const router   = useRouter();
   const pathname = usePathname();
@@ -80,6 +80,15 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
     const t = setTimeout(() => setReady(true), 150);
     return () => clearTimeout(t);
   }, [hydrated]);
+
+  // The cached user object is otherwise frozen at whatever it was at login —
+  // refresh it once per app load so role/accountType/subjects changes made
+  // server-side (a promotion, an individual-account conversion, etc.) actually
+  // show up without forcing a logout/login.
+  useEffect(() => {
+    if (ready && user) refreshUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   // Load the school name for the sidebar (from school settings).
   useEffect(() => {
