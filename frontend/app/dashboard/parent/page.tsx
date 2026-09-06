@@ -3,15 +3,56 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   User, DollarSign, FileText, MessageSquare, CheckCircle,
-  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play,
+  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play, Star, X,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
+import toast from 'react-hot-toast';
 
 export default function ParentPortalPage() {
   const { user } = useAuth();
   const [children, setChildren] = useState<any[]>([]);
   const [loading,  setLoading]  = useState(true);
+
+  // "Share your experience" — same pattern as the teacher/HOI dashboard and the
+  // individual-account Professional Records page (app/dashboard/page.tsx,
+  // app/dashboard/professional-records/page.tsx). Parents never had this at all
+  // since this portal is a separate page they get redirected to.
+  const [testimonialDismissed, setTestimonialDismissed] = useState(true);
+  const [showTestimonialForm, setShowTestimonialForm] = useState(false);
+  const [myTestimonial, setMyTestimonial] = useState<any>(null);
+  const [testimonialForm, setTestimonialForm] = useState({ message: '', rating: 5, allowPublicUse: true });
+  const [submittingTestimonial, setSubmittingTestimonial] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    const dismissedAt = Number(localStorage.getItem(`testimonial-dismissed:${user.id}`) || 0);
+    const recentlyDismissed = dismissedAt && (Date.now() - dismissedAt) / 86400000 < 14;
+    apiClient.get('/testimonials/mine').then(r => {
+      const submitted = r.data?.testimonial || null;
+      setMyTestimonial(submitted);
+      setTestimonialDismissed(submitted ? false : !!recentlyDismissed);
+    }).catch(() => {});
+  }, [user]);
+  const dismissTestimonial = () => {
+    setTestimonialDismissed(true);
+    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, String(Date.now()));
+  };
+  const submitTestimonial = async () => {
+    if (!testimonialForm.message.trim()) return;
+    setSubmittingTestimonial(true);
+    try {
+      const { data } = await apiClient.post('/testimonials', testimonialForm);
+      toast.success('Thank you — your experience has been recorded!');
+      setShowTestimonialForm(false);
+      setMyTestimonial({ id: data?.id, message: testimonialForm.message, rating: testimonialForm.rating });
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Could not submit — try again.'); }
+    finally { setSubmittingTestimonial(false); }
+  };
+  const deleteMyTestimonial = async () => {
+    if (!myTestimonial?.id) return;
+    try { await apiClient.delete(`/testimonials/${myTestimonial.id}`); toast.success('Testimonial removed.'); setMyTestimonial(null); }
+    catch { toast.error('Could not remove — try again.'); }
+  };
 
   useEffect(() => {
     apiClient.get('/academic/my-children')
@@ -90,6 +131,54 @@ export default function ParentPortalPage() {
           </div>
         </div>
       </div>
+
+      {/* Share your experience */}
+      {!testimonialDismissed && (
+        <div className="card p-5 border border-blue-200/60 bg-blue-50/40 relative">
+          <button onClick={dismissTestimonial} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading"><X size={16}/></button>
+          {myTestimonial ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Your testimonial</h3>
+              <p className="text-sm text-theme-muted italic mb-3">&ldquo;{myTestimonial.message}&rdquo;</p>
+              <button onClick={deleteMyTestimonial} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-200">Delete</button>
+            </>
+          ) : !showTestimonialForm ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Share your experience with Zaroda</h3>
+              <p className="text-sm text-theme-muted mb-3">A short testimonial helps us understand and showcase the real impact this system has on schools and families in Kenya.</p>
+              <button onClick={() => setShowTestimonialForm(true)} className="btn-primary text-sm">Write a testimonial</button>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <textarea
+                value={testimonialForm.message}
+                onChange={(e) => setTestimonialForm(f => ({ ...f, message: e.target.value }))}
+                className="input resize-y" rows={4}
+                placeholder="How has Zaroda changed the way you stay involved in your child's learning?"
+              />
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} type="button" onClick={() => setTestimonialForm(f => ({ ...f, rating: n }))}>
+                      <Star size={18} className={n <= testimonialForm.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-theme-muted'}/>
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-theme-muted">
+                  <input type="checkbox" checked={testimonialForm.allowPublicUse} onChange={(e) => setTestimonialForm(f => ({ ...f, allowPublicUse: e.target.checked }))}/>
+                  OK to use publicly (with my name)
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={submitTestimonial} disabled={submittingTestimonial || !testimonialForm.message.trim()} className="btn-primary text-sm">
+                  {submittingTestimonial ? 'Submitting…' : 'Submit'}
+                </button>
+                <button onClick={() => setShowTestimonialForm(false)} className="btn-ghost text-sm">Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* My children */}
       <div>
