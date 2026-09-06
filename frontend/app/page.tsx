@@ -243,25 +243,55 @@ export default function HomePage() {
               <p className="text-[#f5820a] font-bold text-sm uppercase tracking-widest mb-2">In their words</p>
               <h2 className="text-3xl md:text-4xl font-black text-[#1a2e5a]">What teachers and heads are saying</h2>
             </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {testimonials.map((t, i) => (
-                <div key={i} className="card p-6 bg-white flex flex-col">
-                  <Quote size={22} className="text-[#d4af37] mb-3"/>
-                  <p className="text-[#4a5278] text-sm leading-relaxed flex-1">&ldquo;{t.message}&rdquo;</p>
-                  {t.rating && (
-                    <div className="flex mt-4">
-                      {Array.from({ length: 5 }).map((_, n) => (
-                        <Star key={n} size={14} className={n < t.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-[#e2e6f0]'}/>
-                      ))}
+            {testimonials.length > 3 ? (
+              // Many testimonials — an endless auto-scrolling row reads better than a
+              // grid that just keeps growing taller. The track is the list rendered
+              // twice back-to-back and scrolled exactly 50%, so the loop is seamless.
+              <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
+                <div
+                  className="marquee-track flex gap-6 w-max"
+                  style={{ '--marquee-duration': `${testimonials.length * 6}s` } as React.CSSProperties}
+                >
+                  {[...testimonials, ...testimonials].map((t, i) => (
+                    <div key={i} className="card p-6 bg-white flex flex-col w-80 flex-shrink-0">
+                      <Quote size={22} className="text-[#d4af37] mb-3"/>
+                      <p className="text-[#4a5278] text-sm leading-relaxed flex-1">&ldquo;{t.message}&rdquo;</p>
+                      {t.rating && (
+                        <div className="flex mt-4">
+                          {Array.from({ length: 5 }).map((_, n) => (
+                            <Star key={n} size={14} className={n < t.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-[#e2e6f0]'}/>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-3 pt-3 border-t border-[#e2e6f0]">
+                        <p className="font-bold text-[#1a2e5a] text-sm">{t.authorName}</p>
+                        <p className="text-xs text-[#7a82a8]">{t.authorRole}{t.schoolName ? ` · ${t.schoolName}` : ''}</p>
+                      </div>
                     </div>
-                  )}
-                  <div className="mt-3 pt-3 border-t border-[#e2e6f0]">
-                    <p className="font-bold text-[#1a2e5a] text-sm">{t.authorName}</p>
-                    <p className="text-xs text-[#7a82a8]">{t.authorRole}{t.schoolName ? ` · ${t.schoolName}` : ''}</p>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {testimonials.map((t, i) => (
+                  <div key={i} className="card p-6 bg-white flex flex-col">
+                    <Quote size={22} className="text-[#d4af37] mb-3"/>
+                    <p className="text-[#4a5278] text-sm leading-relaxed flex-1">&ldquo;{t.message}&rdquo;</p>
+                    {t.rating && (
+                      <div className="flex mt-4">
+                        {Array.from({ length: 5 }).map((_, n) => (
+                          <Star key={n} size={14} className={n < t.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-[#e2e6f0]'}/>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-3 pt-3 border-t border-[#e2e6f0]">
+                      <p className="font-bold text-[#1a2e5a] text-sm">{t.authorName}</p>
+                      <p className="text-xs text-[#7a82a8]">{t.authorRole}{t.schoolName ? ` · ${t.schoolName}` : ''}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
       )}
