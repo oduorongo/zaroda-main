@@ -293,10 +293,29 @@ export class AuthService {
 
   // ── Current user ────────────────────────────────────────
   async getMe(userId: string) {
-    return this.userRepo.findOne({
+    const user = await this.userRepo.findOne({
       where:  { id: userId },
       select: ['id','email','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','phone','lastLoginAt'],
     });
+    if (!user) return user;
+
+    // Login includes schoolLevels/ownership/accountType (derived from the tenant, not
+    // a column on users) — getMe must return the same shape, since this is what
+    // rehydrates the session on every page refresh. Without it, accountType silently
+    // reverts to undefined after a refresh and individual-account-only UI disappears.
+    let schoolLevels: string[] = [];
+    let ownership = 'public';
+    let accountType = 'school';
+    if (user.role !== 'super_admin' && user.tenantId) {
+      const t = await this.dataSource.query(
+        `SELECT school_levels AS "schoolLevels", ownership, account_type AS "accountType" FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
+      ).catch(() => []);
+      schoolLevels = (t.length && t[0].schoolLevels) || [];
+      ownership = (t.length && t[0].ownership) || 'public';
+      accountType = (t.length && t[0].accountType) || 'school';
+    }
+
+    return { ...user, schoolLevels, ownership, accountType };
   }
 
   async logout(_userId: string) {
