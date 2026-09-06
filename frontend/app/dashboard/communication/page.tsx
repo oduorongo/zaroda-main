@@ -59,6 +59,17 @@ export default function CommunicationPage() {
   const [toppingUp, setToppingUp] = useState(false);
   const [showTxns, setShowTxns] = useState(false);
   const [txns, setTxns] = useState<any[]>([]);
+  const [blacklistWarning, setBlacklistWarning] = useState<{ checked: number; blacklisted: number } | null>(null);
+
+  // Warn in-app before sending if some of this audience's numbers are known,
+  // from past sends, to have opted out of promotional SMS — the numbers
+  // themselves can never be warned by SMS since the telco blocks it outright.
+  useEffect(() => {
+    if (!showNew || (form.channel !== 'sms' && form.channel !== 'all')) { setBlacklistWarning(null); return; }
+    apiClient.get('/communication/sms-blacklist-check', { params: { audience: form.audience } })
+      .then(r => setBlacklistWarning(r.data))
+      .catch(() => setBlacklistWarning(null));
+  }, [showNew, form.audience, form.channel]);
 
   const loadWallet = () => apiClient.get('/communication/sms-wallet').then(r => setWallet(r.data)).catch(() => {});
 
@@ -349,6 +360,11 @@ export default function CommunicationPage() {
                   </select>
                 </div>
               </div>
+              {blacklistWarning && blacklistWarning.blacklisted > 0 && (
+                <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg">
+                  ⚠️ {blacklistWarning.blacklisted} of {blacklistWarning.checked} recipients in this audience previously opted out of promotional SMS and will likely reject this message again — no wallet cost for those (Africa's Talking never charges for a blacklisted reject), but worth knowing before you send.
+                </p>
+              )}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">

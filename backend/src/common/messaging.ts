@@ -87,6 +87,11 @@ export interface SendSmsResult {
   // Normalised numbers that actually succeeded / failed — lets a caller retry only
   // the failures without re-sending (and re-annoying) anyone who already got it.
   succeededNumbers: string[]; failedNumbers: string[];
+  // Numbers Africa's Talking specifically flagged as opted-out recipients (status
+  // "UserInBlacklist" / "UserInBlackList", statusCode 406) — a telco-level block
+  // that can never be worked around, since the number can't be warned by SMS
+  // either. Callers persist these so future sends can warn in-app before trying.
+  blacklistedNumbers: { number: string; statusCode: number | null }[];
 }
 
 export async function sendSms(to: string[], message: string): Promise<SendSmsResult> {
@@ -97,13 +102,13 @@ export async function sendSms(to: string[], message: string): Promise<SendSmsRes
   const username = process.env.AT_USERNAME?.trim();
   const segments = smsSegmentCount(message);
   if (!apiKey || !username) {
-    return { ok: false, sent: 0, failed: to.length, segments, succeededNumbers: [], failedNumbers: [], detail: 'SMS not configured (AT_API_KEY / AT_USERNAME missing).' };
+    return { ok: false, sent: 0, failed: to.length, segments, succeededNumbers: [], failedNumbers: [], blacklistedNumbers: [], detail: 'SMS not configured (AT_API_KEY / AT_USERNAME missing).' };
   }
   // Numbers that don't normalise (bad/legacy data — missing, a landline, a typo)
   // must still count as failed, not silently vanish from both sent and failed.
   const numbers = to.map(normalisePhone).filter(Boolean) as string[];
   const unnormalisable = to.length - numbers.length;
-  if (!numbers.length) return { ok: false, sent: 0, failed: to.length, segments, succeededNumbers: [], failedNumbers: [], detail: 'No valid phone numbers — check the stored phone number format.' };
+  if (!numbers.length) return { ok: false, sent: 0, failed: to.length, segments, succeededNumbers: [], failedNumbers: [], blacklistedNumbers: [], detail: 'No valid phone numbers — check the stored phone number format.' };
   try {
     const body = new URLSearchParams({
       username,
@@ -125,6 +130,9 @@ export async function sendSms(to: string[], message: string): Promise<SendSmsRes
     const recipients = data?.SMSMessageData?.Recipients || [];
     const succeededNumbers = recipients.filter((r: any) => r.status === 'Success').map((r: any) => r.number);
     const failedNumbers = recipients.filter((r: any) => r.status !== 'Success').map((r: any) => r.number);
+    const blacklistedNumbers = recipients
+      .filter((r: any) => /UserInBlack?list/i.test(r.status || ''))
+      .map((r: any) => ({ number: r.number, statusCode: r.statusCode ?? null }));
     const sent = succeededNumbers.length;
     const failed = (numbers.length - sent) + unnormalisable;
     // The top-level Message is often just a generic summary ("Sent to 1/1...") even on
@@ -162,8 +170,8 @@ export async function sendSms(to: string[], message: string): Promise<SendSmsRes
       || (unnormalisable > 0 ? `${sent}/${to.length} sent${unnormalisableHint}` : undefined)
       || data?.SMSMessageData?.Message
       || (recipients.length === 0 ? `Unexpected response: ${JSON.stringify(data).slice(0, 200)}` : undefined);
-    return { ok: sent > 0, sent, failed, segments, succeededNumbers, failedNumbers, detail };
+    return { ok: sent > 0, sent, failed, segments, succeededNumbers, failedNumbers, blacklistedNumbers, detail };
   } catch (err: any) {
-    return { ok: false, sent: 0, failed: numbers.length, segments, succeededNumbers: [], failedNumbers: numbers, detail: err?.message || 'SMS send failed.' };
+    return { ok: false, sent: 0, failed: numbers.length, segments, succeededNumbers: [], failedNumbers: numbers, blacklistedNumbers: [], detail: err?.message || 'SMS send failed.' };
   }
 }

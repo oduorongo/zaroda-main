@@ -162,11 +162,18 @@ export default function OwnerCommunicationPage() {
               </div>
             )
           ) : data && (
-            <div className="text-xs text-theme-muted flex gap-4">
-              <span><b className="text-theme-heading">{data.count}</b> recipients</span>
-              <span><Phone size={11} className="inline"/> {data.withPhone} with phone</span>
-              <span><Mail size={11} className="inline"/> {data.withEmail} with email</span>
-            </div>
+            <>
+              <div className="text-xs text-theme-muted flex gap-4">
+                <span><b className="text-theme-heading">{data.count}</b> recipients</span>
+                <span><Phone size={11} className="inline"/> {data.withPhone} with phone</span>
+                <span><Mail size={11} className="inline"/> {data.withEmail} with email</span>
+              </div>
+              {data.blacklisted > 0 && (
+                <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg">
+                  ⚠️ {data.blacklisted} of {data.withPhone} phone numbers previously opted out of promotional SMS and will likely reject an SMS send again.
+                </p>
+              )}
+            </>
           )}
         </div>
 

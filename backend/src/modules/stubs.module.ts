@@ -10,8 +10,25 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
-import { sendSms, sendEmail, smsSegmentCount } from '../common/messaging';
+import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/messaging';
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
+
+// Persists numbers Africa's Talking has told us are opted-out recipients (status
+// UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
+// them again — the number itself can never be warned by SMS since the telco
+// blocks it outright. Shared across every SMS-sending controller in this file.
+async function recordBlacklistedNumbers(ds: DataSource, blacklisted: { number: string; statusCode: number | null }[]) {
+  if (!blacklisted.length) return;
+  for (const b of blacklisted) {
+    await ds.query(
+      `INSERT INTO sms_blacklist (phone_number, status_code, status_text, first_flagged_at, last_flagged_at, flagged_count)
+       VALUES ($1,$2,'UserInBlacklist',NOW(),NOW(),1)
+       ON CONFLICT (phone_number) DO UPDATE SET
+         status_code = EXCLUDED.status_code, last_flagged_at = NOW(), flagged_count = sms_blacklist.flagged_count + 1`,
+      [b.number, b.statusCode],
+    ).catch(() => null);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // FINANCE MODULE
@@ -1212,6 +1229,7 @@ class CommunicationController {
         const r = await sendSms(phones.slice(i, i + 100), body);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
         failedNumbers.push(...r.failedNumbers);
+        await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
       }
       if (sent > 0) await this.smsWallet.debit(tenantId, sent * segments, `Announcement: ${title}`);
       // Kept so a retry can target only these numbers — resending to everyone
@@ -1232,6 +1250,21 @@ class CommunicationController {
       result.email = { attempted: emails.length, sent, failed: emails.length - sent, detail: firstFailure?.value?.detail };
     }
     return result;
+  }
+
+  // Pre-send warning: how many of this audience's phone numbers are known, from
+  // past sends, to be blacklisted (opted out) recipients — so the admin can be
+  // warned in-app before sending, since the numbers themselves can never be
+  // warned by SMS (the telco blocks it outright).
+  @Get('sms-blacklist-check')
+  async checkSmsBlacklist(@Request() req: any, @Query('audience') audience: string) {
+    const recipients = await this.resolveRecipients(req.user.tenantId, audience || 'all');
+    const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean).map(p => normalisePhone(p as string)).filter(Boolean)));
+    if (!phones.length) return { checked: 0, blacklisted: 0 };
+    const rows = await this.ds.query(
+      `SELECT COUNT(*)::int AS count FROM sms_blacklist WHERE phone_number = ANY($1)`, [phones],
+    ).catch(() => [{ count: 0 }]);
+    return { checked: phones.length, blacklisted: rows[0]?.count || 0 };
   }
 
   @Post('announcements')
@@ -1275,6 +1308,7 @@ class CommunicationController {
     await this.smsWallet.assertAffordable(tenantId, failedNumbers.length * segments);
     const r = await sendSms(failedNumbers, rows[0].content);
     if (r.sent > 0) await this.smsWallet.debit(tenantId, r.sent * segments, 'Announcement SMS retry');
+    await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
 
     // Merge into the stored delivery record: successes move out of failedNumbers,
     // sent/failed counts accumulate, detail reflects this retry's outcome.
@@ -1364,6 +1398,7 @@ class CommunicationController {
         const r = await sendSms([d.guardianPhone], text);
         smsSent += r.sent; smsFailed += r.failed; smsDetail = smsDetail || r.detail;
         smsUnits += r.sent * r.segments;
+        await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
       }
       if (wantsEmail && d.guardianEmail) {
         const r = await sendEmail(d.guardianEmail, 'Outstanding Fee Balance', `<p>${text}</p>`, text);
@@ -3736,11 +3771,16 @@ class AdminController {
         ORDER BY "schoolName", u.first_name`,
       params,
     ).catch(() => []);
+    const phones = Array.from(new Set(rows.map((r: any) => r.phone).filter(Boolean).map((p: string) => normalisePhone(p)).filter(Boolean)));
+    const blacklistedRows = phones.length
+      ? await this.ds.query(`SELECT COUNT(*)::int AS count FROM sms_blacklist WHERE phone_number = ANY($1)`, [phones]).catch(() => [{ count: 0 }])
+      : [{ count: 0 }];
     return {
       audience,
       count: rows.length,
       withPhone: rows.filter((r: any) => r.phone).length,
       withEmail: rows.filter((r: any) => r.email).length,
+      blacklisted: blacklistedRows[0]?.count || 0,
       recipients: rows,
     };
   }
@@ -3780,6 +3820,7 @@ class AdminController {
         const r = await sendSms(numbers.slice(i, i + CHUNK), smsBody);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
         failedNumbers.push(...r.failedNumbers);
+        await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
       }
       result.sms = { attempted: numbers.length, sent, failed, detail, failedNumbers };
       await this.recordBroadcast(req.user.id, audience, title, message, 'sms', numbers.length, sent, failed, failedNumbers, detail);
@@ -3844,6 +3885,7 @@ class AdminController {
     const failedNumbers: string[] = rows[0].failedNumbers || [];
     if (!failedNumbers.length) return { error: 'Nothing to retry.' };
     const r = await sendSms(failedNumbers, rows[0].message);
+    await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
     await this.ds.query(
       `UPDATE owner_broadcasts SET sent = sent + $2, failed = failed - $2, failed_numbers = $3, detail = $4 WHERE id::text = $1`,
       [id, r.sent, r.failedNumbers, r.detail],
@@ -3917,12 +3959,14 @@ class AdminController {
         for (let i = 0; i < numbers.length; i += CHUNK) {
           const r = await sendSms(numbers.slice(i, i + CHUNK), customMessage);
           sent += r.sent; failed += r.failed; detail = detail || r.detail;
+          await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
         }
       } else {
         for (const t of tenants) {
           if (!t.adminPhone) continue;
           const r = await sendSms([t.adminPhone], defaultMessage(t.name));
           sent += r.sent; failed += r.failed; detail = detail || r.detail;
+          await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
         }
       }
       result.sms = { attempted: numbers.length, sent, failed, detail };
