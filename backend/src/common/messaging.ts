@@ -104,9 +104,9 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     const authHint = resp.status === 401
       ? ` — deployed as username "${username}", key ending "…${apiKey.slice(-4)}" (${apiKey.length} chars). Check these match the AT dashboard exactly.`
       : '';
-    const detail = data?.SMSMessageData?.Message
-      || (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}` : undefined)
+    const detail = (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}` : undefined)
       || (!resp.ok ? `HTTP ${resp.status}${authHint}` : undefined)
+      || data?.SMSMessageData?.Message
       || (recipients.length === 0 ? `Unexpected response: ${JSON.stringify(data).slice(0, 200)}` : undefined);
     return { ok: sent > 0, sent, failed, detail };
   } catch (err: any) {
