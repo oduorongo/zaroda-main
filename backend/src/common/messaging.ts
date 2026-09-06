@@ -119,9 +119,16 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     const sent = recipients.filter((r: any) => r.status === 'Success').length;
     const failed = (numbers.length - sent) + unnormalisable;
     // The top-level Message is often just a generic summary ("Sent to 1/1...") even on
-    // total failure — the real reason (InsufficientBalance, InvalidSenderId,
-    // UserInBlackList, etc.) is per-recipient, so surface the first rejected one.
-    const firstRejected = recipients.find((r: any) => r.status !== 'Success');
+    // near-total failure — the real reason (InsufficientBalance, InvalidSenderId,
+    // UserInBlackList, etc.) is per-recipient. Tally by reason rather than naming just
+    // the first rejection, since a bulk send failing for one shared reason (almost
+    // always InsufficientBalance — the real AT account's airtime, not this app's
+    // internal SMS wallet, has run out) looks identical to scattered per-number
+    // problems unless you can see how many recipients hit each one.
+    const rejected = recipients.filter((r: any) => r.status !== 'Success');
+    const tally = new Map<string, number>();
+    for (const r of rejected) tally.set(r.status, (tally.get(r.status) || 0) + 1);
+    const reasonBreakdown = Array.from(tally.entries()).map(([status, n]) => `${n} ${status}`).join(', ');
     // On a 401 specifically, name exactly what's deployed (masked — never the real key)
     // so a mismatched/stale credential is obvious without exposing the secret.
     const authHint = resp.status === 401
@@ -130,7 +137,10 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     const unnormalisableHint = unnormalisable > 0
       ? ` (${unnormalisable} of ${to.length} recipient number${unnormalisable === 1 ? '' : 's'} couldn't be recognised as a phone number and were never sent — check how they're stored)`
       : '';
-    const detail = (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}${unnormalisableHint}` : undefined)
+    const insufficientBalanceHint = tally.has('InsufficientBalance')
+      ? ' — top up the actual Africa\'s Talking account balance (not the ZARODA SMS wallet), it\'s a separate real airtime balance.'
+      : '';
+    const detail = (reasonBreakdown ? `${reasonBreakdown}${insufficientBalanceHint}${unnormalisableHint}` : undefined)
       || (!resp.ok ? `HTTP ${resp.status}${authHint}` : undefined)
       || (unnormalisable > 0 ? `${sent}/${to.length} sent${unnormalisableHint}` : undefined)
       || data?.SMSMessageData?.Message
