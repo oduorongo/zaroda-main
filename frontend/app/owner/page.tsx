@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRight, ShieldCheck, Layers, UserCircle, Sparkles } from 'lucide-react';
+import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRight, ShieldCheck, Layers, UserCircle, Sparkles, Bell } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 
@@ -12,6 +12,7 @@ export default function OwnerDashboard() {
   const router = useRouter();
   const [stats, setStats]     = useState<any>(null);
   const [prCosts, setPrCosts] = useState<any>(null);
+  const [smsCosts, setSmsCosts] = useState<any>(null);
   const [referralForm, setReferralForm] = useState({ referrerEmail: '', refereeEmail: '' });
   const [creditingReferral, setCreditingReferral] = useState(false);
   const [schools, setSchools] = useState<any[]>([]);
@@ -113,10 +114,12 @@ export default function OwnerDashboard() {
         params: { search, ownership: ownershipFilter || undefined, accountType },
       }).catch(() => ({ data: { data: [] } })),
       apiClient.get('/admin/professional-records-costs').catch(() => ({ data: null })),
-    ]).then(([s, t, c]) => {
+      apiClient.get('/admin/sms-costs').catch(() => ({ data: null })),
+    ]).then(([s, t, c, sms]) => {
       setStats(s.data || {});
       setSchools(t.data?.data || []);
       setPrCosts(c.data?.error ? null : c.data);
+      setSmsCosts(sms.data?.error ? null : sms.data);
     }).finally(() => setLoading(false));
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [ownershipFilter, accountType]);
@@ -211,6 +214,33 @@ export default function OwnerDashboard() {
                     <button onClick={creditReferral} disabled={creditingReferral} className="btn-ghost text-xs py-1.5 px-3 flex-shrink-0">
                       {creditingReferral ? 'Crediting…' : 'Credit KES 30'}
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {smsCosts && (
+              <div className="card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Bell size={16} className="text-theme-muted"/>
+                  <span className="text-sm font-bold text-theme-heading">SMS wallet — Africa's Talking cost vs revenue</span>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">SMS Sent</div>
+                    <div className="text-sm font-semibold text-theme-heading">{smsCosts.smsSentCount.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Priced / AT Cost per SMS</div>
+                    <div className="text-sm font-semibold text-theme-heading">KES {smsCosts.pricePerSmsKes} / {smsCosts.atCostPerSmsKes}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Est. AT Cost</div>
+                    <div className="text-sm font-semibold text-theme-heading">KES {smsCosts.atCostKes}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-theme-muted uppercase tracking-wide">Wallet Revenue Collected</div>
+                    <div className="text-sm font-semibold text-theme-heading">KES {smsCosts.walletRevenueKes} <span className={smsCosts.marginKes >= 0 ? 'text-green-600' : 'text-red-600'}>({smsCosts.marginKes >= 0 ? '+' : ''}{smsCosts.marginKes} margin)</span></div>
                   </div>
                 </div>
               </div>

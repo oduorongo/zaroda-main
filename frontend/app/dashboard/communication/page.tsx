@@ -299,7 +299,7 @@ export default function CommunicationPage() {
             </div>
             <form onSubmit={topUpSmsWallet} className="p-5 space-y-4">
               <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
-                Each SMS costs KES {wallet?.pricePerSms ?? 2} — announcements and fee reminders both draw from this wallet.
+                Each SMS costs KES {wallet?.pricePerSms ?? 1} — announcements and fee reminders both draw from this wallet.
               </div>
               <div>
                 <label className="label">Amount (KES) *</label>

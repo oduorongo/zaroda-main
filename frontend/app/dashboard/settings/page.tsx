@@ -2,7 +2,7 @@
 // app/dashboard/settings/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
-import { School, Bell, Key, Palette, Save, Loader2, Share2, Copy } from 'lucide-react';
+import { School, Palette, Save, Loader2, Share2, Copy } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -29,8 +29,6 @@ function SettingsPage() {
   const [form, setForm] = useState({
     schoolName: '', phone: '', email: '', address: '', knecCode: '',
     principalName: '', motto: '',
-    mpesaPaybill: '', mpesaPasskey: '',
-    atApiKey: '', atUsername: '',
     brandPrimary: '#1a2e5a', brandPrimaryDeep: '#0f1c38', brandAccent: '#d4af37',
     badgeBase64: '',
   });
@@ -99,20 +97,6 @@ function SettingsPage() {
         { key: 'knecCode',      label: 'KNEC Code',        placeholder: '123456' },
         { key: 'principalName', label: 'Head Teacher / Principal', placeholder: 'Mr. John Doe' },
         { key: 'motto',         label: 'School Motto',     placeholder: 'Elimu Bora' },
-      ],
-    },
-    {
-      icon: Key, title: 'M-Pesa (Daraja)',
-      fields: [
-        { key: 'mpesaPaybill', label: 'Paybill Number', placeholder: '123456' },
-        { key: 'mpesaPasskey', label: 'Passkey',        placeholder: 'From Daraja portal', type: 'password' },
-      ],
-    },
-    {
-      icon: Bell, title: "Africa's Talking (SMS)",
-      fields: [
-        { key: 'atApiKey',    label: 'API Key',    placeholder: 'Your AT API key', type: 'password' },
-        { key: 'atUsername',  label: 'Username',   placeholder: 'Your AT username' },
       ],
     },
   ];

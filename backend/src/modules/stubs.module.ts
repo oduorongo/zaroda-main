@@ -973,10 +973,11 @@ export class FinanceModule {}
 // Revenue channel: schools top up a per-tenant SMS wallet (M-Pesa STK push via
 // Tuma, same pattern as the Professional Records wallet — see wallet.service.ts)
 // and every SMS sent through Communication debits it at a markup over what
-// Africa's Talking actually charges us (~KES 0.8–1/SMS), on top of the flat
-// per-stream subscription. Not yet verified against real AT costs — revisit
-// once real usage is logged.
-export const SMS_PRICE_KES = 2;
+// Africa's Talking actually charges us (confirmed KES 0.8/SMS in production).
+// Priced at just above cost (not a big multiple) to keep adoption friction low —
+// revisit once volume is meaningful.
+export const SMS_PRICE_KES = 1;
+export const SMS_COST_KES = 0.8; // Africa's Talking's actual per-SMS cost, for owner margin reporting
 
 function smsCallbackUrl(): string {
   const base = (process.env.APP_URL || '').replace(/\/$/, '');
@@ -3571,6 +3572,33 @@ class AdminController {
       walletTopupsKes: Number(row.walletTopupsKes) || 0,
       marginKes: Math.round((walletRevenueKes - outputCostKes) * 100) / 100,
       note: 'estimatedOutputCostKes covers OUTPUT tokens only (input tokens are not logged per record) at a fixed FX rate — treat as a floor on real API spend, not the full bill.',
+    };
+  }
+
+  // SMS wallet cost-vs-revenue, mirroring professional-records-costs above.
+  @Get('sms-costs')
+  async getSmsCosts(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const r = await this.ds.query(
+      `SELECT
+         (SELECT COALESCE(SUM(sms_count),0) FROM sms_wallet_transactions WHERE type = 'debit')                    AS "smsSentCount",
+         (SELECT COALESCE(SUM(amount),0)    FROM sms_wallet_transactions WHERE type = 'debit')                    AS "walletRevenueKes",
+         (SELECT COALESCE(SUM(amount),0)    FROM sms_wallet_transactions WHERE type = 'topup' AND status = 'paid') AS "walletTopupsKes"`,
+    ).catch(() => [{}]);
+    const row = r[0] || {};
+
+    const smsSentCount = Number(row.smsSentCount) || 0;
+    const atCostKes = Math.round(smsSentCount * SMS_COST_KES * 100) / 100;
+    const walletRevenueKes = Number(row.walletRevenueKes) || 0;
+
+    return {
+      smsSentCount,
+      pricePerSmsKes: SMS_PRICE_KES,
+      atCostPerSmsKes: SMS_COST_KES,
+      atCostKes,
+      walletRevenueKes,
+      walletTopupsKes: Number(row.walletTopupsKes) || 0,
+      marginKes: Math.round((walletRevenueKes - atCostKes) * 100) / 100,
     };
   }
 
