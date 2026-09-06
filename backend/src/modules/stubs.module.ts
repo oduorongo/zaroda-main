@@ -5,12 +5,13 @@
 // Replace each stub with the full service as you build out.
 // ============================================================
 
-import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException } from '@nestjs/common';
+import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException, Injectable } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
 import { sendSms, sendEmail } from '../common/messaging';
+import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 
 // ═══════════════════════════════════════════════════════════
 // FINANCE MODULE
@@ -968,12 +969,162 @@ export class FinanceModule {}
 // ═══════════════════════════════════════════════════════════
 // COMMUNICATION MODULE
 // ═══════════════════════════════════════════════════════════
+
+// Revenue channel: schools top up a per-tenant SMS wallet (M-Pesa STK push via
+// Tuma, same pattern as the Professional Records wallet — see wallet.service.ts)
+// and every SMS sent through Communication debits it at a markup over what
+// Africa's Talking actually charges us (~KES 0.8–1/SMS), on top of the flat
+// per-stream subscription. Not yet verified against real AT costs — revisit
+// once real usage is logged.
+export const SMS_PRICE_KES = 2;
+
+function smsCallbackUrl(): string {
+  const base = (process.env.APP_URL || '').replace(/\/$/, '');
+  return `${base}/api/v1/communication/sms-wallet/mpesa/callback`;
+}
+
+@Injectable()
+class SmsWalletService {
+  constructor(private readonly ds: DataSource) {}
+
+  private async findOrCreateWallet(tenantId: string) {
+    const rows = await this.ds.query(`SELECT * FROM sms_wallets WHERE tenant_id = $1`, [tenantId]);
+    if (rows[0]) return rows[0];
+    const inserted = await this.ds.query(
+      `INSERT INTO sms_wallets (tenant_id, balance) VALUES ($1, 0) ON CONFLICT (tenant_id) DO UPDATE SET tenant_id = $1 RETURNING *`,
+      [tenantId],
+    );
+    return inserted[0];
+  }
+
+  async getBalance(tenantId: string) {
+    const wallet = await this.findOrCreateWallet(tenantId);
+    return { balance: Number(wallet.balance), pricePerSms: SMS_PRICE_KES };
+  }
+
+  async getTransactions(tenantId: string) {
+    return this.ds.query(
+      `SELECT id, type, amount, sms_count AS "smsCount", balance_after AS "balanceAfter",
+              description, status, created_at AS "createdAt"
+         FROM sms_wallet_transactions WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [tenantId],
+    );
+  }
+
+  async assertAffordable(tenantId: string, count: number) {
+    const wallet = await this.findOrCreateWallet(tenantId);
+    const cost = count * SMS_PRICE_KES;
+    if (Number(wallet.balance) < cost) {
+      throw new BadRequestException(
+        `Insufficient SMS wallet balance. Sending ${count} SMS costs KES ${cost}, wallet has KES ${Number(wallet.balance)}. Top up to continue.`,
+      );
+    }
+  }
+
+  // Debits for messages actually sent (AT only charges for what it accepted) —
+  // never for the attempted count, so a blacklisted/invalid number never costs
+  // the school anything since AT itself never billed us for it either.
+  async debit(tenantId: string, sentCount: number, description: string) {
+    if (sentCount <= 0) return;
+    const cost = sentCount * SMS_PRICE_KES;
+    const wallet = await this.findOrCreateWallet(tenantId);
+    const balanceAfter = Number(wallet.balance) - cost;
+    await this.ds.query(`UPDATE sms_wallets SET balance = $2, updated_at = NOW() WHERE tenant_id = $1`, [tenantId, balanceAfter]);
+    await this.ds.query(
+      `INSERT INTO sms_wallet_transactions (tenant_id, type, amount, sms_count, balance_after, description, status)
+       VALUES ($1,'debit',$2,$3,$4,$5,'completed')`,
+      [tenantId, cost, sentCount, balanceAfter, description],
+    );
+  }
+
+  async topUp(tenantId: string, phone: string, amount: number) {
+    const normalizedPhone = normalisePhoneForTuma(phone);
+    if (!normalizedPhone) throw new BadRequestException('Enter a valid M-Pesa phone number.');
+    if (!amount || amount < 10) throw new BadRequestException('Enter an amount of at least KES 10.');
+
+    const rows = await this.ds.query(
+      `INSERT INTO sms_wallet_transactions (tenant_id, type, amount, phone, status, description)
+       VALUES ($1,'topup',$2,$3,'pending','SMS wallet top-up') RETURNING id`,
+      [tenantId, amount, normalizedPhone],
+    );
+    const txnId = rows[0].id;
+
+    const result = await initiateStkPush({
+      amount, phone: normalizedPhone,
+      description: 'ZARODA — SMS wallet top-up',
+      callbackUrl: smsCallbackUrl(),
+    });
+    if (!result.ok) {
+      await this.ds.query(`UPDATE sms_wallet_transactions SET status = 'failed' WHERE id = $1`, [txnId]);
+      throw new BadRequestException(result.detail || 'Could not start the M-Pesa payment. Please try again.');
+    }
+    await this.ds.query(`UPDATE sms_wallet_transactions SET merchant_request_id = $2 WHERE id = $1`, [txnId, result.merchantRequestId]);
+
+    return {
+      transactionId: txnId,
+      message: `STK push sent to ${normalizedPhone}. Enter your M-Pesa PIN to top up KES ${amount}.`,
+    };
+  }
+
+  private async creditTopUp(txn: any, mpesaReceiptNumber?: string) {
+    const fresh = await this.ds.query(`SELECT * FROM sms_wallet_transactions WHERE id = $1`, [txn.id]);
+    if (!fresh[0] || fresh[0].status !== 'pending') return; // already settled
+    const wallet = await this.findOrCreateWallet(fresh[0].tenant_id);
+    const balanceAfter = Number(wallet.balance) + Number(fresh[0].amount);
+    await this.ds.query(`UPDATE sms_wallets SET balance = $2, updated_at = NOW() WHERE tenant_id = $1`, [fresh[0].tenant_id, balanceAfter]);
+    await this.ds.query(
+      `UPDATE sms_wallet_transactions SET status = 'paid', mpesa_receipt_number = $2, balance_after = $3 WHERE id = $1`,
+      [txn.id, mpesaReceiptNumber, balanceAfter],
+    );
+  }
+
+  async handleCallback(body: any): Promise<void> {
+    const parsed = parseTumaCallback(body);
+    if (!parsed.merchantRequestId) return;
+    const rows = await this.ds.query(`SELECT id FROM sms_wallet_transactions WHERE merchant_request_id = $1`, [parsed.merchantRequestId]);
+    if (!rows[0]) return;
+    if (parsed.success) await this.creditTopUp(rows[0], parsed.mpesaReceipt);
+    else await this.ds.query(`UPDATE sms_wallet_transactions SET status = 'failed' WHERE id = $1`, [rows[0].id]);
+  }
+
+  async getTopUpStatus(tenantId: string, id: string) {
+    const rows = await this.ds.query(`SELECT * FROM sms_wallet_transactions WHERE id = $1 AND tenant_id = $2 AND type = 'topup'`, [id, tenantId]);
+    const txn = rows[0];
+    if (!txn) throw new BadRequestException('Top-up not found.');
+    if (txn.status !== 'pending' || !txn.merchant_request_id) return { status: txn.status, transactionId: txn.id };
+
+    const result = await checkPaymentStatus(txn.merchant_request_id);
+    if (result.ok && result.status && /success|completed/i.test(result.status)) {
+      await this.creditTopUp(txn, result.mpesaReceipt);
+      return { status: 'paid', transactionId: txn.id };
+    }
+    return { status: txn.status, transactionId: txn.id };
+  }
+}
+
 @Controller('communication')
 @UseGuards(JwtAuthGuard)
 class CommunicationController {
   constructor(
     private readonly ds: DataSource,
+    private readonly smsWallet: SmsWalletService,
   ) {}
+
+  @Get('sms-wallet')
+  getSmsWallet(@Request() req: any) { return this.smsWallet.getBalance(req.user.tenantId); }
+
+  @Get('sms-wallet/transactions')
+  getSmsWalletTransactions(@Request() req: any) { return this.smsWallet.getTransactions(req.user.tenantId); }
+
+  @Post('sms-wallet/topup')
+  topUpSmsWallet(@Request() req: any, @Body() dto: { phone: string; amount: number }) {
+    return this.smsWallet.topUp(req.user.tenantId, dto.phone, dto.amount);
+  }
+
+  @Get('sms-wallet/topup/status/:id')
+  getSmsWalletTopUpStatus(@Request() req: any, @Param('id') id: string) {
+    return this.smsWallet.getTopUpStatus(req.user.tenantId, id);
+  }
 
   // The real `announcements` table (migration 005) uses body/school_id/a stricter
   // priority CHECK ('low'|'normal'|'high'|'urgent') — there used to be a mismatched
@@ -1031,19 +1182,21 @@ class CommunicationController {
   // Sends via Africa's Talking (SMS) / Resend (email) — same shared platform-wide
   // senders the owner's broadcast uses (backend/src/common/messaging.ts), batched to
   // stay under each provider's rate limit.
-  private async dispatch(recipients: { phone: string | null; email: string | null }[], title: string, content: string, channel: string) {
+  private async dispatch(tenantId: string, recipients: { phone: string | null; email: string | null }[], title: string, content: string, channel: string) {
     const wantsSms = channel === 'sms' || channel === 'all';
     const wantsEmail = channel === 'email' || channel === 'all';
     const result: any = {};
 
     if (wantsSms) {
       const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean))) as string[];
+      await this.smsWallet.assertAffordable(tenantId, phones.length);
       const body = `${title}\n\n${content}`;
       let sent = 0, failed = 0, detail: string | undefined;
       for (let i = 0; i < phones.length; i += 100) {
         const r = await sendSms(phones.slice(i, i + 100), body);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
       }
+      if (sent > 0) await this.smsWallet.debit(tenantId, sent, `Announcement: ${title}`);
       result.sms = { attempted: phones.length, sent, failed, detail };
     }
     if (wantsEmail) {
@@ -1072,7 +1225,7 @@ class CommunicationController {
     const priority = ['low', 'normal', 'high', 'urgent'].includes(dto.priority) ? dto.priority : 'normal';
     const channel = dto.channel || 'push'; // 'push' has no automated sender yet — logged only
     const recipients = channel === 'push' ? [] : await this.resolveRecipients(tenantId, audience);
-    const sendResult = recipients.length ? await this.dispatch(recipients, dto.title, dto.content, channel) : {};
+    const sendResult = recipients.length ? await this.dispatch(tenantId, recipients, dto.title, dto.content, channel) : {};
 
     const rows = await this.ds.query(
       `INSERT INTO announcements (tenant_id, school_id, title, body, audience, priority, is_published, published_at, created_by, audience_filter)
@@ -1138,6 +1291,10 @@ class CommunicationController {
       })
       .filter(l => l.balance > 0 && (l.guardianPhone || l.guardianEmail));
 
+    if (wantsSms) {
+      await this.smsWallet.assertAffordable(tenantId, debtors.filter(d => d.guardianPhone).length);
+    }
+
     let smsSent = 0, smsFailed = 0, smsDetail: string | undefined;
     let emailSent = 0, emailFailed = 0, emailDetail: string | undefined;
     for (const d of debtors) {
@@ -1151,6 +1308,7 @@ class CommunicationController {
         if (r.ok) emailSent++; else { emailFailed++; emailDetail = emailDetail || r.detail; }
       }
     }
+    if (smsSent > 0) await this.smsWallet.debit(tenantId, smsSent, 'Fee reminder SMS');
 
     const sent = smsSent + emailSent;
     return {
@@ -1162,9 +1320,23 @@ class CommunicationController {
   }
 }
 
+// Tuma calls this — no auth, so it must live outside the JwtAuthGuard-protected
+// CommunicationController above (same pattern as ProfessionalRecordsPaymentsController).
+@Controller('communication')
+class SmsWalletCallbackController {
+  constructor(private readonly smsWallet: SmsWalletService) {}
+
+  @Post('sms-wallet/mpesa/callback')
+  async handleCallback(@Body() body: any) {
+    await this.smsWallet.handleCallback(body);
+    return { ResultCode: 0, ResultDesc: 'Accepted' };
+  }
+}
+
 @Module({
   imports: [],
-  controllers: [CommunicationController],
+  controllers: [CommunicationController, SmsWalletCallbackController],
+  providers: [SmsWalletService],
 })
 export class CommunicationModule {}
 

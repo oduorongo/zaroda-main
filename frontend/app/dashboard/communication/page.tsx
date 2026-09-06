@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Bell, Send, Megaphone, Loader2, X, Plus } from 'lucide-react';
+import { Bell, Send, Megaphone, Loader2, X, Plus, Wallet } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -31,6 +31,16 @@ export default function CommunicationPage() {
   const [reminderChannel, setReminderChannel] = useState('sms');
   const [sendingReminders, setSendingReminders] = useState(false);
 
+  const [wallet, setWallet] = useState<{ balance: number; pricePerSms: number } | null>(null);
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpForm, setTopUpForm] = useState({ amount: 100, phone: '' });
+  const [topUpStep, setTopUpStep] = useState<'form'|'waiting'>('form');
+  const [toppingUp, setToppingUp] = useState(false);
+  const [showTxns, setShowTxns] = useState(false);
+  const [txns, setTxns] = useState<any[]>([]);
+
+  const loadWallet = () => apiClient.get('/communication/sms-wallet').then(r => setWallet(r.data)).catch(() => {});
+
   const load = () => {
     setLoading(true);
     apiClient.get('/communication/announcements')
@@ -39,7 +49,44 @@ export default function CommunicationPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadWallet(); }, []);
+
+  const openTxns = () => {
+    setShowTxns(true);
+    apiClient.get('/communication/sms-wallet/transactions').then(r => setTxns(r.data)).catch(() => setTxns([]));
+  };
+
+  const topUpSmsWallet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!topUpForm.phone) { toast.error('Enter the M-Pesa phone number to pay with.'); return; }
+    if (!topUpForm.amount || topUpForm.amount < 10) { toast.error('Enter an amount of at least KES 10.'); return; }
+    setToppingUp(true);
+    try {
+      const { data } = await apiClient.post('/communication/sms-wallet/topup', topUpForm);
+      toast.success(data.message || 'Check your phone for the M-Pesa prompt.');
+      setTopUpStep('waiting');
+
+      const transactionId = data.transactionId;
+      let paid = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const { data: s } = await apiClient.get(`/communication/sms-wallet/topup/status/${transactionId}`);
+        if (s.status === 'paid') { paid = true; break; }
+        if (s.status === 'failed') { toast.error('Payment failed or was cancelled.'); break; }
+      }
+      if (!paid) {
+        toast.error('Payment not confirmed in time. Please try again.');
+        setTopUpStep('form');
+        setToppingUp(false);
+        return;
+      }
+      toast.success('SMS wallet topped up!');
+      setShowTopUp(false);
+      setTopUpStep('form');
+      loadWallet();
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not complete top-up.'); }
+    finally { setToppingUp(false); }
+  };
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
@@ -58,6 +105,7 @@ export default function CommunicationPage() {
       setShowNew(false);
       setForm({ title:'', content:'', audience:'all', priority:'normal', channel:'sms' });
       load();
+      if (data.sms) loadWallet();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not send announcement');
     }
@@ -73,6 +121,7 @@ export default function CommunicationPage() {
       toast.success(data.message || `Sent to ${data.count} parents.`);
       if (data.sms?.sent === 0 && data.sms?.detail) toast.error(`SMS: ${data.sms.detail}`);
       if (data.email?.sent === 0 && data.email?.detail) toast.error(`Email: ${data.email.detail}`);
+      if (data.sms) loadWallet();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not send reminders');
     } finally {
@@ -88,7 +137,14 @@ export default function CommunicationPage() {
           <p className="text-sm text-theme-muted">Announcements · Fee reminders</p>
         </div>
         {isHoi(user?.role || '') && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={openTxns} className="text-center rounded-xl px-3 py-1.5 bg-[#1a2e5a] text-white">
+              <div className="text-[10px] text-[#d4af37] uppercase tracking-wide leading-none">SMS Wallet</div>
+              <div className="font-bold text-sm leading-tight">KES {wallet?.balance ?? '…'}</div>
+            </button>
+            <button onClick={() => setShowTopUp(true)} className="btn-primary text-xs px-2.5 py-1.5">
+              <Wallet size={13}/> Top Up
+            </button>
             <button onClick={sendFeeReminders} className="btn-ghost text-sm">
               <Bell size={14}/> Fee Reminders
             </button>
@@ -226,6 +282,79 @@ export default function CommunicationPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Top Up SMS Wallet Modal */}
+      {showTopUp && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md my-8 mt-24">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <div>
+                <h3 className="text-lg font-bold text-theme-heading">Top Up SMS Wallet</h3>
+                <p className="text-xs text-theme-muted mt-0.5">Pay via M-Pesa, then every SMS you send draws from this balance.</p>
+              </div>
+              <button onClick={() => setShowTopUp(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <form onSubmit={topUpSmsWallet} className="p-5 space-y-4">
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
+                Each SMS costs KES {wallet?.pricePerSms ?? 2} — announcements and fee reminders both draw from this wallet.
+              </div>
+              <div>
+                <label className="label">Amount (KES) *</label>
+                <input required type="number" min={10} value={topUpForm.amount}
+                  onChange={(e) => setTopUpForm(f => ({ ...f, amount: Number(e.target.value) }))}
+                  className="input" disabled={topUpStep === 'waiting'}/>
+              </div>
+              <div>
+                <label className="label">M-Pesa Phone Number *</label>
+                <input required type="tel" placeholder="07XXXXXXXX" value={topUpForm.phone}
+                  onChange={(e) => setTopUpForm(f => ({ ...f, phone: e.target.value }))}
+                  className="input" disabled={topUpStep === 'waiting'}/>
+              </div>
+              {topUpStep === 'waiting' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin flex-shrink-0"/>
+                  Waiting for M-Pesa confirmation on your phone…
+                </div>
+              )}
+              <div className="flex gap-3 border-t border-theme pt-4">
+                <button type="button" onClick={() => setShowTopUp(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="submit" disabled={toppingUp} className="btn-primary flex-1">
+                  {toppingUp
+                    ? <><Loader2 size={14} className="animate-spin"/> {topUpStep === 'waiting' ? 'Confirming…' : 'Starting…'}</>
+                    : <><Wallet size={14}/> Pay KES {topUpForm.amount || 0}</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SMS Wallet Transactions Modal */}
+      {showTxns && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg my-8 mt-16">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <h3 className="text-lg font-bold text-theme-heading">SMS Wallet History</h3>
+              <button onClick={() => setShowTxns(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
+              {txns.length === 0 ? (
+                <p className="text-sm text-theme-muted text-center py-6">No transactions yet.</p>
+              ) : txns.map((t: any) => (
+                <div key={t.id} className="flex items-center justify-between p-2.5 rounded-lg bg-surface-2">
+                  <div>
+                    <p className="text-sm font-semibold text-theme-heading">{t.description || (t.type === 'topup' ? 'Top-up' : 'SMS sent')}</p>
+                    <p className="text-xs text-theme-muted">{new Date(t.createdAt).toLocaleDateString('en-KE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}{t.smsCount ? ` · ${t.smsCount} SMS` : ''}</p>
+                  </div>
+                  <span className={`text-sm font-bold ${t.type === 'topup' ? 'text-green-600' : 'text-red-500'}`}>
+                    {t.type === 'topup' ? '+' : '-'}KES {t.amount}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
