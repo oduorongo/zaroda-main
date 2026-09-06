@@ -287,6 +287,9 @@ export default function HomePage() {
                     <div className="mt-3 pt-3 border-t border-[#e2e6f0]">
                       <p className="font-bold text-[#1a2e5a] text-sm">{t.authorName}</p>
                       <p className="text-xs text-[#7a82a8]">{t.authorRole}{t.schoolName ? ` · ${t.schoolName}` : ''}</p>
+                      {t.documentsGenerated > 0 && (
+                        <p className="text-[11px] text-green-700 font-semibold mt-1">✓ Verified: {t.documentsGenerated} document{t.documentsGenerated === 1 ? '' : 's'} generated on Zaroda</p>
+                      )}
                     </div>
                   </div>
                 ))}

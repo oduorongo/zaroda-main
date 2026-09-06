@@ -4297,13 +4297,22 @@ class TestimonialController {
   async list(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
     const status = ['submitted', 'featured', 'archived'].includes(q.status) ? q.status : null;
-    const where = status ? 'WHERE status = $1' : (q.status === 'all' ? '' : `WHERE status <> 'archived'`);
+    const where = status ? 'WHERE t.status = $1' : (q.status === 'all' ? '' : `WHERE t.status <> 'archived'`);
     const rows = await this.ds.query(
-      `SELECT id, author_name AS "authorName", author_role AS "authorRole", school_name AS "schoolName",
-              message, rating, allow_public_use AS "allowPublicUse", status, created_at AS "createdAt"
-         FROM testimonials
+      // documentsGenerated ties the claim to something checkable — a testimonial
+      // whose wording implies heavy use but whose author has generated 0 real
+      // documents is a mismatch worth catching before it's featured, not after
+      // someone else cross-references it.
+      `SELECT t.id, t.author_name AS "authorName", t.author_role AS "authorRole", t.school_name AS "schoolName",
+              t.message, t.rating, t.allow_public_use AS "allowPublicUse", t.status, t.created_at AS "createdAt",
+              (
+                COALESCE((SELECT COUNT(*) FROM schemes_of_work WHERE teacher_id = t.user_id), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_plans WHERE teacher_id = t.user_id), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_notes WHERE teacher_id = t.user_id), 0)
+              )::int AS "documentsGenerated"
+         FROM testimonials t
         ${where}
-        ORDER BY created_at DESC`,
+        ORDER BY t.created_at DESC`,
       status ? [status] : [],
     ).catch(() => []);
     return rows;
@@ -4340,11 +4349,16 @@ class PublicTestimonialController {
   @Get()
   async list() {
     return this.ds.query(
-      `SELECT author_name AS "authorName", author_role AS "authorRole", school_name AS "schoolName",
-              message, rating, created_at AS "createdAt"
-         FROM testimonials
-        WHERE status = 'featured' AND allow_public_use = true
-        ORDER BY created_at DESC
+      `SELECT t.author_name AS "authorName", t.author_role AS "authorRole", t.school_name AS "schoolName",
+              t.message, t.rating, t.created_at AS "createdAt",
+              (
+                COALESCE((SELECT COUNT(*) FROM schemes_of_work WHERE teacher_id = t.user_id), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_plans WHERE teacher_id = t.user_id), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_notes WHERE teacher_id = t.user_id), 0)
+              )::int AS "documentsGenerated"
+         FROM testimonials t
+        WHERE t.status = 'featured' AND t.allow_public_use = true
+        ORDER BY t.created_at DESC
         LIMIT 12`,
     ).catch(() => []);
   }
