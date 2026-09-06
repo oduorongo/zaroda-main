@@ -19,6 +19,26 @@ const PRIORITY_CONF: Record<string, string> = {
   urgent: 'bg-red-100  text-red-700',
 };
 
+// GSM-7 basic + extension charset — everything else (emoji, most accented letters,
+// Kiswahili-specific punctuation, etc.) forces the whole message into UCS-2, which
+// has a much smaller per-segment budget. Matches what carriers actually bill on.
+// eslint-disable-next-line no-control-regex
+const GSM7_RE = /^[ -~¡£¤¥§¿ÄÅÆÉÑÖØÜßàäåæèéìñòöøùüΓΔΘΛΞΠΣΦΨΩ€]*$/;
+
+// Estimates the SMS unit count Africa's Talking will actually bill for — a single
+// segment caps at 160 chars (GSM-7) / 70 (UCS-2), and once a message needs to be
+// concatenated across multiple segments each one drops to 153 / 67 chars to leave
+// room for the concatenation header.
+function smsSegments(text: string): { count: number; perSegment: number; charset: 'GSM-7' | 'UCS-2' } {
+  const gsm7 = GSM7_RE.test(text);
+  const singleCap = gsm7 ? 160 : 70;
+  const multiCap = gsm7 ? 153 : 67;
+  const len = text.length;
+  if (len === 0) return { count: 0, perSegment: singleCap, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
+  if (len <= singleCap) return { count: 1, perSegment: singleCap, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
+  return { count: Math.ceil(len / multiCap), perSegment: multiCap, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
+}
+
 export default function CommunicationPage() {
   const { user } = useAuth();
   const [tab,    setTab]    = useState<'announcements'|'reminders'>('announcements');
@@ -248,6 +268,17 @@ export default function CommunicationPage() {
                 <label className="label">Message *</label>
                 <textarea required value={form.content} onChange={set('content') as any} rows={4}
                   className="input resize-none" placeholder="Your announcement here…"/>
+                {(form.channel === 'sms' || form.channel === 'all') && (form.title || form.content) && (() => {
+                  const smsBody = `${form.title}\n\n${form.content}`;
+                  const seg = smsSegments(smsBody);
+                  const cost = seg.count * (wallet?.pricePerSms ?? 1);
+                  return (
+                    <p className={`text-xs mt-1.5 ${seg.count > 1 ? 'text-amber-600' : 'text-theme-muted'}`}>
+                      {smsBody.length} characters ({seg.charset}) — {seg.count} SMS {seg.count === 1 ? 'segment' : 'segments'} per recipient
+                      {seg.count > 1 ? ' (billed as multiple messages)' : ''} · KES {cost} per recipient
+                    </p>
+                  );
+                })()}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
