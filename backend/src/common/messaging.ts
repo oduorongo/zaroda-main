@@ -64,8 +64,11 @@ export function normalisePhone(raw: string): string | null {
 }
 
 export async function sendSms(to: string[], message: string): Promise<{ ok: boolean; sent: number; failed: number; detail?: string }> {
-  const apiKey = process.env.AT_API_KEY;
-  const username = process.env.AT_USERNAME;
+  // Trim defensively — a trailing space/newline pasted into Render's env var editor
+  // makes Africa's Talking reject an otherwise-correct key with a plain HTTP 401,
+  // which looks identical to a genuinely wrong key.
+  const apiKey = process.env.AT_API_KEY?.trim();
+  const username = process.env.AT_USERNAME?.trim();
   if (!apiKey || !username) {
     return { ok: false, sent: 0, failed: to.length, detail: 'SMS not configured (AT_API_KEY / AT_USERNAME missing).' };
   }
@@ -96,9 +99,14 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
     // total failure — the real reason (InsufficientBalance, InvalidSenderId,
     // UserInBlackList, etc.) is per-recipient, so surface the first rejected one.
     const firstRejected = recipients.find((r: any) => r.status !== 'Success');
+    // On a 401 specifically, name exactly what's deployed (masked — never the real key)
+    // so a mismatched/stale credential is obvious without exposing the secret.
+    const authHint = resp.status === 401
+      ? ` — deployed as username "${username}", key ending "…${apiKey.slice(-4)}" (${apiKey.length} chars). Check these match the AT dashboard exactly.`
+      : '';
     const detail = data?.SMSMessageData?.Message
       || (firstRejected ? `${firstRejected.status}${firstRejected.statusCode != null ? ` (code ${firstRejected.statusCode})` : ''}` : undefined)
-      || (!resp.ok ? `HTTP ${resp.status}` : undefined)
+      || (!resp.ok ? `HTTP ${resp.status}${authHint}` : undefined)
       || (recipients.length === 0 ? `Unexpected response: ${JSON.stringify(data).slice(0, 200)}` : undefined);
     return { ok: sent > 0, sent, failed, detail };
   } catch (err: any) {
