@@ -94,7 +94,7 @@ export default function OwnerCommunicationPage() {
       const stats = result[channel];
       if (!stats) { toast.error('No response for this channel.'); return; }
       toast.success(`Sent ${stats.sent}/${stats.attempted} via ${channel === 'email' ? 'email' : 'SMS'}.`);
-      if (stats.sent === 0 && stats.detail) toast.error(`${channel === 'email' ? 'Email' : 'SMS'}: ${stats.detail}`);
+      if (stats.failed > 0 && stats.detail) toast.error(`${channel === 'email' ? 'Email' : 'SMS'}: ${stats.detail}`, { duration: 8000 });
     } catch (err: any) {
       toast.error(err?.response?.data?.message || `Could not send ${channel}.`);
     } finally {

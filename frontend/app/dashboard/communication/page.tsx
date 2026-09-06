@@ -123,8 +123,8 @@ export default function CommunicationPage() {
       if (data.sms) parts.push(`SMS ${data.sms.sent}/${data.sms.attempted}`);
       if (data.email) parts.push(`Email ${data.email.sent}/${data.email.attempted}`);
       toast.success(parts.length ? `Sent — ${parts.join(', ')}` : 'Announcement saved!');
-      if (data.sms?.detail && data.sms.sent === 0) toast.error(`SMS: ${data.sms.detail}`);
-      if (data.email?.detail && data.email.sent === 0) toast.error(`Email: ${data.email.detail}`);
+      if (data.sms?.detail && data.sms.failed > 0) toast.error(`SMS: ${data.sms.detail}`, { duration: 8000 });
+      if (data.email?.detail && data.email.failed > 0) toast.error(`Email: ${data.email.detail}`, { duration: 8000 });
       setShowNew(false);
       setForm({ title:'', content:'', audience:'all', priority:'normal', channel:'sms' });
       load();
@@ -145,8 +145,8 @@ export default function CommunicationPage() {
         term: reminderTerm, academicYear: '2025/2026', channel: reminderChannel,
       });
       toast.success(data.message || `Sent to ${data.count} parents.`);
-      if (data.sms?.sent === 0 && data.sms?.detail) toast.error(`SMS: ${data.sms.detail}`);
-      if (data.email?.sent === 0 && data.email?.detail) toast.error(`Email: ${data.email.detail}`);
+      if (data.sms?.failed > 0 && data.sms?.detail) toast.error(`SMS: ${data.sms.detail}`, { duration: 8000 });
+      if (data.email?.failed > 0 && data.email?.detail) toast.error(`Email: ${data.email.detail}`, { duration: 8000 });
       if (data.sms) loadWallet();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Could not send reminders');
@@ -227,6 +227,12 @@ export default function CommunicationPage() {
                         <span className="text-[11px] text-theme-muted">Email {a.delivery.email.sent}/{a.delivery.email.attempted}</span>
                       )}
                     </div>
+                    {a.delivery?.sms?.failed > 0 && a.delivery.sms.detail && (
+                      <p className="text-[11px] text-red-600 mt-1">SMS: {a.delivery.sms.detail}</p>
+                    )}
+                    {a.delivery?.email?.failed > 0 && a.delivery.email.detail && (
+                      <p className="text-[11px] text-red-600 mt-1">Email: {a.delivery.email.detail}</p>
+                    )}
                   </div>
                 </div>
               </div>
