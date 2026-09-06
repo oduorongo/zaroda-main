@@ -8,6 +8,21 @@ import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, Aler
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
+// Same GSM-7/UCS-2 segment estimate as the tenant Communication composer
+// (app/dashboard/communication/page.tsx) — a message over 160 chars (70 with
+// emoji/unusual punctuation) splits into multiple SMS units per recipient.
+// eslint-disable-next-line no-control-regex
+const GSM7_RE = /^[\x20-\x7E¡£¤¥§¿ÄÅÆÉÑÖØÜßàäåæèéìñòöøùüΓΔΘΛΞΠΣΦΨΩ€]*$/;
+function smsSegments(text: string): { count: number; charset: 'GSM-7' | 'UCS-2' } {
+  const gsm7 = GSM7_RE.test(text);
+  const singleCap = gsm7 ? 160 : 70;
+  const multiCap = gsm7 ? 153 : 67;
+  const len = text.length;
+  if (len === 0) return { count: 0, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
+  if (len <= singleCap) return { count: 1, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
+  return { count: Math.ceil(len / multiCap), charset: gsm7 ? 'GSM-7' : 'UCS-2' };
+}
+
 export default function OwnerCommunicationPage() {
   const [audience, setAudience] = useState<'admins' | 'all' | 'incomplete'>('admins');
   const [data, setData]         = useState<any>(null);
@@ -62,6 +77,14 @@ export default function OwnerCommunicationPage() {
       if (!title.trim()) { toast.error('Write a subject/title first'); return; }
       if (!message.trim()) { toast.error('Write a message first'); return; }
     }
+    const recipientCount = channel === 'sms' ? phones.length : emails.length;
+    const smsNote = channel === 'sms' && message.trim()
+      ? ` (${smsSegments(message).count} SMS unit${smsSegments(message).count === 1 ? '' : 's'} each)`
+      : '';
+    const ok = window.confirm(
+      `Send this ${channel === 'sms' ? 'SMS' : 'email'} to ${recipientCount} recipient${recipientCount === 1 ? '' : 's'}${smsNote}?\n\nThis cannot be undone.`,
+    );
+    if (!ok) return;
     setSending(channel);
     try {
       const { data: result } = audience === 'incomplete'
@@ -159,12 +182,23 @@ export default function OwnerCommunicationPage() {
             placeholder={audience === 'incomplete'
               ? "Leave blank to send the default reminder to finish setup, or write your own…"
               : "Write your announcement to schools…"}/>
+          {message.trim() && (() => {
+            const seg = smsSegments(message);
+            return (
+              <p className={`text-xs -mt-1 ${seg.count > 1 ? 'text-amber-600' : 'text-theme-muted'}`}>
+                {message.length} characters ({seg.charset}) — as SMS: {seg.count} unit{seg.count === 1 ? '' : 's'} per recipient
+                {seg.count > 1 ? ' (billed as multiple messages)' : ''}
+              </p>
+            );
+          })()}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button onClick={() => sendReal('email')} disabled={sending === 'email'} className="btn-primary justify-center">
-              {sending === 'email' ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>} Send Email
+            <button onClick={() => sendReal('email')} disabled={sending === 'email'}
+              className="justify-center flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60">
+              {sending === 'email' ? <Loader2 size={15} className="animate-spin"/> : <Mail size={15}/>} Send Email
             </button>
-            <button onClick={() => sendReal('sms')} disabled={sending === 'sms'} className="btn-primary justify-center">
+            <button onClick={() => sendReal('sms')} disabled={sending === 'sms'}
+              className="justify-center flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-60">
               {sending === 'sms' ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>} Send SMS
             </button>
             {audience !== 'incomplete' && (

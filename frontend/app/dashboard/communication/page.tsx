@@ -113,6 +113,9 @@ export default function CommunicationPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const channelLabel = form.channel === 'all' ? 'SMS + Email' : form.channel === 'sms' ? 'SMS' : form.channel === 'email' ? 'Email' : 'in-app notice only';
+    const ok = window.confirm(`Send this announcement via ${channelLabel} to "${AUDIENCE_OPTS.find(a => a.value === form.audience)?.label || form.audience}"?\n\nThis cannot be undone.`);
+    if (!ok) return;
     setSaving(true);
     try {
       const { data } = await apiClient.post('/communication/announcements', form);
@@ -133,6 +136,9 @@ export default function CommunicationPage() {
   };
 
   const sendFeeReminders = async () => {
+    const channelLabel = reminderChannel === 'all' ? 'SMS + Email' : reminderChannel.toUpperCase();
+    const ok = window.confirm(`Send fee reminders via ${channelLabel} to every parent with an outstanding balance?\n\nThis cannot be undone.`);
+    if (!ok) return;
     setSendingReminders(true);
     try {
       const { data } = await apiClient.post('/communication/fee-reminders', {
