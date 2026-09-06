@@ -59,15 +59,17 @@ export default function ProfessionalRecordsPage() {
   const [submittingTestimonial, setSubmittingTestimonial] = useState(false);
   useEffect(() => {
     if (!individual || !user) return;
-    if (localStorage.getItem(`testimonial-dismissed:${user.id}`) === '1') { setTestimonialDismissed(true); return; }
+    const dismissedAt = Number(localStorage.getItem(`testimonial-dismissed:${user.id}`) || 0);
+    const recentlyDismissed = dismissedAt && (Date.now() - dismissedAt) / 86400000 < 14;
     apiClient.get('/testimonials/mine').then(r => {
-      setMyTestimonial(r.data?.testimonial || null);
-      setTestimonialDismissed(false);
+      const submitted = r.data?.testimonial || null;
+      setMyTestimonial(submitted);
+      setTestimonialDismissed(submitted ? false : !!recentlyDismissed);
     }).catch(() => {});
   }, [individual, user]);
   const dismissTestimonial = () => {
     setTestimonialDismissed(true);
-    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, '1');
+    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, String(Date.now()));
   };
   const submitTestimonial = async () => {
     if (!testimonialForm.message.trim()) return;

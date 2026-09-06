@@ -63,14 +63,17 @@ export default function DashboardPage() {
   const [myTestimonial, setMyTestimonial] = useState<any>(null);
 
   // Only show the "share your experience" prompt if this user hasn't dismissed it
-  // before. If they've already submitted one, show it (with a delete option)
-  // instead of the write-a-testimonial prompt.
+  // recently (re-offered after 14 days, same as the install-app prompt — dismissing
+  // once shouldn't hide it forever). If they've already submitted one, show it (with
+  // a delete option) instead of the write-a-testimonial prompt.
   useEffect(() => {
     if (!user) return;
-    if (localStorage.getItem(`testimonial-dismissed:${user.id}`) === '1') { setTestimonialDismissed(true); return; }
+    const dismissedAt = Number(localStorage.getItem(`testimonial-dismissed:${user.id}`) || 0);
+    const recentlyDismissed = dismissedAt && (Date.now() - dismissedAt) / 86400000 < 14;
     apiClient.get('/testimonials/mine').then(r => {
-      setMyTestimonial(r.data?.testimonial || null);
-      setTestimonialDismissed(false);
+      const submitted = r.data?.testimonial || null;
+      setMyTestimonial(submitted);
+      setTestimonialDismissed(submitted ? false : !!recentlyDismissed);
     }).catch(() => {});
   }, [user]);
 
@@ -97,7 +100,7 @@ export default function DashboardPage() {
   };
   const dismissTestimonial = () => {
     setTestimonialDismissed(true);
-    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, '1');
+    if (user) localStorage.setItem(`testimonial-dismissed:${user.id}`, String(Date.now()));
   };
 
   if (!user) return null;
