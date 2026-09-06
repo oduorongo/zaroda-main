@@ -3774,12 +3774,15 @@ class AdminController {
       const numbers = recipients.map((r: any) => r.phone).filter(Boolean);
       const smsBody = `${title}\n\n${message}`;
       let sent = 0, failed = 0, detail: string | undefined;
+      const failedNumbers: string[] = [];
       const CHUNK = 100; // Africa's Talking recommended batch size per call
       for (let i = 0; i < numbers.length; i += CHUNK) {
         const r = await sendSms(numbers.slice(i, i + CHUNK), smsBody);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
+        failedNumbers.push(...r.failedNumbers);
       }
-      result.sms = { attempted: numbers.length, sent, failed, detail };
+      result.sms = { attempted: numbers.length, sent, failed, detail, failedNumbers };
+      await this.recordBroadcast(req.user.id, audience, title, message, 'sms', numbers.length, sent, failed, failedNumbers, detail);
     }
 
     if (channels.includes('email')) {
@@ -3804,9 +3807,48 @@ class AdminController {
         attempted: withEmail.length, sent, failed: withEmail.length - sent,
         detail: firstFailure?.value?.detail,
       };
+      await this.recordBroadcast(req.user.id, audience, title, message, 'email', withEmail.length, sent, withEmail.length - sent, [], result.email.detail);
     }
 
     return result;
+  }
+
+  private async recordBroadcast(
+    sentBy: string, audience: string, title: string, message: string, channel: 'sms' | 'email',
+    recipientCount: number, sent: number, failed: number, failedNumbers: string[], detail?: string,
+  ) {
+    await this.ds.query(
+      `INSERT INTO owner_broadcasts (audience, title, message, channel, recipient_count, sent, failed, failed_numbers, detail, sent_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+      [audience, title, message, channel, recipientCount, sent, failed, failedNumbers, detail || null, sentBy],
+    ).catch(() => null);
+  }
+
+  // Read-only history of everything sent from the owner Communication page.
+  @Get('broadcast-history')
+  async getBroadcastHistory(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
+    return this.ds.query(
+      `SELECT id, audience, title, message, channel, recipient_count AS "recipientCount",
+              sent, failed, failed_numbers AS "failedNumbers", detail, created_at AS "createdAt"
+         FROM owner_broadcasts ORDER BY created_at DESC LIMIT 50`,
+    ).catch(() => []);
+  }
+
+  // Resends SMS only to the numbers that failed last time.
+  @Post('broadcast-history/:id/retry-sms')
+  async retryBroadcastSms(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const rows = await this.ds.query(`SELECT message, failed_numbers AS "failedNumbers" FROM owner_broadcasts WHERE id::text = $1 AND channel = 'sms'`, [id]);
+    if (!rows.length) return { error: 'Broadcast not found.' };
+    const failedNumbers: string[] = rows[0].failedNumbers || [];
+    if (!failedNumbers.length) return { error: 'Nothing to retry.' };
+    const r = await sendSms(failedNumbers, rows[0].message);
+    await this.ds.query(
+      `UPDATE owner_broadcasts SET sent = sent + $2, failed = failed - $2, failed_numbers = $3, detail = $4 WHERE id::text = $1`,
+      [id, r.sent, r.failedNumbers, r.detail],
+    );
+    return { message: `Retried ${failedNumbers.length} — ${r.sent} sent, ${r.failedNumbers.length} still failed.` };
   }
 
   // A school counts as "not fully set up" if it still has zero classes, zero real
@@ -3884,6 +3926,7 @@ class AdminController {
         }
       }
       result.sms = { attempted: numbers.length, sent, failed, detail };
+      await this.recordBroadcast(req.user.id, 'incomplete', 'Setup reminder', customMessage || '(default per-school reminder)', 'sms', numbers.length, sent, failed, [], detail);
     }
 
     if (channels.includes('email')) {
@@ -3907,6 +3950,7 @@ class AdminController {
         attempted: withEmail.length, sent, failed: withEmail.length - sent,
         detail: firstFailure?.value?.detail,
       };
+      await this.recordBroadcast(req.user.id, 'incomplete', 'Setup reminder', customMessage || '(default per-school reminder)', 'email', withEmail.length, sent, withEmail.length - sent, [], result.email.detail);
     }
 
     return result;

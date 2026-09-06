@@ -4,7 +4,7 @@
 // (still a wa.me link — there's no server-side WhatsApp sender in this app).
 'use client';
 import { useState, useEffect } from 'react';
-import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle } from 'lucide-react';
+import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle, History, X } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -32,6 +32,30 @@ export default function OwnerCommunicationPage() {
   const [message, setMessage]   = useState('');
   const [copied, setCopied]     = useState('');
   const [sending, setSending]   = useState<'email' | 'sms' | ''>('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory]   = useState<any[]>([]);
+  const [retrying, setRetrying] = useState<string | null>(null);
+
+  const openHistory = () => {
+    setShowHistory(true);
+    apiClient.get('/admin/broadcast-history').then(r => setHistory(Array.isArray(r.data) ? r.data : [])).catch(() => setHistory([]));
+  };
+
+  const retryBroadcastSms = async (id: string) => {
+    const ok = window.confirm('Retry SMS for only the recipients that failed last time?');
+    if (!ok) return;
+    setRetrying(id);
+    try {
+      const { data } = await apiClient.post(`/admin/broadcast-history/${id}/retry-sms`);
+      if (data.error) { toast.error(data.error); return; }
+      toast.success(data.message || 'Retry complete.');
+      openHistory();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not retry.');
+    } finally {
+      setRetrying(null);
+    }
+  };
 
   const load = (aud: string) => {
     setLoading(true);
@@ -105,9 +129,14 @@ export default function OwnerCommunicationPage() {
   return (
     <div className="p-4 sm:p-8">
       <div className="max-w-3xl mx-auto space-y-5">
-        <div className="flex items-center gap-2">
-          <Megaphone className="text-theme-muted" size={20}/>
-          <h1 className="text-xl font-black text-theme-heading">Communication</h1>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Megaphone className="text-theme-muted" size={20}/>
+            <h1 className="text-xl font-black text-theme-heading">Communication</h1>
+          </div>
+          <button onClick={openHistory} className="btn-ghost text-xs px-2.5 py-1.5">
+            <History size={13}/> History
+          </button>
         </div>
         <p className="text-sm text-theme-muted">Send a message to school admins, all users, or nudge schools that haven't finished setup.</p>
 
@@ -250,6 +279,43 @@ export default function OwnerCommunicationPage() {
                   <span className="text-theme-muted text-xs truncate ml-2">{r.schoolName || ''}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {showHistory && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+            <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-16">
+              <div className="flex items-center justify-between p-5 border-b border-theme">
+                <h3 className="text-lg font-bold text-theme-heading">Broadcast History</h3>
+                <button onClick={() => setShowHistory(false)}><X size={20} className="text-theme-muted"/></button>
+              </div>
+              <div className="p-5 space-y-2 max-h-[70vh] overflow-y-auto">
+                {history.length === 0 ? (
+                  <p className="text-sm text-theme-muted text-center py-6">No broadcasts sent yet.</p>
+                ) : history.map((h: any) => (
+                  <div key={h.id} className="card p-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-theme-heading">{h.title || '(no title)'}</span>
+                      <span className="badge bg-surface-2 text-theme-muted text-[10px] uppercase">{h.channel} · {h.audience}</span>
+                    </div>
+                    <p className="text-sm text-theme mt-1 line-clamp-2">{h.message}</p>
+                    <div className="flex items-center gap-3 flex-wrap mt-1.5 text-xs text-theme-muted">
+                      <span>{new Date(h.createdAt).toLocaleDateString('en-KE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+                      <span>{h.sent}/{h.recipientCount} sent</span>
+                    </div>
+                    {h.failed > 0 && h.detail && (
+                      <p className="text-[11px] text-red-600 mt-1">{h.detail}</p>
+                    )}
+                    {h.channel === 'sms' && h.failedNumbers?.length > 0 && (
+                      <button onClick={() => retryBroadcastSms(h.id)} disabled={retrying === h.id}
+                        className="text-[11px] font-semibold text-[#1a2e5a] hover:underline mt-1">
+                        {retrying === h.id ? 'Retrying…' : `Retry SMS for the ${h.failedNumbers.length} that failed →`}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
