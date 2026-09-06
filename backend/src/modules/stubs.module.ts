@@ -10,7 +10,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
-import { sendSms, sendEmail } from '../common/messaging';
+import { sendSms, sendEmail, smsSegmentCount } from '../common/messaging';
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 
 // ═══════════════════════════════════════════════════════════
@@ -1012,29 +1012,32 @@ class SmsWalletService {
     );
   }
 
-  async assertAffordable(tenantId: string, count: number) {
+  // `units` = recipients × segments-per-message — a 2-segment message to 10 people
+  // is 20 billed units, matching what Africa's Talking actually charges us for.
+  async assertAffordable(tenantId: string, units: number) {
     const wallet = await this.findOrCreateWallet(tenantId);
-    const cost = count * SMS_PRICE_KES;
+    const cost = units * SMS_PRICE_KES;
     if (Number(wallet.balance) < cost) {
       throw new BadRequestException(
-        `Insufficient SMS wallet balance. Sending ${count} SMS costs KES ${cost}, wallet has KES ${Number(wallet.balance)}. Top up to continue.`,
+        `Insufficient SMS wallet balance. Sending this costs KES ${cost} (${units} SMS unit${units === 1 ? '' : 's'}), wallet has KES ${Number(wallet.balance)}. Top up to continue.`,
       );
     }
   }
 
-  // Debits for messages actually sent (AT only charges for what it accepted) —
-  // never for the attempted count, so a blacklisted/invalid number never costs
-  // the school anything since AT itself never billed us for it either.
-  async debit(tenantId: string, sentCount: number, description: string) {
-    if (sentCount <= 0) return;
-    const cost = sentCount * SMS_PRICE_KES;
+  // Debits for units actually sent (AT only charges for what it accepted) — never
+  // for the attempted count, so a blacklisted/invalid number never costs the
+  // school anything since AT itself never billed us for it either. `units` must
+  // already account for message segments (see assertAffordable).
+  async debit(tenantId: string, units: number, description: string) {
+    if (units <= 0) return;
+    const cost = units * SMS_PRICE_KES;
     const wallet = await this.findOrCreateWallet(tenantId);
     const balanceAfter = Number(wallet.balance) - cost;
     await this.ds.query(`UPDATE sms_wallets SET balance = $2, updated_at = NOW() WHERE tenant_id = $1`, [tenantId, balanceAfter]);
     await this.ds.query(
       `INSERT INTO sms_wallet_transactions (tenant_id, type, amount, sms_count, balance_after, description, status)
        VALUES ($1,'debit',$2,$3,$4,$5,'completed')`,
-      [tenantId, cost, sentCount, balanceAfter, description],
+      [tenantId, cost, units, balanceAfter, description],
     );
   }
 
@@ -1190,15 +1193,16 @@ class CommunicationController {
 
     if (wantsSms) {
       const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean))) as string[];
-      await this.smsWallet.assertAffordable(tenantId, phones.length);
       const body = `${title}\n\n${content}`;
+      const segments = smsSegmentCount(body);
+      await this.smsWallet.assertAffordable(tenantId, phones.length * segments);
       let sent = 0, failed = 0, detail: string | undefined;
       for (let i = 0; i < phones.length; i += 100) {
         const r = await sendSms(phones.slice(i, i + 100), body);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
       }
-      if (sent > 0) await this.smsWallet.debit(tenantId, sent, `Announcement: ${title}`);
-      result.sms = { attempted: phones.length, sent, failed, detail };
+      if (sent > 0) await this.smsWallet.debit(tenantId, sent * segments, `Announcement: ${title}`);
+      result.sms = { attempted: phones.length, sent, failed, segments, detail };
     }
     if (wantsEmail) {
       const emails = Array.from(new Set(recipients.map(r => r.email).filter(Boolean))) as string[];
@@ -1292,24 +1296,30 @@ class CommunicationController {
       })
       .filter(l => l.balance > 0 && (l.guardianPhone || l.guardianEmail));
 
+    // Message length (and therefore segment count) varies per debtor, since the
+    // balance amount is interpolated — sum each one's actual segments for an exact
+    // affordability check rather than assuming every message is a single unit.
+    const feeText = (d: any) => `Dear parent, ${d.firstName} has an outstanding school fee balance of KES ${d.balance.toLocaleString('en-KE')}. Please clear it at your earliest convenience. — ZARODA`;
     if (wantsSms) {
-      await this.smsWallet.assertAffordable(tenantId, debtors.filter(d => d.guardianPhone).length);
+      const estimatedUnits = debtors.filter(d => d.guardianPhone).reduce((sum, d) => sum + smsSegmentCount(feeText(d)), 0);
+      await this.smsWallet.assertAffordable(tenantId, estimatedUnits);
     }
 
-    let smsSent = 0, smsFailed = 0, smsDetail: string | undefined;
+    let smsSent = 0, smsFailed = 0, smsDetail: string | undefined, smsUnits = 0;
     let emailSent = 0, emailFailed = 0, emailDetail: string | undefined;
     for (const d of debtors) {
-      const text = `Dear parent, ${d.firstName} has an outstanding school fee balance of KES ${d.balance.toLocaleString('en-KE')}. Please clear it at your earliest convenience. — ZARODA`;
+      const text = feeText(d);
       if (wantsSms && d.guardianPhone) {
         const r = await sendSms([d.guardianPhone], text);
         smsSent += r.sent; smsFailed += r.failed; smsDetail = smsDetail || r.detail;
+        smsUnits += r.sent * r.segments;
       }
       if (wantsEmail && d.guardianEmail) {
         const r = await sendEmail(d.guardianEmail, 'Outstanding Fee Balance', `<p>${text}</p>`, text);
         if (r.ok) emailSent++; else { emailFailed++; emailDetail = emailDetail || r.detail; }
       }
     }
-    if (smsSent > 0) await this.smsWallet.debit(tenantId, smsSent, 'Fee reminder SMS');
+    if (smsUnits > 0) await this.smsWallet.debit(tenantId, smsUnits, 'Fee reminder SMS');
 
     const sent = smsSent + emailSent;
     return {

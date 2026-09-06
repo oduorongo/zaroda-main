@@ -53,6 +53,25 @@ export async function sendEmail(to: string, subject: string, html: string, text?
  * Env: AT_API_KEY, AT_USERNAME (use 'sandbox' for testing), optional AT_SENDER_ID.
  * Phone numbers are normalised to Kenyan +254 E.164 where possible.
  */
+// GSM-7 basic + extension charset — everything else (emoji, most accented letters,
+// Kiswahili-specific punctuation, etc.) forces the whole message into UCS-2, which
+// has a much smaller per-segment budget. Mirrors the frontend's composer counter
+// (app/dashboard/communication/page.tsx) exactly, since this is what determines
+// what Africa's Talking actually bills — a multi-segment message costs N units,
+// not 1, and the wallet must debit for what AT really charged us.
+// eslint-disable-next-line no-control-regex
+const GSM7_RE = /^[\x20-\x7E¡£¤¥§¿ÄÅÆÉÑÖØÜßàäåæèéìñòöøùüΓΔΘΛΞΠΣΦΨΩ€]*$/;
+
+export function smsSegmentCount(text: string): number {
+  const gsm7 = GSM7_RE.test(text);
+  const singleCap = gsm7 ? 160 : 70;
+  const multiCap = gsm7 ? 153 : 67;
+  const len = text.length;
+  if (len === 0) return 0;
+  if (len <= singleCap) return 1;
+  return Math.ceil(len / multiCap);
+}
+
 export function normalisePhone(raw: string): string | null {
   if (!raw) return null;
   let p = String(raw).replace(/[^\d+]/g, '');
@@ -63,17 +82,18 @@ export function normalisePhone(raw: string): string | null {
   return null;
 }
 
-export async function sendSms(to: string[], message: string): Promise<{ ok: boolean; sent: number; failed: number; detail?: string }> {
+export async function sendSms(to: string[], message: string): Promise<{ ok: boolean; sent: number; failed: number; segments: number; detail?: string }> {
   // Trim defensively — a trailing space/newline pasted into Render's env var editor
   // makes Africa's Talking reject an otherwise-correct key with a plain HTTP 401,
   // which looks identical to a genuinely wrong key.
   const apiKey = process.env.AT_API_KEY?.trim();
   const username = process.env.AT_USERNAME?.trim();
+  const segments = smsSegmentCount(message);
   if (!apiKey || !username) {
-    return { ok: false, sent: 0, failed: to.length, detail: 'SMS not configured (AT_API_KEY / AT_USERNAME missing).' };
+    return { ok: false, sent: 0, failed: to.length, segments, detail: 'SMS not configured (AT_API_KEY / AT_USERNAME missing).' };
   }
   const numbers = to.map(normalisePhone).filter(Boolean) as string[];
-  if (!numbers.length) return { ok: false, sent: 0, failed: to.length, detail: 'No valid phone numbers.' };
+  if (!numbers.length) return { ok: false, sent: 0, failed: to.length, segments, detail: 'No valid phone numbers.' };
   try {
     const body = new URLSearchParams({
       username,
@@ -108,8 +128,8 @@ export async function sendSms(to: string[], message: string): Promise<{ ok: bool
       || (!resp.ok ? `HTTP ${resp.status}${authHint}` : undefined)
       || data?.SMSMessageData?.Message
       || (recipients.length === 0 ? `Unexpected response: ${JSON.stringify(data).slice(0, 200)}` : undefined);
-    return { ok: sent > 0, sent, failed, detail };
+    return { ok: sent > 0, sent, failed, segments, detail };
   } catch (err: any) {
-    return { ok: false, sent: 0, failed: numbers.length, detail: err?.message || 'SMS send failed.' };
+    return { ok: false, sent: 0, failed: numbers.length, segments, detail: err?.message || 'SMS send failed.' };
   }
 }
