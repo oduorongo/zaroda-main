@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Bell, Send, Megaphone, Loader2, X, Plus, Wallet } from 'lucide-react';
+import { Bell, Send, Megaphone, Loader2, X, Plus, Wallet, History } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -66,7 +66,7 @@ export default function CommunicationPage() {
     setLoading(true);
     apiClient.get('/communication/announcements')
       .then(r => setItems(r.data))
-      .catch(() => toast.error('Could not load announcements'))
+      .catch((err: any) => toast.error(err?.response?.data?.message || 'Could not load announcements'))
       .finally(() => setLoading(false));
   };
 
@@ -182,12 +182,15 @@ export default function CommunicationPage() {
         </div>
         {isHoi(user?.role || '') && (
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={openTxns} className="text-center rounded-xl px-3 py-1.5 bg-[#1a2e5a] text-white">
+            <div className="text-center rounded-xl px-3 py-1.5 bg-[#1a2e5a] text-white">
               <div className="text-[10px] text-[#d4af37] uppercase tracking-wide leading-none">SMS Wallet</div>
               <div className="font-bold text-sm leading-tight">KES {wallet?.balance ?? '…'}</div>
-            </button>
+            </div>
             <button onClick={() => setShowTopUp(true)} className="btn-primary text-xs px-2.5 py-1.5">
               <Wallet size={13}/> Top Up
+            </button>
+            <button onClick={openTxns} className="btn-ghost text-xs px-2.5 py-1.5">
+              <History size={13}/> History
             </button>
             <button onClick={sendFeeReminders} className="btn-ghost text-sm">
               <Bell size={14}/> Fee Reminders

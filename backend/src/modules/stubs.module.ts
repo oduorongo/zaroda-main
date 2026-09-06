@@ -1136,16 +1136,23 @@ class CommunicationController {
   // because the old stub never actually inserted anything. Raw SQL against the real
   // schema instead of an out-of-sync entity.
   @Get('announcements')
-  getAnnouncements(@Request() req: any) {
-    return this.ds.query(
+  async getAnnouncements(@Request() req: any) {
+    try {
       // audience_filter doubles as a place to persist delivery stats (sms/email
       // sent-failed counts) since the table has no dedicated columns for that.
-      `SELECT id, title, body AS content, audience, priority, created_at AS "createdAt",
-              published_at AS "sentAt", audience_filter AS "delivery"
-         FROM announcements WHERE tenant_id::text = $1 AND deleted_at IS NULL
-         ORDER BY created_at DESC`,
-      [req.user.tenantId],
-    ).catch(() => []);
+      return await this.ds.query(
+        `SELECT id, title, body AS content, audience, priority, created_at AS "createdAt",
+                published_at AS "sentAt", audience_filter AS "delivery"
+           FROM announcements WHERE tenant_id::text = $1 AND deleted_at IS NULL
+           ORDER BY created_at DESC`,
+        [req.user.tenantId],
+      );
+    } catch (e: any) {
+      // Was silently swallowed into an empty array before — indistinguishable from
+      // "no announcements yet" and hid a real failure completely. Surface it instead.
+      console.error('getAnnouncements failed:', e?.message);
+      throw new BadRequestException(`Could not load announcement history: ${e?.message || 'unknown error'}`);
+    }
   }
 
   // Looks up phone/email for the requested audience — staff (users table, filtered by
