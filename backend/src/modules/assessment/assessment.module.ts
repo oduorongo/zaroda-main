@@ -398,11 +398,15 @@ export class AssessmentService {
 
   // ── SUMMATIVE (CATs & End-Term, admin-created exam events) ──
   // List the exam events the admin has created for this tenant.
-  async listExams(tenantId: string) {
+  async listExams(tenantId: string, gradeLevel?: string) {
+    // gradeLevel filter: an exam applies if it's whole-school (grade_levels IS NULL
+    // or empty) or explicitly includes this grade.
     return this.dataSource.query(
-      `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear"
-       FROM exams WHERE tenant_id::text = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
-      [tenantId],
+      `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear", grade_levels AS "gradeLevels"
+       FROM exams WHERE tenant_id::text = $1 AND deleted_at IS NULL
+         AND ($2::text IS NULL OR grade_levels IS NULL OR cardinality(grade_levels) = 0 OR $2 = ANY(grade_levels))
+       ORDER BY created_at DESC`,
+      [tenantId, gradeLevel || null],
     ).catch(() => []);
   }
 
@@ -599,8 +603,8 @@ export class AssessmentController {
   }
 
   @Get('exams')
-  listExams(@Request() req: any) {
-    return this.svc.listExams(req.user.tenantId);
+  listExams(@Request() req: any, @Query('gradeLevel') gradeLevel?: string) {
+    return this.svc.listExams(req.user.tenantId, gradeLevel);
   }
 }
 

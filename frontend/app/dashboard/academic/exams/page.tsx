@@ -27,6 +27,10 @@ export default function ExamsPage() {
     name: '', examType: 'end_term', term: 'term_1',
     academicYear: '2025/2026', startDate: '', endDate: '',
   });
+  // Empty = whole school (every grade); otherwise scoped to just these grades —
+  // e.g. a Grade 7-9 mock exam shouldn't show up when a Grade 4 teacher enters marks.
+  const [gradeLevels, setGradeLevels] = useState<string[]>([]);
+  const toggleGrade = (g: string) => setGradeLevels(gl => gl.includes(g) ? gl.filter(x => x !== g) : [...gl, g]);
 
   const load = () => {
     setLoading(true);
@@ -74,10 +78,11 @@ export default function ExamsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiClient.post('/academic/exams', form);
+      await apiClient.post('/academic/exams', { ...form, gradeLevels });
       toast.success('Exam created — teachers can now enter scores');
       setShowNew(false);
       setForm({ name:'', examType:'end_term', term:'term_1', academicYear:'2025/2026', startDate:'', endDate:'' });
+      setGradeLevels([]);
       load();
     } catch { toast.error('Could not create exam'); }
     finally { setSaving(false); }
@@ -168,6 +173,7 @@ export default function ExamsPage() {
                   <div className="text-xs text-theme-muted mt-0.5">
                     {EXAM_TYPES.find(t => t.value === ex.examType)?.label} · {ex.term?.replace('_',' ')} · {ex.academicYear}
                     {ex.startDate && <> · {new Date(ex.startDate).toLocaleDateString('en-KE')}</>}
+                    {' · '}{ex.gradeLevels?.length ? ex.gradeLevels.map((g: string) => GRADE_LEVELS.find(gl => gl.value === g)?.label || g).join(', ') : 'Whole school'}
                   </div>
                 </div>
                 <a href={`/dashboard/academic/mark-list?examId=${ex.id}`}
@@ -214,6 +220,24 @@ export default function ExamsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Start Date</label><input type="date" value={form.startDate} onChange={set('startDate')} className="input"/></div>
                 <div><label className="label">End Date</label><input type="date" value={form.endDate} onChange={set('endDate')} className="input"/></div>
+              </div>
+              <div>
+                <label className="label">Grades *</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button type="button" onClick={() => setGradeLevels([])}
+                    className={`text-xs px-2.5 py-1 rounded-lg border ${gradeLevels.length === 0 ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]' : 'border-theme text-theme-muted'}`}>
+                    Whole school
+                  </button>
+                  {GRADE_LEVELS.map(g => (
+                    <button key={g.value} type="button" onClick={() => toggleGrade(g.value)}
+                      className={`text-xs px-2.5 py-1 rounded-lg border ${gradeLevels.includes(g.value) ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]' : 'border-theme text-theme-muted'}`}>
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-theme-muted mt-1">
+                  {gradeLevels.length === 0 ? 'Applies to every grade — the default.' : 'Only teachers in these grades will see this exam when entering marks.'}
+                </p>
               </div>
               <p className="text-xs text-theme-muted">
                 Maximum score isn't set here — each grade and learning area is marked out of a different total, so teachers set the score limit per learning area when entering marks.

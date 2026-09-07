@@ -89,7 +89,9 @@ export default function AdminEnterMarksPage() {
   };
 
   const areas = useMemo(() => stream ? learningAreasFor(stream.gradeLevel) : [], [stream]);
-  const termExams = exams.filter(e => !term || e.term === term);
+  const termExams = exams.filter(e =>
+    (!term || e.term === term) &&
+    (!e.gradeLevels?.length || !stream?.gradeLevel || e.gradeLevels.includes(stream.gradeLevel)));
   const selectedExam = exams.find(e => e.id === examId);
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export default function AdminEnterMarksPage() {
 
   useEffect(() => {
     if (termExams.length && !termExams.find(e => e.id === examId)) setExamId(termExams[0].id);
-  }, [term, exams]);
+  }, [term, exams, stream]);
 
   // Don't auto-pick a learning area — leave it unselected so the "Out of" box (and any
   // admin-configured Paper 1/2 totals) only appears once explicitly chosen, instead of

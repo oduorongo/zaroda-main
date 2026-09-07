@@ -5,11 +5,6 @@ import { Building2, Users, GraduationCap, Activity, Search, Loader2, ChevronRigh
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 
-// Temporarily hidden per request — the summary cards above the table still show
-// totals; just the per-row Learners/Users columns in the schools table are off.
-// Flip back to true to restore them.
-const SHOW_LEARNER_USER_COLUMNS = false;
-
 // Platform owner (super_admin) dashboard — read-only oversight across ALL schools.
 // Control actions (suspend, subscription, edit) come in a later phase.
 export default function OwnerDashboard() {
@@ -381,15 +376,15 @@ export default function OwnerDashboard() {
                       {accountType === 'school' && <th className="py-2 pr-3 font-medium">Category</th>}
                       <th className="py-2 pr-3 font-medium">Status</th>
                       {accountType === 'school' && <th className="py-2 pr-3 font-medium">Tier</th>}
-                      {SHOW_LEARNER_USER_COLUMNS && <th className="py-2 pr-3 font-medium">Learners</th>}
-                      {SHOW_LEARNER_USER_COLUMNS && <th className="py-2 pr-3 font-medium">Users</th>}
+                      <th className="py-2 pr-3 font-medium">Learners</th>
+                      <th className="py-2 pr-3 font-medium">Users</th>
                       <th className="py-2 pr-3 font-medium">{accountType === 'school' ? 'County' : 'Email'}</th>
                       <th className="py-2"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {schools.length === 0 ? (
-                      <tr><td colSpan={(accountType === 'school' ? 9 : 6) - (SHOW_LEARNER_USER_COLUMNS ? 0 : 2)} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
+                      <tr><td colSpan={accountType === 'school' ? 9 : 6} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
                     ) : schools.map((s: any) => (
                       <tr key={s.id} className="border-b border-theme/50 hover:bg-surface-2 cursor-pointer" onClick={() => openSchool(s.id)}>
                         <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
@@ -397,8 +392,8 @@ export default function OwnerDashboard() {
                         {accountType === 'school' && <td className="py-2.5 pr-3">{s.category || 'Public'}</td>}
                         <td className="py-2.5 pr-3"><span className={`badge ${statusBadge(s.status)}`}>{s.status}</span></td>
                         {accountType === 'school' && <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>}
-                        {SHOW_LEARNER_USER_COLUMNS && <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>}
-                        {SHOW_LEARNER_USER_COLUMNS && <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>}
+                        <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
+                        <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>
                         <td className="py-2.5 pr-3 text-theme-muted">{accountType === 'school' ? (s.county || '—') : (s.email || s.adminEmail || '—')}</td>
                         <td className="py-2.5 text-theme-muted"><ChevronRight size={16}/></td>
                       </tr>

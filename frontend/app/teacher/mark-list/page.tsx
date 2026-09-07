@@ -61,10 +61,12 @@ export default function TeacherMarkListPage() {
   }, [user]);
 
   // Default the selected exam to the first one in the chosen term.
-  const termExams = exams.filter(e => !term || e.term === term);
+  const termExams = exams.filter(e =>
+    (!term || e.term === term) &&
+    (!e.gradeLevels?.length || !stream?.gradeLevel || e.gradeLevels.includes(stream.gradeLevel)));
   useEffect(() => {
     if (termExams.length && !termExams.find(e => e.id === examId)) setExamId(termExams[0].id);
-  }, [term, exams]);
+  }, [term, exams, stream]);
 
   useEffect(() => {
     if (!streamId) return;

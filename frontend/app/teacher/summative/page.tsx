@@ -44,6 +44,15 @@ export default function TeacherSummative() {
     }
   }, [streamId]);
 
+  // A whole-school exam (no gradeLevels) always applies; a grade-scoped one only
+  // shows for its grades — otherwise a teacher could enter marks against an
+  // assessment meant for a different grade entirely.
+  const visibleExams = exams.filter((e: any) =>
+    !e.gradeLevels?.length || !stream?.gradeLevel || e.gradeLevels.includes(stream.gradeLevel));
+  useEffect(() => {
+    if (visibleExams.length && !visibleExams.find((e: any) => e.id === examId)) setExamId(visibleExams[0].id);
+  }, [stream, exams]);
+
   useEffect(() => {
     if (!examId || !learnerId) return;
     setLoading(true);
@@ -82,10 +91,10 @@ export default function TeacherSummative() {
         </div>
       </div>
 
-      {exams.length === 0 ? (
+      {visibleExams.length === 0 ? (
         <div className="card p-10 text-center text-theme-muted">
           <ClipboardList size={28} className="mx-auto mb-2 opacity-40"/>
-          No assessment events yet. The administrator must create a CAT or End-Term exam first.
+          No assessment events yet for this grade. The administrator must create a CAT or End-Term exam first.
         </div>
       ) : (
         <>
@@ -93,7 +102,7 @@ export default function TeacherSummative() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-theme-muted">Exam</span>
               <select value={examId} onChange={e => setExamId(e.target.value)} className="input py-1.5 text-sm w-auto">
-                {exams.map(x => <option key={x.id} value={x.id}>{x.name} ({x.examType})</option>)}
+                {visibleExams.map(x => <option key={x.id} value={x.id}>{x.name} ({x.examType})</option>)}
               </select>
             </div>
             <div className="flex items-center gap-2">

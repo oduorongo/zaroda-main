@@ -1193,12 +1193,18 @@ export class AcademicService {
     return out;
   }
 
-  async getExams(tenantId: string) {
+  async getExams(tenantId: string, gradeLevel?: string) {
+    // gradeLevel filter: an exam applies if it's whole-school (grade_levels IS NULL
+    // or empty) or explicitly includes this grade — used by mark entry so a teacher
+    // only sees exams that actually apply to their stream's grade.
     return this.dataSource.query(
       `SELECT id, name, exam_type AS "examType", term, academic_year AS "academicYear",
-              start_date AS "startDate", end_date AS "endDate", max_score AS "maxScore", status
-       FROM exams WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
-      [tenantId],
+              start_date AS "startDate", end_date AS "endDate", max_score AS "maxScore", status,
+              grade_levels AS "gradeLevels"
+       FROM exams WHERE tenant_id = $1 AND deleted_at IS NULL
+         AND ($2::text IS NULL OR grade_levels IS NULL OR cardinality(grade_levels) = 0 OR $2 = ANY(grade_levels))
+       ORDER BY created_at DESC`,
+      [tenantId, gradeLevel || null],
     ).catch(() => []);
   }
 
@@ -1207,15 +1213,17 @@ export class AcademicService {
     if (!this.isHoiRole(actorRole)) {
       throw new BadRequestException('Only the school administrator can create exams.');
     }
+    // Empty/omitted gradeLevels means whole-school, matching prior behaviour.
+    const gradeLevels = Array.isArray(dto.gradeLevels) && dto.gradeLevels.length ? dto.gradeLevels : null;
     const rows = await this.dataSource.query(
       `INSERT INTO exams
-         (tenant_id, name, exam_type, term, academic_year, start_date, end_date, max_score, status, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',NOW())
+         (tenant_id, name, exam_type, term, academic_year, start_date, end_date, max_score, status, grade_levels, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9,NOW())
        RETURNING id, name`,
       [
         tenantId, dto.name, dto.examType || 'end_term', dto.term || 'term_1',
         dto.academicYear || '2025/2026', dto.startDate || null, dto.endDate || null,
-        dto.maxScore || 100,
+        dto.maxScore || 100, gradeLevels,
       ],
     ).catch((e: any) => { throw e; });
     return { message: 'Exam created', exam: rows[0] };
@@ -2801,8 +2809,8 @@ export class AcademicController {
   }
 
   @Get('exams')
-  getExams(@Request() req: any) {
-    return this.academicService.getExams(req.user.tenantId);
+  getExams(@Request() req: any, @Query('gradeLevel') gradeLevel?: string) {
+    return this.academicService.getExams(req.user.tenantId, gradeLevel);
   }
 
   @Post('exams')

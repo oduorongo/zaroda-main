@@ -43,12 +43,15 @@ export default function MarkListPage() {
     }).catch(() => {});
   }, [user]);
 
-  // Exams filtered to the chosen term, so the dropdown only offers this term's assessments.
-  const termExams = exams.filter(e => !term || e.term === term);
+  // Exams filtered to the chosen term AND this stream's grade — a whole-school exam
+  // (empty/no gradeLevels) always applies; a grade-scoped one only shows for its grades.
+  const termExams = exams.filter(e =>
+    (!term || e.term === term) &&
+    (!e.gradeLevels?.length || !stream?.gradeLevel || e.gradeLevels.includes(stream.gradeLevel)));
   useEffect(() => {
-    // When term changes, default to the first exam of that term.
+    // When term or stream (grade) changes, default to the first exam that still applies.
     if (termExams.length && !termExams.find(e => e.id === examId)) setExamId(termExams[0].id);
-  }, [term, exams]);
+  }, [term, exams, stream]);
 
   useEffect(() => {
     if (!streamId) return;
