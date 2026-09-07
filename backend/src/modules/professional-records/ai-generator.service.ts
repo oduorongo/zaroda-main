@@ -9,8 +9,25 @@ import { isKiswahiliSubject } from './document-render.util';
 // other subject, including when Kiswahili is a medium-of-instruction note elsewhere.
 function languageInstruction(subjectName: string): string {
   return isKiswahiliSubject(subjectName)
-    ? '\nLANGUAGE: This is a Kiswahili lesson — write EVERY generated field (outcomes, questions, content, activities, vocabulary, etc.) in the KISWAHILI LANGUAGE, not English — including standard openings like "By the end of the lesson..." (use "Kufikia mwisho wa somo, mwanafunzi aweze..." or similar), which must NOT be left in English while the rest is translated. Keep JSON keys in English exactly as specified below; only the values change.\n'
+    ? '\nLANGUAGE: This is a Kiswahili lesson — write EVERY generated field in the KISWAHILI LANGUAGE, not English. This explicitly includes the "strand" and "subStrand" values themselves — do not leave these as English curriculum labels while translating everything else; give the real KICD Kiswahili strand/sub-strand name (e.g. "Kusikiliza na Kuzungumza", "Kusoma", "Kuandika", "Sarufi", "Fasihi" as appropriate to the actual content), even if strand/subStrand text supplied to you elsewhere in this prompt is in English — translate it, don\'t just repeat it back verbatim. Also cover outcomes, questions, content, activities, vocabulary, and standard openings like "By the end of the lesson..." (use "Kufikia mwisho wa somo, mwanafunzi aweze..." or similar), which must NOT be left in English while the rest is translated. Keep JSON keys in English exactly as specified below; only the values change.\n'
     : '';
+}
+
+// Guarantees lesson-notes fields render as bullet points regardless of whether the
+// model actually followed the "point form" instruction in the prompt — splits any
+// text that isn't already bulleted into one "- " line per sentence, so the UI
+// (which just renders these with white-space: pre-wrap) always shows a list,
+// never a wall of prose.
+function ensurePointForm(text: string): string {
+  if (!text) return text;
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const alreadyBulleted = lines.length > 1 && lines.filter((l) => /^[-•]/.test(l)).length >= lines.length * 0.6;
+  if (alreadyBulleted) return text;
+  // Split into sentences (handles Kiswahili text fine too — splitting on
+  // terminal punctuation, not English-specific words) and re-join as bullets.
+  const sentences = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+(?=[A-ZÀ-Ý0-9])/).map((s) => s.trim()).filter(Boolean);
+  if (sentences.length <= 1) return text;
+  return sentences.map((s) => `- ${s}`).join('\n');
 }
 
 // The literal opening phrase for a Specific Learning Outcome, in the right language —
@@ -402,6 +419,9 @@ Return ONLY valid JSON, no markdown fences, every field a plain string kept with
 
     const response = await this.callClaude(prompt, 8192);
     const parsed = this.parseJson(response.text, 'Lesson Notes', response.truncated);
+    for (const field of ['slosCovered', 'introduction', 'teacherContent', 'keyVocabulary', 'summary', 'learnerContent'] as const) {
+      if (parsed[field]) parsed[field] = ensurePointForm(parsed[field]);
+    }
     return { ...parsed, tokens: response.tokens };
   }
 

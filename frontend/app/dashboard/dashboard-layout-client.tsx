@@ -226,7 +226,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
       {/* ── Desktop sidebar ──────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-64 flex-shrink-0" style={{ background: 'var(--sidebar)' }}>
+      <aside className="no-print hidden lg:flex flex-col w-64 flex-shrink-0" style={{ background: 'var(--sidebar)' }}>
         <SidebarContent/>
       </aside>
 
@@ -247,7 +247,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       {/* ── Main content ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
-        <header className="flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface border-theme" style={{ borderBottom: '1px solid var(--border)' }}>
+        <header className="no-print flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface border-theme" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center gap-3">
             <button onClick={() => setSidebarOpen(true)}
               className="lg:hidden p-1.5 rounded-lg text-theme-heading hover:bg-surface-2">
@@ -291,7 +291,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
             {user?.smsOptedOut && !smsNoticeDismissed && (
-              <div className="card p-4 mb-4 border border-amber-300/60 bg-amber-50/50 relative">
+              <div className="no-print card p-4 mb-4 border border-amber-300/60 bg-amber-50/50 relative">
                 <button onClick={dismissSmsNotice} className="absolute top-3 right-3 text-theme-muted hover:text-theme-heading"><X size={15}/></button>
                 <p className="text-sm font-bold text-theme-heading mb-1">You're not receiving SMS from us</p>
                 <p className="text-sm text-theme-muted">

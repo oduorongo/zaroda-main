@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, TrendingUp, Users, BarChart3, School } from 'lucide-react';
+import { Loader2, TrendingUp, Users, BarChart3, School, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { GRADE_LEVELS, percentToLevel } from '@/lib/cbc/constants';
 import {
@@ -46,9 +46,14 @@ export default function SchoolAnalyticsPage() {
           <h1 className="text-2xl font-black text-theme-heading">School Analytics</h1>
           <p className="text-sm text-theme-muted">Whole-school performance — by grade, learning area, and class</p>
         </div>
+        {hasData && (
+          <button onClick={() => window.print()} className="no-print btn-ghost text-sm">
+            <Printer size={14}/> Print
+          </button>
+        )}
       </div>
 
-      <div className="card p-4 flex flex-wrap gap-3 items-end">
+      <div className="no-print card p-4 flex flex-wrap gap-3 items-end">
         <div>
           <label className="label">Grade</label>
           <select value={grade} onChange={e => setGrade(e.target.value)} className="input">

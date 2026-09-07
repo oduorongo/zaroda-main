@@ -181,3 +181,17 @@
 @media (prefers-reduced-motion: reduce) {
   .marquee-track { animation: none; }
 }
+
+/* Printing a dashboard page — hide the app chrome (sidebar, top bar, banners)
+   and let the scrollable content area lay out at full page width/height
+   instead of the fixed-viewport flex box it uses on screen. */
+@media print {
+  .no-print { display: none !important; }
+  html, body { height: auto !important; overflow: visible !important; }
+  /* The dashboard shell uses a fixed-viewport flex layout (h-screen +
+     overflow-hidden/overflow-y-auto) to keep the sidebar pinned on screen —
+     on paper that just clips everything past one page's height, so let
+     every such container size to its actual content instead. */
+  .h-screen { height: auto !important; }
+  .overflow-hidden, .overflow-y-auto { overflow: visible !important; }
+}
