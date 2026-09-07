@@ -220,12 +220,12 @@ export default function ParentPortalPage() {
                     <div className="text-[10px] text-theme-muted">Balance</div>
                   </div>
                 </div>
-                <div className="flex gap-2 mt-4">
-                  <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
-                  <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 justify-center text-xs"><FileText size={13}/> Report Card</button>
-                  <button onClick={() => openFees(c)} className="btn-ghost flex-1 justify-center text-xs"><CreditCard size={13}/> Fees</button>
-                  <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 justify-center text-xs"><BookOpen size={13}/> Library</button>
-                  <button onClick={() => openRubric(c)} className="btn-ghost flex-1 justify-center text-xs"><Sparkles size={13}/> Rubric</button>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 min-w-[45%] justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
+                  <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><FileText size={13}/> Report Card</button>
+                  <button onClick={() => openFees(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><CreditCard size={13}/> Fees</button>
+                  <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><BookOpen size={13}/> Library</button>
+                  <button onClick={() => openRubric(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><Sparkles size={13}/> Rubric</button>
                 </div>
               </div>
             ))}
