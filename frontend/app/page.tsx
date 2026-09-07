@@ -36,6 +36,10 @@ const TRUST = [
 export default function HomePage() {
   const { user } = useAuth();
   const [testimonials, setTestimonials] = useState<any[]>([]);
+  // Lets a visitor manually drag/swipe through the auto-scrolling testimonial row —
+  // pause the animation the moment they touch it so a manual scroll doesn't fight
+  // the transform running on the same element every frame.
+  const [marqueeHeld, setMarqueeHeld] = useState(false);
   useEffect(() => {
     apiClient.get('/public/testimonials').then(r => setTestimonials(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   }, []);
@@ -247,10 +251,14 @@ export default function HomePage() {
               // Many testimonials — an endless auto-scrolling row reads better than a
               // grid that just keeps growing taller. The track is the list rendered
               // twice back-to-back and scrolled exactly 50%, so the loop is seamless.
-              <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]">
+              <div
+                className="overflow-x-auto overflow-y-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)]"
+                style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+                onPointerDown={() => setMarqueeHeld(true)}
+              >
                 <div
                   className="marquee-track flex gap-6 w-max"
-                  style={{ '--marquee-duration': `${testimonials.length * 6}s` } as React.CSSProperties}
+                  style={{ '--marquee-duration': `${testimonials.length * 6}s`, animationPlayState: marqueeHeld ? 'paused' : undefined } as React.CSSProperties}
                 >
                   {[...testimonials, ...testimonials].map((t, i) => (
                     <div key={i} className="card p-6 bg-white flex flex-col w-80 flex-shrink-0">
