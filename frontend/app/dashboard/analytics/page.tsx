@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, TrendingUp, Users, BarChart3, School, Printer } from 'lucide-react';
+import { Loader2, TrendingUp, Users, BarChart3, School, Printer, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { GRADE_LEVELS, percentToLevel } from '@/lib/cbc/constants';
 import {
@@ -39,6 +39,27 @@ export default function SchoolAnalyticsPage() {
   const hasData = data && data.learnerCount > 0;
   const gradeColor = (g: string, avg: number) => percentToLevel(avg, g).color;
 
+  const [downloading, setDownloading] = useState(false);
+  const downloadPdf = async () => {
+    setDownloading(true);
+    try {
+      const res = await apiClient.get('/academic/analytics/school/pdf', {
+        params: { gradeLevel: grade || undefined, term: term || undefined },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'school-analytics.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error('Could not download the report.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="page-header">
@@ -47,9 +68,14 @@ export default function SchoolAnalyticsPage() {
           <p className="text-sm text-theme-muted">Whole-school performance — by grade, learning area, and class</p>
         </div>
         {hasData && (
-          <button onClick={() => window.print()} className="no-print btn-ghost text-sm">
-            <Printer size={14}/> Print
-          </button>
+          <div className="no-print flex gap-2">
+            <button onClick={downloadPdf} disabled={downloading} className="btn-ghost text-sm">
+              {downloading ? <Loader2 size={14} className="animate-spin"/> : <Download size={14}/>} Download PDF
+            </button>
+            <button onClick={() => window.print()} className="btn-ghost text-sm">
+              <Printer size={14}/> Print
+            </button>
+          </div>
         )}
       </div>
 

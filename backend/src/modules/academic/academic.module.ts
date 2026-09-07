@@ -5,8 +5,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import * as bcrypt from 'bcryptjs';
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
-  UseGuards, Request, Delete, BadRequestException, NotFoundException,
+  UseGuards, Request, Delete, BadRequestException, NotFoundException, Res,
 } from '@nestjs/common';
+import { PdfExportService } from '../../common/pdf-export.service';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -2574,7 +2575,7 @@ export class AcademicService {
 @Controller('academic')
 @UseGuards(JwtAuthGuard)
 export class AcademicController {
-  constructor(private academicService: AcademicService) {}
+  constructor(private academicService: AcademicService, private pdfExportService: PdfExportService) {}
 
   // Dashboard
   @Get('dashboard')
@@ -2721,6 +2722,57 @@ export class AcademicController {
   @Get('analytics/school')
   getSchoolAnalytics(@Request() req: any, @Query() q: any) {
     return this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term);
+  }
+
+  // Downloadable PDF of the same report — tables only (no interactive charts),
+  // rendered server-side via headless Chromium so it's a real file, not a
+  // reliance on the browser's own print dialog.
+  @Get('analytics/school/pdf')
+  async getSchoolAnalyticsPdf(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const data = await this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term);
+    const gradeLabel = (g: string) => g.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+    const termLabel = (t: string) => t === 'all' ? 'All terms' : t.replace('term_', 'Term ');
+
+    const table = (headers: string[], rows: (string | number)[][]) => `
+      <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
+        <thead><tr>${headers.map(h => `<th style="text-align:left;padding:6px 8px;background:#1a2e5a;color:#fff;font-size:11px;text-transform:uppercase">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map((r, i) => `<tr style="background:${i % 2 ? '#f4f6fb' : '#fff'}">${r.map(c => `<td style="padding:6px 8px;border-bottom:1px solid #e2e6f0;font-size:12px">${c}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>`;
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      body { font-family: Arial, sans-serif; color: #1c1f26; padding: 0 8px; }
+      h1 { color: #1a2e5a; font-size: 20px; margin-bottom: 2px; }
+      h2 { color: #1a2e5a; font-size: 14px; margin: 22px 0 8px; }
+      .meta { color: #6b7280; font-size: 12px; margin-bottom: 18px; }
+      .stats { display: flex; gap: 14px; margin-bottom: 18px; }
+      .stat { border: 1px solid #e2e6f0; border-radius: 8px; padding: 10px 14px; flex: 1; }
+      .stat .v { font-size: 20px; font-weight: bold; color: #1a2e5a; }
+      .stat .l { font-size: 10px; text-transform: uppercase; color: #6b7280; }
+    </style></head><body>
+      <h1>School Analytics</h1>
+      <p class="meta">${data.gradeFilter === 'all' ? 'All grades' : gradeLabel(data.gradeFilter)} · ${termLabel(data.term)} · Generated ${new Date().toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+      <div class="stats">
+        <div class="stat"><div class="v">${data.learnerCount}</div><div class="l">Learners assessed</div></div>
+        <div class="stat"><div class="v">${data.schoolAverage}%</div><div class="l">School average</div></div>
+        <div class="stat"><div class="v">${data.grades.length}</div><div class="l">Grades</div></div>
+        <div class="stat"><div class="v">${data.streams.length}</div><div class="l">Classes</div></div>
+      </div>
+      ${data.grades.length > 1 ? `<h2>Average by grade</h2>${table(['Grade', 'Average', 'Level', 'Learners'], data.grades.map((g: any) => [gradeLabel(g.gradeLevel), `${g.average}%`, g.level, g.learners]))}` : ''}
+      ${(data.bands || []).map((b: any) => `
+        <h2>${b.label} — average by learning area</h2>
+        ${table(['Learning Area', 'Average', 'Entries'], b.areas.map((a: any) => [a.subject, `${a.average}%`, a.count]))}
+      `).join('')}
+      ${data.trend.length > 1 ? `<h2>School trend over terms</h2>${table(['Term', 'Average'], data.trend.map((t: any) => [termLabel(t.term), `${t.average}%`]))}` : ''}
+      <h2>Class leaderboard</h2>
+      ${table(['Rank', 'Class', 'Grade', 'Learners', 'Average', 'Level'], data.streams.map((s: any) => [s.rank, s.name, gradeLabel(s.gradeLevel), s.learners, `${s.average}%`, s.level]))}
+    </body></html>`;
+
+    const pdf = await this.pdfExportService.htmlToPdf(html);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="school-analytics.pdf"`,
+    });
+    res.send(pdf);
   }
 
   @Get('analytics/subject')
@@ -2928,7 +2980,7 @@ export class AcademicController {
 @Module({
   imports: [TypeOrmModule.forFeature([Stream, Learner, Attendance, AssessmentResult])],
   controllers: [AcademicController],
-  providers:   [AcademicService],
+  providers:   [AcademicService, PdfExportService],
   exports:     [AcademicService],
 })
 export class AcademicModule {}

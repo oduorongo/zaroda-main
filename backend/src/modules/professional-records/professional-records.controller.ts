@@ -10,7 +10,7 @@ import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
 import { WalletService, ITEM_PRICE_KES } from './wallet.service';
-import { PdfExportService } from './pdf-export.service';
+import { PdfExportService } from '../../common/pdf-export.service';
 import {
   GenerateSchemeDto, GenerateLessonPlanDto, GenerateLessonNotesDto,
   RecordWorkCoveredDto, GenerateLearnerProgressDto, ReviewRecordDto,
