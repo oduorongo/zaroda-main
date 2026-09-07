@@ -39,7 +39,7 @@ export default function TeacherAssessment() {
   const [stream, setStream]     = useState<any>(null);
   const [areas, setAreas]       = useState<string[]>([]);
   const [area, setArea]         = useState('');
-  const [term, setTerm]         = useState('Term One');
+  const [term, setTerm]         = useState('term_1');
   const [learners, setLearners] = useState<any[]>([]);
   const [learnerId, setLearnerId] = useState('');
   const [search, setSearch] = useState('');
@@ -179,7 +179,7 @@ export default function TeacherAssessment() {
         <div className="flex items-center gap-2">
           <span className="text-xs text-theme-muted">Term</span>
           <select value={term} onChange={e => setTerm(e.target.value)} className="input py-1.5 text-sm w-auto">
-            <option>Term One</option><option>Term Two</option><option>Term Three</option>
+            <option value="term_1">Term One</option><option value="term_2">Term Two</option><option value="term_3">Term Three</option>
           </select>
         </div>
         <div className="ml-auto flex items-center gap-2">

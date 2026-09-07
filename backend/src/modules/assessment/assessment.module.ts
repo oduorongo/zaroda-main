@@ -300,7 +300,8 @@ export class AssessmentService {
   }
 
   // A learner's saved formative levels for a learning area + term
-  async getScores(tenantId: string, learnerId: string, term: string, learningArea?: string) {
+  async getScores(tenantId: string, learnerId: string, rawTerm: string, learningArea?: string) {
+    const term = this.normaliseTerm(rawTerm) || rawTerm;
     const rows = await this.dataSource.query(
       `SELECT substrand_id AS "substrandId", level
        FROM assessment_scores
@@ -325,10 +326,14 @@ export class AssessmentService {
   //  - subject teacher: may save only for learning areas they teach
   //  - class teacher / admin: may save any area for their class/school
   async saveScores(user: any, dto: any) {
-    const { learnerId, streamId, gradeLevel, learningArea, term, scores } = dto;
-    if (!learnerId || !learningArea || !term) {
+    const { learnerId, streamId, gradeLevel, learningArea, scores } = dto;
+    if (!learnerId || !learningArea || !dto.term) {
       throw new BadRequestException('Missing learner, learning area, or term.');
     }
+    // Normalise defensively — the parent-facing rubric view (getChildRubric) always
+    // queries by canonical term_1/2/3, so a raw label like "Term One" saved here
+    // verbatim would silently never match and the parent would see nothing.
+    const term = this.normaliseTerm(dto.term) || dto.term;
     // Restriction: admin/HOI (any area) OR a teacher who teaches THIS learning area.
     // Class teachers who don't teach the area cannot enter its assessment.
     if (!this.isHoi(user.role)) {
