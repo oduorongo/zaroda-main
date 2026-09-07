@@ -12,6 +12,7 @@ import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
 import { WalletService } from './wallet.service';
+import { PdfExportService } from './pdf-export.service';
 import { ProfessionalRecordsController, ProfessionalRecordsPaymentsController } from './professional-records.controller';
 
 @Module({
@@ -22,6 +23,6 @@ import { ProfessionalRecordsController, ProfessionalRecordsPaymentsController } 
     ]),
   ],
   controllers: [ProfessionalRecordsController, ProfessionalRecordsPaymentsController],
-  providers: [AiGeneratorService, SchemeService, LessonPlanService, RecordsService, WalletService],
+  providers: [AiGeneratorService, SchemeService, LessonPlanService, RecordsService, WalletService, PdfExportService],
 })
 export class ProfessionalRecordsModule {}

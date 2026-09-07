@@ -10,6 +10,7 @@ import { SchemeService } from './scheme.service';
 import { LessonPlanService } from './lesson-plan.service';
 import { RecordsService } from './records.service';
 import { WalletService, ITEM_PRICE_KES } from './wallet.service';
+import { PdfExportService } from './pdf-export.service';
 import {
   GenerateSchemeDto, GenerateLessonPlanDto, GenerateLessonNotesDto,
   RecordWorkCoveredDto, GenerateLearnerProgressDto, ReviewRecordDto,
@@ -28,6 +29,7 @@ export class ProfessionalRecordsController {
     private lessonPlanService: LessonPlanService,
     private recordsService: RecordsService,
     private walletService: WalletService,
+    private pdfExportService: PdfExportService,
   ) {}
 
   // Subject picker for the "Generate" forms — scoped to what this user actually
@@ -111,10 +113,18 @@ export class ProfessionalRecordsController {
         'Content-Type': 'application/msword; charset=utf-8',
         'Content-Disposition': `attachment; filename="scheme-of-work-${id}.doc"`,
       });
+      res.send(html);
+    } else if (download === 'pdf') {
+      const pdf = await this.pdfExportService.htmlToPdf(html, { landscape: true });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="scheme-of-work-${id}.pdf"`,
+      });
+      res.send(pdf);
     } else {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
     }
-    res.send(html);
   }
 
   @Post('schemes/:id/submit')
@@ -176,10 +186,18 @@ export class ProfessionalRecordsController {
         'Content-Type': 'application/msword; charset=utf-8',
         'Content-Disposition': `attachment; filename="lesson-plan-${id}.doc"`,
       });
+      res.send(html);
+    } else if (download === 'pdf') {
+      const pdf = await this.pdfExportService.htmlToPdf(html);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="lesson-plan-${id}.pdf"`,
+      });
+      res.send(pdf);
     } else {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
     }
-    res.send(html);
   }
 
   @Post('lesson-plans/:id/submit')
@@ -230,10 +248,18 @@ export class ProfessionalRecordsController {
         'Content-Type': 'application/msword; charset=utf-8',
         'Content-Disposition': `attachment; filename="lesson-notes-${v}-${id}.doc"`,
       });
+      res.send(html);
+    } else if (download === 'pdf') {
+      const pdf = await this.pdfExportService.htmlToPdf(html);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="lesson-notes-${v}-${id}.pdf"`,
+      });
+      res.send(pdf);
     } else {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.send(html);
     }
-    res.send(html);
   }
 
   // ── RECORDS OF WORK ───────────────────────────────────────

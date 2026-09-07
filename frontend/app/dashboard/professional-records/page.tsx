@@ -199,49 +199,39 @@ export default function ProfessionalRecordsPage() {
     if (format === 'preview') { openSchemeDetail(schemeId); return; }
     try {
       const res = await apiClient.get(`/professional-records/schemes/${schemeId}/html`, {
-        params: { font, ...(format === 'doc' ? { download: 'doc' } : {}) },
+        params: { font, download: format },
         responseType: 'blob',
       });
-      const blob = new Blob([res.data], { type: format === 'doc' ? 'application/msword' : 'text/html' });
+      const blob = new Blob([res.data], { type: format === 'doc' ? 'application/msword' : 'application/pdf' });
       const url = URL.createObjectURL(blob);
-
-      if (format === 'doc') {
-        const a = document.createElement('a');
-        a.href = url; a.download = `scheme-of-work-${schemeId}.doc`;
-        document.body.appendChild(a); a.click(); a.remove();
-      } else {
-        const win = window.open(url, '_blank');
-        if (!win) toast.error('Please allow pop-ups to open the print view.');
-      }
+      const a = document.createElement('a');
+      a.href = url; a.download = `scheme-of-work-${schemeId}.${format}`;
+      document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Could not open the document.');
+      toast.error(err?.response?.data?.message || 'Could not download the document.');
     }
   };
 
   // Generic version of the same export flow, used by Lesson Plan / Lesson Notes
-  // detail modals (both PDF-print and Word .doc, watermarked server-side).
+  // detail modals — both formats now download a real file to the device (PDF is
+  // rendered server-side via headless Chromium, not the browser's print dialog).
   const exportDocument = async (
     url: string, filenamePrefix: string, format: 'pdf' | 'doc', font: string, extraParams: Record<string, string> = {},
   ) => {
     try {
       const res = await apiClient.get(url, {
-        params: { font, ...(format === 'doc' ? { download: 'doc' } : {}), ...extraParams },
+        params: { font, download: format, ...extraParams },
         responseType: 'blob',
       });
-      const blob = new Blob([res.data], { type: format === 'doc' ? 'application/msword' : 'text/html' });
+      const blob = new Blob([res.data], { type: format === 'doc' ? 'application/msword' : 'application/pdf' });
       const objUrl = URL.createObjectURL(blob);
-      if (format === 'doc') {
-        const a = document.createElement('a');
-        a.href = objUrl; a.download = `${filenamePrefix}.doc`;
-        document.body.appendChild(a); a.click(); a.remove();
-      } else {
-        const win = window.open(objUrl, '_blank');
-        if (!win) toast.error('Please allow pop-ups to open the print view.');
-      }
+      const a = document.createElement('a');
+      a.href = objUrl; a.download = `${filenamePrefix}.${format}`;
+      document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(objUrl), 60000);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Could not open the document.');
+      toast.error(err?.response?.data?.message || 'Could not download the document.');
     }
   };
 
@@ -778,7 +768,7 @@ export default function ProfessionalRecordsPage() {
                     <select value={form.format} onChange={set('format')} className="input">
                       <option value="preview">Preview in app</option>
                       <option value="doc">Word (.doc)</option>
-                      <option value="pdf">Print / Save as PDF</option>
+                      <option value="pdf">Download PDF</option>
                     </select>
                   </div>
                   <div>
@@ -887,7 +877,7 @@ function ExportBar({ format, setFormat, font, setFont, onExport }: {
     <div className="flex flex-wrap items-center gap-2 p-5 pt-0">
       <select value={format} onChange={(e) => setFormat(e.target.value as any)} className="input text-xs py-1.5 w-auto">
         <option value="doc">Word (.doc)</option>
-        <option value="pdf">Print / Save as PDF</option>
+        <option value="pdf">Download PDF</option>
       </select>
       <select value={font} onChange={(e) => setFont(e.target.value)} className="input text-xs py-1.5 w-auto">
         <option>Times New Roman</option>
@@ -1171,7 +1161,7 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
           <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)} className="input text-xs py-1.5 w-auto">
             <option value="preview">Preview in app</option>
             <option value="doc">Word (.doc)</option>
-            <option value="pdf">Print / Save as PDF</option>
+            <option value="pdf">Download PDF</option>
           </select>
           <select value={exportFont} onChange={(e) => setExportFont(e.target.value)} className="input text-xs py-1.5 w-auto">
             <option>Times New Roman</option>
