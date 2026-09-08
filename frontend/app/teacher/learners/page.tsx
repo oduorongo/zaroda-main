@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { UserPlus, X, Loader2, Trash2, Users, Search, Pencil, UserX, UserCheck, Heart, MessageCircle } from 'lucide-react';
+import { UserPlus, X, Loader2, Trash2, Users, Search, Pencil, UserX, UserCheck, Heart, MessageCircle, KeyRound } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -44,6 +44,44 @@ export default function TeacherLearners() {
     apiClient.get(`/academic/streams/${streamId}/learners`).then(r=>setLearners(r.data)).catch(()=>{}).finally(()=>setLoading(false));
   };
   useEffect(() => { load(); }, [streamId]);
+
+  // Parent access — create or reset a parent login for an EXISTING learner (the
+  // Add Learner form only covers this for brand-new learners). The backend already
+  // allows a class teacher to do this, same as HOI — this was just missing from
+  // the teacher-facing page's UI.
+  const [parentFor, setParentFor]     = useState<any>(null);
+  const [parentInfo, setParentInfo]   = useState<any>(null);
+  const [parentEmail, setParentEmail] = useState('');
+  const [parentName, setParentName]   = useState('');
+  const [parentPhone, setParentPhone] = useState('');
+  const [parentCreds2, setParentCreds2] = useState<any>(null);
+  const [parentBusy, setParentBusy]   = useState(false);
+
+  const openParent = async (l: any) => {
+    setParentFor(l); setParentInfo(null); setParentCreds2(null);
+    setParentEmail(''); setParentName(''); setParentPhone('');
+    try {
+      const r = await apiClient.get(`/academic/learners/${l.id}/parent-access`);
+      setParentInfo(r.data);
+      setParentEmail(r.data?.guardianEmail || '');
+      setParentName(r.data?.guardianName || '');
+      setParentPhone(r.data?.guardianPhone || '');
+    } catch { setParentInfo({ hasAccount: false }); }
+  };
+
+  const submitParent = async () => {
+    if (!parentEmail.trim()) { toast.error('Enter a parent email'); return; }
+    setParentBusy(true);
+    try {
+      const r = await apiClient.post(`/academic/learners/${parentFor.id}/parent-access`, {
+        guardianEmail: parentEmail.trim(), guardianName: parentName.trim(), guardianPhone: parentPhone.trim(),
+      });
+      setParentCreds2(r.data?.credentials);
+      toast.success(r.data?.message || 'Parent access updated');
+      load();
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not update parent access'); }
+    finally { setParentBusy(false); }
+  };
 
   const [editLearner, setEditLearner] = useState<any>(null);
   const openEdit = (l:any) => setEditLearner({
@@ -183,6 +221,8 @@ export default function TeacherLearners() {
                     </div>
                     <div className="text-[10px] text-theme-muted">{l.admissionNumber || 'No adm. no.'}{l.gender ? ` · ${l.gender}` : ''}</div>
                   </div>
+                  <button onClick={()=>openParent(l)} title="Parent access"
+                    className="text-theme-muted hover:text-[#16a34a] p-1.5"><KeyRound size={14}/></button>
                   <button onClick={()=>openEdit(l)} title="Edit learner"
                     className="text-theme-muted hover:text-[#2563eb] p-1.5"><Pencil size={14}/></button>
                   <button onClick={()=>toggleActive(l)} title={l.isActive===false?'Reactivate':'Deactivate'}
@@ -272,6 +312,64 @@ export default function TeacherLearners() {
                 onClick={() => { navigator.clipboard?.writeText(`Username: ${parentCreds.username}\nPassword: ${parentCreds.password}`); toast.success('Copied'); }}
                 className="btn-ghost flex-1">Copy</button>
               <button onClick={() => setParentCreds(null)} className="btn-primary flex-1">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Parent access — create/reset a parent login for a learner already in your class */}
+      {parentFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setParentFor(null)}>
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" onClick={e => e.stopPropagation()} style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="flex items-center gap-2">
+                <KeyRound size={18} className="text-[#16a34a]"/>
+                <h3 className="font-bold text-theme-heading">Parent access</h3>
+              </div>
+              <button onClick={() => setParentFor(null)} className="text-theme-muted"><X size={20}/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-theme-muted">
+                {parentInfo?.hasAccount
+                  ? `A parent login already exists for ${parentFor.firstName}. You can reset it below to get fresh credentials.`
+                  : `Give ${parentFor.firstName}'s parent a login so they can see report cards, fees, attendance, and learning videos.`}
+              </p>
+
+              {parentCreds2 ? (
+                <div className="rounded-xl bg-green-50 border border-green-200 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-green-800">Share these with the parent:</p>
+                  <div className="text-sm"><b>Login email:</b> {parentCreds2.email}</div>
+                  <div className="text-sm"><b>Password:</b> <span className="font-mono">{parentCreds2.password}</span></div>
+                  <p className="text-[11px] text-green-700">They'll be asked to change the password on first login. This password is shown only once.</p>
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(`ZARODA parent login\nUsername: ${parentCreds2.email}\nPassword: ${parentCreds2.password}`)}`}
+                    target="_blank" rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 w-full text-sm font-semibold text-white bg-[#25D366] hover:bg-[#1fb855] rounded-xl py-2">
+                    <MessageCircle size={14}/> Share via WhatsApp
+                  </a>
+                  <button onClick={() => { navigator.clipboard?.writeText(`Email: ${parentCreds2.email}\nPassword: ${parentCreds2.password}`); toast.success('Copied'); }}
+                    className="btn-ghost text-xs w-full justify-center">Copy credentials</button>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="label">Parent email <span className="text-red-500">*</span></label>
+                    <input value={parentEmail} onChange={e => setParentEmail(e.target.value)} className="input w-full" placeholder="parent@example.com"/>
+                  </div>
+                  <div>
+                    <label className="label">Parent name</label>
+                    <input value={parentName} onChange={e => setParentName(e.target.value)} className="input w-full" placeholder="Full name"/>
+                  </div>
+                  <div>
+                    <label className="label">Parent phone</label>
+                    <input value={parentPhone} onChange={e => setParentPhone(e.target.value)} className="input w-full" placeholder="07XXXXXXXX"/>
+                  </div>
+                  <button onClick={submitParent} disabled={parentBusy} className="btn-primary w-full justify-center">
+                    {parentBusy ? <Loader2 className="animate-spin" size={16}/> : <KeyRound size={16}/>}
+                    {parentInfo?.hasAccount ? 'Reset parent password' : 'Create parent login'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
