@@ -4,18 +4,15 @@
 -- the phone?" answer arrives later as an async POST to a callback URL we
 -- register on the AT dashboard (SMS -> Delivery Reports). This table is where
 -- that callback's payload lands.
+--
+-- 005_communication_schema.sql already created a table with this name (part of
+-- an original schema design that was never wired up to a real endpoint), so this
+-- migration ALTERs it up to what the DLR webhook needs rather than re-creating it
+-- — a plain CREATE TABLE IF NOT EXISTS here would silently no-op against it.
 -- ============================================================
-CREATE TABLE IF NOT EXISTS sms_delivery_reports (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id VARCHAR(100),
-  phone_number VARCHAR(20),
-  status VARCHAR(30),
-  network_code VARCHAR(20),
-  failure_reason VARCHAR(100),
-  retry_count INT,
-  raw_payload JSONB,
-  received_at TIMESTAMPTZ DEFAULT NOW()
-);
+ALTER TABLE sms_delivery_reports ALTER COLUMN message_id DROP NOT NULL;
+ALTER TABLE sms_delivery_reports ADD COLUMN IF NOT EXISTS network_code VARCHAR(20);
+ALTER TABLE sms_delivery_reports ADD COLUMN IF NOT EXISTS raw_payload JSONB;
 
 CREATE INDEX IF NOT EXISTS idx_sms_dlr_message_id ON sms_delivery_reports(message_id);
 CREATE INDEX IF NOT EXISTS idx_sms_dlr_phone ON sms_delivery_reports(phone_number);
