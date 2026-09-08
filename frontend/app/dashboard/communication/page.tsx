@@ -492,7 +492,7 @@ export default function CommunicationPage() {
             <div className="flex items-center justify-between p-5 border-b border-theme">
               <div>
                 <h3 className="text-lg font-bold text-theme-heading">Blacklisted Numbers</h3>
-                <p className="text-xs text-theme-muted mt-0.5">Numbers Africa&apos;s Talking rejected as telco opted-out. Have the guardian dial <span className="font-mono">*456*9#</span> → 5 Marketing messages → Activate all promo messages, then confirm here.</p>
+                <p className="text-xs text-theme-muted mt-0.5">Numbers among your staff/parents that Africa&apos;s Talking has rejected as telco opted-out — from any SMS sent to them on ZARODA, not only ones your school sent. Have them dial <span className="font-mono">*456*9#</span> → 5 Marketing messages → Activate all promo messages, then confirm here.</p>
               </div>
               <button onClick={() => setShowBlacklist(false)}><X size={20} className="text-theme-muted"/></button>
             </div>

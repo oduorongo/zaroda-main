@@ -1158,44 +1158,6 @@ async function bootstrap() {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
     }
   });
-  // Temporary diagnostic: a tenant reports seeing numbers in their "Blacklisted
-  // Numbers" panel that they don't recognise as their own staff/parents. Checks
-  // which tenant(s) actually own each number in users/learners, to tell apart a
-  // genuine cross-tenant leak from a shared real-world phone number (e.g. the same
-  // parent's number registered as a guardian at two different schools).
-  httpAdapter.get('/debug-blacklist-owners', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) {
-      res.status(403).send('Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.');
-      return;
-    }
-    const numbers = String(req.query?.numbers || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!numbers.length) { res.status(400).json({ error: 'Pass ?numbers=+254...,+254...' }); return; }
-    // Match on the last 9 digits — the DB stores phones in mixed formats (07.., 254..,
-    // +254..), so an exact-string match against a normalised +254... number misses
-    // real matches and falsely looks like the number isn't anyone's.
-    const suffixes = numbers.map(n => n.replace(/\D/g, '').slice(-9));
-    try {
-      const ds = app.get(DataSource);
-      const userRows = await ds.query(
-        `SELECT phone, tenant_id, role, first_name, last_name FROM users
-           WHERE phone IS NOT NULL AND RIGHT(regexp_replace(phone, '\\D', '', 'g'), 9) = ANY($1)`,
-        [suffixes],
-      ).catch((e: any) => ({ error: String(e.message || e) }));
-      const learnerRows = await ds.query(
-        `SELECT guardian_phone AS phone, tenant_id, first_name, last_name FROM learners
-           WHERE guardian_phone IS NOT NULL AND RIGHT(regexp_replace(guardian_phone, '\\D', '', 'g'), 9) = ANY($1)`,
-        [suffixes],
-      ).catch((e: any) => ({ error: String(e.message || e) }));
-      const blacklistRows = await ds.query(
-        `SELECT * FROM sms_blacklist WHERE phone_number = ANY($1)`,
-        [numbers],
-      ).catch((e: any) => ({ error: String(e.message || e) }));
-      res.json({ userRows, learnerRows, blacklistRows });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
   httpAdapter.get('/run-migrations', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) {
