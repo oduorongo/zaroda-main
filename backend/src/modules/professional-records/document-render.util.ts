@@ -94,7 +94,11 @@ export function watermarkOverlayHtml(schoolName: string): string {
   const spans = rowsPct.flatMap((top) => colsPct.map((left) =>
     `<span style="position:absolute;top:${top}%;left:${left}%;transform:translate(-50%,-50%) rotate(-20deg);font-size:22px;font-weight:bold;color:rgba(0,0,0,0.12);white-space:nowrap;font-family:Arial,sans-serif">${text}</span>`,
   )).join('');
-  return `<div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;overflow:hidden;pointer-events:none">${spans}</div>`;
+  // z-index:0 (not -1) — headless Chromium's PDF rendering path is known to drop
+  // or mis-composite negative-z-index elements entirely, which is exactly why the
+  // watermark showed in the browser preview but vanished from the downloaded PDF.
+  // .doc-content is z-index:1, so this still sits behind it either way.
+  return `<div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;overflow:hidden;pointer-events:none">${spans}</div>`;
 }
 
 // Word opens a .doc export through its own legacy HTML renderer, which doesn't

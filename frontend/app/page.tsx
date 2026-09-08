@@ -148,7 +148,7 @@ export default function HomePage() {
           {MODULES.map(m => {
             const Icon = m.icon;
             return (
-              <div key={m.title} className="card p-6 hover:shadow-md hover:-translate-y-1 transition-all">
+              <div key={m.title} className="card bg-white p-6 hover:shadow-md hover:-translate-y-1 transition-all">
                 <div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center mb-4`}>
                   <Icon size={22} className="text-white"/>
                 </div>
@@ -218,7 +218,7 @@ export default function HomePage() {
 
         <div className="grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
           {PRICING.map(p => (
-            <div key={p.tier} className={`card p-7 relative ${p.highlight ? 'ring-2 ring-[#d4af37]' : ''}`}>
+            <div key={p.tier} className={`card bg-white p-7 relative ${p.highlight ? 'ring-2 ring-[#d4af37]' : ''}`}>
               {p.highlight && <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#d4af37] text-[#0f1c38] text-[10px] font-black px-3 py-1 rounded-full">SENIOR SCHOOL</span>}
               <h3 className="font-bold text-[#1a2e5a]">{p.tier}</h3>
               <p className="text-xs text-[#7a82a8] mb-4">{p.grades}</p>
@@ -257,13 +257,13 @@ export default function HomePage() {
                 onPointerDown={() => setMarqueeHeld(true)}
               >
                 <div
-                  className="marquee-track flex gap-6 w-max"
+                  className="marquee-track flex items-start gap-6 w-max"
                   style={{ '--marquee-duration': `${testimonials.length * 6}s`, animationPlayState: marqueeHeld ? 'paused' : undefined } as React.CSSProperties}
                 >
                   {[...testimonials, ...testimonials].map((t, i) => (
                     <div key={i} className="card p-6 bg-white flex flex-col w-80 flex-shrink-0">
                       <Quote size={22} className="text-[#d4af37] mb-3"/>
-                      <p className="text-[#4a5278] text-sm leading-relaxed flex-1">&ldquo;{t.message}&rdquo;</p>
+                      <p className="text-[#4a5278] text-sm leading-relaxed">&ldquo;{t.message}&rdquo;</p>
                       {t.rating && (
                         <div className="flex mt-4">
                           {Array.from({ length: 5 }).map((_, n) => (
@@ -280,11 +280,11 @@ export default function HomePage() {
                 </div>
               </div>
             ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
                 {testimonials.map((t, i) => (
                   <div key={i} className="card p-6 bg-white flex flex-col">
                     <Quote size={22} className="text-[#d4af37] mb-3"/>
-                    <p className="text-[#4a5278] text-sm leading-relaxed flex-1">&ldquo;{t.message}&rdquo;</p>
+                    <p className="text-[#4a5278] text-sm leading-relaxed">&ldquo;{t.message}&rdquo;</p>
                     {t.rating && (
                       <div className="flex mt-4">
                         {Array.from({ length: 5 }).map((_, n) => (
