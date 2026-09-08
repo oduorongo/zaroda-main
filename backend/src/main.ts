@@ -1198,35 +1198,6 @@ async function bootstrap() {
     }
   });
 
-  // Temporary diagnostic while wiring up Africa's Talking's Delivery Report webhook —
-  // shows what's actually in sms_delivery_reports without needing an owner login, and
-  // proves whether the table write itself works (vs. AT simply not calling us).
-  httpAdapter.get('/debug-dlr', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) {
-      res.status(403).send('Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.');
-      return;
-    }
-    try {
-      const ds = app.get(DataSource);
-      // 059 already ran once as a no-op (the table pre-existed from 005 with a
-      // different shape) and got marked applied — re-apply its ALTERs directly here
-      // since the tracker won't re-run a filename it's already recorded.
-      await ds.query(`ALTER TABLE sms_delivery_reports ALTER COLUMN message_id DROP NOT NULL`).catch(() => null);
-      await ds.query(`ALTER TABLE sms_delivery_reports ADD COLUMN IF NOT EXISTS network_code VARCHAR(20)`).catch(() => null);
-      await ds.query(`ALTER TABLE sms_delivery_reports ADD COLUMN IF NOT EXISTS raw_payload JSONB`).catch(() => null);
-      const testInsert = await ds.query(
-        `INSERT INTO sms_delivery_reports (message_id, phone_number, status, raw_payload) VALUES ($1,$2,$3,$4) RETURNING id`,
-        ['debug-test', '+254700000000', 'DebugInsert', JSON.stringify({ debug: true })],
-      ).catch((e: any) => ({ error: String(e.message || e) }));
-      const cleaned = await ds.query(`DELETE FROM sms_delivery_reports WHERE message_id IN ('debug-test','test','test2') RETURNING id`).catch(() => []);
-      const rows = await ds.query(`SELECT * FROM sms_delivery_reports ORDER BY received_at DESC LIMIT 20`).catch((e: any) => ({ error: String(e.message || e) }));
-      res.json({ testInsert, cleaned, rows });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
   // One-time platform-owner creation (free tier has no shell). Visit:
   //   /create-owner?key=SECRET&email=you@example.com&password=YourPass&name=Your+Name
   // The key is OWNER_KEY env (defaults to 'zaroda-owner-setup'). Creates a super_admin
