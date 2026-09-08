@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { UserPlus, X, Loader2, Trash2, Users, Search, Pencil, UserX, UserCheck } from 'lucide-react';
+import { UserPlus, X, Loader2, Trash2, Users, Search, Pencil, UserX, UserCheck, Heart } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -17,7 +17,16 @@ export default function TeacherLearners() {
   const [view, setView]         = useState<'active'|'inactive'>('active');
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ firstName:'', lastName:'', admissionNumber:'', gender:'', guardianName:'', guardianPhone:'' });
+  const [form, setForm] = useState({ firstName:'', lastName:'', admissionNumber:'', gender:'', guardianName:'', guardianPhone:'', guardianEmail:'' });
+  const [parentCreds, setParentCreds] = useState<any>(null);
+  const [guideDismissed, setGuideDismissed] = useState(true);
+  useEffect(() => {
+    if (user?.id) setGuideDismissed(localStorage.getItem(`parent-accounts-guide-dismissed:${user.id}`) === '1');
+  }, [user?.id]);
+  const dismissGuide = () => {
+    setGuideDismissed(true);
+    if (user?.id) localStorage.setItem(`parent-accounts-guide-dismissed:${user.id}`, '1');
+  };
 
   // Only the teacher's own class(es)
   useEffect(() => {
@@ -65,10 +74,12 @@ export default function TeacherLearners() {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiClient.post('/academic/learners', { ...form, streamId });
+      const res = await apiClient.post('/academic/learners', { ...form, streamId });
       toast.success('Learner added to your class');
       setShowNew(false);
-      setForm({ firstName:'', lastName:'', admissionNumber:'', gender:'', guardianName:'', guardianPhone:'' });
+      const creds = res.data?.parentCredentials;
+      if (creds) setParentCreds({ name: form.guardianName, ...creds });
+      setForm({ firstName:'', lastName:'', admissionNumber:'', gender:'', guardianName:'', guardianPhone:'', guardianEmail:'' });
       load();
     } catch (err:any) {
       toast.error(err?.response?.data?.message || 'Could not add learner');
@@ -107,6 +118,21 @@ export default function TeacherLearners() {
           <button onClick={()=>setShowNew(true)} className="btn-primary"><UserPlus size={16}/> Add Learner</button>
         )}
       </div>
+
+      {!guideDismissed && (
+        <div className="card p-4 border border-blue-200/60 bg-blue-50/40 relative">
+          <button onClick={dismissGuide} className="absolute top-3 right-3 text-theme-muted hover:text-theme-heading"><X size={15}/></button>
+          <div className="flex items-start gap-2.5">
+            <Heart size={18} className="text-blue-600 flex-shrink-0 mt-0.5"/>
+            <div>
+              <p className="text-sm font-bold text-theme-heading">Give parents access to the Parent Portal</p>
+              <p className="text-xs text-theme-muted mt-1">
+                When you add a learner with a <b>guardian email</b>, a parent login is created automatically — you'll get a one-time username and password to share with them. Without an email, the parent has no way to log in and see report cards, fees, or attendance.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {streams.length === 0 ? (
         <div className="card p-10 text-center text-theme-muted">
@@ -195,6 +221,10 @@ export default function TeacherLearners() {
                 <div><label className="label">Guardian Name</label><input value={form.guardianName} onChange={set('guardianName')} className="input"/></div>
                 <div><label className="label">Guardian Phone</label><input value={form.guardianPhone} onChange={set('guardianPhone')} className="input" placeholder="+254…"/></div>
               </div>
+              <div>
+                <label className="label">Guardian Email <span className="text-theme-muted font-normal">(optional — parent login credentials are sent here)</span></label>
+                <input type="email" value={form.guardianEmail} onChange={set('guardianEmail')} className="input" placeholder="parent@example.com"/>
+              </div>
               <div className="text-xs text-theme-muted bg-surface-2 rounded-lg p-2">Adding to: <strong className="text-theme-heading">{streams.find(s=>s.id===streamId)?.name}</strong></div>
               <div className="flex gap-3">
                 <button type="button" onClick={()=>setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
@@ -217,6 +247,25 @@ export default function TeacherLearners() {
                 <button onClick={()=>setConfirmDelete(null)} className="btn-ghost flex-1">Cancel</button>
                 <button onClick={doDelete} disabled={deleting} className="btn-danger flex-1 justify-center">{deleting ? <Loader2 size={14} className="animate-spin"/> : 'Remove'}</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {parentCreds && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setParentCreds(null)}>
+          <div className="card p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-theme-heading mb-1">Parent Login Created</h3>
+            <p className="text-sm text-theme-muted mb-4">Share these one-time credentials with {parentCreds.name || 'the parent'}. The password is shown only once.</p>
+            <div className="space-y-2 bg-surface-2 rounded-xl p-4 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-theme-muted">Username</span><span className="font-mono font-semibold text-theme-heading break-all">{parentCreds.username}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-theme-muted">Password</span><span className="font-mono font-semibold text-theme-heading">{parentCreds.password}</span></div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => { navigator.clipboard?.writeText(`Username: ${parentCreds.username}\nPassword: ${parentCreds.password}`); toast.success('Copied'); }}
+                className="btn-ghost flex-1">Copy</button>
+              <button onClick={() => setParentCreds(null)} className="btn-primary flex-1">Done</button>
             </div>
           </div>
         </div>
