@@ -1171,15 +1171,21 @@ async function bootstrap() {
     }
     const numbers = String(req.query?.numbers || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!numbers.length) { res.status(400).json({ error: 'Pass ?numbers=+254...,+254...' }); return; }
+    // Match on the last 9 digits — the DB stores phones in mixed formats (07.., 254..,
+    // +254..), so an exact-string match against a normalised +254... number misses
+    // real matches and falsely looks like the number isn't anyone's.
+    const suffixes = numbers.map(n => n.replace(/\D/g, '').slice(-9));
     try {
       const ds = app.get(DataSource);
       const userRows = await ds.query(
-        `SELECT phone, tenant_id, role, first_name, last_name FROM users WHERE phone = ANY($1)`,
-        [numbers],
+        `SELECT phone, tenant_id, role, first_name, last_name FROM users
+           WHERE phone IS NOT NULL AND RIGHT(regexp_replace(phone, '\\D', '', 'g'), 9) = ANY($1)`,
+        [suffixes],
       ).catch((e: any) => ({ error: String(e.message || e) }));
       const learnerRows = await ds.query(
-        `SELECT guardian_phone AS phone, tenant_id, first_name, last_name FROM learners WHERE guardian_phone = ANY($1)`,
-        [numbers],
+        `SELECT guardian_phone AS phone, tenant_id, first_name, last_name FROM learners
+           WHERE guardian_phone IS NOT NULL AND RIGHT(regexp_replace(guardian_phone, '\\D', '', 'g'), 9) = ANY($1)`,
+        [suffixes],
       ).catch((e: any) => ({ error: String(e.message || e) }));
       const blacklistRows = await ds.query(
         `SELECT * FROM sms_blacklist WHERE phone_number = ANY($1)`,
