@@ -1219,8 +1219,9 @@ async function bootstrap() {
         `INSERT INTO sms_delivery_reports (message_id, phone_number, status, raw_payload) VALUES ($1,$2,$3,$4) RETURNING id`,
         ['debug-test', '+254700000000', 'DebugInsert', JSON.stringify({ debug: true })],
       ).catch((e: any) => ({ error: String(e.message || e) }));
+      const cleaned = await ds.query(`DELETE FROM sms_delivery_reports WHERE message_id IN ('debug-test','test','test2') RETURNING id`).catch(() => []);
       const rows = await ds.query(`SELECT * FROM sms_delivery_reports ORDER BY received_at DESC LIMIT 20`).catch((e: any) => ({ error: String(e.message || e) }));
-      res.json({ testInsert, rows });
+      res.json({ testInsert, cleaned, rows });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
