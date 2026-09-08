@@ -377,8 +377,9 @@ export default function ParentPortalPage() {
                                 )}
                                 {(sub.videos || []).map((v: string, vi: number) => (
                                   <a key={vi} href={v} target="_blank" rel="noopener noreferrer"
-                                    className="text-[11px] font-bold text-white bg-[#f5820a] hover:bg-[#d96f08] rounded-full px-2 py-0.5 flex items-center gap-1 flex-shrink-0 shadow-sm">
-                                    <Play size={10} className="fill-white"/> {(sub.videos || []).length > 1 ? `Watch ${vi + 1}` : 'Watch'}
+                                    className="text-[11px] font-bold rounded-full px-2 py-0.5 flex items-center gap-1 flex-shrink-0 shadow-sm hover:opacity-90"
+                                    style={{ background: '#1a2e5a', color: '#d4af37' }}>
+                                    <Play size={10} className="fill-[#d4af37]"/> {(sub.videos || []).length > 1 ? `Watch ${vi + 1}` : 'Watch'}
                                   </a>
                                 ))}
                               </div>

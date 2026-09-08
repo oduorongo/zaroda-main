@@ -200,9 +200,9 @@ export default function TeacherAssessment() {
       </div>
 
       {!loading && strands.some(s => s.substrands.some((ss: any) => (ss.youtubeUrls || []).length > 0)) && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs font-medium">
-          <Youtube size={16} className="flex-shrink-0"/>
-          Sub-topics with this red video button have a linked teaching video — tap it to watch.
+        <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium" style={{ background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.4)', color: '#8a6d1f' }}>
+          <Youtube size={16} className="flex-shrink-0" style={{ color: '#1a2e5a' }}/>
+          Sub-topics with this navy &amp; gold video button have a linked teaching video — tap it to watch.
         </div>
       )}
 
@@ -254,7 +254,10 @@ export default function TeacherAssessment() {
                       <div className="flex items-center gap-1.5">
                         {(ss.youtubeUrls || []).map((u: string, ui: number) => (
                           <a key={ui} href={u} target="_blank" rel="noreferrer" title={`Watch resource ${ui + 1}`}
-                            className="flex items-center justify-center w-6 h-6 rounded-full bg-red-600 text-white shrink-0 hover:bg-red-700 shadow-sm">
+                            className="flex items-center justify-center w-6 h-6 rounded-full shrink-0 shadow-sm transition-colors"
+                            style={{ background: '#1a2e5a', color: '#d4af37' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#243f7a')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '#1a2e5a')}>
                             <Youtube size={13}/>
                           </a>
                         ))}
