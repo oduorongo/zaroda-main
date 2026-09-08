@@ -1442,9 +1442,38 @@ class SmsWalletCallbackController {
   }
 }
 
+// Africa's Talking calls this — no auth. AT's "Sent" response only means the
+// message was handed to the telco; this Delivery Report callback (registered on
+// the AT dashboard under SMS -> Delivery Reports) is how the real outcome (did
+// the phone actually get it?) arrives, asynchronously, sometime after the send.
+// AT posts form-urlencoded fields: id (the messageId from the send response),
+// status (Success/Sent/Failed/Rejected/Buffered/etc.), phoneNumber, networkCode,
+// failureReason, retryCount — parsed permissively since, like Tuma's callback,
+// there's no fully reliable public field-name reference to pin to.
+@Controller()
+class SmsDeliveryReportController {
+  constructor(private readonly ds: DataSource) {}
+
+  @Post('sms/dlr')
+  async handleDeliveryReport(@Body() body: any) {
+    const messageId = body?.id ?? body?.messageId ?? null;
+    const phoneNumber = body?.phoneNumber ?? body?.number ?? null;
+    const status = body?.status ?? null;
+    const networkCode = body?.networkCode ?? null;
+    const failureReason = body?.failureReason ?? null;
+    const retryCount = body?.retryCount != null ? Number(body.retryCount) : null;
+    await this.ds.query(
+      `INSERT INTO sms_delivery_reports (message_id, phone_number, status, network_code, failure_reason, retry_count, raw_payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [messageId, phoneNumber, status, networkCode, failureReason, retryCount, JSON.stringify(body || {})],
+    ).catch(() => null);
+    return { ok: true };
+  }
+}
+
 @Module({
   imports: [],
-  controllers: [CommunicationController, SmsWalletCallbackController],
+  controllers: [CommunicationController, SmsWalletCallbackController, SmsDeliveryReportController],
   providers: [SmsWalletService],
 })
 export class CommunicationModule {}
