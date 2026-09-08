@@ -1456,6 +1456,9 @@ class SmsDeliveryReportController {
 
   @Post('sms/dlr')
   async handleDeliveryReport(@Body() body: any) {
+    // Temporary — confirms in Render's logs whether Africa's Talking is calling this
+    // at all, since the owner-facing Delivery Reports panel is still showing nothing.
+    console.log('[SMS DLR] received:', JSON.stringify(body));
     const messageId = body?.id ?? body?.messageId ?? null;
     const phoneNumber = body?.phoneNumber ?? body?.number ?? null;
     const status = body?.status ?? null;
