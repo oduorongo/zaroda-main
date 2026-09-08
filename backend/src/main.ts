@@ -1158,28 +1158,6 @@ async function bootstrap() {
       res.status(500).type('text/plain').send(`ERROR: ${e.message}`);
     }
   });
-  // Temporary diagnostic for a customer report of "STK push failed" on the
-  // Professional Records wallet top-up — shows the real Tuma error text stored
-  // in result_desc on failed transactions, which the customer-facing toast may
-  // have shown truncated or generically.
-  httpAdapter.get('/debug-pr-wallet-failures', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) {
-      res.status(403).send('Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.');
-      return;
-    }
-    try {
-      const ds = app.get(DataSource);
-      const rows = await ds.query(
-        `SELECT id, tenant_id, teacher_id, amount, phone, status, result_desc, created_at
-           FROM pr_wallet_transactions WHERE type = 'topup' AND status = 'failed'
-           ORDER BY created_at DESC LIMIT 20`,
-      ).catch((e: any) => ({ error: String(e.message || e) }));
-      res.json({ rows });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
   httpAdapter.get('/run-migrations', async (req: any, res: any) => {
     const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     if ((req.query?.key || '') !== expected) {

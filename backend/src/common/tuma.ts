@@ -69,27 +69,41 @@ export interface StkPushResult {
 export async function initiateStkPush(opts: {
   amount: number; phone: string; description: string; callbackUrl: string;
 }): Promise<StkPushResult> {
-  try {
-    const token = await getToken();
-    const resp = await fetch(`${TUMA_BASE}/payment/stk-push`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({
-        amount: opts.amount,
-        phone: opts.phone,
-        callback_url: opts.callbackUrl,
-        description: opts.description,
-      }),
-    });
-    const data: any = await resp.json().catch(() => ({}));
-    if (!resp.ok) return { ok: false, raw: data, detail: `Tuma STK push failed (${resp.status}): ${JSON.stringify(data).slice(0, 300)}` };
+  // Cloudflare-fronted 5xx (522 "connection timed out" is the one actually seen in
+  // production) means Tuma's own backend didn't respond in time — a transient blip,
+  // not something about this specific request. One retry after a short pause clears
+  // most of these without the customer having to re-enter their PIN prompt request.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const token = await getToken();
+      const resp = await fetch(`${TUMA_BASE}/payment/stk-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          amount: opts.amount,
+          phone: opts.phone,
+          callback_url: opts.callbackUrl,
+          description: opts.description,
+        }),
+      });
+      const data: any = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        if (resp.status >= 500 && attempt === 0) { await new Promise(r => setTimeout(r, 1500)); continue; }
+        const friendly = resp.status >= 500
+          ? 'The M-Pesa payment service is temporarily unavailable. Please try again in a minute.'
+          : (Array.isArray(data?.message) ? data.message.join(', ') : data?.message) || `Payment request failed (${resp.status}).`;
+        return { ok: false, raw: data, detail: friendly };
+      }
 
-    const merchantRequestId = data.merchant_request_id || data.MerchantRequestID
-      || data.data?.merchant_request_id || data.data?.MerchantRequestID;
-    return { ok: true, merchantRequestId, raw: data };
-  } catch (err: any) {
-    return { ok: false, detail: err?.message || 'Tuma STK push failed.' };
+      const merchantRequestId = data.merchant_request_id || data.MerchantRequestID
+        || data.data?.merchant_request_id || data.data?.MerchantRequestID;
+      return { ok: true, merchantRequestId, raw: data };
+    } catch (err: any) {
+      if (attempt === 0) { await new Promise(r => setTimeout(r, 1500)); continue; }
+      return { ok: false, detail: err?.message || 'Could not reach the M-Pesa payment service. Please try again.' };
+    }
   }
+  return { ok: false, detail: 'Could not reach the M-Pesa payment service. Please try again.' };
 }
 
 export interface PaymentStatusResult {
