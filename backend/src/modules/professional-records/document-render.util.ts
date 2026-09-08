@@ -138,6 +138,7 @@ export function documentShell(opts: {
     <h1>${escHtml(opts.title)}</h1>
     <div class="meta">${opts.headerHtml}</div>
     ${opts.bodyHtml}
+    ${opts.wordSafe ? watermarkInlineHtml(opts.schoolName) : ''}
     <div class="sig">${opts.footerHtml}</div>
   </div>
 </body></html>`;

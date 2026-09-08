@@ -3788,6 +3788,19 @@ class AdminController {
   // Actually send the owner's broadcast — SMS via Africa's Talking (bulk, chunked)
   // and email via Gmail SMTP (looped, one failure doesn't block the rest). WhatsApp
   // stays link-based client-side (no server-side WhatsApp sender exists).
+  // Diagnostic: send one SMS to one specific phone number, outside the audience/
+  // bulk flow — exactly what Africa's Talking support asks for when troubleshooting
+  // a Sender ID/blacklist issue on a specific number ("send to just your number").
+  @Post('test-sms')
+  async sendTestSms(@Request() req: any, @Body() dto: { phone: string; message?: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    if (!dto?.phone) return { error: 'Enter a phone number.' };
+    const message = dto.message?.trim() || 'ZARODA test SMS — if you received this, delivery is working.';
+    const r = await sendSms([dto.phone], message);
+    await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
+    return r;
+  }
+
   @Post('broadcast')
   async sendBroadcast(@Request() req: any, @Body() dto: any) {
     if (!this.isOwner(req)) return { error: 'forbidden' };

@@ -36,6 +36,29 @@ export default function OwnerCommunicationPage() {
   const [history, setHistory]   = useState<any[]>([]);
   const [retrying, setRetrying] = useState<string | null>(null);
 
+  // Diagnostic: send one SMS to one specific number, outside the audience/bulk
+  // flow — what AT support asks for when troubleshooting a Sender ID/blacklist
+  // issue on a particular number.
+  const [testPhone, setTestPhone] = useState('');
+  const [testMessage, setTestMessage] = useState('');
+  const [testResult, setTestResult] = useState<any>(null);
+  const [sendingTest, setSendingTest] = useState(false);
+  const sendTestSms = async () => {
+    if (!testPhone.trim()) { toast.error('Enter a phone number'); return; }
+    setSendingTest(true);
+    setTestResult(null);
+    try {
+      const { data } = await apiClient.post('/admin/test-sms', { phone: testPhone.trim(), message: testMessage.trim() || undefined });
+      setTestResult(data);
+      if (data.sent > 0) toast.success('Sent — check the phone.');
+      else toast.error(data.detail || 'Not sent — see details below.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not send test SMS.');
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   const openHistory = () => {
     setShowHistory(true);
     apiClient.get('/admin/broadcast-history').then(r => setHistory(Array.isArray(r.data) ? r.data : [])).catch(() => setHistory([]));
@@ -139,6 +162,32 @@ export default function OwnerCommunicationPage() {
           </button>
         </div>
         <p className="text-sm text-theme-muted">Send a message to school admins, all users, or nudge schools that haven't finished setup.</p>
+
+        {/* Test SMS — one number, outside the bulk/audience flow */}
+        <div className="card p-4 space-y-3 border border-blue-200/60 bg-blue-50/30">
+          <div className="flex items-center gap-2">
+            <Phone size={15} className="text-[#1a2e5a]"/>
+            <span className="text-sm font-semibold text-theme-heading">Send test SMS to one number</span>
+          </div>
+          <p className="text-xs text-theme-muted">
+            For troubleshooting with Africa's Talking support — e.g. confirming a specific number is no longer blacklisted after activating promo messages.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX"
+              className="input text-sm flex-1 min-w-[160px]"/>
+            <input value={testMessage} onChange={e => setTestMessage(e.target.value)} placeholder="Message (optional — a default test message is used)"
+              className="input text-sm flex-[2] min-w-[200px]"/>
+            <button onClick={sendTestSms} disabled={sendingTest} className="btn-primary text-sm">
+              {sendingTest ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>} Send
+            </button>
+          </div>
+          {testResult && (
+            <div className="text-xs bg-surface-2 rounded-lg p-3 space-y-1">
+              <div><b>Sent:</b> {testResult.sent} / <b>Failed:</b> {testResult.failed}</div>
+              {testResult.detail && <div><b>Detail:</b> {testResult.detail}</div>}
+            </div>
+          )}
+        </div>
 
         {/* Audience */}
         <div className="card p-4 space-y-3">
