@@ -21,13 +21,31 @@ async function recordBlacklistedNumbers(ds: DataSource, blacklisted: { number: s
   if (!blacklisted.length) return;
   for (const b of blacklisted) {
     await ds.query(
+      // A number that gets re-flagged despite a prior "confirmed opted back in" mark
+      // clearly hasn't actually re-activated — un-confirm it rather than let a stale
+      // flag keep it treated as sendable.
       `INSERT INTO sms_blacklist (phone_number, status_code, status_text, first_flagged_at, last_flagged_at, flagged_count)
        VALUES ($1,$2,'UserInBlacklist',NOW(),NOW(),1)
        ON CONFLICT (phone_number) DO UPDATE SET
-         status_code = EXCLUDED.status_code, last_flagged_at = NOW(), flagged_count = sms_blacklist.flagged_count + 1`,
+         status_code = EXCLUDED.status_code, last_flagged_at = NOW(), flagged_count = sms_blacklist.flagged_count + 1,
+         opted_in_confirmed = false, opted_in_confirmed_at = NULL, opted_in_confirmed_by = NULL`,
       [b.number, b.statusCode],
     ).catch(() => null);
   }
+}
+
+// Numbers telco-blocked and not yet confirmed opted back in shouldn't be sent to
+// again blind (AT support's own guidance) — split a recipient list into what's
+// actually worth attempting vs. what to skip before spending an SMS unit on it.
+async function filterOptedOutNumbers(ds: DataSource, numbers: string[]): Promise<{ toSend: string[]; skipped: string[] }> {
+  if (!numbers.length) return { toSend: numbers, skipped: [] };
+  const blocked = await ds.query(
+    `SELECT phone_number FROM sms_blacklist WHERE phone_number = ANY($1) AND opted_in_confirmed = false`,
+    [numbers],
+  ).catch(() => []);
+  const blockedSet = new Set((blocked as any[]).map(r => r.phone_number));
+  if (!blockedSet.size) return { toSend: numbers, skipped: [] };
+  return { toSend: numbers.filter(n => !blockedSet.has(n)), skipped: numbers.filter(n => blockedSet.has(n)) };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1216,15 +1234,18 @@ class CommunicationController {
     const result: any = {};
 
     if (wantsSms) {
-      const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean))) as string[];
+      const allPhones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean))) as string[];
+      const { toSend: phones, skipped } = await filterOptedOutNumbers(this.ds, allPhones.map(p => normalisePhone(p) || p));
       // Title is a record label / email subject, not part of the SMS text — folding
       // it into the SMS body wasted characters and could tip a message into an
       // extra billed segment for no reason.
       const body = content;
       const segments = smsSegmentCount(body);
       await this.smsWallet.assertAffordable(tenantId, phones.length * segments);
-      let sent = 0, failed = 0, detail: string | undefined;
-      const failedNumbers: string[] = [];
+      let sent = 0, failed = skipped.length, detail: string | undefined = skipped.length
+        ? `${skipped.length} number${skipped.length === 1 ? '' : 's'} skipped — telco-blocked (dial *456*9# to opt back in), not yet confirmed reactivated.`
+        : undefined;
+      const failedNumbers: string[] = [...skipped];
       for (let i = 0; i < phones.length; i += 100) {
         const r = await sendSms(phones.slice(i, i + 100), body);
         sent += r.sent; failed += r.failed; detail = detail || r.detail;
@@ -1265,6 +1286,46 @@ class CommunicationController {
       `SELECT COUNT(*)::int AS count FROM sms_blacklist WHERE phone_number = ANY($1)`, [phones],
     ).catch(() => [{ count: 0 }]);
     return { checked: phones.length, blacklisted: rows[0]?.count || 0 };
+  }
+
+  // Numbers this tenant has actually sent to that Africa's Talking rejected as
+  // telco-blocked — so an admin can follow up (per AT support: have the guardian
+  // dial *456*9# -> 5 Marketing messages -> Activate all promo messages) and mark
+  // it confirmed once done, instead of it staying permanently skipped.
+  @Get('sms-blacklist')
+  async listSmsBlacklist(@Request() req: any) {
+    const recipients = await this.resolveRecipients(req.user.tenantId, 'all');
+    const phones = Array.from(new Set(recipients.map(r => r.phone).filter(Boolean).map(p => normalisePhone(p as string)).filter(Boolean)));
+    if (!phones.length) return [];
+    return this.ds.query(
+      `SELECT phone_number AS "phoneNumber", status_code AS "statusCode", flagged_count AS "flaggedCount",
+              first_flagged_at AS "firstFlaggedAt", last_flagged_at AS "lastFlaggedAt",
+              opted_in_confirmed AS "optedInConfirmed", opted_in_confirmed_at AS "optedInConfirmedAt"
+         FROM sms_blacklist WHERE phone_number = ANY($1) ORDER BY last_flagged_at DESC`,
+      [phones],
+    ).catch(() => []);
+  }
+
+  @Post('sms-blacklist/:phone/confirm-opt-in')
+  async confirmOptIn(@Request() req: any, @Param('phone') phone: string) {
+    const normalised = normalisePhone(phone);
+    if (!normalised) return { error: 'Invalid phone number.' };
+    await this.ds.query(
+      `UPDATE sms_blacklist SET opted_in_confirmed = true, opted_in_confirmed_at = NOW(), opted_in_confirmed_by = $2 WHERE phone_number = $1`,
+      [normalised, req.user.id],
+    );
+    return { ok: true };
+  }
+
+  @Delete('sms-blacklist/:phone/confirm-opt-in')
+  async revokeOptIn(@Param('phone') phone: string) {
+    const normalised = normalisePhone(phone);
+    if (!normalised) return { error: 'Invalid phone number.' };
+    await this.ds.query(
+      `UPDATE sms_blacklist SET opted_in_confirmed = false, opted_in_confirmed_at = NULL, opted_in_confirmed_by = NULL WHERE phone_number = $1`,
+      [normalised],
+    );
+    return { ok: true };
   }
 
   @Post('announcements')
@@ -3868,10 +3929,13 @@ class AdminController {
     const result: any = { audience, recipients: recipients.length };
 
     if (channels.includes('sms')) {
-      const numbers = recipients.map((r: any) => r.phone).filter(Boolean);
+      const allNumbers = recipients.map((r: any) => r.phone).filter(Boolean);
+      const { toSend: numbers, skipped } = await filterOptedOutNumbers(this.ds, allNumbers.map((p: string) => normalisePhone(p) || p));
       const smsBody = `${title}\n\n${message}`;
-      let sent = 0, failed = 0, detail: string | undefined;
-      const failedNumbers: string[] = [];
+      let sent = 0, failed = skipped.length, detail: string | undefined = skipped.length
+        ? `${skipped.length} number${skipped.length === 1 ? '' : 's'} skipped — telco-blocked (dial *456*9# to opt back in), not yet confirmed reactivated.`
+        : undefined;
+      const failedNumbers: string[] = [...skipped];
       const CHUNK = 100; // Africa's Talking recommended batch size per call
       for (let i = 0; i < numbers.length; i += CHUNK) {
         const r = await sendSms(numbers.slice(i, i + CHUNK), smsBody);

@@ -60,6 +60,27 @@ export default function CommunicationPage() {
   const [showTxns, setShowTxns] = useState(false);
   const [txns, setTxns] = useState<any[]>([]);
   const [blacklistWarning, setBlacklistWarning] = useState<{ checked: number; blacklisted: number } | null>(null);
+  const [showBlacklist, setShowBlacklist] = useState(false);
+  const [blacklistRows, setBlacklistRows] = useState<any[]>([]);
+  const [blacklistLoading, setBlacklistLoading] = useState(false);
+  const [confirmingOptIn, setConfirmingOptIn] = useState<string | null>(null);
+  const openBlacklist = () => {
+    setShowBlacklist(true);
+    setBlacklistLoading(true);
+    apiClient.get('/communication/sms-blacklist')
+      .then(r => setBlacklistRows(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setBlacklistRows([]))
+      .finally(() => setBlacklistLoading(false));
+  };
+  const toggleOptIn = async (phone: string, confirm: boolean) => {
+    setConfirmingOptIn(phone);
+    try {
+      if (confirm) await apiClient.post(`/communication/sms-blacklist/${encodeURIComponent(phone)}/confirm-opt-in`);
+      else await apiClient.delete(`/communication/sms-blacklist/${encodeURIComponent(phone)}/confirm-opt-in`);
+      toast.success(confirm ? 'Marked as opted back in — future sends will include this number.' : 'Un-confirmed.');
+      openBlacklist();
+    } catch { toast.error('Could not update.'); } finally { setConfirmingOptIn(null); }
+  };
 
   // Warn in-app before sending if some of this audience's numbers are known,
   // from past sends, to have opted out of promotional SMS — the numbers
@@ -211,6 +232,9 @@ export default function CommunicationPage() {
             </button>
             <button onClick={openTxns} className="btn-ghost text-xs px-2.5 py-1.5">
               <History size={13}/> History
+            </button>
+            <button onClick={openBlacklist} className="btn-ghost text-xs px-2.5 py-1.5">
+              <X size={13}/> Blacklisted Numbers
             </button>
             <button onClick={sendFeeReminders} className="btn-ghost text-sm">
               <Bell size={14}/> Fee Reminders
@@ -374,7 +398,7 @@ export default function CommunicationPage() {
               </div>
               {blacklistWarning && blacklistWarning.blacklisted > 0 && (
                 <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg">
-                  ⚠️ {blacklistWarning.blacklisted} of {blacklistWarning.checked} recipients in this audience previously opted out of promotional SMS and will likely reject this message again — no wallet cost for those (Africa's Talking never charges for a blacklisted reject), but worth knowing before you send.
+                  ⚠️ {blacklistWarning.blacklisted} of {blacklistWarning.checked} recipients in this audience previously opted out of promotional SMS. They&apos;ll be skipped automatically (no wallet cost) unless confirmed opted back in — see <button type="button" onClick={openBlacklist} className="underline font-semibold">Blacklisted Numbers</button>.
                 </p>
               )}
               <div className="flex gap-3 pt-1">
@@ -454,6 +478,46 @@ export default function CommunicationPage() {
                   <span className={`text-sm font-bold ${t.type === 'topup' ? 'text-green-600' : 'text-red-500'}`}>
                     {t.type === 'topup' ? '+' : '-'}KES {t.amount}
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Blacklisted Numbers Modal */}
+      {showBlacklist && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-16">
+            <div className="flex items-center justify-between p-5 border-b border-theme">
+              <div>
+                <h3 className="text-lg font-bold text-theme-heading">Blacklisted Numbers</h3>
+                <p className="text-xs text-theme-muted mt-0.5">Numbers Africa&apos;s Talking rejected as telco opted-out. Have the guardian dial <span className="font-mono">*456*9#</span> → 5 Marketing messages → Activate all promo messages, then confirm here.</p>
+              </div>
+              <button onClick={() => setShowBlacklist(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
+              {blacklistLoading ? (
+                <div className="flex justify-center py-6"><Loader2 className="animate-spin text-theme-muted" size={20}/></div>
+              ) : blacklistRows.length === 0 ? (
+                <p className="text-sm text-theme-muted text-center py-6">No blacklisted numbers among your recipients.</p>
+              ) : blacklistRows.map((b: any) => (
+                <div key={b.phoneNumber} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-surface-2 flex-wrap">
+                  <div>
+                    <p className="text-sm font-mono font-semibold text-theme-heading">{b.phoneNumber}</p>
+                    <p className="text-xs text-theme-muted">Flagged {b.flaggedCount}× · last {new Date(b.lastFlaggedAt).toLocaleDateString('en-KE', { day:'numeric', month:'short' })}</p>
+                  </div>
+                  {b.optedInConfirmed ? (
+                    <button onClick={() => toggleOptIn(b.phoneNumber, false)} disabled={confirmingOptIn === b.phoneNumber}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">
+                      ✓ Opted back in — undo
+                    </button>
+                  ) : (
+                    <button onClick={() => toggleOptIn(b.phoneNumber, true)} disabled={confirmingOptIn === b.phoneNumber}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#1a2e5a] text-white">
+                      Mark confirmed opted back in
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
