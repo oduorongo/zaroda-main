@@ -36,6 +36,20 @@ export default function OwnerCommunicationPage() {
   const [history, setHistory]   = useState<any[]>([]);
   const [retrying, setRetrying] = useState<string | null>(null);
 
+  // Real delivery status from Africa's Talking's Delivery Report webhook — separate
+  // from the "sent" counts above, which only mean the telco accepted the message.
+  const [showDlr, setShowDlr]   = useState(false);
+  const [dlrRows, setDlrRows]   = useState<any[]>([]);
+  const [dlrLoading, setDlrLoading] = useState(false);
+  const openDlr = () => {
+    setShowDlr(true);
+    setDlrLoading(true);
+    apiClient.get('/admin/sms-delivery-reports')
+      .then(r => setDlrRows(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setDlrRows([]))
+      .finally(() => setDlrLoading(false));
+  };
+
   // Diagnostic: send one SMS to one specific number, outside the audience/bulk
   // flow — what AT support asks for when troubleshooting a Sender ID/blacklist
   // issue on a particular number.
@@ -166,9 +180,14 @@ export default function OwnerCommunicationPage() {
             <Megaphone className="text-theme-muted" size={20}/>
             <h1 className="text-xl font-black text-theme-heading">Communication</h1>
           </div>
-          <button onClick={openHistory} className="btn-ghost text-xs px-2.5 py-1.5">
-            <History size={13}/> History
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={openDlr} className="btn-ghost text-xs px-2.5 py-1.5">
+              <Check size={13}/> Delivery Reports
+            </button>
+            <button onClick={openHistory} className="btn-ghost text-xs px-2.5 py-1.5">
+              <History size={13}/> History
+            </button>
+          </div>
         </div>
         <p className="text-sm text-theme-muted">Send a message to school admins, all users, or nudge schools that haven't finished setup.</p>
 
@@ -385,6 +404,43 @@ export default function OwnerCommunicationPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDlr && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
+            <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-16">
+              <div className="flex items-center justify-between p-5 border-b border-theme">
+                <div>
+                  <h3 className="text-lg font-bold text-theme-heading">Delivery Reports</h3>
+                  <p className="text-xs text-theme-muted mt-0.5">What Africa&apos;s Talking confirms actually reached each phone — not just what we sent.</p>
+                </div>
+                <button onClick={() => setShowDlr(false)}><X size={20} className="text-theme-muted"/></button>
+              </div>
+              <div className="p-5 space-y-2 max-h-[70vh] overflow-y-auto">
+                {dlrLoading ? (
+                  <div className="flex justify-center py-6"><Loader2 className="animate-spin text-theme-muted" size={20}/></div>
+                ) : dlrRows.length === 0 ? (
+                  <p className="text-sm text-theme-muted text-center py-6">
+                    No delivery reports yet. Make sure the callback URL is registered on the Africa&apos;s Talking dashboard under SMS → Delivery Reports, then send an SMS — reports usually land within a couple of minutes.
+                  </p>
+                ) : dlrRows.map((d: any) => {
+                  const ok = /success|delivered/i.test(d.status || '');
+                  return (
+                    <div key={d.id} className="card p-3 flex items-center justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <span className="font-mono text-sm text-theme-heading">{d.phoneNumber || '—'}</span>
+                        {d.failureReason && <p className="text-[11px] text-red-600 mt-0.5">{d.failureReason}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className={`badge ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} text-[10px] uppercase`}>{d.status || 'unknown'}</span>
+                        <span className="text-theme-muted">{new Date(d.receivedAt).toLocaleString('en-KE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

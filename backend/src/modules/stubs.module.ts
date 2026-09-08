@@ -3930,6 +3930,19 @@ class AdminController {
     ).catch(() => []);
   }
 
+  // Real delivery truth from Africa's Talking's async Delivery Report callback —
+  // distinct from "sent" above, which only means the telco accepted the message.
+  @Get('sms-delivery-reports')
+  async getSmsDeliveryReports(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
+    return this.ds.query(
+      `SELECT id, message_id AS "messageId", phone_number AS "phoneNumber", status,
+              network_code AS "networkCode", failure_reason AS "failureReason",
+              retry_count AS "retryCount", received_at AS "receivedAt"
+         FROM sms_delivery_reports ORDER BY received_at DESC LIMIT 100`,
+    ).catch(() => []);
+  }
+
   @Delete('broadcast-history/:id')
   async deleteBroadcast(@Request() req: any, @Param('id') id: string) {
     if (!this.isOwner(req)) return { error: 'forbidden' };
