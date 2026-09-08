@@ -127,7 +127,7 @@ export default function TeacherLearners() {
             <div>
               <p className="text-sm font-bold text-theme-heading">Give parents access to the Parent Portal</p>
               <p className="text-xs text-theme-muted mt-1">
-                When you add a learner with a <b>guardian email</b>, a parent login is created automatically — you'll get a one-time username and password to share with them. Without an email, the parent has no way to log in and see report cards, fees, or attendance.
+                When you add a learner with a <b>guardian email</b>, a parent login is created automatically — you'll get a one-time username and password to share with them. Without an email, the parent has no way to log in and see report cards, fees, attendance, or watch their child's learning videos.
               </p>
             </div>
           </div>
