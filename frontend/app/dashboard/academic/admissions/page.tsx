@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import {
   UserPlus, ChevronRight, ChevronLeft, Check, Loader2, Search,
-  FileText, Users, Clock, CheckCircle2, X,
+  FileText, Users, Clock, CheckCircle2, X, MessageCircle,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -324,7 +324,13 @@ export default function AdmissionsPage() {
               <div className="flex justify-between gap-3"><span className="text-theme-muted">Username</span><span className="font-mono font-semibold text-theme-heading break-all">{parentCreds.username}</span></div>
               <div className="flex justify-between gap-3"><span className="text-theme-muted">Password</span><span className="font-mono font-semibold text-theme-heading">{parentCreds.password}</span></div>
             </div>
-            <div className="flex gap-2 mt-4">
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(`ZARODA parent login\nUsername: ${parentCreds.username}\nPassword: ${parentCreds.password}`)}`}
+              target="_blank" rel="noreferrer"
+              className="flex items-center justify-center gap-1.5 w-full text-sm font-semibold text-white bg-[#25D366] hover:bg-[#1fb855] rounded-xl py-2.5 mt-4">
+              <MessageCircle size={15}/> Share via WhatsApp
+            </a>
+            <div className="flex gap-2 mt-2">
               <button
                 onClick={()=>{ navigator.clipboard?.writeText(`Username: ${parentCreds.username}\nPassword: ${parentCreds.password}`); toast.success('Copied'); }}
                 className="btn-ghost flex-1">Copy</button>

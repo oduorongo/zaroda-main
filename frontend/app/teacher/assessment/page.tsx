@@ -199,6 +199,13 @@ export default function TeacherAssessment() {
         {LEGEND.map(l => <span key={l.c} className={`text-[11px] font-semibold px-2 py-1 rounded ${l.s}`}>{l.c} — {l.t}</span>)}
       </div>
 
+      {!loading && strands.some(s => s.substrands.some((ss: any) => (ss.youtubeUrls || []).length > 0)) && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs font-medium">
+          <Youtube size={16} className="flex-shrink-0"/>
+          Sub-topics with this red video button have a linked teaching video — tap it to watch.
+        </div>
+      )}
+
       <div>
         <div className="flex justify-between items-center mb-1.5">
           <span className="text-xs text-theme-muted">Sub-topics assessed</span>
@@ -246,7 +253,10 @@ export default function TeacherAssessment() {
                     <td className="py-1.5 pr-2 text-theme align-middle">
                       <div className="flex items-center gap-1.5">
                         {(ss.youtubeUrls || []).map((u: string, ui: number) => (
-                          <a key={ui} href={u} target="_blank" rel="noreferrer" title={`Watch resource ${ui + 1}`} className="text-red-600 shrink-0"><Youtube size={14}/></a>
+                          <a key={ui} href={u} target="_blank" rel="noreferrer" title={`Watch resource ${ui + 1}`}
+                            className="flex items-center justify-center w-6 h-6 rounded-full bg-red-600 text-white shrink-0 hover:bg-red-700 shadow-sm">
+                            <Youtube size={13}/>
+                          </a>
                         ))}
                         {user?.role === 'super_admin' && (
                           <button

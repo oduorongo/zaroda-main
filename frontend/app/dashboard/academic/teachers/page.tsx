@@ -408,6 +408,12 @@ export default function TeachersPage() {
                     className="text-theme-muted hover:text-theme-heading flex-shrink-0"><Copy size={15}/></button>
                 </div>
               </div>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`ZARODA login\nUsername: ${newCreds.username}\nPassword: ${newCreds.password}\nLogin at your school's ZARODA link.`)}`}
+                target="_blank" rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 w-full text-sm font-semibold text-white bg-[#25D366] hover:bg-[#1fb855] rounded-xl py-2.5">
+                <MessageCircle size={15}/> Share via WhatsApp
+              </a>
               <button
                 onClick={() => { navigator.clipboard?.writeText(`ZARODA login\nUsername: ${newCreds.username}\nPassword: ${newCreds.password}\nLogin at your school's ZARODA link.`); toast.success('Both copied to share'); }}
                 className="btn-ghost w-full justify-center text-xs"><Copy size={13}/> Copy both to share</button>
