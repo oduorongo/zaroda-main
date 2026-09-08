@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Bell, Send, Megaphone, Loader2, X, Plus, Wallet, History } from 'lucide-react';
+import { Bell, Send, Megaphone, Loader2, X, Plus, Wallet, History, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -164,6 +164,15 @@ export default function CommunicationPage() {
     }
   };
 
+  const deleteAnnouncement = async (id: string) => {
+    if (!confirm('Delete this from your announcement history? The message already sent can\'t be unsent — this just removes the record.')) return;
+    try {
+      await apiClient.delete(`/communication/announcements/${id}`);
+      toast.success('Deleted.');
+      load();
+    } catch { toast.error('Could not delete.'); }
+  };
+
   const sendFeeReminders = async () => {
     const channelLabel = reminderChannel === 'all' ? 'SMS + Email' : reminderChannel.toUpperCase();
     const ok = window.confirm(`Send fee reminders via ${channelLabel} to every parent with an outstanding balance?\n\nThis cannot be undone.`);
@@ -246,6 +255,9 @@ export default function CommunicationPage() {
                         {a.priority}
                       </span>
                       <span className="badge bg-surface-2 text-theme-muted text-[10px]">→ {a.audience}</span>
+                      <button onClick={() => deleteAnnouncement(a.id)} className="ml-auto text-theme-muted hover:text-red-600" title="Delete">
+                        <Trash2 size={14}/>
+                      </button>
                     </div>
                     <p className="text-sm text-theme mt-1 line-clamp-2">{a.content}</p>
                     <div className="flex items-center gap-3 flex-wrap mt-1.5">

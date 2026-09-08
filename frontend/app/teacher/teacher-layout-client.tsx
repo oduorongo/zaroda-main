@@ -28,7 +28,7 @@ const TEACHER_NAV = [
 ];
 
 export default function TeacherLayoutClient({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [showShare, setShowShare] = useState(false);
   const { theme, toggle } = useTheme();
   const router   = useRouter();
@@ -46,6 +46,14 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
     }
     if (user) setReady(true);
   }, [user, router]);
+
+  // The cached session is otherwise frozen at whatever it was at login — refresh it
+  // once per portal load so role/accountType/subjects changes made server-side
+  // actually show up (same fix applied to the admin/HOI dashboard layout).
+  useEffect(() => {
+    if (ready && user) refreshUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   if (!ready) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>

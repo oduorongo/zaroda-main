@@ -4,7 +4,7 @@
 // (still a wa.me link — there's no server-side WhatsApp sender in this app).
 'use client';
 import { useState, useEffect } from 'react';
-import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle, History, X } from 'lucide-react';
+import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle, History, X, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -78,6 +78,15 @@ export default function OwnerCommunicationPage() {
     } finally {
       setRetrying(null);
     }
+  };
+
+  const deleteBroadcast = async (id: string) => {
+    if (!confirm('Delete this from history? The message already sent can\'t be unsent.')) return;
+    try {
+      await apiClient.delete(`/admin/broadcast-history/${id}`);
+      toast.success('Deleted.');
+      openHistory();
+    } catch { toast.error('Could not delete.'); }
   };
 
   const load = (aud: string) => {
@@ -353,7 +362,12 @@ export default function OwnerCommunicationPage() {
                   <div key={h.id} className="card p-3">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <span className="font-semibold text-sm text-theme-heading">{h.title || '(no title)'}</span>
-                      <span className="badge bg-surface-2 text-theme-muted text-[10px] uppercase">{h.channel} · {h.audience}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="badge bg-surface-2 text-theme-muted text-[10px] uppercase">{h.channel} · {h.audience}</span>
+                        <button onClick={() => deleteBroadcast(h.id)} className="text-theme-muted hover:text-red-600" title="Delete">
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
                     </div>
                     <p className="text-sm text-theme mt-1 line-clamp-2">{h.message}</p>
                     <div className="flex items-center gap-3 flex-wrap mt-1.5 text-xs text-theme-muted">

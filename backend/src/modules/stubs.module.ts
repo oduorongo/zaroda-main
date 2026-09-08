@@ -1289,6 +1289,18 @@ class CommunicationController {
     return { ...rows[0], ...sendResult, message: 'Announcement sent' };
   }
 
+  // Removes it from the history list — the SMS/email already went out and can't
+  // be unsent, this just clears the record. Soft-delete so it's recoverable if
+  // ever needed, same pattern as exams.
+  @Delete('announcements/:id')
+  async deleteAnnouncement(@Request() req: any, @Param('id') id: string) {
+    await this.ds.query(
+      `UPDATE announcements SET deleted_at = NOW() WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId],
+    ).catch(() => null);
+    return { deleted: true };
+  }
+
   // Resends SMS only to the numbers that failed last time — never re-sends to
   // anyone who already received it, so a retry can't double/triple-annoy the
   // recipients that already went through.
@@ -3887,6 +3899,13 @@ class AdminController {
               sent, failed, failed_numbers AS "failedNumbers", detail, created_at AS "createdAt"
          FROM owner_broadcasts ORDER BY created_at DESC LIMIT 50`,
     ).catch(() => []);
+  }
+
+  @Delete('broadcast-history/:id')
+  async deleteBroadcast(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    await this.ds.query(`DELETE FROM owner_broadcasts WHERE id::text = $1`, [id]).catch(() => null);
+    return { deleted: true };
   }
 
   // Resends SMS only to the numbers that failed last time.

@@ -231,15 +231,16 @@ export default function SignupPage() {
         {/* Account type — a teacher landing here from a generic "Get started" link
             (not the dedicated individual-signup banner) needs a way out to the
             individual flow without a whole school's worth of details. */}
-        <div className="grid grid-cols-2 gap-2 mb-5 p-1 bg-[#f4f6fb] rounded-xl">
-          <div className="text-center text-xs font-bold py-2 rounded-lg bg-white text-[#1a2e5a] shadow-sm">
+        <div className="grid grid-cols-2 gap-2 mb-5">
+          <div className="text-center text-xs font-bold py-2.5 rounded-lg bg-[#1a2e5a] text-white shadow-sm">
             🏫 My School
           </div>
           <Link href="/auth/signup-individual"
-            className="text-center text-xs font-bold py-2 rounded-lg text-[#7a82a8] hover:text-[#1a2e5a] transition-colors">
+            className="text-center text-xs font-bold py-2.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors">
             👤 Just Me (Individual Teacher)
           </Link>
         </div>
+        <p className="text-[11px] text-[#7a82a8] text-center -mt-3 mb-5">Signing up alone, without your school? Tap the purple button above instead.</p>
 
         {/* Step indicator */}
         <div className="flex items-center gap-3 mb-6">
