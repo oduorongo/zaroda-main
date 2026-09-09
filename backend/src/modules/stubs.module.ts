@@ -4088,6 +4088,40 @@ class AdminController {
     const result: any = { recipients: tenants.length };
     const defaultMessage = (name: string) =>
       `Hi, this is a reminder from ZARODA to finish setting up ${name} — add your classes, teachers and students so your school is ready to use. Log in at https://app.zarodasolutions.app to continue.`;
+    // Full HTML version of the same reminder — mirrors scripts/send-onboarding-
+    // reminders.js (the daily automated version of this same reminder) so both
+    // read identically regardless of which one sent it.
+    const defaultEmailHtml = (adminName: string, schoolName: string) => {
+      const firstName = (adminName || '').trim().split(/\s+/)[0] || 'there';
+      return `
+        <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; color: #1a1a1a;">
+          <p>Dear ${firstName},</p>
+          <p>You have already taken the first step by onboarding <strong>${schoolName}</strong> to ZARODA SMS. Now, let&rsquo;s complete your setup!</p>
+          <p>Your account is ready, but some important setup steps are still incomplete. Completing them will allow you to fully benefit from ZARODA SMS.</p>
+          <p>With a fully set-up account, you can:</p>
+          <ul style="padding-left: 20px; line-height: 1.8;">
+            <li>✅ Record and manage learner assessments</li>
+            <li>✅ Generate Schemes of Work, Lesson Plans and Lesson Notes</li>
+            <li>✅ Access learning videos through the Assessment Book</li>
+            <li>✅ Access Retooling resources for continuous professional development</li>
+            <li>✅ Use powerful analytics to understand learner performance and make informed decisions</li>
+            <li>✅ Send SMS directly to parents</li>
+          </ul>
+          <p style="margin-top: 24px;">
+            <a href="https://app.zarodasolutions.app" style="background: #1a2e5a; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+              Complete Your Setup Today
+            </a>
+          </p>
+          <p>Log in and complete the remaining setup steps so you can start using the full power of ZARODA SMS.</p>
+          <p><a href="https://app.zarodasolutions.app" style="color: #1a2e5a;">zarodasolutions.app</a></p>
+          <p>Don&rsquo;t stop at onboarding&mdash;complete your setup and move from registration to real impact!</p>
+          <p>Thank you for choosing <strong>ZARODA Solutions</strong>.</p>
+          <p style="margin-top: 24px; color: #1a2e5a; font-weight: bold; letter-spacing: 0.5px;">
+            ZARODA SOLUTIONS<br/>
+            <span style="font-size: 12px; color: #666;">INNOVATIVE. RELIABLE. FORWARD.</span>
+          </p>
+        </div>`;
+    };
     const customMessage = String(dto?.message || '').trim();
 
     if (channels.includes('sms')) {
@@ -4122,8 +4156,9 @@ class AdminController {
         const batch = withEmail.slice(i, i + BATCH);
         const batchResults = await Promise.allSettled(
           batch.map((t: any) => {
+            const html = customMessage ? `<p>${customMessage.replace(/\n/g, '<br/>')}</p>` : defaultEmailHtml(t.adminName, t.name);
             const text = customMessage || defaultMessage(t.name);
-            return sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, `<p>${text.replace(/\n/g, '<br/>')}</p>`);
+            return sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, html, text);
           }),
         );
         outcomes.push(...batchResults);

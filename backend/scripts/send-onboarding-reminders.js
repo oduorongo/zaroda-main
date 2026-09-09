@@ -29,6 +29,64 @@ async function sendEmail(to, subject, html, text) {
   }
 }
 
+function onboardingReminderEmail(adminFirstName, schoolName) {
+  const text = `Dear ${adminFirstName},
+
+You have already taken the first step by onboarding ${schoolName} to ZARODA SMS. Now, let's complete your setup!
+
+Your account is ready, but some important setup steps are still incomplete. Completing them will allow you to fully benefit from ZARODA SMS.
+
+With a fully set-up account, you can:
+- Record and manage learner assessments
+- Generate Schemes of Work, Lesson Plans and Lesson Notes
+- Access learning videos through the Assessment Book
+- Access Retooling resources for continuous professional development
+- Use powerful analytics to understand learner performance and make informed decisions
+- Send SMS directly to parents
+
+Complete your setup today — log in and finish the remaining setup steps so you can start using the full power of ZARODA SMS.
+
+https://app.zarodasolutions.app
+
+Don't stop at onboarding — complete your setup and move from registration to real impact!
+
+Thank you for choosing ZARODA Solutions.
+
+ZARODA SOLUTIONS
+INNOVATIVE. RELIABLE. FORWARD.`;
+
+  const html = `
+    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; color: #1a1a1a;">
+      <p>Dear ${adminFirstName},</p>
+      <p>You have already taken the first step by onboarding <strong>${schoolName}</strong> to ZARODA SMS. Now, let&rsquo;s complete your setup!</p>
+      <p>Your account is ready, but some important setup steps are still incomplete. Completing them will allow you to fully benefit from ZARODA SMS.</p>
+      <p>With a fully set-up account, you can:</p>
+      <ul style="padding-left: 20px; line-height: 1.8;">
+        <li>✅ Record and manage learner assessments</li>
+        <li>✅ Generate Schemes of Work, Lesson Plans and Lesson Notes</li>
+        <li>✅ Access learning videos through the Assessment Book</li>
+        <li>✅ Access Retooling resources for continuous professional development</li>
+        <li>✅ Use powerful analytics to understand learner performance and make informed decisions</li>
+        <li>✅ Send SMS directly to parents</li>
+      </ul>
+      <p style="margin-top: 24px;">
+        <a href="https://app.zarodasolutions.app" style="background: #1a2e5a; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+          Complete Your Setup Today
+        </a>
+      </p>
+      <p>Log in and complete the remaining setup steps so you can start using the full power of ZARODA SMS.</p>
+      <p><a href="https://app.zarodasolutions.app" style="color: #1a2e5a;">zarodasolutions.app</a></p>
+      <p>Don&rsquo;t stop at onboarding&mdash;complete your setup and move from registration to real impact!</p>
+      <p>Thank you for choosing <strong>ZARODA Solutions</strong>.</p>
+      <p style="margin-top: 24px; color: #1a2e5a; font-weight: bold; letter-spacing: 0.5px;">
+        ZARODA SOLUTIONS<br/>
+        <span style="font-size: 12px; color: #666;">INNOVATIVE. RELIABLE. FORWARD.</span>
+      </p>
+    </div>`;
+
+  return { html, text };
+}
+
 async function main() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
@@ -65,8 +123,9 @@ async function main() {
   console.log(`Found ${tenants.length} incomplete-setup school(s) due for a reminder.`);
   let sent = 0, failed = 0;
   for (const t of tenants) {
-    const text = `Hi${t.adminName ? ' ' + t.adminName.trim() : ''}, this is a reminder from ZARODA to finish setting up ${t.name} — add your classes, teachers and students so your school is ready to use. Log in at https://app.zarodasolutions.app to continue.`;
-    const result = await sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, `<p>${text}</p>`, text);
+    const adminFirstName = (t.adminName || '').trim().split(/\s+/)[0] || 'there';
+    const { html, text } = onboardingReminderEmail(adminFirstName, t.name);
+    const result = await sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, html, text);
     if (result.ok) sent++; else { failed++; console.error(`Failed for ${t.name} (${t.adminEmail}): ${result.detail}`); }
     await client.query(
       `UPDATE tenants SET last_setup_reminder_at = NOW(), setup_reminder_count = setup_reminder_count + 1 WHERE id = $1`,
