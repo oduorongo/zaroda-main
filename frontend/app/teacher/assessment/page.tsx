@@ -81,7 +81,7 @@ export default function TeacherAssessment() {
     }).catch(() => {});
     if (s?.gradeLevel) {
       Promise.all([
-        apiClient.get(`/assessment/learning-areas?gradeLevel=${s.gradeLevel}`),
+        apiClient.get(`/assessment/learning-areas?gradeLevel=${s.gradeLevel}&streamId=${streamId}`),
         apiClient.get(`/academic/teachers/${user?.id}/stream-subjects`).catch(() => ({ data: [] })),
       ]).then(([r, ss]) => {
         let la = (r.data || []).map((x: any) => x.learningArea);

@@ -108,14 +108,38 @@ export class AssessmentService {
   }
 
   // List learning areas available for a grade (global templates + tenant overrides)
-  async getLearningAreas(tenantId: string, gradeLevel: string) {
-    return this.dataSource.query(
+  // Class/subject teachers only see the Assessment Book for learning areas they're
+  // actually assigned to teach — enforced here (not just filtered client-side in the
+  // teacher UI) so the restriction holds regardless of which client calls this.
+  // HOI/admin roles are unrestricted, matching the same edit-permission split in
+  // saveScores below.
+  async getLearningAreas(tenantId: string, gradeLevel: string, user?: any, streamId?: string) {
+    const all: { learningArea: string }[] = await this.dataSource.query(
       `SELECT DISTINCT learning_area AS "learningArea"
        FROM assessment_templates
        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)
        ORDER BY learning_area`,
       [gradeLevel, tenantId],
     ).catch(() => []);
+    if (!user || this.isHoi(user.role) || !this.isTeacher(user.role)) return all;
+
+    const perStream = await this.dataSource.query(
+      streamId
+        ? `SELECT subject FROM teacher_stream_subjects WHERE tenant_id::text = $1 AND teacher_id::text = $2 AND stream_id::text = $3`
+        : `SELECT subject FROM teacher_stream_subjects WHERE tenant_id::text = $1 AND teacher_id::text = $2`,
+      streamId ? [tenantId, user.id, streamId] : [tenantId, user.id],
+    ).catch(() => []);
+    let mySubjects: string[] = perStream.map((r: any) => r.subject).filter(Boolean);
+    if (!mySubjects.length) {
+      // Fallback for teachers without per-stream assignment rows yet — the flat
+      // comma-separated subjects field on their user record.
+      const urows = await this.dataSource.query(`SELECT subjects FROM users WHERE id::text = $1 LIMIT 1`, [user.id]).catch(() => []);
+      mySubjects = (urows[0]?.subjects || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+    }
+    if (!mySubjects.length) return all; // no assignment data at all — don't hide everything
+
+    const filtered = all.filter(a => mySubjects.some(s => a.learningArea.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(a.learningArea.toLowerCase())));
+    return filtered.length ? filtered : all;
   }
 
   // Full book for a grade + learning area: strands -> sub-strands (+ resource link)
@@ -547,7 +571,7 @@ export class AssessmentController {
 
   @Get('learning-areas')
   getLearningAreas(@Request() req: any, @Query() q: any) {
-    return this.svc.getLearningAreas(req.user.tenantId, q.gradeLevel);
+    return this.svc.getLearningAreas(req.user.tenantId, q.gradeLevel, req.user, q.streamId);
   }
 
   @Get('book')

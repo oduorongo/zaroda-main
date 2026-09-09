@@ -331,7 +331,7 @@ export default function ParentPortalPage() {
                   <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><FileText size={13}/> Report Card</button>
                   <button onClick={() => openFees(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><CreditCard size={13}/> Fees</button>
                   <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><BookOpen size={13}/> Library</button>
-                  <button onClick={() => openRubric(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><Sparkles size={13}/> Rubric</button>
+                  <button onClick={() => openRubric(c)} className="flex-1 min-w-[45%] justify-center text-xs flex items-center gap-1.5 font-bold px-3 py-2 rounded-lg bg-[#d4af37] text-[#1a2e5a] hover:brightness-95"><Sparkles size={13}/> Assessment Book</button>
                 </div>
               </div>
             ))}
@@ -438,7 +438,7 @@ export default function ParentPortalPage() {
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-xl max-h-[88vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-theme">
               <div>
-                <h3 className="font-bold text-theme-heading">{rubChild.firstName} {rubChild.lastName} · Assessment Rubric</h3>
+                <h3 className="font-bold text-theme-heading">{rubChild.firstName} {rubChild.lastName} · Assessment Book</h3>
                 <p className="text-[11px] text-theme-muted">Formative progress with videos to extend learning at home</p>
               </div>
               <button onClick={() => setRubChild(null)}>✕</button>
@@ -455,7 +455,7 @@ export default function ParentPortalPage() {
               {rubLoading ? (
                 <div className="text-center py-6 text-theme-muted text-sm">Loading…</div>
               ) : !rubData || (rubData.areas||[]).length === 0 ? (
-                <div className="text-center py-6 text-theme-muted text-sm">No rubric records for this term yet.</div>
+                <div className="text-center py-6 text-theme-muted text-sm">No assessment book records for this term yet.</div>
               ) : (
                 <div className="space-y-4">
                   <div className="flex gap-3 text-[10px] text-theme-muted flex-wrap">
@@ -495,7 +495,7 @@ export default function ParentPortalPage() {
                       </div>
                     </div>
                   ))}
-                  <p className="text-[11px] text-theme-muted">The “Watch” links open short videos your child can use at home to strengthen each area. This formative rubric supports learning and does not appear on the report card.</p>
+                  <p className="text-[11px] text-theme-muted">The “Watch” links open short videos your child can use at home to strengthen each area. This Assessment Book supports learning and does not appear on the report card.</p>
                 </div>
               )}
             </div>
