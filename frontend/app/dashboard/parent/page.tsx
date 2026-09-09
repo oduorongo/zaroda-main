@@ -54,6 +54,53 @@ export default function ParentPortalPage() {
     catch { toast.error('Could not remove — try again.'); }
   };
 
+  // A learner has no login of their own — this lets the parent voice a testimonial
+  // for a specific child, tracked separately from the parent's own testimonial above.
+  const [childDismissed, setChildDismissed] = useState(true);
+  const [selectedChildId, setSelectedChildId] = useState('');
+  const [showChildTestimonialForm, setShowChildTestimonialForm] = useState(false);
+  const [childTestimonial, setChildTestimonial] = useState<any>(null);
+  const [childTestimonialForm, setChildTestimonialForm] = useState({ message: '', rating: 5, allowPublicUse: true });
+  const [submittingChildTestimonial, setSubmittingChildTestimonial] = useState(false);
+  useEffect(() => {
+    if (!user || !children.length) return;
+    if (!selectedChildId) setSelectedChildId(children[0].id);
+  }, [user, children]);
+  useEffect(() => {
+    if (!user || !selectedChildId) return;
+    const dismissedAt = Number(localStorage.getItem(`testimonial-dismissed:${user.id}:${selectedChildId}`) || 0);
+    const recentlyDismissed = dismissedAt && (Date.now() - dismissedAt) / 86400000 < 14;
+    setShowChildTestimonialForm(false);
+    setChildTestimonialForm({ message: '', rating: 5, allowPublicUse: true });
+    apiClient.get('/testimonials/mine', { params: { learnerId: selectedChildId } }).then(r => {
+      const submitted = r.data?.testimonial || null;
+      setChildTestimonial(submitted);
+      setChildDismissed(submitted ? false : !!recentlyDismissed);
+    }).catch(() => {});
+  }, [user, selectedChildId]);
+  const dismissChildTestimonial = () => {
+    setChildDismissed(true);
+    if (user && selectedChildId) localStorage.setItem(`testimonial-dismissed:${user.id}:${selectedChildId}`, String(Date.now()));
+  };
+  const submitChildTestimonial = async () => {
+    if (!childTestimonialForm.message.trim() || !selectedChildId) return;
+    setSubmittingChildTestimonial(true);
+    try {
+      const { data } = await apiClient.post('/testimonials', { ...childTestimonialForm, onBehalfOfLearnerId: selectedChildId });
+      if (data?.error) { toast.error(data.error); return; }
+      toast.success('Thank you — recorded!');
+      setShowChildTestimonialForm(false);
+      setChildTestimonial({ id: data?.id, message: childTestimonialForm.message, rating: childTestimonialForm.rating });
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Could not submit — try again.'); }
+    finally { setSubmittingChildTestimonial(false); }
+  };
+  const deleteChildTestimonial = async () => {
+    if (!childTestimonial?.id) return;
+    try { await apiClient.delete(`/testimonials/${childTestimonial.id}`); toast.success('Testimonial removed.'); setChildTestimonial(null); }
+    catch { toast.error('Could not remove — try again.'); }
+  };
+  const selectedChild = children.find((c: any) => c.id === selectedChildId);
+
   useEffect(() => {
     apiClient.get('/academic/my-children')
       .then(r => setChildren(r.data))
@@ -174,6 +221,65 @@ export default function ParentPortalPage() {
                   {submittingTestimonial ? 'Submitting…' : 'Submit'}
                 </button>
                 <button onClick={() => setShowTestimonialForm(false)} className="btn-ghost text-sm">Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Share your child's experience — distinct from the parent's own above */}
+      {!childDismissed && children.length > 0 && (
+        <div className="card p-5 border border-[#d4af37]/40 bg-[#d4af37]/5 relative">
+          <button onClick={dismissChildTestimonial} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading"><X size={16}/></button>
+          {children.length > 1 && (
+            <select
+              value={selectedChildId}
+              onChange={(e) => setSelectedChildId(e.target.value)}
+              className="input text-sm mb-3 max-w-xs"
+            >
+              {children.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>
+              ))}
+            </select>
+          )}
+          {childTestimonial ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">{selectedChild?.firstName}&apos;s testimonial</h3>
+              <p className="text-sm text-theme-muted italic mb-3">&ldquo;{childTestimonial.message}&rdquo;</p>
+              <button onClick={deleteChildTestimonial} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-200">Delete</button>
+            </>
+          ) : !showChildTestimonialForm ? (
+            <>
+              <h3 className="font-bold text-theme-heading mb-1">Let {selectedChild?.firstName} share their own experience</h3>
+              <p className="text-sm text-theme-muted mb-3">In {selectedChild?.firstName}&apos;s own words — how has Zaroda changed their learning? Type it in for them below.</p>
+              <button onClick={() => setShowChildTestimonialForm(true)} className="btn-primary text-sm">Write {selectedChild?.firstName}&apos;s testimonial</button>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <textarea
+                value={childTestimonialForm.message}
+                onChange={(e) => setChildTestimonialForm(f => ({ ...f, message: e.target.value }))}
+                className="input resize-y" rows={4}
+                placeholder={`What does ${selectedChild?.firstName || 'your child'} enjoy about learning with Zaroda?`}
+              />
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} type="button" onClick={() => setChildTestimonialForm(f => ({ ...f, rating: n }))}>
+                      <Star size={18} className={n <= childTestimonialForm.rating ? 'fill-[#d4af37] text-[#d4af37]' : 'text-theme-muted'}/>
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-theme-muted">
+                  <input type="checkbox" checked={childTestimonialForm.allowPublicUse} onChange={(e) => setChildTestimonialForm(f => ({ ...f, allowPublicUse: e.target.checked }))}/>
+                  OK to use publicly (with {selectedChild?.firstName || 'their'} name)
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={submitChildTestimonial} disabled={submittingChildTestimonial || !childTestimonialForm.message.trim()} className="btn-primary text-sm">
+                  {submittingChildTestimonial ? 'Submitting…' : 'Submit'}
+                </button>
+                <button onClick={() => setShowChildTestimonialForm(false)} className="btn-ghost text-sm">Cancel</button>
               </div>
             </div>
           )}

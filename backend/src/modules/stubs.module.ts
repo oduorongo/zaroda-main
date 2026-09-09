@@ -4436,32 +4436,53 @@ class TestimonialController {
   async submit(@Request() req: any, @Body() dto: any) {
     if (!dto?.message || !dto.message.trim()) return { error: 'Please write a few words about your experience.' };
     const user = await this.ds.query(
-      `SELECT first_name AS "firstName", last_name AS "lastName", role,
+      `SELECT first_name AS "firstName", last_name AS "lastName", role, email,
               (SELECT name FROM tenants WHERE id = u.tenant_id) AS "tenantName"
          FROM users u WHERE id = $1`,
       [req.user.id],
     ).catch(() => []);
     const u = user[0] || {};
     const rating = Number(dto.rating);
+
+    // A learner has no login of their own — a parent can voice a testimonial on
+    // behalf of a specific child, distinct from the parent's own. Only allowed for
+    // the parent's own children (guardian_email match), never an arbitrary learner.
+    let authorName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'A Zaroda user';
+    let authorRole = u.role || req.user.role;
+    const onBehalfOfLearnerId = dto.onBehalfOfLearnerId ? String(dto.onBehalfOfLearnerId) : null;
+    if (onBehalfOfLearnerId) {
+      if (u.role !== 'parent') return { error: 'Only a parent account can submit a testimonial on behalf of a learner.' };
+      const learner = (await this.ds.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM learners
+          WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = $3`,
+        [onBehalfOfLearnerId, req.user.tenantId, String(u.email || '').toLowerCase().trim()],
+      ).catch(() => []))[0];
+      if (!learner) return { error: 'Learner not found on your account.' };
+      authorName = `${learner.firstName || ''} ${learner.lastName || ''}`.trim() || 'A Zaroda learner';
+      authorRole = 'learner';
+    }
+
     const rows = await this.ds.query(
-      `INSERT INTO testimonials (tenant_id, user_id, author_name, author_role, school_name, message, rating, allow_public_use, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) RETURNING id`,
+      `INSERT INTO testimonials (tenant_id, user_id, author_name, author_role, school_name, message, rating, allow_public_use, on_behalf_of_learner_id, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING id`,
       [
         req.user.tenantId, req.user.id,
-        `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'A Zaroda user',
-        u.role || req.user.role, u.tenantName || null,
+        authorName, authorRole, u.tenantName || null,
         dto.message.trim(), Number.isFinite(rating) && rating >= 1 && rating <= 5 ? rating : null,
-        dto.allowPublicUse !== false,
+        dto.allowPublicUse !== false, onBehalfOfLearnerId,
       ],
     ).catch((e: any) => { throw e; });
     return { id: rows[0]?.id, message: 'Thank you — your testimonial has been recorded.' };
   }
 
-  // Whether the current user has already submitted one (the prompt shouldn't nag twice).
+  // Whether the current user has already submitted one (the prompt shouldn't nag
+  // twice) — scoped separately per child when ?learnerId= is given, since a parent's
+  // own testimonial and one voiced for a specific child are tracked independently.
   @Get('mine')
-  async mine(@Request() req: any) {
+  async mine(@Request() req: any, @Query('learnerId') learnerId?: string) {
     const rows = await this.ds.query(
-      `SELECT id, message, rating FROM testimonials WHERE user_id = $1 LIMIT 1`, [req.user.id],
+      `SELECT id, message, rating FROM testimonials WHERE user_id = $1 AND on_behalf_of_learner_id IS NOT DISTINCT FROM $2 LIMIT 1`,
+      [req.user.id, learnerId || null],
     ).catch(() => []);
     return { submitted: rows.length > 0, testimonial: rows[0] || null };
   }
