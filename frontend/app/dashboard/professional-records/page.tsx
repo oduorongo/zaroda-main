@@ -110,7 +110,10 @@ export default function ProfessionalRecordsPage() {
   const [form, setForm] = useState({
     schoolName: '', teacherName: '', tscNumber: '', signOffLine: 'Checked by D.H.O.I.',
     streamId: '', subjectId: '', streamName: '', subjectName: '', gradeLevel: 'grade_4', curriculumEdition: '',
-    term: 'term_1', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5, doubleLessonSlots: '',
+    // No default term — teachers kept forgetting to change it and generating a
+    // Term 1 scheme by accident, since it was silently pre-selected. Forcing an
+    // explicit pick here means there's nothing to forget to change.
+    term: '', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5, doubleLessonSlots: '',
     strands: '', notes: '', specialWeeks: '',
     columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
     format: 'preview' as 'pdf' | 'doc' | 'preview',
@@ -245,6 +248,7 @@ export default function ProfessionalRecordsPage() {
     } else if (!form.streamId || !form.subjectId) {
       toast.error('Select a stream and subject.'); return;
     }
+    if (!form.term) { toast.error('Select which term this scheme is for.'); return; }
 
     setGenerating(true);
     try {
@@ -687,7 +691,8 @@ export default function ProfessionalRecordsPage() {
                   </div>
                   <div>
                     <label className="label">Term *</label>
-                    <select value={form.term} onChange={set('term')} className="input">
+                    <select required value={form.term} onChange={set('term')} className="input">
+                      <option value="" disabled>Select term…</option>
                       <option value="term_1">Term 1</option>
                       <option value="term_2">Term 2</option>
                       <option value="term_3">Term 3</option>
