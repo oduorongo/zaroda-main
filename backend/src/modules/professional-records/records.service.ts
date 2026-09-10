@@ -28,6 +28,22 @@ export class RecordsService {
     private dataSource: DataSource,
   ) {}
 
+  // Batch-attaches `submitterName` (the actual account that generated/owns the
+  // record, via teacherId) to a list of records — used on the HOI's pending
+  // approvals dashboard so a reviewer can see who submitted each document
+  // without opening it. Distinct from SchemeOfWork.teacherName, which is a
+  // free-text field for the printed document header and can be edited/stale.
+  async attachSubmitterNames<T extends { teacherId: string }>(records: T[]): Promise<(T & { submitterName?: string })[]> {
+    const ids = Array.from(new Set(records.map(r => r.teacherId).filter(Boolean)));
+    if (!ids.length) return records;
+    const rows = await this.dataSource.query(
+      `SELECT id::text AS id, first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = ANY($1)`,
+      [ids],
+    ).catch(() => []);
+    const nameById = new Map<string, string>(rows.map((r: any) => [r.id, `${r.firstName} ${r.lastName}`.trim()]));
+    return records.map(r => ({ ...r, submitterName: nameById.get(r.teacherId) }));
+  }
+
   // ── GENERATE LESSON NOTES ──────────────────────────────────
   // Either from an existing lesson plan, or directly from a scheme week —
   // letting a teacher skip the lesson plan step entirely when they just want notes.

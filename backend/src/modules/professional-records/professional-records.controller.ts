@@ -85,11 +85,11 @@ export class ProfessionalRecordsController {
 
   @Get('schemes')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
-  listSchemes(@CurrentUser() u: AuthUser, @Query() filters: any) {
-    const teacherFilter = ['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(u.role)
-      ? filters
-      : { ...filters, teacherId: u.id };
-    return this.schemeService.findAll(u.tenantId, teacherFilter);
+  async listSchemes(@CurrentUser() u: AuthUser, @Query() filters: any) {
+    const isReviewer = ['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(u.role);
+    const teacherFilter = isReviewer ? filters : { ...filters, teacherId: u.id };
+    const schemes = await this.schemeService.findAll(u.tenantId, teacherFilter);
+    return isReviewer ? this.recordsService.attachSubmitterNames(schemes) : schemes;
   }
 
   @Get('schemes/:id')
@@ -160,11 +160,11 @@ export class ProfessionalRecordsController {
 
   @Get('lesson-plans')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
-  listLessonPlans(@CurrentUser() u: AuthUser, @Query() filters: any) {
-    const teacherFilter = ['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(u.role)
-      ? filters
-      : { ...filters, teacherId: u.id };
-    return this.lessonPlanService.findAll(u.tenantId, teacherFilter);
+  async listLessonPlans(@CurrentUser() u: AuthUser, @Query() filters: any) {
+    const isReviewer = ['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(u.role);
+    const teacherFilter = isReviewer ? filters : { ...filters, teacherId: u.id };
+    const plans = await this.lessonPlanService.findAll(u.tenantId, teacherFilter);
+    return isReviewer ? this.recordsService.attachSubmitterNames(plans) : plans;
   }
 
   @Get('lesson-plans/:id')
@@ -229,9 +229,11 @@ export class ProfessionalRecordsController {
 
   @Get('lesson-notes')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois')
-  listLessonNotes(@CurrentUser() u: AuthUser, @Query() filters: any) {
-    const teacherFilter = ['hoi', 'dhois'].includes(u.role) ? filters : { ...filters, teacherId: u.id };
-    return this.recordsService.findNotes(u.tenantId, teacherFilter);
+  async listLessonNotes(@CurrentUser() u: AuthUser, @Query() filters: any) {
+    const isReviewer = ['hoi', 'dhois'].includes(u.role);
+    const teacherFilter = isReviewer ? filters : { ...filters, teacherId: u.id };
+    const notes = await this.recordsService.findNotes(u.tenantId, teacherFilter);
+    return isReviewer ? this.recordsService.attachSubmitterNames(notes) : notes;
   }
 
   @Get('lesson-notes/:id/html')
@@ -307,11 +309,16 @@ export class ProfessionalRecordsController {
         order: { submittedAt: 'ASC' as any },
       }),
     ]);
+    const [schemesWithNames, plansWithNames, notesWithNames] = await Promise.all([
+      this.recordsService.attachSubmitterNames(schemes),
+      this.recordsService.attachSubmitterNames(plans),
+      this.recordsService.attachSubmitterNames(notes),
+    ]);
 
     return {
-      schemesOfWork: schemes,
-      lessonPlans: plans,
-      lessonNotes: notes,
+      schemesOfWork: schemesWithNames,
+      lessonPlans: plansWithNames,
+      lessonNotes: notesWithNames,
       total: schemes.length + plans.length + notes.length,
     };
   }

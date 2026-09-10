@@ -630,7 +630,10 @@ export default function ProfessionalRecordsPage() {
                       <StatusBadge status={s.status}/>
                       {s.aiGenerated && <span className="badge bg-purple-100 text-purple-700"><Sparkles size={10} className="mr-1"/> AI Generated</span>}
                     </div>
-                    <p className="text-xs text-theme-muted mt-1">{gradeLabel(s.gradeLevel)} · {s.term?.replace('_',' ')} · {s.academicYear}</p>
+                    <p className="text-xs text-theme-muted mt-1">
+                      {gradeLabel(s.gradeLevel)} · {s.term?.replace('_',' ')} · {s.academicYear}
+                      {hoi && s.submitterName && <> · Submitted by <b>{s.submitterName}</b></>}
+                    </p>
                     {s.reviewComment && (
                       <p className="text-xs mt-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {s.reviewComment}</p>
                     )}
@@ -653,7 +656,10 @@ export default function ProfessionalRecordsPage() {
                       <span className="font-bold text-theme-heading">{p.strand} — {p.subStrand}</span>
                       <StatusBadge status={p.status}/>
                     </div>
-                    <p className="text-xs text-theme-muted mt-1">{gradeLabel(p.gradeLevel)} · {p.durationMinutes} min{p.lessonDate ? ` · ${String(p.lessonDate).slice(0,10)}` : ''}</p>
+                    <p className="text-xs text-theme-muted mt-1">
+                      {gradeLabel(p.gradeLevel)} · {p.durationMinutes} min{p.lessonDate ? ` · ${String(p.lessonDate).slice(0,10)}` : ''}
+                      {hoi && p.submitterName && <> · Submitted by <b>{p.submitterName}</b></>}
+                    </p>
                     {p.reviewComment && <p className="text-xs mt-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {p.reviewComment}</p>}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end" onClick={(e) => e.stopPropagation()}>
@@ -681,7 +687,10 @@ export default function ProfessionalRecordsPage() {
                   {n.subTopic && <span className="text-xs text-theme-muted">— {n.subTopic}</span>}
                   <StatusBadge status={n.status}/>
                 </div>
-                <p className="text-xs text-theme-muted mt-1">{gradeLabel(n.gradeLevel)} · {String(n.lessonDate).slice(0,10)}</p>
+                <p className="text-xs text-theme-muted mt-1">
+                  {gradeLabel(n.gradeLevel)} · {String(n.lessonDate).slice(0,10)}
+                  {hoi && n.submitterName && <> · Submitted by <b>{n.submitterName}</b></>}
+                </p>
               </div>
             ))}
           </div>
@@ -1267,7 +1276,10 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onRegenerate, on
               <h2 className="text-lg font-bold text-theme-heading">{scheme.title}</h2>
               <StatusBadge status={scheme.status}/>
             </div>
-            <p className="text-xs text-theme-muted mt-1">{gradeLabel(scheme.gradeLevel)} · {scheme.term?.replace('_',' ')} · {scheme.academicYear} · {weeks.length} weeks</p>
+            <p className="text-xs text-theme-muted mt-1">
+              {gradeLabel(scheme.gradeLevel)} · {scheme.term?.replace('_',' ')} · {scheme.academicYear} · {weeks.length} weeks
+              {hoi && scheme.teacherName && <> · Submitted by <b>{scheme.teacherName}</b></>}
+            </p>
             {scheme.status === 'approved' && scheme.reviewerName && (
               <p className="text-xs mt-2 text-green-700">✓ Approved by {scheme.reviewerName}{scheme.reviewedAt ? ` on ${new Date(scheme.reviewedAt).toLocaleDateString('en-KE')}` : ''}</p>
             )}
@@ -1413,7 +1425,10 @@ function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme,
               <div key={s.id} className="card p-3 flex items-center justify-between gap-3">
                 <button onClick={() => onOpenScheme(s.id)} className="text-left flex-1 min-w-0">
                   <span className="font-semibold text-theme-heading">{s.title}</span>
-                  <p className="text-xs text-theme-muted">{s.term?.replace('_',' ')} · {s.academicYear}</p>
+                  <p className="text-xs text-theme-muted">
+                    {s.term?.replace('_',' ')} · {s.academicYear}
+                    {s.submitterName && <> · Submitted by <b>{s.submitterName}</b></>}
+                  </p>
                 </button>
                 <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => onReviewScheme(s.id,'approved')} className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700">Approve</button>
@@ -1432,7 +1447,10 @@ function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme,
               <div key={p.id} className="card p-3 flex items-center justify-between gap-3">
                 <button onClick={() => onOpenPlan(p)} className="text-left flex-1 min-w-0">
                   <span className="font-semibold text-theme-heading">{p.strand} — {p.subStrand}</span>
-                  <p className="text-xs text-theme-muted">{gradeLabel(p.gradeLevel)}</p>
+                  <p className="text-xs text-theme-muted">
+                    {gradeLabel(p.gradeLevel)}
+                    {p.submitterName && <> · Submitted by <b>{p.submitterName}</b></>}
+                  </p>
                 </button>
                 <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => onReviewPlan(p.id,'approved')} className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700">Approve</button>
@@ -1450,7 +1468,10 @@ function PendingApprovals({ pending, onReviewScheme, onReviewPlan, onOpenScheme,
             {pending.lessonNotes.map((n: any) => (
               <button key={n.id} onClick={() => onOpenNotes(n)} className="card p-3 text-left w-full block">
                 <span className="font-semibold text-theme-heading">{n.topic}</span>
-                <p className="text-xs text-theme-muted">{n.subTopic}</p>
+                <p className="text-xs text-theme-muted">
+                  {n.subTopic}
+                  {n.submitterName && <> · Submitted by <b>{n.submitterName}</b></>}
+                </p>
               </button>
             ))}
           </div>
