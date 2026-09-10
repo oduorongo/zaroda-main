@@ -192,6 +192,13 @@ export default function ProfessionalRecordsPage() {
 
   useEffect(() => { load(); loadWallet(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  // TEMP DIAGNOSTIC — remove once the regenerate-banner flicker is root-caused.
+  const debugSetRegenerateComment = (value: string, origin: string) => {
+    // eslint-disable-next-line no-console
+    console.log(`[regen-debug] ${new Date().toISOString()} setRegenerateComment(${JSON.stringify(value)}) from "${origin}"`);
+    setRegenerateComment(value);
+  };
+
   const set = (k: string) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
   const toggleColumn = (k: keyof typeof form.columns) =>
@@ -312,7 +319,7 @@ export default function ProfessionalRecordsPage() {
       }, { timeout: 300000 }); // a full-term scheme is generated in several sequential AI calls (2 weeks at a time) and can take minutes
       toast.success(`Scheme of work generated (KES ${schemePrice} deducted from wallet). Review and submit when ready.`);
       setShowNewScheme(false);
-      setRegenerateComment('');
+      debugSetRegenerateComment('', 'generateScheme:success');
       load();
       loadWallet();
       if (gen?.schemeId) exportScheme(gen.schemeId, form.format, form.font);
@@ -413,7 +420,7 @@ export default function ProfessionalRecordsPage() {
   // the backend already allows a fresh generate for the same subject/stream/term
   // once the existing one is 'rejected' (see SchemeService.generate()).
   const openFreshGenerate = () => {
-    setRegenerateComment('');
+    debugSetRegenerateComment('', 'openFreshGenerate');
     setForm(f => ({ ...f, strandFocus: [] }));
     setShowNewScheme(true);
   };
@@ -454,7 +461,7 @@ export default function ProfessionalRecordsPage() {
       specialWeeks: '',
       doubleLessonSlots: '',
     }));
-    setRegenerateComment(scheme.reviewComment || 'The HOI rejected this scheme.');
+    debugSetRegenerateComment(scheme.reviewComment || 'The HOI rejected this scheme.', 'startRegenerate');
     setOpenScheme(null);
     setShowNewScheme(true);
   };
@@ -708,7 +715,7 @@ export default function ProfessionalRecordsPage() {
                 <h3 className="text-lg font-bold text-theme-heading">Generate Scheme of Work</h3>
                 <p className="text-xs text-theme-muted mt-0.5">KICD-aligned CBC scheme, term-by-term</p>
               </div>
-              <button onClick={() => { setShowNewScheme(false); setRegenerateComment(''); }}><X size={20} className="text-theme-muted"/></button>
+              <button type="button" onClick={() => { setShowNewScheme(false); debugSetRegenerateComment('', 'X close button'); }}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={generateScheme} className="p-5 space-y-6">
 
@@ -930,7 +937,7 @@ export default function ProfessionalRecordsPage() {
                 <button type="button" onClick={() => setShowTopUp(true)} className="btn-ghost text-xs py-1 px-2 flex-shrink-0">Top Up</button>
               </div>
               <div className="flex gap-3 border-t border-theme pt-4">
-                <button type="button" onClick={() => { setShowNewScheme(false); setRegenerateComment(''); }} className="btn-ghost flex-1">Cancel</button>
+                <button type="button" onClick={() => { setShowNewScheme(false); debugSetRegenerateComment('', 'Cancel button'); }} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={generating} className="btn-primary flex-1">
                   {generating
                     ? <><Loader2 size={14} className="animate-spin"/> Generating…</>
