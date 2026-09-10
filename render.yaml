@@ -110,6 +110,12 @@ services:
       # (e.g. https://zaroda-api.onrender.com) BEFORE the first build, then redeploy.
       - key: NEXT_PUBLIC_API_URL
         sync: false        # e.g. https://zaroda-api.onrender.com
+      # ZARODA Sports — the separate cross-school championship platform — is embedded
+      # here (see app/dashboard/sports-base/page.tsx) so users install only ONE app
+      # instead of two. Confirmed zarodasports.live sends no X-Frame-Options/CSP
+      # frame-ancestors header, so it's embeddable.
+      - key: NEXT_PUBLIC_SPORTS_BASE_URL
+        value: https://www.zarodasports.live
 
   # ── Cron: purge soft-deleted exams/results older than 90 days ──────────
   - type: cron
