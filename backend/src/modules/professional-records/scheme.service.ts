@@ -4,7 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } from './entities';
 import { Tenant } from '../auth/entities/tenant.entity';
 import { AiGeneratorService } from './ai-generator.service';
-import { WalletService } from './wallet.service';
+import { WalletService, ITEM_PRICE_KES } from './wallet.service';
 import { GenerateSchemeDto, ReviewRecordDto, EditSchemeWeekDto } from './dto';
 import { documentShell, isKiswahiliSubject, label } from './document-render.util';
 
@@ -150,12 +150,6 @@ export class SchemeService {
       await this.assertAssignedToTeach(tenantId, teacherId, role, streamId, dto.subjectName);
     }
 
-    // Wallet-based, not subscription: every generator (teachers, HOI, admin — no
-    // exemptions) must have enough wallet balance before we spend AI tokens
-    // generating anything. Re-debited atomically inside the transaction below,
-    // which is the race-safe check — this is just a fast fail.
-    await this.walletService.assertAffordable(tenantId, teacherId, 'scheme');
-
     const existing = await this.schemeRepo.findOne({
       where: {
         tenantId, teacherId, streamId, subjectId,
@@ -167,6 +161,15 @@ export class SchemeService {
         `A scheme of work already exists for this subject/stream/term. Status: ${existing.status}`,
       );
     }
+    // Regenerating a rejected scheme (same subject/stream/term) is discounted —
+    // the teacher is redoing work an HOI already sent back, not starting fresh.
+    const price = existing?.status === 'rejected' ? Math.max(0, ITEM_PRICE_KES.scheme - 15) : undefined;
+
+    // Wallet-based, not subscription: every generator (teachers, HOI, admin — no
+    // exemptions) must have enough wallet balance before we spend AI tokens
+    // generating anything. Re-debited atomically inside the transaction below,
+    // which is the race-safe check — this is just a fast fail.
+    await this.walletService.assertAffordable(tenantId, teacherId, 'scheme', price);
 
     const totalWeeks = dto.totalWeeks || 12;
     const periodsPerWeek = dto.periodsPerWeek || 5;
@@ -214,7 +217,7 @@ export class SchemeService {
         lessonsPerWeek,
       });
       await manager.save(SchemeOfWork, scheme);
-      await this.walletService.debit(tenantId, teacherId, 'scheme', scheme.id, manager);
+      await this.walletService.debit(tenantId, teacherId, 'scheme', scheme.id, manager, price);
 
       for (const [i, w] of weeks.entries()) {
         await manager.save(SchemeWeek, manager.create(SchemeWeek, {

@@ -97,6 +97,12 @@ export default function ProfessionalRecordsPage() {
   const [openNotes, setOpenNotes] = useState<any>(null);
   const [showNewScheme, setShowNewScheme] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Set when reopening the generate form from a rejected scheme, so the teacher can
+  // see exactly what the HOI flagged while they refill the form to address it.
+  const [regenerateComment, setRegenerateComment] = useState('');
+  // Regenerating a rejected scheme is discounted KES 15 off — kept in sync with
+  // the backend's own discount logic in SchemeService.generate().
+  const schemePrice = regenerateComment ? ITEM_PRICES.scheme - 15 : ITEM_PRICES.scheme;
 
   const [wallet, setWallet] = useState<{ balance: number } | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
@@ -114,7 +120,8 @@ export default function ProfessionalRecordsPage() {
     // Term 1 scheme by accident, since it was silently pre-selected. Forcing an
     // explicit pick here means there's nothing to forget to change.
     term: '', academicYear: '2025/2026', startWeek: 1, totalWeeks: 12, periodsPerWeek: 5, doubleLessonSlots: '',
-    strands: '', notes: '', specialWeeks: '',
+    strandFocus: [] as { id: string; strand: string; subStrands: { id: string; name: string; description: string }[] }[],
+    notes: '', specialWeeks: '',
     columns: { keyInquiry: true, learningExperiences: true, resources: true, assessment: true, reflection: true, corePV: false },
     format: 'preview' as 'pdf' | 'doc' | 'preview',
     font: 'Times New Roman',
@@ -190,6 +197,18 @@ export default function ProfessionalRecordsPage() {
   const toggleColumn = (k: keyof typeof form.columns) =>
     setForm(f => ({ ...f, columns: { ...f.columns, [k]: !f.columns[k] } }));
 
+  // Strand/sub-strand editor — each sub-strand carries its own scope description
+  // (not just a title), since a bare sub-strand name gave the AI too little to
+  // anchor on and it drifted into generic, over-wide content for that sub-strand.
+  const uid = () => Math.random().toString(36).slice(2, 9);
+  const addStrand = () => setForm(f => ({ ...f, strandFocus: [...f.strandFocus, { id: uid(), strand: '', subStrands: [{ id: uid(), name: '', description: '' }] }] }));
+  const removeStrand = (id: string) => setForm(f => ({ ...f, strandFocus: f.strandFocus.filter(s => s.id !== id) }));
+  const setStrandName = (id: string, name: string) => setForm(f => ({ ...f, strandFocus: f.strandFocus.map(s => s.id === id ? { ...s, strand: name } : s) }));
+  const addSubStrand = (strandId: string) => setForm(f => ({ ...f, strandFocus: f.strandFocus.map(s => s.id === strandId ? { ...s, subStrands: [...s.subStrands, { id: uid(), name: '', description: '' }] } : s) }));
+  const removeSubStrand = (strandId: string, subId: string) => setForm(f => ({ ...f, strandFocus: f.strandFocus.map(s => s.id === strandId ? { ...s, subStrands: s.subStrands.filter(ss => ss.id !== subId) } : s) }));
+  const setSubStrandField = (strandId: string, subId: string, field: 'name' | 'description', value: string) =>
+    setForm(f => ({ ...f, strandFocus: f.strandFocus.map(s => s.id === strandId ? { ...s, subStrands: s.subStrands.map(ss => ss.id === subId ? { ...ss, [field]: value } : ss) } : s) }));
+
   // Opens the printable scheme document — 'preview' just drills into the in-app
   // detail view (already a live preview), 'pdf' opens a print-ready tab, 'doc'
   // triggers a Word (.doc) download. Same server-rendered HTML underneath.
@@ -249,6 +268,17 @@ export default function ProfessionalRecordsPage() {
       toast.error('Select a stream and subject.'); return;
     }
     if (!form.term) { toast.error('Select which term this scheme is for.'); return; }
+    const strandFocus = form.strandFocus
+      .filter(s => s.strand.trim())
+      .map(s => ({
+        strand: s.strand.trim(),
+        subStrands: s.subStrands.filter(ss => ss.name.trim()).map(ss => ({ name: ss.name.trim(), description: ss.description.trim() })),
+      }));
+    const missingDetail = strandFocus.some(s => s.subStrands.some(ss => ss.description.length < 8));
+    if (missingDetail) {
+      toast.error('Give each sub-strand a short scope description (at least a few words) — a bare title drifts into generic content.');
+      return;
+    }
 
     setGenerating(true);
     try {
@@ -269,7 +299,7 @@ export default function ProfessionalRecordsPage() {
         totalWeeks: Number(form.totalWeeks) || 12,
         periodsPerWeek: Number(form.periodsPerWeek) || 5,
         doubleLessonSlots: form.doubleLessonSlots.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0),
-        strandFocus: form.strands.split('\n').map(s => s.trim()).filter(Boolean),
+        strandFocus,
         specialWeeks,
         schoolContext: form.notes || undefined,
         schoolName: form.schoolName || undefined,
@@ -280,8 +310,9 @@ export default function ProfessionalRecordsPage() {
         columns: selectedColumns,
         defaultFont: form.font,
       }, { timeout: 300000 }); // a full-term scheme is generated in several sequential AI calls (2 weeks at a time) and can take minutes
-      toast.success(`Scheme of work generated (KES ${ITEM_PRICES.scheme} deducted from wallet). Review and submit when ready.`);
+      toast.success(`Scheme of work generated (KES ${schemePrice} deducted from wallet). Review and submit when ready.`);
       setShowNewScheme(false);
+      setRegenerateComment('');
       load();
       loadWallet();
       if (gen?.schemeId) exportScheme(gen.schemeId, form.format, form.font);
@@ -377,6 +408,57 @@ export default function ProfessionalRecordsPage() {
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not review.'); }
   };
 
+  // Reopens the generate form pre-filled from a rejected scheme, with the HOI's
+  // comment shown at the top, so the teacher can address it and regenerate —
+  // the backend already allows a fresh generate for the same subject/stream/term
+  // once the existing one is 'rejected' (see SchemeService.generate()).
+  const openFreshGenerate = () => {
+    setRegenerateComment('');
+    setForm(f => ({ ...f, strandFocus: [] }));
+    setShowNewScheme(true);
+  };
+
+  const startRegenerate = (scheme: any) => {
+    const strandMap = new Map<string, Set<string>>();
+    (scheme.weeks || []).forEach((w: any) => {
+      if (!w.strand) return;
+      if (!strandMap.has(w.strand)) strandMap.set(w.strand, new Set());
+      if (w.subStrand) strandMap.get(w.strand)!.add(w.subStrand);
+    });
+    const strandFocus = Array.from(strandMap.entries()).map(([strand, subs], i) => ({
+      id: `regen-${i}`, strand,
+      subStrands: Array.from(subs).map((name, j) => ({ id: `regen-${i}-${j}`, name, description: '' })),
+    }));
+    setForm(f => ({
+      ...f,
+      streamId: scheme.streamId || f.streamId,
+      subjectId: scheme.subjectId || f.subjectId,
+      gradeLevel: scheme.gradeLevel || f.gradeLevel,
+      term: scheme.term || f.term,
+      academicYear: scheme.academicYear || f.academicYear,
+      startWeek: scheme.startWeek || 1,
+      totalWeeks: scheme.weeks?.length || f.totalWeeks,
+      periodsPerWeek: scheme.lessonsPerWeek || f.periodsPerWeek,
+      schoolName: scheme.schoolName || f.schoolName,
+      teacherName: scheme.teacherName || f.teacherName,
+      tscNumber: scheme.tscNumber || f.tscNumber,
+      signOffLine: scheme.signOffLine || f.signOffLine,
+      curriculumEdition: scheme.curriculumEdition || f.curriculumEdition,
+      columns: scheme.columns?.length
+        ? { keyInquiry: false, learningExperiences: false, resources: false, assessment: false, reflection: false, corePV: false,
+            ...Object.fromEntries((scheme.columns as string[]).map((k) => [k, true])) }
+        : f.columns,
+      font: scheme.defaultFont || f.font,
+      strandFocus,
+      notes: '',
+      specialWeeks: '',
+      doubleLessonSlots: '',
+    }));
+    setRegenerateComment(scheme.reviewComment || 'The HOI rejected this scheme.');
+    setOpenScheme(null);
+    setShowNewScheme(true);
+  };
+
   const generateLessonPlan = async (schemeId: string, schemeWeekId: string, lessonSlot: number) => {
     try {
       const { data } = await apiClient.post('/professional-records/lesson-plans/generate', { schemeId, schemeWeekId, lessonSlot }, { timeout: 120000 });
@@ -423,7 +505,7 @@ export default function ProfessionalRecordsPage() {
             </div>
             <button onClick={() => setShowTopUp(true)} className="btn-primary text-xs px-2.5 py-1.5">Top Up</button>
             <button onClick={() => setShowReferral(true)} className="btn-primary text-xs px-2.5 py-1.5">Refer &amp; Earn</button>
-            <button onClick={() => setShowNewScheme(true)} className="btn-primary text-xs px-3 py-1.5 w-full sm:w-auto justify-center">
+            <button onClick={openFreshGenerate} className="btn-primary text-xs px-3 py-1.5 w-full sm:w-auto justify-center">
               <Sparkles size={14}/> Generate Scheme of Work
             </button>
           </div>
@@ -524,6 +606,7 @@ export default function ProfessionalRecordsPage() {
           hoi={hoi}
           onBack={() => setOpenScheme(null)}
           onSubmit={() => submitScheme(openScheme.id)}
+          onRegenerate={() => startRegenerate(openScheme)}
           onReview={(a: any) => reviewScheme(openScheme.id, a)}
           onGenerateLessonPlan={generateLessonPlan}
           onGenerateLessonNotes={generateLessonNotesFromWeek}
@@ -532,7 +615,7 @@ export default function ProfessionalRecordsPage() {
         />
       ) : tab === 'schemes' ? (
         schemes.length === 0 ? (
-          <EmptyState label="No schemes of work yet" cta={canGenerate ? { label: 'Generate First Scheme', onClick: () => setShowNewScheme(true) } : undefined}/>
+          <EmptyState label="No schemes of work yet" cta={canGenerate ? { label: 'Generate First Scheme', onClick: openFreshGenerate } : undefined}/>
         ) : (
           <div className="space-y-3">
             {schemes.map((s: any) => (
@@ -616,9 +699,17 @@ export default function ProfessionalRecordsPage() {
                 <h3 className="text-lg font-bold text-theme-heading">Generate Scheme of Work</h3>
                 <p className="text-xs text-theme-muted mt-0.5">KICD-aligned CBC scheme, term-by-term</p>
               </div>
-              <button onClick={() => setShowNewScheme(false)}><X size={20} className="text-theme-muted"/></button>
+              <button onClick={() => { setShowNewScheme(false); setRegenerateComment(''); }}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={generateScheme} className="p-5 space-y-6">
+
+              {regenerateComment && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm">
+                  <p className="font-bold text-xs uppercase tracking-wide mb-1">Address this before regenerating</p>
+                  <p>HOI: {regenerateComment}</p>
+                  <p className="text-xs mt-1 text-amber-700">The form below is pre-filled from the rejected scheme — update the strands/notes to fix what was flagged, then generate again.</p>
+                </div>
+              )}
 
               <fieldset className="space-y-3">
                 <legend className="text-xs font-black uppercase tracking-wide text-[#1a2e5a] border-l-2 border-[#d4af37] pl-2 mb-1">Document header</legend>
@@ -735,10 +826,37 @@ export default function ProfessionalRecordsPage() {
                   <p className="hint text-[11px] text-theme-muted mt-1">Which lesson number(s) each week run as a double period (2 lessons combined). Each of the {form.periodsPerWeek} lessons/week gets its own column in the scheme — a double lesson merges two of them into one.</p>
                 </div>
                 <div>
-                  <label className="label">Strands and sub-strands to cover</label>
-                  <textarea value={form.strands} onChange={set('strands')} className="input" rows={3}
-                    placeholder="One strand per line, sub-strands after a colon. Leave blank to follow the KICD sequence for the term."/>
-                  <p className="hint text-[11px] text-theme-muted mt-1">Example — Living Things: Plants; Animals</p>
+                  <div className="flex items-center justify-between">
+                    <label className="label mb-0">Strands and sub-strands to cover</label>
+                    <button type="button" onClick={addStrand} className="btn-ghost text-xs py-1 px-2">+ Add strand</button>
+                  </div>
+                  <p className="hint text-[11px] text-theme-muted mt-1 mb-2">Leave empty to follow the KICD sequence for the term. Give each sub-strand a short scope description — a bare title (e.g. just "Plants") drifts into generic, over-wide content; "Plants: parts of a plant and their functions" keeps it tight.</p>
+                  {form.strandFocus.length === 0 ? (
+                    <div className="border border-dashed border-theme rounded-lg p-3 text-xs text-theme-muted text-center">No strands added — the AI will follow the standard KICD sequence.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {form.strandFocus.map((s) => (
+                        <div key={s.id} className="border border-theme rounded-lg p-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input value={s.strand} onChange={(e) => setStrandName(s.id, e.target.value)} className="input flex-1" placeholder="Strand name, e.g. Living Things"/>
+                            <button type="button" onClick={() => removeStrand(s.id)} className="text-red-600 text-xs px-2 py-1.5 hover:bg-red-50 rounded-lg flex-shrink-0">Remove</button>
+                          </div>
+                          <div className="space-y-2 pl-3 border-l-2 border-theme">
+                            {s.subStrands.map((ss) => (
+                              <div key={ss.id} className="flex items-start gap-2">
+                                <div className="flex-1 space-y-1">
+                                  <input value={ss.name} onChange={(e) => setSubStrandField(s.id, ss.id, 'name', e.target.value)} className="input text-sm" placeholder="Sub-strand, e.g. Plants"/>
+                                  <input value={ss.description} onChange={(e) => setSubStrandField(s.id, ss.id, 'description', e.target.value)} className="input text-sm" placeholder="Scope for this sub-strand, e.g. Parts of a plant and their functions"/>
+                                </div>
+                                <button type="button" onClick={() => removeSubStrand(s.id, ss.id)} className="text-red-600 text-xs px-2 py-1.5 hover:bg-red-50 rounded-lg flex-shrink-0">✕</button>
+                              </div>
+                            ))}
+                            <button type="button" onClick={() => addSubStrand(s.id)} className="btn-ghost text-xs py-1 px-2">+ Add sub-strand</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="label">Notes for the generator</label>
@@ -791,21 +909,23 @@ export default function ProfessionalRecordsPage() {
               </fieldset>
 
               <div className={`rounded-xl border p-3 text-xs flex items-center justify-between gap-3 ${
-                (wallet?.balance ?? 0) < ITEM_PRICES.scheme ? 'bg-red-50 border-red-200 text-red-700' : 'bg-purple-50 border-purple-200 text-purple-700'
+                (wallet?.balance ?? 0) < schemePrice ? 'bg-red-50 border-red-200 text-red-700' : 'bg-purple-50 border-purple-200 text-purple-700'
               }`}>
                 <div>
                   <Sparkles size={12} className="inline mr-1"/>
-                  Generating a scheme costs KES {ITEM_PRICES.scheme} from your wallet. Wallet balance: <b>KES {wallet?.balance ?? '…'}</b>.
-                  {(wallet?.balance ?? 0) < ITEM_PRICES.scheme && ' Top up to continue.'}
+                  {regenerateComment
+                    ? <>Regenerating a rejected scheme costs a discounted KES {schemePrice} (KES 15 off) from your wallet.</>
+                    : <>Generating a scheme costs KES {schemePrice} from your wallet.</>} Wallet balance: <b>KES {wallet?.balance ?? '…'}</b>.
+                  {(wallet?.balance ?? 0) < schemePrice && ' Top up to continue.'}
                 </div>
                 <button type="button" onClick={() => setShowTopUp(true)} className="btn-ghost text-xs py-1 px-2 flex-shrink-0">Top Up</button>
               </div>
               <div className="flex gap-3 border-t border-theme pt-4">
-                <button type="button" onClick={() => setShowNewScheme(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="button" onClick={() => { setShowNewScheme(false); setRegenerateComment(''); }} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={generating} className="btn-primary flex-1">
                   {generating
                     ? <><Loader2 size={14} className="animate-spin"/> Generating…</>
-                    : <><Sparkles size={14}/> Generate (KES {ITEM_PRICES.scheme})</>}
+                    : <><Sparkles size={14}/> {regenerateComment ? 'Regenerate' : 'Generate'} (KES {schemePrice})</>}
                 </button>
               </div>
             </form>
@@ -1077,7 +1197,7 @@ function EmptyState({ label, cta }: { label: string; cta?: { label: string; onCl
   );
 }
 
-function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGenerateLessonPlan, onGenerateLessonNotes, onExport, onEditWeek }: any) {
+function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onRegenerate, onReview, onGenerateLessonPlan, onGenerateLessonNotes, onExport, onEditWeek }: any) {
   // Tracks which button on which week is busy, e.g. "week123:plan" — keyed by
   // action too, not just week id, so generating a plan doesn't also show the
   // Notes button on the same week as busy/disabled (and vice versa).
@@ -1156,6 +1276,11 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onReview, onGene
           <div className="flex gap-2">
             {(scheme.status === 'draft' || scheme.status === 'revision_requested') && teacher && (
               <button onClick={onSubmit} className="btn-primary text-sm">Submit for Approval</button>
+            )}
+            {scheme.status === 'rejected' && teacher && (
+              <button onClick={onRegenerate} className="btn-primary text-sm">
+                <Sparkles size={14}/> Regenerate (address feedback)
+              </button>
             )}
             {scheme.status === 'submitted' && hoi && (
               <>

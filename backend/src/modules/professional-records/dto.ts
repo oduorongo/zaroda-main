@@ -20,7 +20,10 @@ export class GenerateSchemeDto {
   // a double lesson — each merges 2 periods into a single lesson/column.
   @IsOptional() @IsArray()  doubleLessonSlots?: number[];
   @IsOptional() @IsString() schoolContext?: string;
-  @IsOptional() @IsArray()  strandFocus?: string[];
+  // Per-strand detail — a short scope description on each sub-strand keeps the AI
+  // anchored to what the teacher actually means instead of drifting into a generic
+  // treatment of a broad sub-strand name.
+  @IsOptional() @IsArray()  strandFocus?: { strand: string; subStrands: { name: string; description: string }[] }[];
 
   // Document header fields — printed on the generated scheme, not used for AI generation.
   // schoolName is mandatory (even for individual accounts with no school tenant) — it's

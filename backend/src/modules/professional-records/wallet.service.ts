@@ -152,9 +152,9 @@ export class WalletService {
   // Cheap read-only pre-check, so callers can fail fast before spending AI
   // tokens on a generation the teacher can't actually afford — the real,
   // race-safe check happens in debit() when the record is actually saved.
-  async assertAffordable(tenantId: string, teacherId: string, itemType: PrItemType) {
+  async assertAffordable(tenantId: string, teacherId: string, itemType: PrItemType, overridePrice?: number) {
     const wallet = await this.findOrCreateWallet(tenantId, teacherId);
-    const price = ITEM_PRICE_KES[itemType];
+    const price = overridePrice ?? ITEM_PRICE_KES[itemType];
     const balance = Number(wallet.balance);
     if (balance < price) {
       throw new BadRequestException(
@@ -166,9 +166,12 @@ export class WalletService {
   // ── DEBIT FOR A GENERATED ITEM ─────────────────────────────
   // `manager` lets the caller run this inside its own transaction, alongside
   // saving the generated record, so a failed save never leaves a stray debit.
+  // `overridePrice` lets a caller charge less than the standard item price —
+  // used for regenerating a rejected scheme, which is discounted (see
+  // SchemeService.generate()).
   async debit(
     tenantId: string, teacherId: string, itemType: PrItemType,
-    referenceId?: string, manager?: EntityManager,
+    referenceId?: string, manager?: EntityManager, overridePrice?: number,
   ) {
     const run = async (m: EntityManager) => {
       const walletRepo = m.getRepository(PrWallet);
@@ -181,7 +184,7 @@ export class WalletService {
       let wallet: PrWallet = rows[0];
       if (!wallet) wallet = await walletRepo.save(walletRepo.create({ tenantId, teacherId, balance: 0 }));
 
-      const price = ITEM_PRICE_KES[itemType];
+      const price = overridePrice ?? ITEM_PRICE_KES[itemType];
       const balance = Number(wallet.balance);
       if (balance < price) {
         throw new BadRequestException(

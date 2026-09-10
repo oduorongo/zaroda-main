@@ -157,7 +157,7 @@ export class AiGeneratorService {
     totalWeeks: number;
     periodsPerWeek: number;
     schoolContext?: string;
-    strandFocus?: string[];
+    strandFocus?: { strand: string; subStrands: { name: string; description: string }[] }[];
     columns?: string[];
     specialWeeks?: { week: number; label: string }[];
     // 1-indexed lesson-slot positions (within a week's lesson sequence, not raw
@@ -208,7 +208,7 @@ CONTEXT:
 - Total Weeks in Term: ${params.totalWeeks} (you are generating ONLY weeks ${start}-${end} of this term right now)
 - Periods per Week: ${params.periodsPerWeek} (${lessonsPerWeek} lesson slot(s) per teaching week${doubleSlots.length ? `, with lesson slot(s) ${doubleSlots.join(', ')} run as a double lesson (2 periods combined into one lesson)` : ''})
 - School Context: ${params.schoolContext || 'Mixed day school, Kenya'}
-${params.strandFocus?.length ? `- Priority Strands: ${params.strandFocus.join(', ')}` : ''}
+${params.strandFocus?.length ? `- Priority Strands — cover exactly these strands/sub-strands, using the scope description to stay tightly on what's meant rather than drifting into a generic treatment of the sub-strand:\n${params.strandFocus.map(s => `  • ${s.strand}${s.subStrands?.length ? ':\n' + s.subStrands.map(ss => `    - ${ss.name}${ss.description ? ` (scope: ${ss.description})` : ''}`).join('\n') : ''}`).join('\n')}` : ''}
 ${chunkSpecialWeeks.length ? `- Non-teaching weeks in this range (mid-term breaks, summative assessments, exams — no new curriculum content): ${chunkSpecialWeeks.map(w => `Week ${w.week} = ${w.label}`).join('; ')}` : ''}
 ${priorContext}
 REQUIREMENTS — keep every field concise (approximate word limits below), not padded, so the whole
