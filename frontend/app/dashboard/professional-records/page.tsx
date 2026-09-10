@@ -505,7 +505,7 @@ export default function ProfessionalRecordsPage() {
             </div>
             <button onClick={() => setShowTopUp(true)} className="btn-primary text-xs px-2.5 py-1.5">Top Up</button>
             <button onClick={() => setShowReferral(true)} className="btn-primary text-xs px-2.5 py-1.5">Refer &amp; Earn</button>
-            <button onClick={openFreshGenerate} className="btn-primary text-xs px-3 py-1.5 w-full sm:w-auto justify-center">
+            <button type="button" onClick={openFreshGenerate} disabled={showNewScheme} className="btn-primary text-xs px-3 py-1.5 w-full sm:w-auto justify-center disabled:opacity-40 disabled:pointer-events-none">
               <Sparkles size={14}/> Generate Scheme of Work
             </button>
           </div>
@@ -1287,17 +1287,17 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onRegenerate, on
           </div>
           <div className="flex gap-2">
             {(scheme.status === 'draft' || scheme.status === 'revision_requested') && teacher && (
-              <button onClick={onSubmit} className="btn-primary text-sm">Submit for Approval</button>
+              <button type="button" onClick={onSubmit} className="btn-primary text-sm">Submit for Approval</button>
             )}
             {scheme.status === 'rejected' && teacher && (
-              <button onClick={onRegenerate} className="btn-primary text-sm">
+              <button type="button" onClick={onRegenerate} className="btn-primary text-sm">
                 <Sparkles size={14}/> Regenerate (address feedback)
               </button>
             )}
             {scheme.status === 'submitted' && hoi && (
               <>
-                <button onClick={() => onReview('approved')} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">Approve</button>
-                <button onClick={() => onReview('rejected')} className="text-sm bg-red-100 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-200">Reject</button>
+                <button type="button" onClick={() => onReview('approved')} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">Approve</button>
+                <button type="button" onClick={() => onReview('rejected')} className="text-sm bg-red-100 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-200">Reject</button>
               </>
             )}
           </div>
