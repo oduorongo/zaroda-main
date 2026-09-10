@@ -2119,21 +2119,41 @@ export class AcademicService {
 
     const newAdmissions = await this.learnerRepo.count({ where: { tenantId, isActive: true } }).catch(()=>0);
 
-    // Item 11: learner gender split + total school population
-    const genderRows = await this.dataSource.query(
-      `SELECT LOWER(COALESCE(gender,'')) AS gender, COUNT(*) AS n
+    // Item 11: learner gender split + total school population, also broken down
+    // by education band (ECDE/Primary/Junior School/Senior School) — grade_level
+    // is stored directly on learners (pp1|pp2|grade_1..grade_12), mirrored here
+    // from the band mapping in frontend/lib/cbc/constants.ts since that file
+    // isn't shared with the backend.
+    const genderGradeRows = await this.dataSource.query(
+      `SELECT LOWER(COALESCE(gender,'')) AS gender, grade_level AS "gradeLevel", COUNT(*) AS n
        FROM learners WHERE tenant_id::text = $1 AND is_active = true
-       GROUP BY LOWER(COALESCE(gender,''))`,
+       GROUP BY LOWER(COALESCE(gender,'')), grade_level`,
       [tenantId],
     ).catch(() => []);
+    const BAND_BY_GRADE: Record<string, string> = {
+      playgroup: 'ECDE', pp1: 'ECDE', pp2: 'ECDE',
+      grade_1: 'Primary', grade_2: 'Primary', grade_3: 'Primary', grade_4: 'Primary', grade_5: 'Primary', grade_6: 'Primary',
+      grade_7: 'Junior School', grade_8: 'Junior School', grade_9: 'Junior School',
+      grade_10: 'Senior School', grade_11: 'Senior School', grade_12: 'Senior School',
+    };
+    const BAND_ORDER = ['ECDE', 'Primary', 'Junior School', 'Senior School'];
+    const byBand: Record<string, { boys: number; girls: number; unspecified: number; total: number }> = {};
     let boys = 0, girls = 0, unspecified = 0;
-    for (const r of genderRows) {
+    for (const r of genderGradeRows) {
       const n = parseInt(r.n || '0');
-      if (r.gender === 'male' || r.gender === 'm' || r.gender === 'boy') boys += n;
-      else if (r.gender === 'female' || r.gender === 'f' || r.gender === 'girl') girls += n;
-      else unspecified += n;
+      const band = BAND_BY_GRADE[r.gradeLevel] || 'Other';
+      const bucket = (byBand[band] ||= { boys: 0, girls: 0, unspecified: 0, total: 0 });
+      const isBoy = r.gender === 'male' || r.gender === 'm' || r.gender === 'boy';
+      const isGirl = r.gender === 'female' || r.gender === 'f' || r.gender === 'girl';
+      if (isBoy) { bucket.boys += n; boys += n; }
+      else if (isGirl) { bucket.girls += n; girls += n; }
+      else { bucket.unspecified += n; unspecified += n; }
+      bucket.total += n;
     }
     const totalPopulation = boys + girls + unspecified;
+    const populationByLevel = [...BAND_ORDER, 'Other']
+      .filter(band => byBand[band])
+      .map(band => ({ band, ...byBand[band] }));
 
     // Item 10: count parents by UNIQUE phone number (avoid double-count)
     const parentCount = await this.dataSource.query(
@@ -2237,7 +2257,7 @@ export class AcademicService {
       totalLearners, totalStreams, totalTeachers, classroomTeacherCount,
       attendanceRate, feesCollected, newAdmissions,
       pendingApprovals, openIncidents,
-      boys, girls, unspecified, totalPopulation, parentCount,
+      boys, girls, unspecified, totalPopulation, populationByLevel, parentCount,
       topClasses, upcomingEvents, assessmentProgress,
       enrollmentTrend,
       maleTeachers, femaleTeachers,

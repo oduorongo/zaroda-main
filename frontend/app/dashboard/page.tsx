@@ -280,6 +280,39 @@ export default function DashboardPage() {
         {stats.unspecified > 0 && (
           <p className="text-xs text-theme-muted mt-3">{stats.unspecified} learner(s) have no gender recorded — update their records for an accurate split.</p>
         )}
+
+        {!loading && stats.populationByLevel?.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-theme overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-theme-muted uppercase tracking-wide">
+                  <th className="text-left font-semibold pb-2">School Level</th>
+                  <th className="text-right font-semibold pb-2">Boys</th>
+                  <th className="text-right font-semibold pb-2">Girls</th>
+                  <th className="text-right font-semibold pb-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.populationByLevel.map((row: any) => (
+                  <tr key={row.band} className="border-t border-theme">
+                    <td className="py-2 font-medium text-theme-heading">
+                      {row.band === 'Junior School' ? 'JS' : row.band === 'Senior School' ? 'SS' : row.band === 'Primary' ? 'PRI' : row.band}
+                    </td>
+                    <td className="py-2 text-right text-blue-500 font-semibold">{row.boys.toLocaleString('en-KE')}</td>
+                    <td className="py-2 text-right text-rose-500 font-semibold">{row.girls.toLocaleString('en-KE')}</td>
+                    <td className="py-2 text-right text-theme-heading font-semibold">{row.total.toLocaleString('en-KE')}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-theme">
+                  <td className="py-2 font-black text-theme-heading">Grand Total</td>
+                  <td className="py-2 text-right text-blue-500 font-black">{(stats.boys ?? 0).toLocaleString('en-KE')}</td>
+                  <td className="py-2 text-right text-rose-500 font-black">{(stats.girls ?? 0).toLocaleString('en-KE')}</td>
+                  <td className="py-2 text-right text-theme-heading font-black">{(stats.totalPopulation ?? 0).toLocaleString('en-KE')}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ── Middle row ── */}
