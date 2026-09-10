@@ -5,7 +5,7 @@
 // Replace each stub with the full service as you build out.
 // ============================================================
 
-import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException, Injectable } from '@nestjs/common';
+import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -2561,6 +2561,216 @@ class DisciplineController {
   controllers: [DisciplineController],
 })
 export class DisciplineModule {}
+
+
+// ═══════════════════════════════════════════════════════════
+// DUTY ROSTER & SCHOOL ACTIVITIES CALENDAR MODULE
+// Admin (hoi/dhois/school_admin/tenant_owner) sets up teachers' duty
+// assignments and school-wide activities; every staff member (any
+// authenticated user in the tenant) can view both, read-only.
+// ═══════════════════════════════════════════════════════════
+const ADMIN_ROSTER_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
+
+@Entity('duty_roster')
+class DutyRosterEntry {
+  @PrimaryGeneratedColumn('uuid') id:         string;
+  @Column({ name: 'tenant_id' })  tenantId:   string;
+  @Column({ name: 'teacher_id', nullable: true }) teacherId: string;
+  @Column({ name: 'duty_name', nullable: true })  dutyName:  string;
+  @Column({ name: 'start_date', nullable: true })  startDate: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
+}
+
+@Entity('school_activities')
+class SchoolActivityEntry {
+  @PrimaryGeneratedColumn('uuid') id:       string;
+  @Column({ name: 'tenant_id' })  tenantId: string;
+  @Column({ nullable: true })     title:    string;
+  @Column({ name: 'start_date', nullable: true }) startDate: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
+}
+
+@Controller('duty-roster')
+@UseGuards(JwtAuthGuard)
+class DutyRosterController {
+  constructor(private readonly ds: DataSource) {}
+
+  private assertAdmin(req: any) {
+    if (!ADMIN_ROSTER_ROLES.includes(req.user.role)) {
+      throw new ForbiddenException('Only school admins can manage the duty roster and activities calendar.');
+    }
+  }
+
+  private async creatorName(userId: string): Promise<string | null> {
+    const rows = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
+      [userId],
+    ).catch(() => []);
+    return rows[0] ? `${rows[0].firstName} ${rows[0].lastName}`.trim() : null;
+  }
+
+  private async ensureTables() {
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS duty_roster (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['school_id','uuid'],['teacher_id','uuid'],['teacher_name','text'],
+      ['duty_name','text'],['location','text'],['start_date','date'],['end_date','date'],
+      ['notes','text'],['created_by','uuid'],['created_by_name','text'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE duty_roster ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS school_activities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['school_id','uuid'],['title','text'],['description','text'],
+      ['category',"text DEFAULT 'other'"],['start_date','date'],['end_date','date'],
+      ['start_time','text'],['end_time','text'],['location','text'],
+      ['created_by','uuid'],['created_by_name','text'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE school_activities ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+  }
+
+  // ── Duty roster ─────────────────────────────────────────
+  @Get('duties')
+  async listDuties(@Request() req: any, @Query('from') from?: string, @Query('to') to?: string) {
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, teacher_id AS "teacherId", teacher_name AS "teacherName", duty_name AS "dutyName",
+              location, start_date AS "startDate", end_date AS "endDate", notes,
+              created_by_name AS "createdByName", created_at AS "createdAt"
+         FROM duty_roster
+        WHERE tenant_id = $1
+          AND ($2::date IS NULL OR end_date IS NULL OR end_date >= $2::date)
+          AND ($3::date IS NULL OR start_date IS NULL OR start_date <= $3::date)
+        ORDER BY start_date ASC NULLS LAST, created_at DESC`,
+      [req.user.tenantId, from || null, to || null],
+    ).catch(() => []);
+  }
+
+  @Post('duties')
+  async createDuty(@Request() req: any, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto.teacherId || !dto.dutyName || !dto.startDate) {
+      throw new BadRequestException('Teacher, duty name and start date are required.');
+    }
+    const teacherRow = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
+      [dto.teacherId],
+    ).catch(() => []);
+    const teacherName = teacherRow[0] ? `${teacherRow[0].firstName} ${teacherRow[0].lastName}`.trim() : null;
+    const creatorName = await this.creatorName(req.user.id);
+    const rows = await this.ds.query(
+      `INSERT INTO duty_roster
+         (tenant_id, school_id, teacher_id, teacher_name, duty_name, location, start_date, end_date,
+          notes, created_by, created_by_name, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+       RETURNING id, teacher_id AS "teacherId", teacher_name AS "teacherName", duty_name AS "dutyName",
+                 location, start_date AS "startDate", end_date AS "endDate", notes`,
+      [req.user.tenantId, req.user.schoolId || null, dto.teacherId, teacherName, dto.dutyName,
+       dto.location || null, dto.startDate, dto.endDate || dto.startDate, dto.notes || null,
+       req.user.id, creatorName],
+    ).catch((e: any) => { throw new BadRequestException(`Could not create duty entry: ${e.message}`); });
+    return rows[0];
+  }
+
+  @Patch('duties/:id')
+  async updateDuty(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    let teacherName: string | null | undefined;
+    if (dto.teacherId) {
+      const teacherRow = await this.ds.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
+        [dto.teacherId],
+      ).catch(() => []);
+      teacherName = teacherRow[0] ? `${teacherRow[0].firstName} ${teacherRow[0].lastName}`.trim() : null;
+    }
+    await this.ds.query(
+      `UPDATE duty_roster SET
+         teacher_id = COALESCE($3, teacher_id), teacher_name = COALESCE($4, teacher_name),
+         duty_name = COALESCE($5, duty_name), location = COALESCE($6, location),
+         start_date = COALESCE($7, start_date), end_date = COALESCE($8, end_date),
+         notes = COALESCE($9, notes), updated_at = NOW()
+       WHERE id::text = $1 AND tenant_id = $2`,
+      [id, req.user.tenantId, dto.teacherId || null, teacherName || null, dto.dutyName || null,
+       dto.location || null, dto.startDate || null, dto.endDate || null, dto.notes || null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not update duty entry: ${e.message}`); });
+    return { id, ...dto };
+  }
+
+  @Delete('duties/:id')
+  async deleteDuty(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ds.query(`DELETE FROM duty_roster WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // ── School activities calendar ──────────────────────────
+  @Get('activities')
+  async listActivities(@Request() req: any, @Query('from') from?: string, @Query('to') to?: string) {
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, title, description, category, start_date AS "startDate", end_date AS "endDate",
+              start_time AS "startTime", end_time AS "endTime", location,
+              created_by_name AS "createdByName", created_at AS "createdAt"
+         FROM school_activities
+        WHERE tenant_id = $1
+          AND ($2::date IS NULL OR end_date IS NULL OR end_date >= $2::date)
+          AND ($3::date IS NULL OR start_date IS NULL OR start_date <= $3::date)
+        ORDER BY start_date ASC NULLS LAST, created_at DESC`,
+      [req.user.tenantId, from || null, to || null],
+    ).catch(() => []);
+  }
+
+  @Post('activities')
+  async createActivity(@Request() req: any, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto.title || !dto.startDate) {
+      throw new BadRequestException('Title and start date are required.');
+    }
+    const creatorName = await this.creatorName(req.user.id);
+    const rows = await this.ds.query(
+      `INSERT INTO school_activities
+         (tenant_id, school_id, title, description, category, start_date, end_date,
+          start_time, end_time, location, created_by, created_by_name, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+       RETURNING id, title, description, category, start_date AS "startDate", end_date AS "endDate",
+                 start_time AS "startTime", end_time AS "endTime", location`,
+      [req.user.tenantId, req.user.schoolId || null, dto.title, dto.description || null,
+       dto.category || 'other', dto.startDate, dto.endDate || dto.startDate,
+       dto.startTime || null, dto.endTime || null, dto.location || null,
+       req.user.id, creatorName],
+    ).catch((e: any) => { throw new BadRequestException(`Could not create activity: ${e.message}`); });
+    return rows[0];
+  }
+
+  @Patch('activities/:id')
+  async updateActivity(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(
+      `UPDATE school_activities SET
+         title = COALESCE($3, title), description = COALESCE($4, description),
+         category = COALESCE($5, category), start_date = COALESCE($6, start_date),
+         end_date = COALESCE($7, end_date), start_time = COALESCE($8, start_time),
+         end_time = COALESCE($9, end_time), location = COALESCE($10, location), updated_at = NOW()
+       WHERE id::text = $1 AND tenant_id = $2`,
+      [id, req.user.tenantId, dto.title || null, dto.description || null, dto.category || null,
+       dto.startDate || null, dto.endDate || null, dto.startTime || null, dto.endTime || null, dto.location || null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not update activity: ${e.message}`); });
+    return { id, ...dto };
+  }
+
+  @Delete('activities/:id')
+  async deleteActivity(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ds.query(`DELETE FROM school_activities WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+}
+
+@Module({
+  imports: [TypeOrmModule.forFeature([DutyRosterEntry, SchoolActivityEntry])],
+  controllers: [DutyRosterController],
+})
+export class DutyRosterModule {}
 
 
 // ═══════════════════════════════════════════════════════════

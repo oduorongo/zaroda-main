@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
   Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
+  CalendarDays,
 } from 'lucide-react';
 import { useAuth, isTeacher } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -24,6 +25,7 @@ const TEACHER_NAV = [
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },
   { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },
+  { href: '/dashboard/duty-roster', icon: CalendarDays, label: 'Duty Roster & Calendar' },
   { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },
 ];
 
