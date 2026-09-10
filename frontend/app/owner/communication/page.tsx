@@ -261,18 +261,22 @@ export default function OwnerCommunicationPage() {
             </div>
             <div className="max-h-48 overflow-y-auto divide-y divide-theme">
               {incompleteTenants.map((t: any) => {
-                const missing = [
-                  Number(t.streamCount) === 0 && 'classes',
-                  Number(t.teacherCount) === 0 && 'teachers',
-                  Number(t.learnerCount) === 0 && 'students',
-                ].filter(Boolean).join(', ');
+                // Setup order that actually works: classes must exist before teachers
+                // can be assigned to them, and both before learners can be enrolled —
+                // so the procedure is always shown in this sequence, not just a flat list
+                // of what's missing.
+                const steps = [
+                  Number(t.streamCount) === 0 && 'Add classes/streams (Academic → Classes)',
+                  Number(t.teacherCount) === 0 && 'Add teaching staff and assign them to classes/subjects (Staff → Add Teacher)',
+                  Number(t.learnerCount) === 0 && 'Enroll learners into their classes (Learners → Add Learner)',
+                ].filter(Boolean) as string[];
                 return (
-                  <div key={t.id} className="py-1.5 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-theme-heading">{t.name}</span>
-                      <span className="text-theme-muted text-xs">missing: {missing}</span>
-                    </div>
-                    <div className="text-theme-muted text-xs">{t.adminName || 'No admin found'} {t.adminPhone ? `· ${t.adminPhone}` : ''} {t.adminEmail ? `· ${t.adminEmail}` : ''}</div>
+                  <div key={t.id} className="py-2 text-sm">
+                    <div className="text-theme-heading font-medium">{t.name}</div>
+                    <ol className="mt-1 space-y-0.5 text-xs text-theme-muted list-decimal list-inside">
+                      {steps.map((step, i) => <li key={i}>{step}</li>)}
+                    </ol>
+                    <div className="text-theme-muted text-xs mt-1">{t.adminName || 'No admin found'} {t.adminPhone ? `· ${t.adminPhone}` : ''} {t.adminEmail ? `· ${t.adminEmail}` : ''}</div>
                   </div>
                 );
               })}
