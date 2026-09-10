@@ -3659,6 +3659,13 @@ class AdminController {
               (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
               (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount",
+              -- Individual (teacher-only) tenants have no learners/other users to count —
+              -- documents generated is the meaningful activity metric for them instead.
+              (
+                COALESCE((SELECT COUNT(*) FROM schemes_of_work WHERE teacher_id IN (SELECT id FROM users WHERE tenant_id = t.id)), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_plans    WHERE teacher_id IN (SELECT id FROM users WHERE tenant_id = t.id)), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_notes    WHERE teacher_id IN (SELECT id FROM users WHERE tenant_id = t.id)), 0)
+              )::int AS "documentsGenerated",
               admin.admin_name  AS "adminName",
               admin.admin_email AS "adminEmail",
               admin.admin_phone AS "adminPhone"
@@ -3694,7 +3701,12 @@ class AdminController {
               END AS "category",
               (SELECT COUNT(*) FROM users    u WHERE u.tenant_id = t.id) AS "userCount",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id = t.id AND l.is_active = true) AS "learnerCount",
-              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount"
+              (SELECT COUNT(*) FROM streams  s WHERE s.tenant_id = t.id) AS "streamCount",
+              (
+                COALESCE((SELECT COUNT(*) FROM schemes_of_work WHERE teacher_id IN (SELECT id FROM users WHERE tenant_id = t.id)), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_plans    WHERE teacher_id IN (SELECT id FROM users WHERE tenant_id = t.id)), 0) +
+                COALESCE((SELECT COUNT(*) FROM lesson_notes    WHERE teacher_id IN (SELECT id FROM users WHERE tenant_id = t.id)), 0)
+              )::int AS "documentsGenerated"
          FROM tenants t WHERE t.id = $1 LIMIT 1`,
       [id],
     ).catch(() => []);

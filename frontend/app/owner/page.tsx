@@ -376,15 +376,21 @@ export default function OwnerDashboard() {
                       {accountType === 'school' && <th className="py-2 pr-3 font-medium">Category</th>}
                       <th className="py-2 pr-3 font-medium">Status</th>
                       {accountType === 'school' && <th className="py-2 pr-3 font-medium">Tier</th>}
-                      <th className="py-2 pr-3 font-medium">Learners</th>
-                      <th className="py-2 pr-3 font-medium">Users</th>
+                      {accountType === 'school' ? (
+                        <>
+                          <th className="py-2 pr-3 font-medium">Learners</th>
+                          <th className="py-2 pr-3 font-medium">Users</th>
+                        </>
+                      ) : (
+                        <th className="py-2 pr-3 font-medium">Documents Generated</th>
+                      )}
                       <th className="py-2 pr-3 font-medium">{accountType === 'school' ? 'County' : 'Email'}</th>
                       <th className="py-2"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {schools.length === 0 ? (
-                      <tr><td colSpan={accountType === 'school' ? 9 : 6} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
+                      <tr><td colSpan={accountType === 'school' ? 9 : 5} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
                     ) : schools.map((s: any) => (
                       <tr key={s.id} className="border-b border-theme/50 hover:bg-surface-2 cursor-pointer" onClick={() => openSchool(s.id)}>
                         <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
@@ -392,8 +398,14 @@ export default function OwnerDashboard() {
                         {accountType === 'school' && <td className="py-2.5 pr-3">{s.category || 'Public'}</td>}
                         <td className="py-2.5 pr-3"><span className={`badge ${statusBadge(s.status)}`}>{s.status}</span></td>
                         {accountType === 'school' && <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>}
-                        <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
-                        <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>
+                        {accountType === 'school' ? (
+                          <>
+                            <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
+                            <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>
+                          </>
+                        ) : (
+                          <td className="py-2.5 pr-3">{s.documentsGenerated ?? 0}</td>
+                        )}
                         <td className="py-2.5 pr-3 text-theme-muted">{accountType === 'school' ? (s.county || '—') : (s.email || s.adminEmail || '—')}</td>
                         <td className="py-2.5 text-theme-muted"><ChevronRight size={16}/></td>
                       </tr>
@@ -419,11 +431,18 @@ export default function OwnerDashboard() {
                 <div className="flex justify-center py-10"><Loader2 className="animate-spin text-theme-muted" size={24}/></div>
               ) : detail?.tenant ? (
                 <>
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="card p-3"><div className="text-xl font-black text-theme-heading">{detail.tenant.learnerCount ?? 0}</div><div className="text-[11px] text-theme-muted">Learners</div></div>
-                    <div className="card p-3"><div className="text-xl font-black text-theme-heading">{detail.tenant.streamCount ?? 0}</div><div className="text-[11px] text-theme-muted">Streams</div></div>
-                    <div className="card p-3"><div className="text-xl font-black text-theme-heading">{detail.tenant.userCount ?? 0}</div><div className="text-[11px] text-theme-muted">Users</div></div>
-                  </div>
+                  {detail.tenant.account_type === 'individual' ? (
+                    <div className="card p-3 text-center">
+                      <div className="text-xl font-black text-theme-heading">{detail.tenant.documentsGenerated ?? 0}</div>
+                      <div className="text-[11px] text-theme-muted">Documents Generated</div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div className="card p-3"><div className="text-xl font-black text-theme-heading">{detail.tenant.learnerCount ?? 0}</div><div className="text-[11px] text-theme-muted">Learners</div></div>
+                      <div className="card p-3"><div className="text-xl font-black text-theme-heading">{detail.tenant.streamCount ?? 0}</div><div className="text-[11px] text-theme-muted">Streams</div></div>
+                      <div className="card p-3"><div className="text-xl font-black text-theme-heading">{detail.tenant.userCount ?? 0}</div><div className="text-[11px] text-theme-muted">Users</div></div>
+                    </div>
+                  )}
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between"><span className="text-theme-muted">Status</span><span className={`badge ${statusBadge(detail.tenant.status)}`}>{detail.tenant.status}</span></div>
                     <div className="flex justify-between"><span className="text-theme-muted">Tier</span><span className="capitalize">{detail.tenant.subscription_tier || '—'}</span></div>
