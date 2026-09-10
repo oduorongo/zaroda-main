@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Trophy, Users, Star, Send, Plus, ExternalLink, Loader2, Swords, Trash2 } from 'lucide-react';
+import { Trophy, Users, Star, Send, Plus, Loader2, Swords, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { BibSheetButton } from '@/components/pdf/pdf-buttons';
@@ -148,10 +148,11 @@ export default function SportsPage() {
           <Link href="/dashboard/sports/school-team" className="btn-ghost text-sm flex items-center gap-1.5">
             <Trophy size={14} className="text-[#d4af37]"/> School Team
           </Link>
-          <a href="/dashboard/sports-base" target="_blank" rel="noopener noreferrer"
-            className="btn-ghost text-sm flex items-center gap-1.5">
-            <Trophy size={14} className="text-[#f5820a]"/> ZARODA Sports <ExternalLink size={12}/>
-          </a>
+          <Link href="/dashboard/sports-base"
+            className="text-sm font-bold flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-white shadow-sm hover:brightness-110"
+            style={{ background: '#f5820a' }}>
+            <Trophy size={14}/> ZARODA Sports
+          </Link>
         </div>
       </div>
 
