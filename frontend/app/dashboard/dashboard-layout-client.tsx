@@ -18,10 +18,11 @@ import toast from 'react-hot-toast';
 
 // Individual accounts (a teacher without a school tenant — see migration 043) have
 // no real school data behind any module except Professional Records, which they
-// pay for and use directly. Every other nav item exists (so the sidebar looks the
-// same for everyone) but reminds them to sign up a school instead of opening a
-// page with nothing in it.
-const INDIVIDUAL_ALLOWED_HREF = '/dashboard/professional-records';
+// pay for and use directly, and Retooling, which is platform-wide content with
+// nothing school-specific to be missing. Every other nav item exists (so the
+// sidebar looks the same for everyone) but reminds them to sign up a school
+// instead of opening a page with nothing in it.
+const INDIVIDUAL_ALLOWED_HREFS = ['/dashboard/professional-records', '/dashboard/retooling'];
 
 // ── Navigation definition ──────────────────────────────────
 const NAV_ITEMS = [
@@ -160,7 +161,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         {navItems.map(item => {
           const Icon   = item.icon;
           const active = isActive(item.href);
-          const blocked = isIndividualAccount(user.accountType) && item.href !== INDIVIDUAL_ALLOWED_HREF;
+          const blocked = isIndividualAccount(user.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(item.href);
           return (
             <Link key={item.href} href={blocked ? '#' : item.href}
               onClick={(e) => {

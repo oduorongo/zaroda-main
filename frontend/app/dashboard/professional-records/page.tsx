@@ -506,6 +506,9 @@ export default function ProfessionalRecordsPage() {
         </div>
         {canGenerate && !openScheme && (
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {firstSchemeFree && (
+              <span className="text-[11px] font-bold bg-green-100 text-green-700 px-2.5 py-1.5 rounded-xl">🎉 First scheme free</span>
+            )}
             <div className="text-center rounded-xl px-3 py-1.5 bg-[#1a2e5a] text-white">
               <div className="text-[10px] text-[#d4af37] uppercase tracking-wide leading-none">Wallet</div>
               <div className="font-bold text-sm leading-tight">KES {wallet?.balance ?? '…'}</div>
@@ -542,6 +545,11 @@ export default function ProfessionalRecordsPage() {
         <div className="card p-5 border border-purple-200/60 bg-purple-50/40 relative">
           <button onClick={dismissGuide} className="absolute top-4 right-4 text-theme-muted hover:text-theme-heading"><X size={16}/></button>
           <h3 className="font-bold text-theme-heading mb-1">New here? Here's how to get your first documents</h3>
+          {firstSchemeFree && (
+            <div className="inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-bold px-3 py-1.5 rounded-full mb-2">
+              <Sparkles size={12}/> Your first Scheme of Work is free — no wallet top-up needed to try it
+            </div>
+          )}
           <p className="text-sm text-theme-muted mb-3">
             {individual
               ? 'Your individual account works differently from a school account — there\'s no HOI, so everything you generate is self-certified and approved automatically.'

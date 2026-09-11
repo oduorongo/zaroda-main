@@ -7,9 +7,10 @@ import {
   Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
   CalendarDays,
 } from 'lucide-react';
-import { useAuth, isTeacher } from '@/lib/hooks/useAuth';
+import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
 import { useTheme } from '@/lib/hooks/useTheme';
+import toast from 'react-hot-toast';
 
 // Teacher-only navigation — nothing admin here
 const TEACHER_NAV = [
@@ -28,6 +29,14 @@ const TEACHER_NAV = [
   { href: '/dashboard/duty-roster', icon: CalendarDays, label: 'Duty Roster & Calendar' },
   { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },
 ];
+
+// Individual accounts (a teacher without a school tenant) land in this same
+// portal after login, and every one of these nav items still shows — but only
+// Professional Records (their actual product) and Retooling (platform-wide
+// content, nothing school-specific to be missing) have anything real behind
+// them. Everything else here is school data an individual account never has,
+// so clicking it advises signing up a school instead of opening an empty page.
+const INDIVIDUAL_ALLOWED_HREFS = ['/teacher/records', '/dashboard/retooling'];
 
 export default function TeacherLayoutClient({ children }: { children: React.ReactNode }) {
   const { user, logout, refreshUser } = useAuth();
@@ -78,8 +87,26 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {TEACHER_NAV.map(n => {
           const Icon = n.icon;
+          const blocked = isIndividualAccount(user?.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(n.href);
           return (
-            <Link key={n.href} href={n.href} onClick={() => setSidebarOpen(false)}
+            <Link key={n.href} href={blocked ? '#' : n.href}
+              onClick={(e) => {
+                if (blocked) {
+                  e.preventDefault();
+                  toast((t) => (
+                    <div className="text-sm">
+                      <div className="font-semibold text-theme-heading">This needs a school account</div>
+                      <div className="text-xs text-theme-muted mt-0.5 mb-2">Your individual account only includes Professional Records and Retooling. Sign up your school to unlock the rest — or sign in if you already have a Zaroda school account.</div>
+                      <div className="flex gap-3">
+                        <button onClick={() => { router.push('/auth/signup'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign up your school →</button>
+                        <button onClick={() => { router.push('/auth/login'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign in →</button>
+                      </div>
+                    </div>
+                  ), { duration: 8000 });
+                  return;
+                }
+                setSidebarOpen(false);
+              }}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all
                 ${isActive(n.href) ? 'bg-[#2563eb] text-white' : (n as any).highlight ? 'text-[#d4af37] hover:bg-white/10' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
               <Icon size={18}/> {n.label}
