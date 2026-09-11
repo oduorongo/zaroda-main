@@ -4690,7 +4690,38 @@ class RetoolingController {
   }
 }
 
-@Module({ controllers: [RetoolingController] })
+// Public, unauthenticated — lets anyone (not just signed-in teachers) browse
+// published retooling articles from the landing page. No auth guard on purpose;
+// mirrors RetoolingController's read-only queries but always filters to published.
+@Controller('public/retooling')
+class PublicRetoolingController {
+  constructor(private readonly ds: DataSource) {}
+
+  @Get('articles')
+  async list() {
+    return this.ds.query(
+      `SELECT id, title, summary, category, cover_image AS "coverImage", video_url AS "videoUrl",
+              author_name AS "authorName", created_at AS "createdAt"
+         FROM retooling_articles
+        WHERE is_published = true
+        ORDER BY created_at DESC`,
+    ).catch(() => []);
+  }
+
+  @Get('articles/:id')
+  async get(@Param('id') id: string) {
+    const rows = await this.ds.query(
+      `SELECT id, title, summary, body, category, cover_image AS "coverImage", video_url AS "videoUrl",
+              author_name AS "authorName", created_at AS "createdAt"
+         FROM retooling_articles WHERE id::text = $1 AND is_published = true LIMIT 1`,
+      [id],
+    ).catch(() => []);
+    if (!rows.length) return { error: 'not found' };
+    return rows[0];
+  }
+}
+
+@Module({ controllers: [RetoolingController, PublicRetoolingController] })
 export class RetoolingModule {}
 
 // ── TESTIMONIALS: real users' written experience with Zaroda ─────────────────

@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import {
   BookOpen, DollarSign, MessageSquare, FileText, Library,
   Trophy, Scale, Zap, Sparkles, ShieldCheck, MapPin,
-  ArrowRight, Check, Phone, PlayCircle, Quote, Star,
+  ArrowRight, Check, Phone, PlayCircle, Quote, Star, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -62,6 +62,7 @@ export default function HomePage() {
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-[#4a5278]">
             <a href="#features" className="hover:text-[#1a2e5a]">Features</a>
             <a href="#pricing"  className="hover:text-[#1a2e5a]">Pricing</a>
+            <Link href="/retooling" className="hover:text-[#1a2e5a]">Retooling</Link>
             <a href="#contact"  className="hover:text-[#1a2e5a]">Contact</a>
           </nav>
           <div className="flex items-center gap-2">
@@ -98,6 +99,10 @@ export default function HomePage() {
             <Link href="/auth/signup-individual"
               className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-purple-500/25 transition-colors">
               <Sparkles size={12}/> GENERATE MY PROFESSIONAL RECORDS USING ZARODA AI — WITHOUT SCHOOL SIGNUP
+            </Link>
+            <Link href="/retooling"
+              className="inline-flex items-center gap-2 bg-rose-500/15 border border-rose-400/40 text-rose-200 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-rose-500/25 transition-colors">
+              <GraduationCap size={12}/> FREE TEACHER RETOOLING ARTICLES & VIDEOS — OPEN TO EVERYONE
             </Link>
           </div>
           <h1 className="text-4xl md:text-6xl font-black leading-tight max-w-3xl mx-auto">
@@ -337,6 +342,7 @@ export default function HomePage() {
             <ul className="space-y-2 text-sm">
               <li><a href="#features" className="hover:text-white">Features</a></li>
               <li><a href="#pricing" className="hover:text-white">Pricing</a></li>
+              <li><Link href="/retooling" className="hover:text-white">Retooling</Link></li>
               <li><Link href="/auth/signup" className="hover:text-white">Free in 2026</Link></li>
               <li><Link href="/auth/login" className="hover:text-white">Sign In</Link></li>
             </ul>
