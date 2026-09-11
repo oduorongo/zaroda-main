@@ -220,10 +220,10 @@ export default function SignupPage() {
       {/* Logo */}
       <div className="text-center mb-6">
         <img src="/zaroda-logo.png" alt="ZARODA" className="inline-block w-14 h-14 rounded-xl object-cover mb-3"/>
-        <div className="text-white font-black text-sm leading-tight">ZARODA SCHOOL</div>
-        <div className="text-[#fdba74] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
-        <h1 className="text-xl font-black text-white">Free for all of 2026 🎉</h1>
-        <p className="text-white/40 text-xs mt-1">No card required · Subscription begins 15 January 2027</p>
+        <div className="text-[#1a2e5a] font-black text-sm leading-tight">ZARODA SCHOOL</div>
+        <div className="text-[#f5820a] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
+        <h1 className="text-xl font-black text-[#1a2e5a]">Free for all of 2026 🎉</h1>
+        <p className="text-[#7a82a8] text-xs mt-1">No card required · Subscription begins 15 January 2027</p>
       </div>
 
       <div className="bg-white rounded-2xl p-6 shadow-modal">
@@ -437,10 +437,10 @@ export default function SignupPage() {
         </p>
       </div>
 
-      <p className="text-center mt-4 text-white/30 text-xs">
+      <p className="text-center mt-4 text-[#7a82a8] text-xs">
         Need help?{' '}
         <a href="https://wa.me/254781230805" target="_blank" rel="noopener noreferrer"
-          className="text-[#d4af37] hover:underline">
+          className="text-[#1a2e5a] font-semibold hover:underline">
           WhatsApp +254 781 230 805
         </a>
       </p>

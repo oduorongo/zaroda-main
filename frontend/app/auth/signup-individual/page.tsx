@@ -64,10 +64,10 @@ function SignupIndividualForm() {
     <div className="w-full max-w-md">
       <div className="text-center mb-6">
         <img src="/zaroda-logo.png" alt="ZARODA" className="inline-block w-14 h-14 rounded-xl object-cover mb-3"/>
-        <div className="text-white font-black text-sm leading-tight">ZARODA SCHOOL</div>
-        <div className="text-[#fdba74] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
-        <h1 className="text-xl font-black text-white">Professional Records — no school account needed</h1>
-        <p className="text-white/40 text-xs mt-1">Generate CBE KICD aligned schemes, lesson plans &amp; lesson notes on your own — top up your wallet via M-Pesa, then pay KES 30 per scheme and KES 2 per lesson plan or lesson notes.</p>
+        <div className="text-[#1a2e5a] font-black text-sm leading-tight">ZARODA SCHOOL</div>
+        <div className="text-[#f5820a] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
+        <h1 className="text-xl font-black text-[#1a2e5a]">Professional Records — no school account needed</h1>
+        <p className="text-[#7a82a8] text-xs mt-1">Generate CBE KICD aligned schemes, lesson plans &amp; lesson notes on your own — top up your wallet via M-Pesa, then pay KES 30 per scheme and KES 2 per lesson plan or lesson notes.</p>
       </div>
 
       <div className="bg-white rounded-2xl p-6 shadow-modal">

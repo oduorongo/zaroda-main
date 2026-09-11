@@ -43,9 +43,9 @@ export default function LoginPage() {
       {/* Logo */}
       <div className="text-center mb-8">
         <img src="/zaroda-logo.png" alt="ZARODA" className="inline-block w-20 h-20 rounded-2xl object-cover mb-4 shadow-lg"/>
-        <h1 className="text-lg font-black text-white leading-tight">ZARODA SCHOOL</h1>
-        <h1 className="text-lg font-black text-[#fdba74] leading-tight">MANAGEMENT SYSTEM</h1>
-        <p className="text-white/40 text-[10px] mt-1 tracking-widest uppercase">INNOVATIVE. RELIABLE. FORWARD.</p>
+        <h1 className="text-lg font-black text-[#1a2e5a] leading-tight">ZARODA SCHOOL</h1>
+        <h1 className="text-lg font-black text-[#f5820a] leading-tight">MANAGEMENT SYSTEM</h1>
+        <p className="text-[#7a82a8] text-[10px] mt-1 tracking-widest uppercase">INNOVATIVE. RELIABLE. FORWARD.</p>
       </div>
 
       {/* Card */}
@@ -104,10 +104,10 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <p className="text-center mt-4 text-white/30 text-xs">
+      <p className="text-center mt-4 text-[#7a82a8] text-xs">
         Need help?{' '}
         <a href="https://wa.me/254781230805" target="_blank" rel="noopener noreferrer"
-          className="text-[#d4af37] hover:underline">
+          className="text-[#1a2e5a] font-semibold hover:underline">
           WhatsApp +254 781 230 805
         </a>
       </p>
