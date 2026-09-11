@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 // label and input readable at any time of day.
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative min-h-screen bg-[#f4f6fb] flex items-center justify-center p-4 overflow-hidden">
+    <div className="force-light relative min-h-screen bg-[#f4f6fb] flex items-center justify-center p-4 overflow-hidden">
       <div className="absolute top-0 right-0 w-96 h-96 bg-[#d4af37]/10 rounded-full blur-3xl -translate-y-20 translate-x-20"/>
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#1a2e5a]/5 rounded-full blur-3xl translate-y-20"/>
       <div className="relative z-10 w-full flex items-center justify-center">

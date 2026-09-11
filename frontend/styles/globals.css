@@ -50,6 +50,21 @@
     --shimmer-b:    #243456;
   }
 
+  /* Forces the light token values regardless of html.dark — for surfaces that
+     must always be light (public marketing pages, auth forms) even though the
+     app defaults every visitor to dark mode. Without this, .card/.input/.label
+     etc. pick up the dark tokens (dark-navy-on-dark-navy, faint labels) on
+     pages whose own layout is hardcoded light, which is unreadable. */
+  .force-light {
+    --bg:           #f4f6fb;
+    --surface:      #ffffff;
+    --surface-2:    #f4f6fb;
+    --border:       #e2e6f0;
+    --text:         #1a2040;
+    --text-muted:   #7a82a8;
+    --text-heading: #1a2e5a;
+  }
+
   body {
     @apply font-sans antialiased;
     background: var(--bg);

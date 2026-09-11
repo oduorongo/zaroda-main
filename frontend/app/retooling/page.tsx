@@ -36,7 +36,7 @@ export default function PublicRetoolingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="force-light min-h-screen bg-white">
       {/* ───── Nav ───── */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-[#e2e6f0]">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
