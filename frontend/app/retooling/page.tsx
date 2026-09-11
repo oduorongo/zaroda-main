@@ -3,6 +3,12 @@
 // articles here. Mirrors app/dashboard/retooling/page.tsx but hits the
 // unauthenticated /public/retooling endpoints and adds its own header/footer
 // since it sits outside the dashboard shell.
+//
+// Deliberately avoids the shared `.card` / `.btn-ghost` classes: those read the
+// app's light/dark CSS variables, and the site defaults every visitor to dark
+// mode (see app/layout.tsx) — so those classes rendered as dark-navy-on-dark-navy
+// here, unreadable. This page is public marketing surface, always light, so it
+// uses explicit light colors instead of the theme-variable classes.
 'use client';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -51,11 +57,14 @@ export default function PublicRetoolingPage() {
       <div className="max-w-3xl mx-auto px-4 py-12">
         {open ? (
           <div className="space-y-4">
-            <button onClick={() => setOpen(null)} className="btn-ghost text-sm"><ArrowLeft size={15}/> Back to articles</button>
+            <button onClick={() => setOpen(null)}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-[#1a2e5a] border border-[#e2e6f0] rounded-xl px-4 py-2.5 hover:bg-[#f4f6fb] transition-all">
+              <ArrowLeft size={15}/> Back to articles
+            </button>
             {openLoading ? (
               <div className="flex justify-center py-16"><Loader2 className="animate-spin text-[#7a82a8]" size={26}/></div>
             ) : (
-              <article className="card p-6 space-y-4">
+              <article className="bg-white border border-[#e2e6f0] rounded-2xl shadow-sm p-6 space-y-4">
                 <div>
                   {open.category && <div className="text-xs text-[#7a82a8] uppercase tracking-wide">{open.category}</div>}
                   <h1 className="text-2xl font-black text-[#1a2e5a] mt-1">{open.title}</h1>
@@ -86,11 +95,12 @@ export default function PublicRetoolingPage() {
             {loading ? (
               <div className="flex justify-center py-16"><Loader2 className="animate-spin text-[#7a82a8]" size={26}/></div>
             ) : articles.length === 0 ? (
-              <div className="card p-10 text-center text-[#7a82a8]">No articles yet. Check back soon.</div>
+              <div className="bg-white border border-[#e2e6f0] rounded-2xl p-10 text-center text-[#7a82a8]">No articles yet. Check back soon.</div>
             ) : (
               <div className="space-y-3">
                 {articles.map(a => (
-                  <button key={a.id} onClick={() => read(a)} className="card p-4 w-full text-left hover:shadow-md transition-all">
+                  <button key={a.id} onClick={() => read(a)}
+                    className="bg-white border border-[#e2e6f0] rounded-2xl shadow-sm p-4 w-full text-left hover:shadow-md transition-all">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-[#1a2e5a]">{a.title}</span>
                       {a.videoUrl && <Youtube size={14} className="text-red-600"/>}
