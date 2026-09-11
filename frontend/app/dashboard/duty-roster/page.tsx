@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { CalendarDays, ClipboardList, Plus, X, Loader2, Trash2, Pencil } from 'lucide-react';
+import { CalendarDays, ClipboardList, Plus, X, Loader2, Trash2, Pencil, RefreshCw } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -22,14 +22,14 @@ export default function DutyRosterPage() {
 
   const [tab, setTab] = useState<'duties' | 'activities'>('duties');
   const [loading, setLoading] = useState(true);
-  const [duties, setDuties] = useState<any[]>([]);
+  const [term, setTerm] = useState<any>(null);
   const [activities, setActivities] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
 
-  const [showDutyForm, setShowDutyForm] = useState(false);
-  const [editingDuty, setEditingDuty] = useState<any>(null);
-  const [dutyForm, setDutyForm] = useState({ teacherId: '', dutyName: '', location: '', startDate: '', endDate: '', notes: '' });
-  const [savingDuty, setSavingDuty] = useState(false);
+  const [showPublishForm, setShowPublishForm] = useState(false);
+  const [publishForm, setPublishForm] = useState({ label: '', startDate: '', totalWeeks: '12', teachersPerWeek: '1' });
+  const [publishing, setPublishing] = useState(false);
+  const [addingToWeek, setAddingToWeek] = useState<string | null>(null);
 
   const [showActivityForm, setShowActivityForm] = useState(false);
   const [editingActivity, setEditingActivity] = useState<any>(null);
@@ -39,9 +39,9 @@ export default function DutyRosterPage() {
   const load = () => {
     setLoading(true);
     Promise.all([
-      apiClient.get('/duty-roster/duties').catch(() => ({ data: [] })),
+      apiClient.get('/duty-roster/term').catch(() => ({ data: null })),
       apiClient.get('/duty-roster/activities').catch(() => ({ data: [] })),
-    ]).then(([d, a]) => { setDuties(d.data || []); setActivities(a.data || []); }).finally(() => setLoading(false));
+    ]).then(([t, a]) => { setTerm(t.data || null); setActivities(a.data || []); }).finally(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -50,39 +50,43 @@ export default function DutyRosterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin]);
 
-  // ── Duty roster ──────────────────────────────────────────
-  const openNewDuty = () => {
-    setEditingDuty(null);
-    setDutyForm({ teacherId: '', dutyName: '', location: '', startDate: '', endDate: '', notes: '' });
-    setShowDutyForm(true);
-  };
-  const openEditDuty = (d: any) => {
-    setEditingDuty(d);
-    setDutyForm({
-      teacherId: d.teacherId || '', dutyName: d.dutyName || '', location: d.location || '',
-      startDate: (d.startDate || '').slice(0, 10), endDate: (d.endDate || '').slice(0, 10), notes: d.notes || '',
+  // ── Term duty roster ──────────────────────────────────────
+  const openPublishForm = () => {
+    setPublishForm({
+      label: term?.label || '', startDate: term ? (term.startDate || '').slice(0, 10) : '',
+      totalWeeks: String(term?.totalWeeks || 12), teachersPerWeek: String(term?.teachersPerWeek || 1),
     });
-    setShowDutyForm(true);
+    setShowPublishForm(true);
   };
-  const saveDuty = async (e: React.FormEvent) => {
+  const publishTerm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dutyForm.teacherId || !dutyForm.dutyName || !dutyForm.startDate) {
-      toast.error('Teacher, duty name and start date are required.'); return;
+    if (!publishForm.label || !publishForm.startDate || !publishForm.totalWeeks) {
+      toast.error('Term label, start date and number of weeks are required.'); return;
     }
-    setSavingDuty(true);
+    if (term && !confirm('Publishing a new term roster replaces the current one for every teacher. Continue?')) return;
+    setPublishing(true);
     try {
-      if (editingDuty) await apiClient.patch(`/duty-roster/duties/${editingDuty.id}`, dutyForm);
-      else await apiClient.post('/duty-roster/duties', dutyForm);
-      toast.success(editingDuty ? 'Duty updated.' : 'Duty assigned.');
-      setShowDutyForm(false);
+      await apiClient.post('/duty-roster/term', publishForm);
+      toast.success('Term roster published.');
+      setShowPublishForm(false);
       load();
-    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save duty.'); }
-    finally { setSavingDuty(false); }
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not publish term roster.'); }
+    finally { setPublishing(false); }
   };
-  const deleteDuty = async (id: string) => {
-    if (!confirm('Remove this duty assignment?')) return;
-    try { await apiClient.delete(`/duty-roster/duties/${id}`); toast.success('Duty removed.'); load(); }
-    catch { toast.error('Could not remove duty.'); }
+  const clearTerm = async () => {
+    if (!confirm('Clear the published roster? Teachers will no longer see it until you publish a new one.')) return;
+    try { await apiClient.delete('/duty-roster/term'); toast.success('Roster cleared.'); load(); }
+    catch { toast.error('Could not clear roster.'); }
+  };
+  const addTeacherToWeek = async (weekId: string, teacherId: string) => {
+    if (!teacherId) return;
+    try { await apiClient.post(`/duty-roster/weeks/${weekId}/teachers`, { teacherId }); load(); }
+    catch (err: any) { toast.error(err?.response?.data?.message || 'Could not assign teacher.'); }
+    finally { setAddingToWeek(null); }
+  };
+  const removeTeacherFromWeek = async (weekId: string, teacherId: string) => {
+    try { await apiClient.delete(`/duty-roster/weeks/${weekId}/teachers/${teacherId}`); load(); }
+    catch { toast.error('Could not remove teacher.'); }
   };
 
   // ── Activities calendar ──────────────────────────────────
@@ -146,34 +150,64 @@ export default function DutyRosterPage() {
       ) : tab === 'duties' ? (
         <div className="space-y-3">
           {admin && (
-            <button onClick={openNewDuty} className="btn-primary text-sm"><Plus size={15}/> Assign Duty</button>
-          )}
-          {duties.length === 0 ? (
-            <div className="card p-10 text-center text-theme-muted">No duty assignments yet{admin ? ' — tap "Assign Duty" to add one.' : '.'}</div>
-          ) : (
-            <div className="space-y-2">
-              {duties.map((d: any) => (
-                <div key={d.id} className="card p-4 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-theme-heading">{d.dutyName}</span>
-                      <span className="badge bg-[#1a2e5a]/10 text-[#1a2e5a]">{d.teacherName || 'Unassigned'}</span>
-                    </div>
-                    <p className="text-xs text-theme-muted mt-1">
-                      {fmtDate(d.startDate)}{d.endDate && d.endDate !== d.startDate ? ` – ${fmtDate(d.endDate)}` : ''}
-                      {d.location ? ` · ${d.location}` : ''}
-                    </p>
-                    {d.notes && <p className="text-sm text-theme-muted mt-1.5">{d.notes}</p>}
-                  </div>
-                  {admin && (
-                    <div className="flex gap-1 flex-shrink-0">
-                      <button onClick={() => openEditDuty(d)} className="p-2 rounded-lg text-theme-muted hover:bg-surface-2 hover:text-theme-heading"><Pencil size={15}/></button>
-                      <button onClick={() => deleteDuty(d.id)} className="p-2 rounded-lg text-red-500 hover:bg-red-50"><Trash2 size={15}/></button>
-                    </div>
-                  )}
-                </div>
-              ))}
+            <div className="flex gap-2">
+              <button onClick={openPublishForm} className="btn-primary text-sm">
+                {term ? <><RefreshCw size={15}/> Republish Term Roster</> : <><Plus size={15}/> Publish Term Roster</>}
+              </button>
+              {term && <button onClick={clearTerm} className="btn-ghost text-sm text-red-500"><Trash2 size={15}/> Clear</button>}
             </div>
+          )}
+          {!term ? (
+            <div className="card p-10 text-center text-theme-muted">
+              No duty roster published yet{admin ? ' — tap "Publish Term Roster" to set one up for the whole term.' : '.'}
+            </div>
+          ) : (
+            <>
+              <div className="card p-4">
+                <p className="font-bold text-theme-heading">{term.label}</p>
+                <p className="text-xs text-theme-muted mt-0.5">
+                  {term.totalWeeks} weeks from {fmtDate(term.startDate)}
+                  {term.createdByName ? ` · Published by ${term.createdByName}` : ''}
+                </p>
+              </div>
+              <div className="space-y-2">
+                {(term.weeks || []).map((w: any) => (
+                  <div key={w.id} className="card p-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-theme-heading">Week {w.weekNumber}</span>
+                        <span className="text-xs text-theme-muted">{fmtDate(w.startDate)} – {fmtDate(w.endDate)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                        {w.teachers.length === 0 && <span className="text-sm text-theme-muted">No teacher assigned.</span>}
+                        {w.teachers.map((t: any) => (
+                          <span key={t.id} className="badge bg-[#1a2e5a]/10 text-[#1a2e5a] flex items-center gap-1">
+                            {t.teacherName || 'Unnamed'}
+                            {admin && (
+                              <button onClick={() => removeTeacherFromWeek(w.id, t.teacherId)} className="hover:text-red-500"><X size={12}/></button>
+                            )}
+                          </span>
+                        ))}
+                        {admin && (
+                          addingToWeek === w.id ? (
+                            <select autoFocus defaultValue="" onChange={e => addTeacherToWeek(w.id, e.target.value)}
+                              onBlur={() => setAddingToWeek(null)} className="input !py-1 !text-xs !w-auto">
+                              <option value="" disabled>Select teacher…</option>
+                              {teachers.filter((t: any) => !w.teachers.some((wt: any) => wt.teacherId === t.id)).map((t: any) =>
+                                <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
+                            </select>
+                          ) : (
+                            <button onClick={() => setAddingToWeek(w.id)} className="text-xs font-semibold text-[#1a2e5a] hover:underline flex items-center gap-0.5">
+                              <Plus size={12}/> Add teacher
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       ) : (
@@ -212,48 +246,43 @@ export default function DutyRosterPage() {
         </div>
       )}
 
-      {/* Duty form modal */}
-      {showDutyForm && (
+      {/* Publish term roster modal */}
+      {showPublishForm && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg my-8 mt-16">
             <div className="flex items-center justify-between p-5 border-b border-theme">
-              <h3 className="text-lg font-bold text-theme-heading">{editingDuty ? 'Edit Duty' : 'Assign Duty'}</h3>
-              <button onClick={() => setShowDutyForm(false)}><X size={20} className="text-theme-muted"/></button>
+              <h3 className="text-lg font-bold text-theme-heading">{term ? 'Republish Term Roster' : 'Publish Term Roster'}</h3>
+              <button onClick={() => setShowPublishForm(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
-            <form onSubmit={saveDuty} className="p-5 space-y-4">
+            <form onSubmit={publishTerm} className="p-5 space-y-4">
+              {term && (
+                <p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-2.5">
+                  This replaces the roster every teacher currently sees. Their existing week-by-week assignments will need to be re-added.
+                </p>
+              )}
               <div>
-                <label className="label">Teacher *</label>
-                <select required value={dutyForm.teacherId} onChange={e => setDutyForm(f => ({ ...f, teacherId: e.target.value }))} className="input">
-                  <option value="">Select a teacher…</option>
-                  {teachers.map((t: any) => <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Duty *</label>
-                <input required value={dutyForm.dutyName} onChange={e => setDutyForm(f => ({ ...f, dutyName: e.target.value }))} className="input" placeholder="e.g. Gate Duty, Assembly, Dining Hall"/>
+                <label className="label">Term *</label>
+                <input required value={publishForm.label} onChange={e => setPublishForm(f => ({ ...f, label: e.target.value }))} className="input" placeholder="e.g. Term 2, 2026"/>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Start date *</label>
-                  <input required type="date" value={dutyForm.startDate} onChange={e => setDutyForm(f => ({ ...f, startDate: e.target.value }))} className="input"/>
+                  <label className="label">Term start date *</label>
+                  <input required type="date" value={publishForm.startDate} onChange={e => setPublishForm(f => ({ ...f, startDate: e.target.value }))} className="input"/>
                 </div>
                 <div>
-                  <label className="label">End date</label>
-                  <input type="date" value={dutyForm.endDate} onChange={e => setDutyForm(f => ({ ...f, endDate: e.target.value }))} className="input" placeholder="Same as start if left blank"/>
+                  <label className="label">Number of weeks *</label>
+                  <input required type="number" min={1} max={20} value={publishForm.totalWeeks} onChange={e => setPublishForm(f => ({ ...f, totalWeeks: e.target.value }))} className="input"/>
                 </div>
               </div>
               <div>
-                <label className="label">Location</label>
-                <input value={dutyForm.location} onChange={e => setDutyForm(f => ({ ...f, location: e.target.value }))} className="input" placeholder="Optional"/>
-              </div>
-              <div>
-                <label className="label">Notes</label>
-                <textarea value={dutyForm.notes} onChange={e => setDutyForm(f => ({ ...f, notes: e.target.value }))} className="input" rows={2}/>
+                <label className="label">Teachers on duty per week</label>
+                <input type="number" min={1} max={10} value={publishForm.teachersPerWeek} onChange={e => setPublishForm(f => ({ ...f, teachersPerWeek: e.target.value }))} className="input"/>
+                <p className="text-xs text-theme-muted mt-1">A starting point — pick more for a bigger school, fewer for a smaller one. You can still add or remove teachers on any individual week afterwards.</p>
               </div>
               <div className="flex gap-3 border-t border-theme pt-4">
-                <button type="button" onClick={() => setShowDutyForm(false)} className="btn-ghost flex-1">Cancel</button>
-                <button type="submit" disabled={savingDuty} className="btn-primary flex-1">
-                  {savingDuty ? <><Loader2 size={14} className="animate-spin"/> Saving…</> : 'Save'}
+                <button type="button" onClick={() => setShowPublishForm(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="submit" disabled={publishing} className="btn-primary flex-1">
+                  {publishing ? <><Loader2 size={14} className="animate-spin"/> Publishing…</> : 'Publish'}
                 </button>
               </div>
             </form>

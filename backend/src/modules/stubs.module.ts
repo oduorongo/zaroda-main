@@ -2571,13 +2571,17 @@ export class DisciplineModule {}
 // ═══════════════════════════════════════════════════════════
 const ADMIN_ROSTER_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
 
-@Entity('duty_roster')
-class DutyRosterEntry {
+// A term roster is published ONCE for the whole term: the admin gives a term
+// label, start date and week count, the system lays out Week 1..N with dates,
+// and each week can carry one or more teachers on duty (however many the
+// school needs — small schools might rotate one teacher a week, bigger ones
+// two or three). Only one term roster is "active" per tenant at a time;
+// publishing a new one archives the old rather than deleting it outright.
+@Entity('duty_roster_terms')
+class DutyRosterTermEntry {
   @PrimaryGeneratedColumn('uuid') id:         string;
   @Column({ name: 'tenant_id' })  tenantId:   string;
-  @Column({ name: 'teacher_id', nullable: true }) teacherId: string;
-  @Column({ name: 'duty_name', nullable: true })  dutyName:  string;
-  @Column({ name: 'start_date', nullable: true })  startDate: string;
+  @Column({ nullable: true })     label:      string;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
@@ -2610,11 +2614,19 @@ class DutyRosterController {
   }
 
   private async ensureTables() {
-    await this.ds.query(`CREATE TABLE IF NOT EXISTS duty_roster (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
-    for (const [n, t] of [['school_id','uuid'],['teacher_id','uuid'],['teacher_name','text'],
-      ['duty_name','text'],['location','text'],['start_date','date'],['end_date','date'],
-      ['notes','text'],['created_by','uuid'],['created_by_name','text'],['updated_at','timestamptz DEFAULT NOW()']] as [string,string][]) {
-      await this.ds.query(`ALTER TABLE duty_roster ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS duty_roster_terms (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['school_id','uuid'],['label','text'],['start_date','date'],
+      ['total_weeks','int'],['teachers_per_week','int DEFAULT 1'],['is_active','boolean DEFAULT true'],
+      ['created_by','uuid'],['created_by_name','text']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE duty_roster_terms ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS duty_roster_weeks (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['term_id','uuid'],['week_number','int'],['start_date','date'],['end_date','date']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE duty_roster_weeks ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE TABLE IF NOT EXISTS duty_roster_assignments (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
+    for (const [n, t] of [['week_id','uuid'],['teacher_id','uuid'],['teacher_name','text']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE duty_roster_assignments ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
     }
     await this.ds.query(`CREATE TABLE IF NOT EXISTS school_activities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW())`).catch(() => null);
     for (const [n, t] of [['school_id','uuid'],['title','text'],['description','text'],
@@ -2625,80 +2637,118 @@ class DutyRosterController {
     }
   }
 
-  // ── Duty roster ─────────────────────────────────────────
-  @Get('duties')
-  async listDuties(@Request() req: any, @Query('from') from?: string, @Query('to') to?: string) {
+  // ── Duty roster (published once for the whole term) ─────
+  @Get('term')
+  async getTerm(@Request() req: any) {
     await this.ensureTables();
-    return this.ds.query(
-      `SELECT id, teacher_id AS "teacherId", teacher_name AS "teacherName", duty_name AS "dutyName",
-              location, start_date AS "startDate", end_date AS "endDate", notes,
-              created_by_name AS "createdByName", created_at AS "createdAt"
-         FROM duty_roster
-        WHERE tenant_id = $1
-          AND ($2::date IS NULL OR end_date IS NULL OR end_date >= $2::date)
-          AND ($3::date IS NULL OR start_date IS NULL OR start_date <= $3::date)
-        ORDER BY start_date ASC NULLS LAST, created_at DESC`,
-      [req.user.tenantId, from || null, to || null],
+    const terms = await this.ds.query(
+      `SELECT id, label, start_date AS "startDate", total_weeks AS "totalWeeks",
+              teachers_per_week AS "teachersPerWeek", created_by_name AS "createdByName", created_at AS "createdAt"
+         FROM duty_roster_terms WHERE tenant_id = $1 AND is_active = true
+        ORDER BY created_at DESC LIMIT 1`,
+      [req.user.tenantId],
     ).catch(() => []);
+    const term = terms[0];
+    if (!term) return null;
+    const weeks = await this.ds.query(
+      `SELECT id, week_number AS "weekNumber", start_date AS "startDate", end_date AS "endDate"
+         FROM duty_roster_weeks WHERE term_id = $1 AND tenant_id = $2 ORDER BY week_number ASC`,
+      [term.id, req.user.tenantId],
+    ).catch(() => []);
+    const assignments = await this.ds.query(
+      `SELECT a.id, a.week_id AS "weekId", a.teacher_id AS "teacherId", a.teacher_name AS "teacherName"
+         FROM duty_roster_assignments a
+         JOIN duty_roster_weeks w ON w.id = a.week_id
+        WHERE w.term_id = $1 AND a.tenant_id = $2`,
+      [term.id, req.user.tenantId],
+    ).catch(() => []);
+    return {
+      ...term,
+      weeks: weeks.map((w: any) => ({ ...w, teachers: assignments.filter((a: any) => a.weekId === w.id) })),
+    };
   }
 
-  @Post('duties')
-  async createDuty(@Request() req: any, @Body() dto: any) {
+  @Post('term')
+  async publishTerm(@Request() req: any, @Body() dto: any) {
     this.assertAdmin(req);
     await this.ensureTables();
-    if (!dto.teacherId || !dto.dutyName || !dto.startDate) {
-      throw new BadRequestException('Teacher, duty name and start date are required.');
+    if (!dto.label || !dto.startDate || !dto.totalWeeks) {
+      throw new BadRequestException('Term label, start date and number of weeks are required.');
     }
-    const teacherRow = await this.ds.query(
+    const totalWeeks = Math.max(1, Math.min(52, parseInt(dto.totalWeeks, 10) || 0));
+    const teachersPerWeek = Math.max(1, parseInt(dto.teachersPerWeek, 10) || 1);
+    const creatorName = await this.creatorName(req.user.id);
+
+    // A new publish replaces the current roster — archive, don't delete, so history isn't lost.
+    await this.ds.query(`UPDATE duty_roster_terms SET is_active = false WHERE tenant_id = $1`, [req.user.tenantId]).catch(() => null);
+
+    const termRows = await this.ds.query(
+      `INSERT INTO duty_roster_terms
+         (tenant_id, school_id, label, start_date, total_weeks, teachers_per_week, is_active, created_by, created_by_name, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8,NOW())
+       RETURNING id, label, start_date AS "startDate", total_weeks AS "totalWeeks", teachers_per_week AS "teachersPerWeek"`,
+      [req.user.tenantId, req.user.schoolId || null, dto.label, dto.startDate, totalWeeks, teachersPerWeek, req.user.id, creatorName],
+    ).catch((e: any) => { throw new BadRequestException(`Could not publish term roster: ${e.message}`); });
+    const term = termRows[0];
+
+    const start = new Date(dto.startDate + 'T00:00:00');
+    const weeks: any[] = [];
+    for (let i = 0; i < totalWeeks; i++) {
+      const weekStart = new Date(start); weekStart.setDate(weekStart.getDate() + i * 7);
+      const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+      const rows = await this.ds.query(
+        `INSERT INTO duty_roster_weeks (tenant_id, term_id, week_number, start_date, end_date, created_at)
+         VALUES ($1,$2,$3,$4,$5,NOW())
+         RETURNING id, week_number AS "weekNumber", start_date AS "startDate", end_date AS "endDate"`,
+        [req.user.tenantId, term.id, i + 1, weekStart.toISOString().slice(0, 10), weekEnd.toISOString().slice(0, 10)],
+      ).catch(() => []);
+      if (rows[0]) weeks.push({ ...rows[0], teachers: [] });
+    }
+    return { ...term, weeks };
+  }
+
+  @Delete('term')
+  async clearTerm(@Request() req: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(`UPDATE duty_roster_terms SET is_active = false WHERE tenant_id = $1`, [req.user.tenantId]).catch(() => null);
+    return { cleared: true };
+  }
+
+  @Post('weeks/:weekId/teachers')
+  async assignWeekTeacher(@Request() req: any, @Param('weekId') weekId: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto.teacherId) throw new BadRequestException('Teacher is required.');
+    const week = (await this.ds.query(`SELECT id FROM duty_roster_weeks WHERE id::text = $1 AND tenant_id = $2`, [weekId, req.user.tenantId]).catch(() => []))[0];
+    if (!week) throw new BadRequestException('Week not found.');
+    const existing = await this.ds.query(
+      `SELECT id FROM duty_roster_assignments WHERE week_id::text = $1 AND teacher_id::text = $2 AND tenant_id = $3`,
+      [weekId, dto.teacherId, req.user.tenantId],
+    ).catch(() => []);
+    if (existing[0]) return existing[0];
+    const teacherRow = (await this.ds.query(
       `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
       [dto.teacherId],
-    ).catch(() => []);
-    const teacherName = teacherRow[0] ? `${teacherRow[0].firstName} ${teacherRow[0].lastName}`.trim() : null;
-    const creatorName = await this.creatorName(req.user.id);
+    ).catch(() => []))[0];
+    const teacherName = teacherRow ? `${teacherRow.firstName} ${teacherRow.lastName}`.trim() : null;
     const rows = await this.ds.query(
-      `INSERT INTO duty_roster
-         (tenant_id, school_id, teacher_id, teacher_name, duty_name, location, start_date, end_date,
-          notes, created_by, created_by_name, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
-       RETURNING id, teacher_id AS "teacherId", teacher_name AS "teacherName", duty_name AS "dutyName",
-                 location, start_date AS "startDate", end_date AS "endDate", notes`,
-      [req.user.tenantId, req.user.schoolId || null, dto.teacherId, teacherName, dto.dutyName,
-       dto.location || null, dto.startDate, dto.endDate || dto.startDate, dto.notes || null,
-       req.user.id, creatorName],
-    ).catch((e: any) => { throw new BadRequestException(`Could not create duty entry: ${e.message}`); });
+      `INSERT INTO duty_roster_assignments (tenant_id, week_id, teacher_id, teacher_name, created_at)
+       VALUES ($1,$2,$3,$4,NOW())
+       RETURNING id, week_id AS "weekId", teacher_id AS "teacherId", teacher_name AS "teacherName"`,
+      [req.user.tenantId, weekId, dto.teacherId, teacherName],
+    ).catch((e: any) => { throw new BadRequestException(`Could not assign teacher: ${e.message}`); });
     return rows[0];
   }
 
-  @Patch('duties/:id')
-  async updateDuty(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+  @Delete('weeks/:weekId/teachers/:teacherId')
+  async unassignWeekTeacher(@Request() req: any, @Param('weekId') weekId: string, @Param('teacherId') teacherId: string) {
     this.assertAdmin(req);
-    await this.ensureTables();
-    let teacherName: string | null | undefined;
-    if (dto.teacherId) {
-      const teacherRow = await this.ds.query(
-        `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1`,
-        [dto.teacherId],
-      ).catch(() => []);
-      teacherName = teacherRow[0] ? `${teacherRow[0].firstName} ${teacherRow[0].lastName}`.trim() : null;
-    }
     await this.ds.query(
-      `UPDATE duty_roster SET
-         teacher_id = COALESCE($3, teacher_id), teacher_name = COALESCE($4, teacher_name),
-         duty_name = COALESCE($5, duty_name), location = COALESCE($6, location),
-         start_date = COALESCE($7, start_date), end_date = COALESCE($8, end_date),
-         notes = COALESCE($9, notes), updated_at = NOW()
-       WHERE id::text = $1 AND tenant_id = $2`,
-      [id, req.user.tenantId, dto.teacherId || null, teacherName || null, dto.dutyName || null,
-       dto.location || null, dto.startDate || null, dto.endDate || null, dto.notes || null],
-    ).catch((e: any) => { throw new BadRequestException(`Could not update duty entry: ${e.message}`); });
-    return { id, ...dto };
-  }
-
-  @Delete('duties/:id')
-  async deleteDuty(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
-    await this.ds.query(`DELETE FROM duty_roster WHERE id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
-    return { deleted: true };
+      `DELETE FROM duty_roster_assignments WHERE week_id::text = $1 AND teacher_id::text = $2 AND tenant_id = $3`,
+      [weekId, teacherId, req.user.tenantId],
+    ).catch(() => null);
+    return { removed: true };
   }
 
   // ── School activities calendar ──────────────────────────
@@ -2767,7 +2817,7 @@ class DutyRosterController {
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([DutyRosterEntry, SchoolActivityEntry])],
+  imports: [TypeOrmModule.forFeature([DutyRosterTermEntry, SchoolActivityEntry])],
   controllers: [DutyRosterController],
 })
 export class DutyRosterModule {}
