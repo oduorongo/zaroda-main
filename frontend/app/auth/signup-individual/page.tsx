@@ -67,7 +67,7 @@ function SignupIndividualForm() {
         <div className="text-[#1a2e5a] font-black text-sm leading-tight">ZARODA SCHOOL</div>
         <div className="text-[#f5820a] font-black text-sm leading-tight mb-2">MANAGEMENT SYSTEM</div>
         <h1 className="text-xl font-black text-[#1a2e5a]">Professional Records — no school account needed</h1>
-        <p className="text-[#7a82a8] text-xs mt-1">Generate CBE KICD aligned schemes, lesson plans &amp; lesson notes on your own — top up your wallet via M-Pesa, then pay KES 30 per scheme and KES 2 per lesson plan or lesson notes.</p>
+        <p className="text-[#7a82a8] text-xs mt-1">Generate CBE KICD aligned schemes, lesson plans &amp; lesson notes on your own. Your first Scheme of Work is free — after that, top up your wallet via M-Pesa and pay KES 30 per scheme and KES 2 per lesson plan or lesson notes.</p>
       </div>
 
       <div className="bg-white rounded-2xl p-6 shadow-modal">

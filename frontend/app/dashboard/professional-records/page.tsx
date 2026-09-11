@@ -102,7 +102,12 @@ export default function ProfessionalRecordsPage() {
   const [regenerateComment, setRegenerateComment] = useState('');
   // Regenerating a rejected scheme is discounted KES 15 off — kept in sync with
   // the backend's own discount logic in SchemeService.generate().
-  const schemePrice = regenerateComment ? ITEM_PRICES.scheme - 15 : ITEM_PRICES.scheme;
+  // First-scheme-free incentive for individual teachers: mirrors the backend's
+  // own check (SchemeService.generate()) — no prior generation of any kind yet.
+  // This is just a display estimate for the price banner; the server enforces
+  // the real rule and always wins if this heuristic is ever wrong.
+  const firstSchemeFree = individual && !regenerateComment && schemes.length === 0 && plans.length === 0 && notes.length === 0;
+  const schemePrice = firstSchemeFree ? 0 : regenerateComment ? ITEM_PRICES.scheme - 15 : ITEM_PRICES.scheme;
 
   const [wallet, setWallet] = useState<{ balance: number } | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
@@ -310,7 +315,9 @@ export default function ProfessionalRecordsPage() {
         columns: selectedColumns,
         defaultFont: form.font,
       }, { timeout: 300000 }); // a full-term scheme is generated in several sequential AI calls (2 weeks at a time) and can take minutes
-      toast.success(`Scheme of work generated (KES ${schemePrice} deducted from wallet). Review and submit when ready.`);
+      toast.success(gen?.wasFree
+        ? `Scheme of work generated — your first one's free! Review and submit when ready.`
+        : `Scheme of work generated (KES ${schemePrice} deducted from wallet). Review and submit when ready.`);
       setShowNewScheme(false);
       setRegenerateComment('');
       load();
@@ -918,14 +925,18 @@ export default function ProfessionalRecordsPage() {
               </fieldset>
 
               <div className={`rounded-xl border p-3 text-xs flex items-center justify-between gap-3 ${
-                (wallet?.balance ?? 0) < schemePrice ? 'bg-red-50 border-red-200 text-red-700' : 'bg-purple-50 border-purple-200 text-purple-700'
+                firstSchemeFree ? 'bg-green-50 border-green-200 text-green-700'
+                  : (wallet?.balance ?? 0) < schemePrice ? 'bg-red-50 border-red-200 text-red-700' : 'bg-purple-50 border-purple-200 text-purple-700'
               }`}>
                 <div>
                   <Sparkles size={12} className="inline mr-1"/>
-                  {regenerateComment
+                  {firstSchemeFree
+                    ? <>Your first Scheme of Work is <b>free</b> — no wallet debit. Top up any time before generating your next one.</>
+                    : regenerateComment
                     ? <>Regenerating a rejected scheme costs a discounted KES {schemePrice} (KES 15 off) from your wallet.</>
-                    : <>Generating a scheme costs KES {schemePrice} from your wallet.</>} Wallet balance: <b>KES {wallet?.balance ?? '…'}</b>.
-                  {(wallet?.balance ?? 0) < schemePrice && ' Top up to continue.'}
+                    : <>Generating a scheme costs KES {schemePrice} from your wallet.</>}
+                  {!firstSchemeFree && <> Wallet balance: <b>KES {wallet?.balance ?? '…'}</b>.</>}
+                  {!firstSchemeFree && (wallet?.balance ?? 0) < schemePrice && ' Top up to continue.'}
                 </div>
                 <button type="button" onClick={() => setShowTopUp(true)} className="btn-ghost text-xs py-1 px-2 flex-shrink-0">Top Up</button>
               </div>
@@ -934,7 +945,7 @@ export default function ProfessionalRecordsPage() {
                 <button type="submit" disabled={generating} className="btn-primary flex-1">
                   {generating
                     ? <><Loader2 size={14} className="animate-spin"/> Generating…</>
-                    : <><Sparkles size={14}/> {regenerateComment ? 'Regenerate' : 'Generate'} (KES {schemePrice})</>}
+                    : <><Sparkles size={14}/> {regenerateComment ? 'Regenerate' : 'Generate'} {firstSchemeFree ? '(Free)' : `(KES ${schemePrice})`}</>}
                 </button>
               </div>
             </form>

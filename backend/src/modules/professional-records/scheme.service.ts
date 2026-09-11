@@ -163,7 +163,21 @@ export class SchemeService {
     }
     // Regenerating a rejected scheme (same subject/stream/term) is discounted —
     // the teacher is redoing work an HOI already sent back, not starting fresh.
-    const price = existing?.status === 'rejected' ? Math.max(0, ITEM_PRICE_KES.scheme - 15) : undefined;
+    let price: number | undefined = existing?.status === 'rejected'
+      ? Math.max(0, ITEM_PRICE_KES.scheme - 15)
+      : undefined;
+
+    // First-scheme-free incentive for individual (no-school) teachers — lets
+    // someone try the product before ever topping up a wallet. Only the very
+    // first generation of any kind (scheme, lesson plan, or notes) qualifies,
+    // so it can't be re-triggered by generating one scheme per subject/term.
+    if (price === undefined && isIndividual) {
+      const priorDebits = await this.dataSource.query(
+        `SELECT 1 FROM pr_wallet_transactions WHERE tenant_id::text = $1 AND teacher_id::text = $2 AND type = 'debit' LIMIT 1`,
+        [tenantId, teacherId],
+      ).catch(() => [1]); // fail safe: on query error, don't hand out a free one
+      if (priorDebits.length === 0) price = 0;
+    }
 
     // Wallet-based, not subscription: every generator (teachers, HOI, admin — no
     // exemptions) must have enough wallet balance before we spend AI tokens
@@ -217,7 +231,10 @@ export class SchemeService {
         lessonsPerWeek,
       });
       await manager.save(SchemeOfWork, scheme);
-      await this.walletService.debit(tenantId, teacherId, 'scheme', scheme.id, manager, price);
+      await this.walletService.debit(
+        tenantId, teacherId, 'scheme', scheme.id, manager, price,
+        price === 0 ? 'Scheme of Work — first one free!' : undefined,
+      );
 
       for (const [i, w] of weeks.entries()) {
         await manager.save(SchemeWeek, manager.create(SchemeWeek, {
@@ -246,7 +263,10 @@ export class SchemeService {
         title,
         totalWeeks: weeks.length,
         status: 'draft',
-        message: `Scheme of Work generated: ${weeks.length} weeks. Review and submit for approval.`,
+        wasFree: price === 0,
+        message: price === 0
+          ? `Scheme of Work generated: ${weeks.length} weeks — your first one's on us! Review and submit for approval.`
+          : `Scheme of Work generated: ${weeks.length} weeks. Review and submit for approval.`,
       };
     });
   }

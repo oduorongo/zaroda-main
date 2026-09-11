@@ -172,6 +172,7 @@ export class WalletService {
   async debit(
     tenantId: string, teacherId: string, itemType: PrItemType,
     referenceId?: string, manager?: EntityManager, overridePrice?: number,
+    descriptionOverride?: string,
   ) {
     const run = async (m: EntityManager) => {
       const walletRepo = m.getRepository(PrWallet);
@@ -196,7 +197,7 @@ export class WalletService {
       await walletRepo.update(wallet.id, { balance: balanceAfter });
       await m.getRepository(PrWalletTransaction).save(m.getRepository(PrWalletTransaction).create({
         tenantId, teacherId, type: 'debit', amount: price, balanceAfter,
-        description: ITEM_LABEL[itemType], referenceType: itemType, referenceId, status: 'completed',
+        description: descriptionOverride || ITEM_LABEL[itemType], referenceType: itemType, referenceId, status: 'completed',
       }));
 
       // Referral bonus: only on this teacher's very first-ever debit (this row we
