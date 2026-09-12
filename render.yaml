@@ -55,11 +55,17 @@ services:
         sync: false        # e.g. https://zaroda-web.onrender.com
       - key: APP_URL
         sync: false        # e.g. https://zaroda-api.onrender.com
-      # Chromium for server-side PDF (Render images include it at this path).
-      - key: PUPPETEER_EXECUTABLE_PATH
-        value: /usr/bin/google-chrome-stable
-      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-        value: "true"
+      # Chromium for server-side PDF generation (scheme/lesson-plan/lesson-notes
+      # PDF downloads — see src/common/pdf-export.service.ts). Render's plain
+      # Node "web" runtime does NOT ship Chrome at /usr/bin/google-chrome-stable
+      # — that was a wrong assumption; combined with SKIP_CHROMIUM_DOWNLOAD=true
+      # below, it meant puppeteer's postinstall never fetched a Chromium AND the
+      # hardcoded path pointed at nothing, so every PDF download 500'd with "No
+      # Chromium/Chrome found". Deleting both lets puppeteer's normal postinstall
+      # download its own bundled Chromium during `npm install` at build time —
+      # the standard approach for Node+Puppeteer on Render, no extra setup
+      # needed. After merging this, trigger a "Clear build cache & deploy" on
+      # zaroda-api in the Render dashboard so the postinstall actually re-runs.
       # Integrations — fill these in the Render dashboard (kept secret).
       - key: ANTHROPIC_API_KEY
         sync: false
