@@ -4,11 +4,12 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
-  Sparkles, Bell, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
+  Sparkles, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
   CalendarDays,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
+import { NotificationBell } from '@/components/NotificationBell';
 import { useTheme } from '@/lib/hooks/useTheme';
 import toast from 'react-hot-toast';
 
@@ -169,9 +170,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
             <button onClick={toggle} className="p-2 rounded-xl text-theme-muted hover:bg-surface-2 hover:text-theme-heading">
               {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
             </button>
-            <button className="relative p-2 rounded-xl text-theme-muted hover:bg-surface-2 hover:text-theme-heading">
-              <Bell size={18}/><span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#f5820a] rounded-full"/>
-            </button>
+            <NotificationBell/>
             <div className="w-8 h-8 rounded-xl bg-[#1a2e5a] flex items-center justify-center text-xs font-bold text-[#d4af37]">{initials}</div>
           </div>
         </header>

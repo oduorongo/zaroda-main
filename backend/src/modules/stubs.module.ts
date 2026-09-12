@@ -5,7 +5,7 @@
 // Replace each stub with the full service as you build out.
 // ============================================================
 
-import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Request, Res, UseGuards, BadRequestException, ForbiddenException, Injectable, HttpCode, HttpStatus } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -1487,6 +1487,47 @@ class CommunicationController {
       sms: wantsSms ? { sent: smsSent, failed: smsFailed, detail: smsDetail } : undefined,
       email: wantsEmail ? { sent: emailSent, failed: emailFailed, detail: emailDetail } : undefined,
     };
+  }
+
+  // ── IN-APP NOTIFICATION BELL ───────────────────────────────
+  // The bell icon in both dashboards used to be decorative — no data behind it.
+  // This reads the same `announcements` table admins already publish to (and
+  // that an owner cross-tenant broadcast now also writes into, see
+  // AdminController.sendBroadcast below), filtered to whatever this viewer's
+  // role is meant to see, with real read/unread state via `announcement_reads`.
+  private roleToAudience(role: string): string {
+    if (['class_teacher', 'subject_teacher', 'overall_class_teacher'].includes(role)) return 'teachers';
+    if (['tenant_owner', 'school_admin', 'hoi', 'dhois'].includes(role)) return 'admins';
+    if (role === 'parent') return 'parents';
+    if (role === 'learner') return 'learners';
+    return 'all';
+  }
+
+  @Get('notifications')
+  async getNotifications(@Request() req: any) {
+    const audience = this.roleToAudience(req.user.role);
+    const rows = await this.ds.query(
+      `SELECT a.id, a.title, a.body, a.category, a.priority, a.created_at AS "createdAt",
+              (ar.id IS NOT NULL) AS "isRead"
+         FROM announcements a
+         LEFT JOIN announcement_reads ar ON ar.announcement_id = a.id AND ar.user_id = $2
+        WHERE a.tenant_id::text = $1 AND a.is_published = true AND a.deleted_at IS NULL
+          AND (a.expires_at IS NULL OR a.expires_at > NOW())
+          AND (a.audience = 'all' OR a.audience = $3)
+        ORDER BY a.created_at DESC LIMIT 30`,
+      [req.user.tenantId, req.user.id, audience],
+    ).catch(() => []);
+    return { unreadCount: rows.filter((r: any) => !r.isRead).length, notifications: rows };
+  }
+
+  @Post('notifications/:id/read')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async markNotificationRead(@Request() req: any, @Param('id') id: string) {
+    await this.ds.query(
+      `INSERT INTO announcement_reads (tenant_id, announcement_id, user_id)
+       VALUES ($1, $2, $3) ON CONFLICT (announcement_id, user_id) DO NOTHING`,
+      [req.user.tenantId, id, req.user.id],
+    ).catch(() => null);
   }
 }
 
@@ -4128,19 +4169,35 @@ class AdminController {
     return { credited: true, amountKes: BONUS_KES };
   }
 
+  // Shared WHERE clause for an owner broadcast's audience — 'admins' (HOI/admin/
+  // owner roles across every school), 'individual' (individual, no-school teacher
+  // accounts only — each is a one-person tenant, so this is the only way to reach
+  // just them without also messaging every school's staff/parents), or 'all'
+  // (every active user platform-wide, individual accounts included).
+  private broadcastWhere(audience: string): { where: string; params: any[] } {
+    const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
+    if (audience === 'individual') {
+      return {
+        where: `COALESCE(u.is_active, true) = true AND u.tenant_id IN (SELECT id FROM tenants WHERE account_type = 'individual')`,
+        params: [],
+      };
+    }
+    if (audience === 'admins') {
+      return { where: `COALESCE(u.is_active, true) = true AND u.role = ANY($1)`, params: [adminRoles] };
+    }
+    return { where: `COALESCE(u.is_active, true) = true AND u.role <> 'super_admin'`, params: [] };
+  }
+
   // Gather broadcast recipients across ALL schools for an owner message. audience:
-  // 'admins' (HOI/admin/owner roles) or 'all' (every active user). Returns names with
-  // phones + emails so the owner can message via WhatsApp / email / SMS. This works
-  // with no external credentials (WhatsApp links, mailto); SMS sending where configured.
+  // 'admins' (HOI/admin/owner roles), 'individual' (individual accounts only), or
+  // 'all' (every active user). Returns names with phones + emails so the owner can
+  // message via WhatsApp / email / SMS. This works with no external credentials
+  // (WhatsApp links, mailto); SMS sending where configured.
   @Get('broadcast/recipients')
   async broadcastRecipients(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', recipients: [] };
-    const audience = q.audience === 'all' ? 'all' : 'admins';
-    const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
-    const where = audience === 'all'
-      ? `COALESCE(is_active, true) = true AND role <> 'super_admin'`
-      : `COALESCE(is_active, true) = true AND role = ANY($1)`;
-    const params = audience === 'all' ? [] : [adminRoles];
+    const audience = ['all', 'individual'].includes(q.audience) ? q.audience : 'admins';
+    const { where, params } = this.broadcastWhere(audience);
     const rows = await this.ds.query(
       `SELECT u.first_name AS "firstName", u.last_name AS "lastName", u.email, u.phone, u.role,
               (SELECT name FROM schools s WHERE s.tenant_id = u.tenant_id LIMIT 1) AS "schoolName"
@@ -4181,24 +4238,37 @@ class AdminController {
   @Post('broadcast')
   async sendBroadcast(@Request() req: any, @Body() dto: any) {
     if (!this.isOwner(req)) return { error: 'forbidden' };
-    const audience = dto?.audience === 'all' ? 'all' : 'admins';
+    const audience = ['all', 'individual'].includes(dto?.audience) ? dto.audience : 'admins';
     const title = String(dto?.title || '').trim();
     const message = String(dto?.message || '').trim();
     if (!title || !message) return { error: 'Title and message are required.' };
     const channels: string[] = Array.isArray(dto?.channels) && dto.channels.length ? dto.channels : ['sms', 'email'];
 
-    const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
-    const where = audience === 'all'
-      ? `COALESCE(is_active, true) = true AND role <> 'super_admin'`
-      : `COALESCE(is_active, true) = true AND role = ANY($1)`;
-    const params = audience === 'all' ? [] : [adminRoles];
+    const { where, params } = this.broadcastWhere(audience);
     const recipients = await this.ds.query(
-      `SELECT first_name AS "firstName", last_name AS "lastName", email, phone
-         FROM users WHERE ${where}`,
+      `SELECT u.first_name AS "firstName", u.last_name AS "lastName", u.email, u.phone,
+              u.tenant_id AS "tenantId", u.school_id AS "schoolId"
+         FROM users u WHERE ${where}`,
       params,
     ).catch(() => []);
 
     const result: any = { audience, recipients: recipients.length };
+
+    // In-app copy: SMS/email alone left recipients with no record inside the app
+    // itself — an individual teacher (or any user) had no way to see an owner
+    // broadcast unless they happened to read the SMS/email. One announcement row
+    // per distinct tenant among the recipients makes it show up in their
+    // notification bell (GET /communication/notifications) exactly like a normal
+    // school announcement would.
+    const tenantSchool = new Map<string, string>();
+    for (const r of recipients) if (r.tenantId && r.schoolId && !tenantSchool.has(r.tenantId)) tenantSchool.set(r.tenantId, r.schoolId);
+    for (const [tenantId, schoolId] of tenantSchool) {
+      await this.ds.query(
+        `INSERT INTO announcements (tenant_id, school_id, title, body, category, audience, is_published, published_at, created_by)
+         VALUES ($1, $2, $3, $4, 'general', 'all', true, NOW(), $5)`,
+        [tenantId, schoolId, title, message, req.user.id],
+      ).catch(() => null);
+    }
 
     if (channels.includes('sms')) {
       const allNumbers = recipients.map((r: any) => r.phone).filter(Boolean);

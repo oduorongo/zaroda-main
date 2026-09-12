@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Home, BookOpen, DollarSign, MessageSquare, FileText,
   Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
-  Bell, Menu, X, ChevronRight, Users, BarChart2,
+  Menu, X, ChevronRight, Users, BarChart2,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
   CalendarDays,
 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualA
 import apiClient from '@/lib/api/client';
 import { useTheme } from '@/lib/hooks/useTheme';
 import { ShareZaroda } from '@/components/ShareZaroda';
+import { NotificationBell } from '@/components/NotificationBell';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 
@@ -279,10 +280,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
               {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
             </button>
             {/* Notifications */}
-            <button className="relative p-2 rounded-xl text-theme-muted hover:bg-surface-2 hover:text-theme-heading transition-colors">
-              <Bell size={18}/>
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#f5820a] rounded-full"/>
-            </button>
+            <NotificationBell/>
             {/* Avatar */}
             <div className="w-8 h-8 rounded-xl bg-[#1a2e5a] flex items-center justify-center text-xs font-bold text-[#d4af37]">
               {initials}
