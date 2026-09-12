@@ -7,15 +7,16 @@
 // before the referral `?ref=` capture code shipped, so it never reached the backend.
 export const dynamic = 'force-dynamic';
 
-// Light background on purpose — a dark hero photo behind these forms was very
-// hard to read on a phone outdoors in daylight glare (low-contrast white text
-// over a photo washes out in direct sun). A plain light background keeps every
-// label and input readable at any time of day.
+// Brand navy hero photo behind every auth page, same as before — the
+// `force-light` class (see styles/globals.css) pins the white card and its
+// inputs/labels to light styling regardless, so the photo behind it doesn't
+// bring back the old outdoor-visibility problem (that was about the form
+// fields, not this decorative backdrop).
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="force-light relative min-h-screen bg-[#f4f6fb] flex items-center justify-center p-4 overflow-hidden">
-      <div className="absolute top-0 right-0 w-96 h-96 bg-[#d4af37]/10 rounded-full blur-3xl -translate-y-20 translate-x-20"/>
-      <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#1a2e5a]/5 rounded-full blur-3xl translate-y-20"/>
+    <div className="force-light relative min-h-screen bg-[#0f1c38] flex items-center justify-center p-4 overflow-hidden">
+      <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('/hero-classroom.png')" }}/>
+      <div className="absolute inset-0 bg-[#0f1c38]/88"/>
       <div className="relative z-10 w-full flex items-center justify-center">
         {children}
       </div>

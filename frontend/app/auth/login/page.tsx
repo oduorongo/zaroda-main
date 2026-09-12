@@ -40,14 +40,6 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-sm">
-      {/* Login keeps the brand navy background (unlike the signup forms, which were
-          switched to a plain light page — see app/auth/layout.tsx — because the dark
-          hero photo made them hard to fill outdoors). Login has no long form to fill
-          in daylight, just two fields, so it stays on-brand. This full-bleed layer
-          sits behind the light AuthLayout background; the white card and its
-          .force-light inputs/labels are unaffected either way. */}
-      <div className="fixed inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/hero-classroom.png')" }}/>
-      <div className="fixed inset-0 -z-10 bg-[#0f1c38]/88"/>
       {/* Logo */}
       <div className="text-center mb-8">
         <img src="/zaroda-logo.png" alt="ZARODA" className="inline-block w-20 h-20 rounded-2xl object-cover mb-4 shadow-lg"/>
