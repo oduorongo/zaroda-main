@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Body, Param,
-  Query, UseGuards, Res,
+  Query, UseGuards, Res, InternalServerErrorException, Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -24,6 +24,8 @@ const ALL_GENERATOR_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_
 @Controller('professional-records')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProfessionalRecordsController {
+  private readonly logger = new Logger(ProfessionalRecordsController.name);
+
   constructor(
     private schemeService: SchemeService,
     private lessonPlanService: LessonPlanService,
@@ -31,6 +33,24 @@ export class ProfessionalRecordsController {
     private walletService: WalletService,
     private pdfExportService: PdfExportService,
   ) {}
+
+  // PDF generation depends on a headless Chromium being launchable on the server
+  // (see PdfExportService) — when that fails, the previous behaviour was a bare
+  // 500 "Internal server error" with the real cause hidden (Nest only echoes a
+  // thrown Error's message for HttpException subclasses, not plain Errors), which
+  // is exactly what was reported as undiagnosable. This logs the full error
+  // server-side and returns its actual message to the client instead of a blank
+  // 500, so a real fix (or at least a clear cause) is possible next time.
+  private async renderPdfOrThrow(html: string, options: { landscape?: boolean } = {}) {
+    try {
+      return await this.pdfExportService.htmlToPdf(html, options);
+    } catch (err: any) {
+      this.logger.error(`PDF generation failed: ${err?.message}`, err?.stack);
+      throw new InternalServerErrorException(
+        `Could not generate the PDF: ${err?.message || 'unknown error'}. Try "Word (.doc)" instead in the meantime.`,
+      );
+    }
+  }
 
   // Subject picker for the "Generate" forms — scoped to what this user actually
   // teaches (or, for HOI/admin, every subject taught anywhere in the school).
@@ -115,7 +135,7 @@ export class ProfessionalRecordsController {
       });
       res.send(html);
     } else if (download === 'pdf') {
-      const pdf = await this.pdfExportService.htmlToPdf(html, { landscape: true });
+      const pdf = await this.renderPdfOrThrow(html, { landscape: true });
       res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="scheme-of-work-${id}.pdf"`,
@@ -188,7 +208,7 @@ export class ProfessionalRecordsController {
       });
       res.send(html);
     } else if (download === 'pdf') {
-      const pdf = await this.pdfExportService.htmlToPdf(html);
+      const pdf = await this.renderPdfOrThrow(html);
       res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="lesson-plan-${id}.pdf"`,
@@ -252,7 +272,7 @@ export class ProfessionalRecordsController {
       });
       res.send(html);
     } else if (download === 'pdf') {
-      const pdf = await this.pdfExportService.htmlToPdf(html);
+      const pdf = await this.renderPdfOrThrow(html);
       res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="lesson-notes-${v}-${id}.pdf"`,

@@ -223,6 +223,24 @@ export default function ProfessionalRecordsPage() {
   // document.write()-ing into it — some embedded/sandboxed browser contexts
   // silently block document.write into a fresh window with no visible error,
   // which looked like the Export button "doing nothing".
+
+  // With `responseType: 'blob'`, axios delivers an ERROR response body as a Blob
+  // too, not parsed JSON — so `err.response.data.message` was always undefined
+  // and every failure showed the same generic toast, masking the real server
+  // error (e.g. "PDF generation failed: ..."). Read the blob as text and parse it
+  // as JSON to recover the actual message the backend sent.
+  const blobErrorMessage = async (err: any, fallback: string): Promise<string> => {
+    const data = err?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const text = await data.text();
+        const parsed = JSON.parse(text);
+        if (parsed?.message) return parsed.message;
+      } catch { /* not JSON — fall through to fallback */ }
+    }
+    return err?.response?.data?.message || fallback;
+  };
+
   const exportScheme = async (schemeId: string, format: 'pdf' | 'doc' | 'preview', font: string) => {
     if (format === 'preview') { openSchemeDetail(schemeId); return; }
     try {
@@ -237,7 +255,7 @@ export default function ProfessionalRecordsPage() {
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Could not download the document.');
+      toast.error(await blobErrorMessage(err, 'Could not download the document.'));
     }
   };
 
@@ -259,7 +277,7 @@ export default function ProfessionalRecordsPage() {
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(objUrl), 60000);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Could not download the document.');
+      toast.error(await blobErrorMessage(err, 'Could not download the document.'));
     }
   };
 

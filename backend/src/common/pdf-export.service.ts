@@ -13,8 +13,24 @@ export class PdfExportService {
   private browser: puppeteer.Browser | null = null;
 
   private async getBrowser(): Promise<puppeteer.Browser> {
-    if (this.browser) return this.browser;
-    const baseArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+    // A previously-launched browser can die between requests (most commonly: the
+    // Chromium process gets OOM-killed on a small Render instance) — reusing a
+    // dead cached reference silently turned "generate a PDF" into a permanent
+    // 500 for every request afterwards, since `this.browser` stayed set to a
+    // disconnected instance forever. Check liveness before reusing it.
+    if (this.browser) {
+      if (this.browser.isConnected()) return this.browser;
+      this.logger.warn('Cached Chromium instance is disconnected (likely crashed/OOM-killed) — relaunching.');
+      this.browser = null;
+    }
+    // --single-process and --disable-gpu trade off some rendering robustness for
+    // a much smaller memory footprint — the standard recommendation for running
+    // headless Chromium on a memory-constrained host (Render/Heroku free/starter
+    // tiers), where the default multi-process Chromium is a common OOM cause.
+    const baseArgs = [
+      '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+      '--disable-gpu', '--single-process', '--no-zygote',
+    ];
     try {
       this.browser = await puppeteer.launch({ headless: true, args: baseArgs });
     } catch (e: any) {
@@ -33,6 +49,10 @@ export class PdfExportService {
       this.logger.log(`Using system browser for PDF: ${found}`);
       this.browser = await puppeteer.launch({ headless: true, args: baseArgs, executablePath: found });
     }
+    this.browser.on('disconnected', () => {
+      this.logger.warn('Chromium instance disconnected — will relaunch on next PDF request.');
+      this.browser = null;
+    });
     return this.browser;
   }
 
@@ -52,7 +72,7 @@ export class PdfExportService {
       });
       return Buffer.from(pdf);
     } finally {
-      await page.close();
+      await page.close().catch(() => null);
     }
   }
 }
