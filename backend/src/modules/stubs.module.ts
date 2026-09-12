@@ -4169,11 +4169,17 @@ class AdminController {
     return { credited: true, amountKes: BONUS_KES };
   }
 
-  // Shared WHERE clause for an owner broadcast's audience — 'admins' (HOI/admin/
-  // owner roles across every school), 'individual' (individual, no-school teacher
-  // accounts only — each is a one-person tenant, so this is the only way to reach
-  // just them without also messaging every school's staff/parents), or 'all'
-  // (every active user platform-wide, individual accounts included).
+  // Shared WHERE clause for an owner broadcast's audience. The four options
+  // partition every active user exactly once (handy for batching sends under a
+  // daily provider cap — e.g. Resend's 100/day free tier — by sending to each
+  // group on its own):
+  //   'admins'     — HOI/admin/owner roles across every school
+  //   'school'     — non-admin users (teachers/parents/learners/bursars) at
+  //                  school-tenant accounts only
+  //   'individual' — individual, no-school teacher accounts only — each is a
+  //                  one-person tenant, so this is the only way to reach just
+  //                  them without also messaging every school's staff/parents
+  //   'all'        — every active user platform-wide (admins + school + individual)
   private broadcastWhere(audience: string): { where: string; params: any[] } {
     const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
     if (audience === 'individual') {
@@ -4185,18 +4191,25 @@ class AdminController {
     if (audience === 'admins') {
       return { where: `COALESCE(u.is_active, true) = true AND u.role = ANY($1)`, params: [adminRoles] };
     }
+    if (audience === 'school') {
+      return {
+        where: `COALESCE(u.is_active, true) = true AND u.role <> ALL($1) AND u.role <> 'super_admin'
+                 AND u.tenant_id IN (SELECT id FROM tenants WHERE account_type = 'school' OR account_type IS NULL)`,
+        params: [adminRoles],
+      };
+    }
     return { where: `COALESCE(u.is_active, true) = true AND u.role <> 'super_admin'`, params: [] };
   }
 
   // Gather broadcast recipients across ALL schools for an owner message. audience:
-  // 'admins' (HOI/admin/owner roles), 'individual' (individual accounts only), or
-  // 'all' (every active user). Returns names with phones + emails so the owner can
-  // message via WhatsApp / email / SMS. This works with no external credentials
-  // (WhatsApp links, mailto); SMS sending where configured.
+  // 'admins', 'school' (non-admin school users), 'individual' (individual
+  // accounts only), or 'all' (every active user). Returns names with phones +
+  // emails so the owner can message via WhatsApp / email / SMS. This works with
+  // no external credentials (WhatsApp links, mailto); SMS sending where configured.
   @Get('broadcast/recipients')
   async broadcastRecipients(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', recipients: [] };
-    const audience = ['all', 'individual'].includes(q.audience) ? q.audience : 'admins';
+    const audience = ['all', 'individual', 'school'].includes(q.audience) ? q.audience : 'admins';
     const { where, params } = this.broadcastWhere(audience);
     const rows = await this.ds.query(
       `SELECT u.first_name AS "firstName", u.last_name AS "lastName", u.email, u.phone, u.role,
@@ -4253,7 +4266,7 @@ class AdminController {
   @Post('broadcast')
   async sendBroadcast(@Request() req: any, @Body() dto: any) {
     if (!this.isOwner(req)) return { error: 'forbidden' };
-    const audience = ['all', 'individual'].includes(dto?.audience) ? dto.audience : 'admins';
+    const audience = ['all', 'individual', 'school'].includes(dto?.audience) ? dto.audience : 'admins';
     const title = String(dto?.title || '').trim();
     const message = String(dto?.message || '').trim();
     if (!title || !message) return { error: 'Title and message are required.' };

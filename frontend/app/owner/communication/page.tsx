@@ -24,7 +24,7 @@ function smsSegments(text: string): { count: number; charset: 'GSM-7' | 'UCS-2' 
 }
 
 export default function OwnerCommunicationPage() {
-  const [audience, setAudience] = useState<'admins' | 'all' | 'individual' | 'incomplete'>('admins');
+  const [audience, setAudience] = useState<'admins' | 'all' | 'school' | 'individual' | 'incomplete'>('admins');
   const [data, setData]         = useState<any>(null);
   const [incomplete, setIncomplete] = useState<any>(null);
   const [loading, setLoading]   = useState(false);
@@ -211,7 +211,7 @@ export default function OwnerCommunicationPage() {
             </button>
           </div>
         </div>
-        <p className="text-sm text-theme-muted">Send a message to school admins, all users, individual (no-school) teacher accounts, or nudge schools that haven't finished setup.</p>
+        <p className="text-sm text-theme-muted">Send a message to school admins, school users (non-admin), individual (no-school) teacher accounts, everyone at once, or nudge schools that haven't finished setup. Split by audience to stay under a daily email cap — admins, school users and individual accounts never overlap.</p>
 
         {/* Test SMS — one number, outside the bulk/audience flow */}
         <div className="card p-4 space-y-3 border border-blue-200/60 bg-blue-50/30">
@@ -270,10 +270,10 @@ export default function OwnerCommunicationPage() {
         {/* Audience */}
         <div className="card p-4 space-y-3">
           <label className="label">Audience</label>
-          <div className="flex gap-1">
-            {([['admins','School admins'],['all','All users'],['individual','Individual accounts'],['incomplete','Incomplete setup']] as const).map(([v,label]) => (
+          <div className="flex flex-wrap gap-1">
+            {([['admins','School admins'],['school','School users'],['individual','Individual accounts'],['all','All users'],['incomplete','Incomplete setup']] as const).map(([v,label]) => (
               <button key={v} onClick={() => setAudience(v)}
-                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium ${audience===v ? 'bg-[#1a2e5a] text-white' : 'bg-surface-2 text-theme-muted'}`}>
+                className={`flex-1 min-w-[110px] px-3 py-2 rounded-lg text-sm font-medium ${audience===v ? 'bg-[#1a2e5a] text-white' : 'bg-surface-2 text-theme-muted'}`}>
                 {label}
               </button>
             ))}
