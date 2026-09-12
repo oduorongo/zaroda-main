@@ -4235,6 +4235,21 @@ class AdminController {
     return r;
   }
 
+  // Diagnostic: send one email to one address, outside any real flow (password
+  // reset, onboarding reminders, broadcasts) — so the owner can confirm Resend is
+  // actually configured/working (RESEND_API_KEY set, sender domain verified) and
+  // see the exact failure reason if not, without needing Render log access. Mirrors
+  // sendTestSms above and calls the exact same sendEmail() every real flow uses.
+  @Post('test-email')
+  async sendTestEmail(@Request() req: any, @Body() dto: { email: string; message?: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    if (!dto?.email) return { error: 'Enter an email address.' };
+    const message = dto.message?.trim() || 'ZARODA test email — if you received this, delivery is working.';
+    const html = `<p>${message}</p>`;
+    const r = await sendEmail(dto.email, 'ZARODA test email', html, message);
+    return r;
+  }
+
   @Post('broadcast')
   async sendBroadcast(@Request() req: any, @Body() dto: any) {
     if (!this.isOwner(req)) return { error: 'forbidden' };

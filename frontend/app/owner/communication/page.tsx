@@ -73,6 +73,28 @@ export default function OwnerCommunicationPage() {
     }
   };
 
+  // Same diagnostic, for email — confirms RESEND_API_KEY is actually set and
+  // working (e.g. for password-reset emails) without needing Render log access.
+  const [testEmail, setTestEmail] = useState('');
+  const [testEmailMessage, setTestEmailMessage] = useState('');
+  const [testEmailResult, setTestEmailResult] = useState<any>(null);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const sendTestEmail = async () => {
+    if (!testEmail.trim()) { toast.error('Enter an email address'); return; }
+    setSendingTestEmail(true);
+    setTestEmailResult(null);
+    try {
+      const { data } = await apiClient.post('/admin/test-email', { email: testEmail.trim(), message: testEmailMessage.trim() || undefined });
+      setTestEmailResult(data);
+      if (data.ok) toast.success('Sent — check the inbox (and spam folder).');
+      else toast.error(data.detail || data.error || 'Not sent — see details below.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not send test email.');
+    } finally {
+      setSendingTestEmail(false);
+    }
+  };
+
   const openHistory = () => {
     setShowHistory(true);
     apiClient.get('/admin/broadcast-history').then(r => setHistory(Array.isArray(r.data) ? r.data : [])).catch(() => setHistory([]));
@@ -213,6 +235,34 @@ export default function OwnerCommunicationPage() {
             <div className="text-xs bg-surface-2 rounded-lg p-3 space-y-1">
               <div><b>Sent:</b> {testResult.sent} / <b>Failed:</b> {testResult.failed}</div>
               {testResult.detail && <div><b>Detail:</b> {testResult.detail}</div>}
+            </div>
+          )}
+        </div>
+
+        {/* Test email — one address, outside the bulk/audience flow. Confirms
+            RESEND_API_KEY is actually configured on the server and shows the exact
+            failure reason if not, e.g. for diagnosing password-reset emails. */}
+        <div className="card p-4 space-y-3 border border-blue-200/60 bg-blue-50/30">
+          <div className="flex items-center gap-2">
+            <Mail size={15} className="text-[#1a2e5a]"/>
+            <span className="text-sm font-semibold text-theme-heading">Send test email to one address</span>
+          </div>
+          <p className="text-xs text-theme-muted">
+            Confirms email delivery (Resend) is actually configured and working — e.g. for password-reset emails — without needing to check server logs.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com"
+              className="input text-sm flex-1 min-w-[160px]"/>
+            <input value={testEmailMessage} onChange={e => setTestEmailMessage(e.target.value)} placeholder="Message (optional — a default test message is used)"
+              className="input text-sm flex-[2] min-w-[200px]"/>
+            <button onClick={sendTestEmail} disabled={sendingTestEmail} className="btn-primary text-sm">
+              {sendingTestEmail ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>} Send
+            </button>
+          </div>
+          {testEmailResult && (
+            <div className="text-xs bg-surface-2 rounded-lg p-3 space-y-1">
+              <div><b>Status:</b> {testEmailResult.ok ? '✅ Sent' : testEmailResult.error || '❌ Failed'}</div>
+              {testEmailResult.detail && <div><b>Detail:</b> {testEmailResult.detail}</div>}
             </div>
           )}
         </div>
