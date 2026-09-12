@@ -102,11 +102,12 @@ export default function ProfessionalRecordsPage() {
   const [regenerateComment, setRegenerateComment] = useState('');
   // Regenerating a rejected scheme is discounted KES 15 off — kept in sync with
   // the backend's own discount logic in SchemeService.generate().
-  // First-scheme-free incentive for individual teachers: mirrors the backend's
-  // own check (SchemeService.generate()) — no prior generation of any kind yet.
-  // This is just a display estimate for the price banner; the server enforces
-  // the real rule and always wins if this heuristic is ever wrong.
-  const firstSchemeFree = individual && !regenerateComment && schemes.length === 0 && plans.length === 0 && notes.length === 0;
+  // First-scheme-free incentive for every teacher, individual or school-based:
+  // mirrors the backend's own check (SchemeService.generate()) — no prior
+  // generation of any kind yet. This is just a display estimate for the price
+  // banner; the server enforces the real rule and always wins if this heuristic
+  // is ever wrong.
+  const firstSchemeFree = !regenerateComment && schemes.length === 0 && plans.length === 0 && notes.length === 0;
   const schemePrice = firstSchemeFree ? 0 : regenerateComment ? ITEM_PRICES.scheme - 15 : ITEM_PRICES.scheme;
 
   const [wallet, setWallet] = useState<{ balance: number } | null>(null);

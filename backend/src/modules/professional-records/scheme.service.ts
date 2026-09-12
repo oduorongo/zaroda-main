@@ -167,11 +167,12 @@ export class SchemeService {
       ? Math.max(0, ITEM_PRICE_KES.scheme - 15)
       : undefined;
 
-    // First-scheme-free incentive for individual (no-school) teachers — lets
-    // someone try the product before ever topping up a wallet. Only the very
-    // first generation of any kind (scheme, lesson plan, or notes) qualifies,
-    // so it can't be re-triggered by generating one scheme per subject/term.
-    if (price === undefined && isIndividual) {
+    // First-scheme-free incentive for every teacher, individual or school-based —
+    // lets anyone try the product before ever topping up a wallet. Only the very
+    // first generation of any kind (scheme, lesson plan, or notes) by this teacher
+    // qualifies, so it can't be re-triggered by generating one scheme per
+    // subject/term.
+    if (price === undefined) {
       const priorDebits = await this.dataSource.query(
         `SELECT 1 FROM pr_wallet_transactions WHERE tenant_id::text = $1 AND teacher_id::text = $2 AND type = 'debit' LIMIT 1`,
         [tenantId, teacherId],
