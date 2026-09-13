@@ -184,7 +184,7 @@ export const PRE_PRIMARY_ALLOCATIONS: LearningAreaAllocation[] = [
 // Table 2: Grade 1–3 (31 lessons/week)
 export const GRADE_1_3_ALLOCATIONS: LearningAreaAllocation[] = [
   { name: 'Indigenous Language Activities',          lessons: 2 },
-  { name: 'Kiswahili Language Activities / KSL',     lessons: 4 },
+  { name: 'Kiswahili Language Activities',           lessons: 4 },
   { name: 'English Language Activities',             lessons: 5 },
   { name: 'Mathematical Activities',                 lessons: 5 },
   { name: 'Religious Education Activities',          lessons: 3 },
@@ -196,7 +196,7 @@ export const GRADE_1_3_ALLOCATIONS: LearningAreaAllocation[] = [
 // Table 3: Grade 4–6 (35 lessons/week)
 export const GRADE_4_6_ALLOCATIONS: LearningAreaAllocation[] = [
   { name: 'English',                                 lessons: 5 },
-  { name: 'Kiswahili / Kenya Sign Language',         lessons: 4 },
+  { name: 'Kiswahili',                                lessons: 4 },
   { name: 'Mathematics',                             lessons: 5 },
   { name: 'Religious Education',                     lessons: 3 },
   { name: 'Science & Technology',                    lessons: 4 },
@@ -211,7 +211,7 @@ export const GRADE_4_6_ALLOCATIONS: LearningAreaAllocation[] = [
 //       Creative Arts & Sports, Pre-Technical Studies, Agriculture
 export const GRADE_7_9_ALLOCATIONS: LearningAreaAllocation[] = [
   { name: 'English',                                 lessons: 5 },
-  { name: 'Kiswahili / Kenya Sign Language (KSL)',   lessons: 4 },
+  { name: 'Kiswahili',                                lessons: 4 },
   { name: 'Mathematics',                             lessons: 5 },
   { name: 'Religious Education',                     lessons: 4 },
   { name: 'Social Studies (Including Life Skills)',  lessons: 4 },

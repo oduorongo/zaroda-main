@@ -26,6 +26,16 @@ import {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+// How many of the day's FIRST periods count as "early morning" for Maths/
+// English/Kiswahili (see wantsEarly below). 4, not 3: with Kiswahili added
+// to the early-priority group, 3 subjects now compete for the same limited
+// pre-break periods (one of which a beforeBreak subject like Creative Arts
+// usually also occupies daily) — 3 periods x 5 days wasn't enough room for
+// all of them and pushed Maths/English into the afternoon far more than
+// before (reported live). Period 4 still ends well before midday in every
+// band's period structure, so it's a reasonable widening of "morning".
+const EARLY_PERIOD_WINDOW = 4;
+
 // Similarity groups — members must not follow one another consecutively.
 const SIMILAR_GROUPS: string[][] = [
   ['english', 'kiswahili', 'indigenous', 'language', 'lugha', 'literacy', 'ksl', 'sign'],
@@ -56,17 +66,16 @@ const isPpi = (name: string) => /pastoral|ppi|religious programs/i.test(name);
 // assignment, which could pick the wrong teacher. Aliasing to the canonical
 // short name before matching fixes both; the timetable still displays the
 // full official label (`lesson.subject`, unchanged) either way.
+// The "Kiswahili / Kenya Sign Language (KSL)" long forms were dropped from
+// kicd-timetable.constants.ts (now plain "Kiswahili"/"Kiswahili Language
+// Activities", matching the assignment picker exactly), so those no longer
+// need an alias here — kept only the ones still needed.
 const SUBJECT_MATCH_ALIASES: Record<string, string> = {
   // ECDE (pre_primary)
   'mathematical activities': 'mathematics activities',
   'creative activities': 'creative arts activities',
   'religious activities': 'religious education activities',
-  // Lower Primary (grade_1_3) — Mathematical/Creative aliases above apply here too
-  'kiswahili language activities / ksl': 'kiswahili language activities',
-  // Upper Primary (grade_4_6)
-  'kiswahili / kenya sign language': 'kiswahili',
   // Junior School (grade_7_9)
-  'kiswahili / kenya sign language (ksl)': 'kiswahili',
   'social studies (including life skills)': 'social studies',
 };
 function matchKey(subject: string): string {
@@ -113,6 +122,15 @@ export class AutoTimetabler {
   private teacherUsage = new Map<string, Set<string>>();
   // Exact per-stream assignment: `${streamId}|${subject.toLowerCase()}` → teacherId
   private streamSubjectTeacher = new Map<string, string>();
+  // Once the fuzzy fallback (step 2 below) picks a teacher for a given
+  // `${streamId}|${subject}` with no exact assignment on record, remember that
+  // choice and reuse it for every other lesson of the same subject+stream this
+  // run — otherwise, if that person happened to be busy for one particular
+  // lesson's slot but free for others, the fallback would search again from
+  // scratch and could land on a DIFFERENT teacher for a different lesson of the
+  // exact same subject in the exact same class (reported live: "Kiswahili
+  // Grade 5 is assigned to more than 1 teacher").
+  private fallbackTeacherChosen = new Map<string, string>();
 
   private isTeacherFree(teacherId: string, day: string, periodNumber: number) {
     const used = this.teacherUsage.get(teacherId);
@@ -144,7 +162,19 @@ export class AutoTimetabler {
       if (exact) return null;
     }
 
-    // 2) Fallback (no per-stream assignment): any teacher who lists this subject.
+    // 2) Fallback (no per-stream assignment): any teacher who lists this subject —
+    // but once chosen for this subject+stream, stick with them (see
+    // fallbackTeacherChosen above) instead of re-searching per lesson.
+    const cacheKey = `${streamId}|${sl}`;
+    const chosenId = this.fallbackTeacherChosen.get(cacheKey);
+    if (chosenId) {
+      const chosen = teachers.find(t => t.id === chosenId);
+      if (chosen && this.isTeacherFree(chosen.id, day, periodNumber)) return chosen;
+      // Busy this slot — leave unassigned rather than substituting someone else
+      // for just this one lesson (same principle as the exact-assignment case).
+      if (chosen) return null;
+    }
+
     const matches = teachers.filter(t =>
       t.subjects.some(sub => {
         const a = matchKey(sub);
@@ -156,7 +186,10 @@ export class AutoTimetabler {
       ...matches.filter(t => t.streamId !== streamId),
     ];
     for (const t of ordered) {
-      if (this.isTeacherFree(t.id, day, periodNumber)) return t;
+      if (this.isTeacherFree(t.id, day, periodNumber)) {
+        this.fallbackTeacherChosen.set(cacheKey, t.id);
+        return t;
+      }
     }
 
     // 3) Last resort: this stream's own class teacher, if free — covers subjects
@@ -386,10 +419,10 @@ export class AutoTimetabler {
           } else if (!exactTeacherFree(day, p.period)) continue;
           if (similarAdjacent(day, p.period, lesson.groupId)) continue;
 
-          // Mathematics, English & Kiswahili should sit in the FIRST 3 periods of
+          // Mathematics, English & Kiswahili should sit in the early periods of
           // the day. Enforced in the main pass; relaxed fallbacks below only
-          // trigger if the first 3 are already full.
-          if (wantsEarly(lesson.subject) && pi >= 3) continue;
+          // trigger if the early window is already full.
+          if (wantsEarly(lesson.subject) && pi >= EARLY_PERIOD_WINDOW) continue;
 
           // Hard per-day cap: a subject may not appear twice in a day unless its weekly
           // allocation earns it a double-up day and one is still available.
@@ -407,7 +440,7 @@ export class AutoTimetabler {
           const onDay = countOnDay(day, lesson.subject);
           let score = -onDay * 100 - DAYS.indexOf(day) - pi * 0.1;
           // Extra pull toward the very front for Maths/English/Kiswahili.
-          if (wantsEarly(lesson.subject)) score += (3 - pi) * 5;
+          if (wantsEarly(lesson.subject)) score += (EARLY_PERIOD_WINDOW - pi) * 5;
           // Steer away from repeating the same period-of-day this subject already
           // used — a strong preference, not an absolute ban, since "wants early"
           // subjects (only 3 legal periods for up to 5 daily lessons) can be
@@ -593,6 +626,7 @@ export class AutoTimetabler {
 
     // Reset cross-stream teacher usage for this run
     this.teacherUsage = new Map();
+    this.fallbackTeacherChosen = new Map();
 
     const results: AutoTimetableResult[] = [];
 
