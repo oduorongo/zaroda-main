@@ -274,7 +274,7 @@ export default function TimetablePage() {
   const assignCell = async (period: string, day: string, allocation: any) => {
     setSaving(true);
     try {
-      await apiClient.post('/academic/timetable', {
+      const { data } = await apiClient.post('/academic/timetable', {
         streamId, day, periodLabel: period,
         subject:     allocation.subject,
         teacherId:   allocation.teacherId || allocation.teacher_id,
@@ -285,7 +285,17 @@ export default function TimetablePage() {
         const filtered = prev.filter(l => !((l.periodLabel||l.period)===period && l.day===day));
         return [...filtered, { periodLabel: period, day, subject: allocation.subject, teacherName: allocation.teacherName }];
       });
-      toast.success(`${allocation.subject} assigned`);
+      // Manual edits have no cross-stream visibility of their own — unlike
+      // Auto-generate, which actively avoids double-booking a teacher, a human
+      // editing one cell at a time can't see that the same teacher is already
+      // down for a different class at this exact day/period. The backend
+      // checks for that clash and flags it here rather than silently allowing
+      // (or blocking) it — the HOI may be fixing a one-off clash on purpose.
+      if (data?.conflict) {
+        toast.error(data.conflict, { duration: 8000 });
+      } else {
+        toast.success(`${allocation.subject} assigned`);
+      }
     } catch { toast.error('Could not save lesson'); }
     finally { setSaving(false); setEditing(null); }
   };
@@ -353,6 +363,7 @@ export default function TimetablePage() {
             })}
           </div>
           <p className="text-[10px] text-theme-muted mt-2">Targets per learning area follow the KICD lesson-distribution tables. ⏱ = must be plotted before a break.</p>
+          <p className="text-[10px] text-theme-muted mt-1">How closely Auto-generate can actually hit these targets depends on how many teachers are assigned to each learning area — a subject with only one teacher covering several streams has fewer slots to work with than one shared by two or more, so adding staff (or spreading assignments across more teachers) is the real lever for a fuller, cleaner timetable.</p>
         </div>
       )}
 

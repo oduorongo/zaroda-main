@@ -2020,8 +2020,28 @@ export class AcademicService {
     ).catch(() => []);
   }
 
-  // Assign (or replace) a single lesson slot — links subject + teacher to a period
+  // Assign (or replace) a single lesson slot — links subject + teacher to a period.
+  // A manual edit is the one place a double-booking can slip in silently — the
+  // auto-generator actively avoids this (see AutoTimetabler.isTeacherFree), but
+  // a human editing one cell at a time has no such cross-stream visibility. Check
+  // for it here and hand back a warning rather than blocking the save outright —
+  // an HOI fixing a one-off clash on purpose is a legitimate use case too.
   async assignLesson(tenantId: string, dto: any) {
+    let conflict: string | null = null;
+    if (dto.teacherId) {
+      const clashes = await this.dataSource.query(
+        `SELECT s.name AS "streamName" FROM timetable_periods tp
+           JOIN streams s ON s.id = tp.stream_id
+          WHERE tp.tenant_id = $1 AND tp.teacher_id = $2 AND tp.day = $3 AND tp.period_label = $4
+            AND tp.stream_id::text <> $5`,
+        [tenantId, dto.teacherId, dto.day, dto.periodLabel, dto.streamId],
+      ).catch(() => []);
+      if (clashes.length) {
+        const streamNames = clashes.map((c: any) => c.streamName).join(', ');
+        conflict = `${dto.teacherName || 'This teacher'} is already teaching ${streamNames} at ${dto.day} ${dto.periodLabel} — they can't be in two classes at once. Double-check before leaving this as is.`;
+      }
+    }
+
     // Remove any existing lesson in this stream/day/period, then insert the new one
     await this.dataSource.query(
       `DELETE FROM timetable_periods
@@ -2036,7 +2056,7 @@ export class AcademicService {
       [tenantId, dto.streamId, dto.day, dto.periodLabel, dto.subject, dto.teacherId || null, dto.teacherName || null],
     ).catch(() => null);
 
-    return { message: 'Lesson assigned', ...dto };
+    return { message: 'Lesson assigned', ...dto, conflict };
   }
 
   async clearLesson(tenantId: string, dto: any) {
