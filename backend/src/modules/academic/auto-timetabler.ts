@@ -37,15 +37,18 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const EARLY_PERIOD_WINDOW = 4;
 
 // Creative Arts / Creative Arts & Sports (the only `beforeBreak` subjects) were
-// consistently grabbing Period 2 every day — it's the earliest-scored
-// "before a break" period, and a beforeBreak subject has no other placement
-// restriction pulling it elsewhere. That ate directly into the exact same
-// early window Maths/English/Kiswahili need (see EARLY_PERIOD_WINDOW above),
-// which was still forcing Maths to double up on a day despite the earlier
-// widening. CA/CAS have two OTHER qualifying before-a-break periods in every
-// band's structure (before lunch, before the second break) plus the whole
-// afternoon if needed — reserving Period 2 for the early subjects instead.
-const RESERVED_FOR_EARLY_SUBJECTS_PERIOD = 2;
+// consistently grabbing whichever "before a break" period fell earliest in
+// the day — a beforeBreak subject has no other placement pull competing with
+// that. Reserving only Period 2 wasn't enough: Junior School's structure has
+// a SECOND qualifying before-a-break period (Period 4) that also falls inside
+// the early window, so CA&S kept eating into Maths/English/Kiswahili's
+// capacity there and Maths still ended up double-booked on a day (reported
+// live: Grade 7, Maths in the afternoon on a day it was already scheduled).
+// Excluding beforeBreak subjects from the ENTIRE early window (not just one
+// period within it) closes that gap for every band's structure at once —
+// CA/CAS still have at least one other qualifying before-a-break period
+// outside the window in every band (before lunch), plus the whole afternoon
+// if genuinely needed.
 
 // Similarity groups — members must not follow one another consecutively.
 const SIMILAR_GROUPS: string[][] = [
@@ -335,36 +338,55 @@ export class AutoTimetabler {
     //    both Thursday AND Friday, despite being under the 5/week threshold
     //    that's supposed to forbid appearing twice in a single day).
     //
-    //    Round-robin fixes this at the root: round 1 gives every ordinary
-    //    subject its FIRST lesson (in priority order — wants-early subjects
-    //    first, since their legal periods are scarcest, then fewest-lessons-
-    //    first among the rest) before anyone gets a second; round 2 gives
-    //    everyone still needing more their second, and so on. Subjects with
-    //    equal weekly counts now compete for each round's slot at the same
-    //    time instead of one exhausting the week before the next has a chance,
-    //    so every subject's required distinct-day spread is preserved.
+    //    Round-robin fixes the "one subject hogs the week" failure at the
+    //    root: round 1 gives every subject in a group its FIRST lesson before
+    //    anyone gets a second; round 2 gives everyone still needing more their
+    //    second, and so on. Subjects with equal weekly counts now compete for
+    //    each round's slot at the same time instead of one exhausting the
+    //    week before the next has a chance.
+    //
+    //    But round-robin has its own edge case: in a zero-slack week (total
+    //    demand exactly equals total capacity — common once PPI/breaks are
+    //    accounted for), EXACTLY one lesson somewhere must go unplaced or
+    //    double up a day. Which subject absorbs that is decided by who's
+    //    still "in play" in the final round — and since a subject needs more
+    //    rounds the more lessons/week it has, the interleaved round-robin
+    //    structurally exposes the HIGHEST-count subjects to that risk, not
+    //    the smallest one (confirmed live: Mathematical Activities landed on
+    //    4/5 instead of a smaller, less core area yielding). Running
+    //    "wants early" subjects (Maths/English/Kiswahili) as their OWN
+    //    round-robin phase, fully placed before the ordinary phase even
+    //    starts, guarantees they claim their full allocation from the whole
+    //    week's capacity first — any unavoidable zero-slack shortfall then
+    //    lands on an ordinary subject instead, same as originally intended.
     const lessonsBySubject: Record<string, number> = {};
     pool.forEach(u => { lessonsBySubject[u.subject] = (lessonsBySubject[u.subject] || 0) + 1; });
 
     const specialFirst = pool.filter(l => l.double || l.beforeBreak)
       .sort((a, b) => (a.double === b.double ? 0 : a.double ? -1 : 1));
-    const ordinary = pool.filter(l => !l.double && !l.beforeBreak);
+    const remaining = pool.filter(l => !l.double && !l.beforeBreak);
 
-    const subjectPriority = Array.from(new Set(ordinary.map(l => l.subject))).sort((a, b) => {
-      const aEarly = wantsEarly(a), bEarly = wantsEarly(b);
-      if (aEarly !== bEarly) return aEarly ? -1 : 1;
-      return (lessonsBySubject[a] || 0) - (lessonsBySubject[b] || 0);
-    });
-    const queueBySubject: Record<string, Lesson[]> = {};
-    for (const l of ordinary) (queueBySubject[l.subject] ||= []).push(l);
-    const roundRobin: Lesson[] = [];
-    for (let more = true; more; ) {
-      more = false;
-      for (const subj of subjectPriority) {
-        const q = queueBySubject[subj];
-        if (q?.length) { roundRobin.push(q.shift()!); more = true; }
+    const roundRobinPhase = (lessons: Lesson[], subjectOrder: string[]): Lesson[] => {
+      const queueBySubject: Record<string, Lesson[]> = {};
+      for (const l of lessons) (queueBySubject[l.subject] ||= []).push(l);
+      const out: Lesson[] = [];
+      for (let more = true; more; ) {
+        more = false;
+        for (const subj of subjectOrder) {
+          const q = queueBySubject[subj];
+          if (q?.length) { out.push(q.shift()!); more = true; }
+        }
       }
-    }
+      return out;
+    };
+    const byAscendingCount = (subjects: string[]) =>
+      subjects.sort((a, b) => (lessonsBySubject[a] || 0) - (lessonsBySubject[b] || 0));
+
+    const earlyLessons = remaining.filter(l => wantsEarly(l.subject));
+    const ordinaryLessons = remaining.filter(l => !wantsEarly(l.subject));
+    const earlyRoundRobin = roundRobinPhase(earlyLessons, byAscendingCount(Array.from(new Set(earlyLessons.map(l => l.subject)))));
+    const ordinaryRoundRobin = roundRobinPhase(ordinaryLessons, byAscendingCount(Array.from(new Set(ordinaryLessons.map(l => l.subject)))));
+    const roundRobin = [...earlyRoundRobin, ...ordinaryRoundRobin];
 
     pool.length = 0;
     pool.push(...specialFirst, ...roundRobin);
@@ -423,7 +445,7 @@ export class AutoTimetabler {
           const p = lessonPeriods[pi];
           if (grid[day][p.period]) continue;                       // slot taken
           if (lesson.beforeBreak && !beforeBreakNums.has(p.period)) continue; // must be before a break
-          if (lesson.beforeBreak && p.period === RESERVED_FOR_EARLY_SUBJECTS_PERIOD) continue;
+          if (lesson.beforeBreak && pi < EARLY_PERIOD_WINDOW) continue; // reserved for Maths/English/Kiswahili
           if (lesson.double) {
             const nextP = lessonPeriods[pi + 1];
             if (!nextP || grid[day][nextP.period]) continue;       // need 2 consecutive free
@@ -464,13 +486,14 @@ export class AutoTimetabler {
       }
 
       // Relax the before-break rule if nothing fit (still valid, just less ideal).
-      // Period 2 stays reserved for Maths/English/Kiswahili even here — CA/CAS
-      // should genuinely prefer the afternoon over taking that slot back.
+      // The early window stays reserved for Maths/English/Kiswahili even here —
+      // CA/CAS should genuinely prefer the afternoon over taking it back.
       if (!best && lesson.beforeBreak) {
         for (const day of DAYS) {
-          for (const p of lessonPeriods) {
+          for (let pi = 0; pi < lessonPeriods.length; pi++) {
+            const p = lessonPeriods[pi];
             if (grid[day][p.period]) continue;
-            if (p.period === RESERVED_FOR_EARLY_SUBJECTS_PERIOD) continue;
+            if (pi < EARLY_PERIOD_WINDOW) continue;
             if (!exactTeacherFree(day, p.period)) continue;
             if (similarAdjacent(day, p.period, lesson.groupId)) continue;
             if (!lesson.double && countOnDay(day, lesson.subject) >= 1) {
@@ -487,9 +510,10 @@ export class AutoTimetabler {
       // its earned allowance.
       if (!best) {
         for (const day of DAYS) {
-          for (const p of lessonPeriods) {
+          for (let pi = 0; pi < lessonPeriods.length; pi++) {
+            const p = lessonPeriods[pi];
             if (grid[day][p.period]) continue;
-            if (lesson.beforeBreak && p.period === RESERVED_FOR_EARLY_SUBJECTS_PERIOD) continue;
+            if (lesson.beforeBreak && pi < EARLY_PERIOD_WINDOW) continue;
             if (!exactTeacherFree(day, p.period)) continue;
             if (!lesson.double && countOnDay(day, lesson.subject) >= 1) {
               const allowance = doubleUpDaysAllowed(lesson.subject);
@@ -500,7 +524,7 @@ export class AutoTimetabler {
           if (best) break;
         }
       }
-      // Give up on the Period-2 reservation too, but still respect the day cap —
+      // Give up on the early-window reservation too, but still respect the day cap —
       // a genuinely over-committed teacher (assigned to more lessons than the
       // week has slots for) shouldn't leave the subject entirely unplaced.
       if (!best) {
