@@ -629,13 +629,26 @@ export default function TimetablePage() {
             </div>
 
             {genResults && (
-              <div className="mb-4 max-h-48 overflow-auto space-y-1">
+              <div className="mb-4 max-h-64 overflow-auto space-y-1">
                 {genResults.map((r:any,i:number)=>(
-                  <div key={i} className="text-xs flex items-center justify-between bg-surface-2 rounded-lg px-2 py-1.5">
-                    <span className="font-semibold text-theme-heading">{r.streamName}</span>
-                    <span className={r.placed===r.expected ? 'text-green-600' : 'text-amber-600'}>
-                      {r.placed}/{r.expected} lessons{r.unplaced?.length ? ` · ${r.unplaced.length} unplaced` : ''}
-                    </span>
+                  <div key={i} className="text-xs bg-surface-2 rounded-lg px-2 py-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-theme-heading">{r.streamName}</span>
+                      <span className={r.placed===r.expected ? 'text-green-600' : 'text-amber-600'}>
+                        {r.placed}/{r.expected} lessons{r.unplaced?.length ? ` · ${r.unplaced.length} unplaced` : ''}
+                      </span>
+                    </div>
+                    {/* Explains a cell that shows a subject but no teacher name —
+                        e.g. one teacher shared across several streams for the
+                        same subject, whose weekly slots genuinely overlap —
+                        instead of leaving it as an unexplained blank. */}
+                    {r.warnings?.length > 0 && (
+                      <ul className="mt-1 space-y-0.5 text-amber-600">
+                        {r.warnings.map((w:string,wi:number)=>(
+                          <li key={wi} className="flex gap-1"><span>⚠</span><span>{w}</span></li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 ))}
               </div>

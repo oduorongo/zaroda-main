@@ -393,6 +393,7 @@ export class AutoTimetabler {
 
     const expected = pool.length + 1; // learning-area lessons + the one weekly PPI
     const unplaced: string[] = [];
+    const teacherlessConflicts: { subject: string; teacherName: string }[] = [];
 
     // Helper: does placing `subject` at (day,periodNumber) break the "no similar back-to-back" rule?
     const similarAdjacent = (day: string, periodNumber: number, gid: number): boolean => {
@@ -571,6 +572,15 @@ export class AutoTimetabler {
       const tchr = this.pickTeacher(lesson.subject, stream.id, teachers, best.day, best.period.period, classTeacherId);
       grid[best.day][best.period.period] = this.place(best.day, best.period, lesson.subject, tchr?.id || null, tchr?.name || null, lessonPeriods);
       if (tchr) this.markTeacher(tchr.id, best.day, best.period.period);
+      // A real teacher IS assigned to this subject+stream but was fully booked at
+      // every slot this lesson could legally land in (usually: the same person
+      // also teaches this subject to another stream, and both classes' weekly
+      // schedules genuinely can't avoid overlapping) — worth surfacing by name
+      // rather than leaving the school to notice a silently blank cell.
+      if (!tchr && exactTeacherId) {
+        const assigned = teachers.find(t => t.id === exactTeacherId);
+        teacherlessConflicts.push({ subject: lesson.subject, teacherName: assigned?.name || 'their assigned teacher' });
+      }
 
       // Place the second half of a double in the next consecutive slot.
       if (lesson.double) {
@@ -594,6 +604,21 @@ export class AutoTimetabler {
       warnings.push(`${unplaced[0]} has one fewer lesson this week (PPI occupies a slot), per the KICD sample timetable.`);
     } else if (unplaced.length > 1) {
       warnings.push(`${unplaced.length} lesson(s) could not be placed and were skipped — review teacher load/streams.`);
+    }
+    if (teacherlessConflicts.length) {
+      // Group by teacher so a person double-booked across several lessons gets
+      // one clear line instead of one per lesson.
+      const byTeacher = new Map<string, Set<string>>();
+      for (const c of teacherlessConflicts) {
+        if (!byTeacher.has(c.teacherName)) byTeacher.set(c.teacherName, new Set());
+        byTeacher.get(c.teacherName)!.add(c.subject);
+      }
+      for (const [teacherName, subjects] of byTeacher) {
+        const subjectList = Array.from(subjects).join(', ');
+        warnings.push(
+          `${subjectList}: placed without a teacher — ${teacherName} is fully booked (likely also teaching this to another stream at the same times). Consider assigning a second teacher or adjusting one stream's schedule.`,
+        );
+      }
     }
 
     return {
