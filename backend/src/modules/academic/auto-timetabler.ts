@@ -145,6 +145,27 @@ export class AutoTimetabler {
   // exact same subject in the exact same class (reported live: "Kiswahili
   // Grade 5 is assigned to more than 1 teacher").
   private fallbackTeacherChosen = new Map<string, string>();
+  // teacherId -> ordered list of every streamId that teacher is exactly assigned
+  // to teach ANY subject in, for this generation run. Used to proactively
+  // stagger which day each sibling stream PREFERS for that shared teacher's
+  // lessons (see dayRotationFor below) — rather than reactively discovering a
+  // conflict only once a stream's search finds the teacher already busy at its
+  // otherwise-preferred slot, which could still exhaust every option for the
+  // last stream processed and leave a lesson teacherless.
+  private teacherStreams = new Map<string, string[]>();
+
+  // How many days to rotate this stream's day-preference for lessons taught by
+  // `teacherId`, so that sibling streams sharing the same teacher naturally
+  // spread their preferred days apart instead of all defaulting toward Monday
+  // first and colliding. A teacher not shared with any other stream gets
+  // offset 0 (no behaviour change).
+  private dayRotationFor(teacherId: string | undefined, streamId: string): number {
+    if (!teacherId) return 0;
+    const siblings = this.teacherStreams.get(teacherId);
+    if (!siblings || siblings.length < 2) return 0;
+    const idx = siblings.indexOf(streamId);
+    return idx < 0 ? 0 : idx;
+  }
 
   private isTeacherFree(teacherId: string, day: string, periodNumber: number) {
     const used = this.teacherUsage.get(teacherId);
@@ -473,7 +494,15 @@ export class AutoTimetabler {
           // Score: prefer days where this subject isn't already plotted (even spread),
           // and prefer earlier days/periods for determinism.
           const onDay = countOnDay(day, lesson.subject);
-          let score = -onDay * 100 - DAYS.indexOf(day) - pi * 0.1;
+          // When this lesson's teacher is shared with sibling streams, rotate
+          // which day looks "earliest" to THIS stream, so siblings don't all
+          // reach for Monday first for the same teacher and collide — proactive
+          // spreading instead of only reactively avoiding a slot once it's
+          // already taken (which can still exhaust every option for whichever
+          // sibling is processed last).
+          const dayRotation = this.dayRotationFor(exactTeacherId, stream.id);
+          const rotatedDayIndex = (DAYS.indexOf(day) + DAYS.length - (dayRotation % DAYS.length)) % DAYS.length;
+          let score = -onDay * 100 - rotatedDayIndex - pi * 0.1;
           // Extra pull toward the very front for Maths/English/Kiswahili.
           if (wantsEarly(lesson.subject)) score += (EARLY_PERIOD_WINDOW - pi) * 5;
           // Steer away from repeating the same period-of-day this subject already
@@ -685,8 +714,12 @@ export class AutoTimetabler {
       [tenantId],
     ).catch(() => []);
     this.streamSubjectTeacher = new Map();
+    this.teacherStreams = new Map();
     for (const r of streamSubjectRows) {
       this.streamSubjectTeacher.set(`${r.streamId}|${matchKey(String(r.subject))}`, r.teacherId);
+      if (!this.teacherStreams.has(r.teacherId)) this.teacherStreams.set(r.teacherId, []);
+      const list = this.teacherStreams.get(r.teacherId)!;
+      if (!list.includes(r.streamId)) list.push(r.streamId);
     }
 
     // Reset cross-stream teacher usage for this run
