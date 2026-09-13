@@ -263,12 +263,13 @@ export class AutoTimetabler {
       grid['Friday'][firstPeriod] = this.place('Friday', lessonPeriods[0], 'Pastoral Programme of Instruction (PPI)', null, null, lessonPeriods);
     }
 
-    // Mathematics & English are core literacy/numeracy — schedule them in the first
-    // three periods of the day where possible. Defined before the pool sort below
-    // since it now needs this to rank placement priority, not just scoring.
+    // Mathematics, English & Kiswahili are core literacy/numeracy — schedule
+    // them in the first three periods of the day where possible. Defined before
+    // the pool sort below since it now needs this to rank placement priority,
+    // not just scoring.
     const wantsEarly = (subject: string): boolean => {
       const s = subject.toLowerCase();
-      return /\bmathematic|\bmaths?\b|\benglish\b/.test(s);
+      return /\bmathematic|\bmaths?\b|\benglish\b|\bkiswahili\b/.test(s);
     };
 
     // 2) Order the pool. Doubles and before-break subjects (rare — usually just
@@ -341,9 +342,35 @@ export class AutoTimetabler {
     };
     const countOnDay = (day: string, subject: string): number =>
       lessonPeriods.reduce((n, p) => n + (grid[day][p.period]?.subject === subject ? 1 : 0), 0);
+    // Has this subject already landed in this exact period-of-day on some OTHER
+    // day this week? Used to stop a subject camping in the same period every
+    // day (e.g. English always Period 1) — a learning area should vary its
+    // period across the week. Creative Arts / Creative Arts & Sports are the
+    // deliberate exception: they're the `beforeBreak` subjects, which by
+    // definition must sit in whichever period sits right before a break, so
+    // they're expected to repeat that same period daily.
+    const periodUsedByOtherDay = (subject: string, periodNumber: number): boolean =>
+      DAYS.some(d => grid[d][periodNumber]?.subject === subject);
 
     // 3) Place each lesson.
     for (const lesson of pool) {
+      // Resolve this lesson's exact per-stream teacher (if one is assigned) BEFORE
+      // picking a slot, not after — with several streams generated in one run
+      // (e.g. Grades 7–9 sharing one subject teacher), the same teacher is very
+      // often already booked at whatever slot looks "best" for THIS stream purely
+      // by subject-placement heuristics. Checking their real availability only
+      // after committing to a slot meant that slot got left teacherless instead
+      // of the search trying a different day/period where they're actually free —
+      // reported live as learning areas suddenly missing their teacher once
+      // several streams were generated together. Threading availability into the
+      // search itself (main pass + both relax passes below) fixes that; only the
+      // final two "fill the grid no matter what" fallbacks ignore it, so a
+      // genuinely over-committed teacher still yields a filled (if teacherless)
+      // slot rather than a permanently blank one.
+      const exactTeacherId = this.streamSubjectTeacher.get(`${stream.id}|${matchKey(lesson.subject)}`);
+      const exactTeacherFree = (day: string, periodNumber: number) =>
+        !exactTeacherId || this.isTeacherFree(exactTeacherId, day, periodNumber);
+
       let best: { day: string; period: any } | null = null;
       let bestScore = -Infinity;
 
@@ -355,12 +382,13 @@ export class AutoTimetabler {
           if (lesson.double) {
             const nextP = lessonPeriods[pi + 1];
             if (!nextP || grid[day][nextP.period]) continue;       // need 2 consecutive free
-          }
+            if (!exactTeacherFree(day, p.period) || !exactTeacherFree(day, nextP.period)) continue;
+          } else if (!exactTeacherFree(day, p.period)) continue;
           if (similarAdjacent(day, p.period, lesson.groupId)) continue;
 
-          // Mathematics & English should sit in the FIRST 3 periods of the day.
-          // Enforced in the main pass; relaxed fallbacks below only trigger if the
-          // first 3 are already full.
+          // Mathematics, English & Kiswahili should sit in the FIRST 3 periods of
+          // the day. Enforced in the main pass; relaxed fallbacks below only
+          // trigger if the first 3 are already full.
           if (wantsEarly(lesson.subject) && pi >= 3) continue;
 
           // Hard per-day cap: a subject may not appear twice in a day unless its weekly
@@ -378,8 +406,14 @@ export class AutoTimetabler {
           // and prefer earlier days/periods for determinism.
           const onDay = countOnDay(day, lesson.subject);
           let score = -onDay * 100 - DAYS.indexOf(day) - pi * 0.1;
-          // Extra pull toward the very front for Maths/English.
+          // Extra pull toward the very front for Maths/English/Kiswahili.
           if (wantsEarly(lesson.subject)) score += (3 - pi) * 5;
+          // Steer away from repeating the same period-of-day this subject already
+          // used — a strong preference, not an absolute ban, since "wants early"
+          // subjects (only 3 legal periods for up to 5 daily lessons) can be
+          // mathematically forced to repeat one; Creative Arts/Creative Arts &
+          // Sports are meant to repeat theirs every day, so they're exempt.
+          if (!lesson.beforeBreak && periodUsedByOtherDay(lesson.subject, p.period)) score -= 30;
           if (score > bestScore) { bestScore = score; best = { day, period: p }; }
         }
       }
@@ -389,6 +423,7 @@ export class AutoTimetabler {
         for (const day of DAYS) {
           for (const p of lessonPeriods) {
             if (grid[day][p.period]) continue;
+            if (!exactTeacherFree(day, p.period)) continue;
             if (similarAdjacent(day, p.period, lesson.groupId)) continue;
             if (!lesson.double && countOnDay(day, lesson.subject) >= 1) {
               const allowance = doubleUpDaysAllowed(lesson.subject);
@@ -399,8 +434,26 @@ export class AutoTimetabler {
           if (best) break;
         }
       }
-      // Last resort: any free slot — still honour the per-day cap so nothing appears
-      // twice in a day beyond its earned allowance.
+      // Last resort: any free slot where the assigned teacher is still free —
+      // still honour the per-day cap so nothing appears twice in a day beyond
+      // its earned allowance.
+      if (!best) {
+        for (const day of DAYS) {
+          for (const p of lessonPeriods) {
+            if (grid[day][p.period]) continue;
+            if (!exactTeacherFree(day, p.period)) continue;
+            if (!lesson.double && countOnDay(day, lesson.subject) >= 1) {
+              const allowance = doubleUpDaysAllowed(lesson.subject);
+              if (countOnDay(day, lesson.subject) >= 2 || (doubleUpDaysUsed[lesson.subject.toLowerCase()] || 0) >= allowance) continue;
+            }
+            best = { day, period: p }; break;
+          }
+          if (best) break;
+        }
+      }
+      // Give up on teacher availability too, but still respect the day cap —
+      // a genuinely over-committed teacher (assigned to more lessons than the
+      // week has slots for) shouldn't leave the subject entirely unplaced.
       if (!best) {
         for (const day of DAYS) {
           for (const p of lessonPeriods) {
