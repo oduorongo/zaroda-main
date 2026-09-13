@@ -263,18 +263,28 @@ export class AutoTimetabler {
       grid['Friday'][firstPeriod] = this.place('Friday', lessonPeriods[0], 'Pastoral Programme of Instruction (PPI)', null, null, lessonPeriods);
     }
 
-    // 2) Order the pool: doubles first, then before-break subjects, then by most
-    //    lessons first. When PPI consumes a daily slot and the grid is exactly full
-    //    (Lower Primary 31→30, JS 41→40), the lesson that yields is the LAST unit of
-    //    the smallest-allocation ordinary area — exactly as the KICD sample timetable
-    //    (Appendix 2) drops one Religious Education lesson.
+    // 2) Order the pool: doubles first, then before-break subjects, then by FEWEST
+    //    lessons first. A subject with only 3 lessons/week (e.g. Social Studies,
+    //    Religious Education) is the most constrained — it needs 3 DIFFERENT days
+    //    (the per-day cap below forbids doubling it up when its total already fits
+    //    within the 5 weekdays), so if the grid fills up before it gets a turn, it
+    //    can be stranded with only 1 day left to use, losing 2 lessons at once —
+    //    exactly what happened here when higher-allocation subjects (placed first
+    //    under the old "biggest first" order) greedily saturated Monday–Thursday.
+    //    Placing the tightest-constrained subjects first, while the most days are
+    //    still free, lets them spread out properly; a high-allocation subject
+    //    (English, Creative Arts) is far more flexible about which slots it ends
+    //    up in and easily fills whatever's left. When total demand exceeds total
+    //    capacity by exactly one (Lower Primary 31→30, JS 41→40 once PPI takes a
+    //    slot), this does mean a higher-allocation area yields its last unit
+    //    instead of the smallest one — a cosmetic difference (still just one
+    //    lesson short overall) far preferable to a smaller subject losing two.
     const lessonsBySubject: Record<string, number> = {};
     pool.forEach(u => { lessonsBySubject[u.subject] = (lessonsBySubject[u.subject] || 0) + 1; });
     pool.sort((a, b) => {
       if (a.double !== b.double) return a.double ? -1 : 1;
       if (a.beforeBreak !== b.beforeBreak) return a.beforeBreak ? -1 : 1;
-      // higher total allocation first, so a smaller area is the one left short
-      return (lessonsBySubject[b.subject] || 0) - (lessonsBySubject[a.subject] || 0);
+      return (lessonsBySubject[a.subject] || 0) - (lessonsBySubject[b.subject] || 0);
     });
 
     const expected = pool.length + 1; // learning-area lessons + the one weekly PPI
