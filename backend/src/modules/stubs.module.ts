@@ -48,6 +48,80 @@ async function filterOptedOutNumbers(ds: DataSource, numbers: string[]): Promise
   return { toSend: numbers.filter(n => !blockedSet.has(n)), skipped: numbers.filter(n => blockedSet.has(n)) };
 }
 
+// ── M-Pesa Paybill (per-tenant) helpers ───────────────────────────────────
+// Each school can register its OWN Paybill/Till with Safaricom's Daraja API —
+// distinct from the platform-wide Tuma account used for ZARODA's own
+// subscription/wallet billing (src/common/tuma.ts), which only ever moves
+// money into ZARODA's account, not a school's. Credentials live per tenant in
+// tenant_mpesa_settings; self-healing tables (ensure* below) follow this
+// file's established convention rather than a migration.
+const MPESA_SANDBOX = 'https://sandbox.safaricom.co.ke';
+const MPESA_PROD = 'https://api.safaricom.co.ke';
+const mpesaBaseUrl = (environment: string) => (environment === 'sandbox' ? MPESA_SANDBOX : MPESA_PROD);
+
+async function ensureMpesaSettingsTable(ds: DataSource) {
+  await ds.query(
+    `CREATE TABLE IF NOT EXISTS tenant_mpesa_settings (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+       tenant_id uuid UNIQUE,
+       created_at timestamptz DEFAULT NOW()
+     )`,
+  ).catch(() => null);
+  const cols: [string, string][] = [
+    ['shortcode', 'text'], ['consumer_key', 'text'], ['consumer_secret', 'text'],
+    ['passkey', 'text'], ['environment', "text DEFAULT 'production'"],
+    ['updated_at', 'timestamptz DEFAULT NOW()'],
+  ];
+  for (const [n, t] of cols) {
+    await ds.query(`ALTER TABLE tenant_mpesa_settings ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+  }
+}
+
+async function ensureMpesaTransactionsTable(ds: DataSource) {
+  await ds.query(
+    `CREATE TABLE IF NOT EXISTS mpesa_transactions (
+       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+       tenant_id uuid, created_at timestamptz DEFAULT NOW()
+     )`,
+  ).catch(() => null);
+  const cols: [string, string][] = [
+    ['type', 'text'],                    // 'stk' | 'c2b'
+    ['checkout_request_id', 'text'], ['merchant_request_id', 'text'],
+    ['phone', 'text'], ['amount', 'numeric'], ['account_reference', 'text'],
+    ['learner_id', 'uuid'],              // pre-matched at STK push time (parent chosen from a list)
+    ['mpesa_receipt_number', 'text'],
+    ['status', "text DEFAULT 'pending'"], // pending | completed | failed | matched | unmatched
+    ['matched_learner_id', 'uuid'], ['matched_payment_id', 'uuid'],
+    ['raw_callback', 'jsonb'],
+  ];
+  for (const [n, t] of cols) {
+    await ds.query(`ALTER TABLE mpesa_transactions ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+  }
+}
+
+async function getMpesaSettingsRow(ds: DataSource, tenantId: string): Promise<any | null> {
+  await ensureMpesaSettingsTable(ds);
+  const rows = await ds.query(
+    `SELECT shortcode, consumer_key AS "consumerKey", consumer_secret AS "consumerSecret",
+            passkey, environment
+       FROM tenant_mpesa_settings WHERE tenant_id::text = $1 LIMIT 1`,
+    [tenantId],
+  ).catch(() => []);
+  return rows[0] || null;
+}
+
+async function getDarajaToken(environment: string, consumerKey: string, consumerSecret: string): Promise<string> {
+  const creds = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  const resp = await fetch(`${mpesaBaseUrl(environment)}/oauth/v1/generate?grant_type=client_credentials`, {
+    headers: { Authorization: `Basic ${creds}` },
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) {
+    throw new Error(`M-Pesa auth failed: ${JSON.stringify(data).slice(0, 200)}`);
+  }
+  return data.access_token;
+}
+
 // ═══════════════════════════════════════════════════════════
 // FINANCE MODULE
 // ═══════════════════════════════════════════════════════════
@@ -67,6 +141,12 @@ class Invoice {
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
+// Also @Injectable() (in addition to @Controller) so MpesaPaybillController /
+// MpesaCallbackController can inject it below to reuse createAndAllocatePayment
+// — the single path that actually records a payment and its vote-head
+// allocations, whether triggered by a bursar's manual entry or an M-Pesa
+// auto-reconciliation.
+@Injectable()
 @Controller('finance')
 @UseGuards(JwtAuthGuard)
 class FinanceController {
@@ -761,14 +841,25 @@ class FinanceController {
     if (!dto?.learnerId) throw new BadRequestException('Please select a learner.');
     const amount = Number(dto.amount);
     if (!amount || amount <= 0) throw new BadRequestException('Enter a valid amount.');
+    return this.createAndAllocatePayment(req.user.tenantId, req.user.schoolId || null, dto, req.user.id || null, req.user.email || '');
+  }
+
+  // Shared by the manual "record payment" form above and the M-Pesa
+  // auto-reconciliation path (MpesaPaybillController) — inserts the payment
+  // row and fills vote-head allocations the same way regardless of who/what
+  // triggered it, so a parent's Paybill payment behaves identically to a
+  // bursar manually recording cash.
+  async createAndAllocatePayment(
+    tenantId: string, schoolId: string | null, dto: any,
+    recorder: string | null, recorderName: string,
+  ) {
+    const amount = Number(dto.amount);
     await this.ensurePaymentsTable();
     await this.ensureAllocationsTable();
     await this.ensureFeeItemsTable();
 
     // Receipt number: ZRD-<short tenant>-<YYMMDD>-<random>
-    const receiptNumber = `ZRD-${String(req.user.tenantId).slice(0, 4).toUpperCase()}-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random()*9000)}`;
-    const recorder = req.user.id || null;   // store the user's UUID (recorded_by may be a uuid column)
-    const recorderName = req.user.email || '';
+    const receiptNumber = `ZRD-${String(tenantId).slice(0, 4).toUpperCase()}-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random()*9000)}`;
     try {
       const rows = await this.ds.query(
         `INSERT INTO payments
@@ -777,7 +868,7 @@ class FinanceController {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
          RETURNING id, receipt_number AS "receiptNumber", amount, method, paid_on AS "paidOn"`,
         [
-          req.user.tenantId, req.user.schoolId || null, dto.learnerId,
+          tenantId, schoolId, dto.learnerId,
           dto.learnerName || null, dto.admissionNumber || null, amount,
           dto.method || 'cash', dto.reference || null, dto.note || null,
           dto.term || null, dto.academicYear || null, receiptNumber, recorder, recorderName,
@@ -798,12 +889,12 @@ class FinanceController {
           WHERE tenant_id = $1 AND (grade_level IS NULL OR grade_level = $2)
             AND ($3::text IS NULL OR term = $3 OR term IS NULL)
           ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
-        [req.user.tenantId, grade, dto.term || null],
+        [tenantId, grade, dto.term || null],
       ).catch(() => []);
       const paidRows = await this.ds.query(
         `SELECT fee_item_id, COALESCE(SUM(amount),0) AS paid FROM payment_allocations
           WHERE tenant_id = $1 AND learner_id = $2 GROUP BY fee_item_id`,
-        [req.user.tenantId, dto.learnerId],
+        [tenantId, dto.learnerId],
       ).catch(() => []);
       const paidByItem: Record<string, number> = {};
       for (const r of (paidRows as any[])) paidByItem[r.fee_item_id] = Number(r.paid || 0);
@@ -835,7 +926,7 @@ class FinanceController {
           `INSERT INTO payment_allocations
              (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [req.user.tenantId, payment.id, dto.learnerId, a.feeItemId || null, a.name, a.amount, dto.term || null, dto.academicYear || null],
+          [tenantId, payment.id, dto.learnerId, a.feeItemId || null, a.name, a.amount, dto.term || null, dto.academicYear || null],
         ).catch(() => null);
       }
 
@@ -918,18 +1009,11 @@ class FinanceController {
     res.send(html);
   }
 
-  @Post('mpesa/stk-push')
-  stkPush(@Request() req: any, @Body() dto: { invoiceId: string; phone: string }) {
-    // TODO: integrate Safaricom Daraja STK Push
-    return { message: 'M-Pesa STK Push sent (configure MPESA_* env vars)', phone: dto.phone };
-  }
-
-  @Post('mpesa/callback')
-  mpesaCallback(@Body() body: any) {
-    // Safaricom sends payment confirmation here
-    console.log('M-Pesa callback received:', body);
-    return { ResultCode: 0, ResultDesc: 'Accepted' };
-  }
+  // Real M-Pesa Paybill integration (STK push, C2B, settings, reconciliation)
+  // lives in MpesaPaybillController/MpesaCallbackController below — this used
+  // to be a stub here ("configure MPESA_* env vars") that never actually
+  // called Safaricom, and even if it had, this controller is JwtAuthGuard'd
+  // at the class level, which would have 401'd Safaricom's own callback.
 
   @Get('payroll')
   getPayroll(@Request() req: any) { return []; }
@@ -994,9 +1078,360 @@ class FinanceController {
   }
 }
 
+// ── M-Pesa Paybill: authenticated side (settings, STK push, activity log) ──
+const MPESA_STAFF_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'];
+const MPESA_ADMIN_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin'];
+
+@Controller('finance/mpesa')
+@UseGuards(JwtAuthGuard)
+class MpesaPaybillController {
+  constructor(private readonly ds: DataSource, private readonly financeController: FinanceController) {}
+
+  // Never returns the raw secrets back to the browser — only whether each is set,
+  // so the settings form can show "configured" without re-exposing the value.
+  @Get('settings')
+  async getSettings(@Request() req: any) {
+    if (!MPESA_STAFF_ROLES.includes(req.user.role)) return { error: 'forbidden' };
+    await ensureMpesaSettingsTable(this.ds);
+    const rows = await this.ds.query(
+      `SELECT shortcode, environment,
+              (consumer_key IS NOT NULL AND consumer_key <> '')       AS "hasConsumerKey",
+              (consumer_secret IS NOT NULL AND consumer_secret <> '') AS "hasConsumerSecret",
+              (passkey IS NOT NULL AND passkey <> '')                 AS "hasPasskey",
+              updated_at AS "updatedAt"
+         FROM tenant_mpesa_settings WHERE tenant_id::text = $1 LIMIT 1`,
+      [req.user.tenantId],
+    ).catch(() => []);
+    return rows[0] || null;
+  }
+
+  @Post('settings')
+  async saveSettings(@Request() req: any, @Body() dto: any) {
+    if (!MPESA_ADMIN_ROLES.includes(req.user.role)) {
+      throw new BadRequestException('Only an administrator can configure the Paybill.');
+    }
+    if (!dto?.shortcode) throw new BadRequestException('Enter the Paybill (or Till) shortcode.');
+    await ensureMpesaSettingsTable(this.ds);
+    // COALESCE on the secret fields: leave a previously-saved key/secret/passkey in
+    // place if the admin didn't retype it this time (the form never shows them back).
+    await this.ds.query(
+      `INSERT INTO tenant_mpesa_settings (tenant_id, shortcode, consumer_key, consumer_secret, passkey, environment, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW())
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         shortcode = EXCLUDED.shortcode,
+         consumer_key = COALESCE(NULLIF(EXCLUDED.consumer_key, ''), tenant_mpesa_settings.consumer_key),
+         consumer_secret = COALESCE(NULLIF(EXCLUDED.consumer_secret, ''), tenant_mpesa_settings.consumer_secret),
+         passkey = COALESCE(NULLIF(EXCLUDED.passkey, ''), tenant_mpesa_settings.passkey),
+         environment = EXCLUDED.environment,
+         updated_at = NOW()`,
+      [req.user.tenantId, dto.shortcode, dto.consumerKey || '', dto.consumerSecret || '', dto.passkey || '',
+       dto.environment === 'sandbox' ? 'sandbox' : 'production'],
+    );
+    return { message: 'M-Pesa Paybill settings saved.' };
+  }
+
+  // Tells Safaricom where to send C2B payments for THIS shortcode — a parent
+  // paying directly from their own M-Pesa menu, not triggered by the school.
+  // Safaricom requires both URLs even though only the confirmation one does
+  // anything here (the validation one always accepts).
+  @Post('settings/register-c2b')
+  async registerC2b(@Request() req: any) {
+    if (!MPESA_ADMIN_ROLES.includes(req.user.role)) {
+      throw new BadRequestException('Only an administrator can do this.');
+    }
+    const settings = await getMpesaSettingsRow(this.ds, req.user.tenantId);
+    if (!settings?.shortcode || !settings.consumerKey || !settings.consumerSecret) {
+      throw new BadRequestException('Save your shortcode, consumer key and consumer secret first.');
+    }
+    const base = (process.env.APP_URL || '').replace(/\/+$/, '');
+    if (!base) throw new BadRequestException('Server is missing APP_URL — contact ZARODA support.');
+    let token: string;
+    try {
+      token = await getDarajaToken(settings.environment, settings.consumerKey, settings.consumerSecret);
+    } catch (e: any) {
+      throw new BadRequestException(`Could not authenticate with Safaricom: ${e.message}`);
+    }
+    const resp = await fetch(`${mpesaBaseUrl(settings.environment)}/mpesa/c2b/v1/registerurl`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ShortCode: settings.shortcode,
+        ResponseType: 'Completed',
+        ConfirmationURL: `${base}/api/v1/finance/mpesa/c2b/confirmation/${req.user.tenantId}`,
+        ValidationURL: `${base}/api/v1/finance/mpesa/c2b/validation/${req.user.tenantId}`,
+      }),
+    });
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new BadRequestException(`Safaricom rejected the URL registration: ${JSON.stringify(data).slice(0, 300)}`);
+    }
+    return { message: 'C2B payment URLs registered with Safaricom. Parents can now pay this Paybill directly.', response: data };
+  }
+
+  // Triggers a push to the PARENT'S phone (school-initiated) — distinct from
+  // C2B, where the parent pays unprompted from their own M-Pesa menu.
+  @Post('stk-push')
+  async stkPush(@Request() req: any, @Body() dto: { learnerId: string; phone: string; amount: number }) {
+    if (!MPESA_STAFF_ROLES.includes(req.user.role)) {
+      throw new BadRequestException('Only the bursar or an administrator can request a payment.');
+    }
+    const tenantId = req.user.tenantId;
+    const settings = await getMpesaSettingsRow(this.ds, tenantId);
+    if (!settings?.shortcode || !settings.consumerKey || !settings.consumerSecret || !settings.passkey) {
+      throw new BadRequestException('M-Pesa Paybill is not set up yet — configure it in Finance → M-Pesa Settings first.');
+    }
+    const phone = normalisePhoneForTuma(dto.phone || '');
+    if (!phone) throw new BadRequestException('Enter a valid M-Pesa phone number.');
+    const amount = Number(dto.amount);
+    if (!amount || amount <= 0) throw new BadRequestException('Enter a valid amount.');
+    if (!dto.learnerId) throw new BadRequestException('Select a learner.');
+
+    const learnerRows = await this.ds.query(
+      `SELECT admission_number AS "admissionNumber", first_name AS "firstName", last_name AS "lastName"
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2`,
+      [dto.learnerId, tenantId],
+    ).catch(() => []);
+    const learner = learnerRows[0];
+    const accountRef = (learner?.admissionNumber || 'FEES').slice(0, 20); // Daraja caps this field
+
+    let token: string;
+    try {
+      token = await getDarajaToken(settings.environment, settings.consumerKey, settings.consumerSecret);
+    } catch (e: any) {
+      throw new BadRequestException(`Could not authenticate with Safaricom: ${e.message}`);
+    }
+    const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
+    const password = Buffer.from(`${settings.shortcode}${settings.passkey}${timestamp}`).toString('base64');
+    const base = (process.env.APP_URL || '').replace(/\/+$/, '');
+
+    let data: any;
+    try {
+      const resp = await fetch(`${mpesaBaseUrl(settings.environment)}/mpesa/stkpush/v1/processrequest`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          BusinessShortCode: settings.shortcode,
+          Password: password,
+          Timestamp: timestamp,
+          TransactionType: 'CustomerPayBillOnline',
+          Amount: Math.ceil(amount),
+          PartyA: phone,
+          PartyB: settings.shortcode,
+          PhoneNumber: phone,
+          CallBackURL: `${base}/api/v1/finance/mpesa/stk-callback`,
+          AccountReference: accountRef,
+          TransactionDesc: `School fees${learner ? ` — ${learner.firstName} ${learner.lastName}` : ''}`.slice(0, 100),
+        }),
+      });
+      data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.CheckoutRequestID) {
+        throw new Error(data.errorMessage || JSON.stringify(data).slice(0, 200));
+      }
+    } catch (e: any) {
+      throw new BadRequestException(`Could not send the M-Pesa prompt: ${e.message}`);
+    }
+
+    await ensureMpesaTransactionsTable(this.ds);
+    await this.ds.query(
+      `INSERT INTO mpesa_transactions
+         (tenant_id, type, checkout_request_id, merchant_request_id, phone, amount, account_reference, learner_id, status, created_at)
+       VALUES ($1,'stk',$2,$3,$4,$5,$6,$7,'pending',NOW())`,
+      [tenantId, data.CheckoutRequestID, data.MerchantRequestID, phone, amount, accountRef, dto.learnerId],
+    );
+
+    return { checkoutRequestId: data.CheckoutRequestID, message: `STK push sent to ${phone}. Ask the parent to enter their M-Pesa PIN.` };
+  }
+
+  @Get('transactions')
+  async listTransactions(@Request() req: any) {
+    if (!MPESA_STAFF_ROLES.includes(req.user.role)) return [];
+    await ensureMpesaTransactionsTable(this.ds);
+    return this.ds.query(
+      `SELECT id, type, phone, amount, account_reference AS "accountReference",
+              mpesa_receipt_number AS "mpesaReceiptNumber", status, created_at AS "createdAt"
+         FROM mpesa_transactions WHERE tenant_id::text = $1 ORDER BY created_at DESC LIMIT 100`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  // Payments that arrived (usually via C2B — a parent typo'd the account
+  // number/admission number, or paid before the learner existed in the
+  // system) but couldn't be matched to a learner automatically.
+  @Get('unmatched')
+  async listUnmatched(@Request() req: any) {
+    if (!MPESA_STAFF_ROLES.includes(req.user.role)) return [];
+    await ensureMpesaTransactionsTable(this.ds);
+    return this.ds.query(
+      `SELECT id, type, phone, amount, account_reference AS "accountReference",
+              mpesa_receipt_number AS "mpesaReceiptNumber", created_at AS "createdAt"
+         FROM mpesa_transactions WHERE tenant_id::text = $1 AND status = 'unmatched'
+        ORDER BY created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('unmatched/:id/assign')
+  async assignUnmatched(@Request() req: any, @Param('id') id: string, @Body() dto: { learnerId: string }) {
+    if (!MPESA_STAFF_ROLES.includes(req.user.role)) {
+      throw new BadRequestException('Only the bursar or an administrator can do this.');
+    }
+    if (!dto?.learnerId) throw new BadRequestException('Select which learner this payment belongs to.');
+    const rows = await this.ds.query(
+      `SELECT * FROM mpesa_transactions WHERE id::text = $1 AND tenant_id::text = $2 AND status = 'unmatched'`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    const txn = rows[0];
+    if (!txn) throw new BadRequestException('This payment was not found, or has already been matched.');
+
+    const learnerRows = await this.ds.query(
+      `SELECT school_id AS "schoolId", first_name AS "firstName", last_name AS "lastName", admission_number AS "admissionNumber"
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2`,
+      [dto.learnerId, req.user.tenantId],
+    ).catch(() => []);
+    const learner = learnerRows[0];
+    if (!learner) throw new BadRequestException('Learner not found.');
+
+    const payment = await this.financeController.createAndAllocatePayment(
+      req.user.tenantId, learner.schoolId || null,
+      {
+        learnerId: dto.learnerId, learnerName: `${learner.firstName} ${learner.lastName}`,
+        admissionNumber: learner.admissionNumber, amount: Number(txn.amount), method: 'mpesa',
+        reference: txn.mpesa_receipt_number, note: `M-Pesa payment manually matched (was: "${txn.account_reference || ''}")`,
+      },
+      req.user.id || null, req.user.email || '',
+    );
+    await this.ds.query(
+      `UPDATE mpesa_transactions SET status = 'matched', matched_learner_id = $2, matched_payment_id = $3 WHERE id::text = $1`,
+      [id, dto.learnerId, payment.id],
+    ).catch(() => null);
+    return { message: 'Payment matched and recorded.', payment };
+  }
+}
+
+// ── M-Pesa Paybill: public side (Safaricom calls these — no auth) ──────────
+@Controller('finance/mpesa')
+class MpesaCallbackController {
+  constructor(private readonly ds: DataSource, private readonly financeController: FinanceController) {}
+
+  // Reconciles by admission number — finds the learner, then records the
+  // payment through the exact same path a bursar's manual entry uses, so
+  // balances, receipts and the cashbook all stay consistent regardless of
+  // who/what triggered the payment.
+  private async reconcile(
+    tenantId: string, txnId: string, learnerIdHint: string | null,
+    accountReference: string, amount: number, phone: string, mpesaReceiptNumber: string,
+  ) {
+    let learnerId = learnerIdHint;
+    if (!learnerId && accountReference) {
+      const rows = await this.ds.query(
+        `SELECT id FROM learners WHERE tenant_id::text = $1 AND admission_number = $2 LIMIT 1`,
+        [tenantId, accountReference],
+      ).catch(() => []);
+      learnerId = rows[0]?.id || null;
+    }
+    if (!learnerId) {
+      await this.ds.query(`UPDATE mpesa_transactions SET status = 'unmatched' WHERE id::text = $1`, [txnId]).catch(() => null);
+      return;
+    }
+    try {
+      const learnerRows = await this.ds.query(
+        `SELECT school_id AS "schoolId", first_name AS "firstName", last_name AS "lastName"
+           FROM learners WHERE id::text = $1`,
+        [learnerId],
+      ).catch(() => []);
+      const learner = learnerRows[0];
+      const payment = await this.financeController.createAndAllocatePayment(
+        tenantId, learner?.schoolId || null,
+        {
+          learnerId, learnerName: learner ? `${learner.firstName} ${learner.lastName}` : undefined,
+          admissionNumber: accountReference, amount, method: 'mpesa', reference: mpesaReceiptNumber,
+          note: 'Auto-reconciled M-Pesa payment',
+        },
+        null, 'M-Pesa (auto-reconciled)',
+      );
+      await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'matched', matched_learner_id = $2, matched_payment_id = $3 WHERE id::text = $1`,
+        [txnId, learnerId, payment.id],
+      ).catch(() => null);
+    } catch {
+      await this.ds.query(`UPDATE mpesa_transactions SET status = 'unmatched' WHERE id::text = $1`, [txnId]).catch(() => null);
+    }
+  }
+
+  // STK result — Safaricom doesn't echo back which tenant this belongs to, so
+  // the tenant is recovered from our own mpesa_transactions row saved at
+  // push time, keyed by CheckoutRequestID (same pattern as every other
+  // STK integration in this app — see WalletService/SmsWalletService).
+  @Post('stk-callback')
+  async stkCallback(@Body() body: any) {
+    const stk = body?.Body?.stkCallback;
+    if (!stk) return { ResultCode: 0, ResultDesc: 'Accepted' };
+    const rows = await this.ds.query(
+      `SELECT * FROM mpesa_transactions WHERE checkout_request_id = $1 LIMIT 1`,
+      [stk.CheckoutRequestID],
+    ).catch(() => []);
+    const txn = rows[0];
+    if (!txn) return { ResultCode: 0, ResultDesc: 'Accepted' };
+
+    if (stk.ResultCode === 0) {
+      const items = stk.CallbackMetadata?.Item || [];
+      const get = (name: string) => items.find((i: any) => i.Name === name)?.Value;
+      const mpesaReceiptNumber = get('MpesaReceiptNumber');
+      const amount = Number(get('Amount') ?? txn.amount);
+      const phone = String(get('PhoneNumber') ?? txn.phone ?? '');
+
+      await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3 WHERE id::text = $1`,
+        [txn.id, mpesaReceiptNumber, JSON.stringify(body)],
+      ).catch(() => null);
+      await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, amount, phone, mpesaReceiptNumber);
+    } else {
+      await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1`,
+        [txn.id, JSON.stringify(body)],
+      ).catch(() => null);
+    }
+    return { ResultCode: 0, ResultDesc: 'Accepted' };
+  }
+
+  // Safaricom requires a Validation URL to exist even though we don't use it
+  // to reject anything — always accept, and do the real work in Confirmation.
+  @Post('c2b/validation/:tenantId')
+  c2bValidation() {
+    return { ResultCode: 0, ResultDesc: 'Accepted' };
+  }
+
+  // A parent paid this Paybill directly from their own M-Pesa menu — no
+  // school-side trigger at all. :tenantId comes from the URL Safaricom was
+  // registered with per school (see registerC2b above), so there's no
+  // ambiguity about which tenant this payment belongs to even if two schools
+  // somehow shared a shortcode in testing.
+  @Post('c2b/confirmation/:tenantId')
+  async c2bConfirmation(@Param('tenantId') tenantId: string, @Body() body: any) {
+    await ensureMpesaTransactionsTable(this.ds);
+    const phone = body?.MSISDN ? String(body.MSISDN) : '';
+    const amount = Number(body?.TransAmount || 0);
+    const accountReference = String(body?.BillRefNumber || '').trim();
+    const mpesaReceiptNumber = body?.TransID || null;
+
+    const rows = await this.ds.query(
+      `INSERT INTO mpesa_transactions
+         (tenant_id, type, phone, amount, account_reference, mpesa_receipt_number, status, raw_callback, created_at)
+       VALUES ($1,'c2b',$2,$3,$4,$5,'pending',$6,NOW()) RETURNING id`,
+      [tenantId, phone, amount, accountReference, mpesaReceiptNumber, JSON.stringify(body)],
+    ).catch(() => []);
+    const txnId = rows[0]?.id;
+    if (txnId) await this.reconcile(tenantId, txnId, null, accountReference, amount, phone, mpesaReceiptNumber);
+
+    // Safaricom expects exactly this shape to accept the C2B payment.
+    return { ResultCode: 0, ResultDesc: 'Success' };
+  }
+}
+
 @Module({
   imports: [TypeOrmModule.forFeature([Invoice])],
-  controllers: [FinanceController],
+  controllers: [FinanceController, MpesaPaybillController, MpesaCallbackController],
+  providers: [FinanceController],
 })
 export class FinanceModule {}
 

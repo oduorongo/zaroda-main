@@ -12,7 +12,7 @@ export default function FinancePage() {
   const [invoices,  setInvoices] = useState<any[]>([]);
   const [search,    setSearch]   = useState('');
   const [loading,   setLoading]  = useState(true);
-  const [mpeza,     setMpeza]    = useState<{invoiceId:string;phone:string}|null>(null);
+  const [mpeza,     setMpeza]    = useState<{learnerId:string;phone:string;amount:string}|null>(null);
   const [mpezaLoading, setMpezaLoading] = useState(false);
   const [term,      setTerm]     = useState('term_1');
   const [year,      setYear]     = useState('2025/2026');
@@ -47,11 +47,14 @@ export default function FinancePage() {
     if (!mpeza) return;
     setMpezaLoading(true);
     try {
-      await apiClient.post('/finance/mpesa/stk-push', mpeza);
+      await apiClient.post('/finance/mpesa/stk-push', {
+        learnerId: mpeza.learnerId, phone: mpeza.phone, amount: Number(mpeza.amount),
+      });
       toast.success('M-Pesa prompt sent! Ask parent to check their phone.');
       setMpeza(null);
-    } catch { toast.error('M-Pesa request failed. Check credentials in settings.'); }
-    finally { setMpezaLoading(false); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'M-Pesa request failed.');
+    } finally { setMpezaLoading(false); }
   };
 
   const TABS = [
@@ -72,6 +75,7 @@ export default function FinancePage() {
           <Link href="/dashboard/finance/fee-structures" className="btn-ghost text-xs">Fee Structures</Link>
           <Link href="/dashboard/finance/expenses" className="btn-ghost text-xs">Expenses</Link>
           <Link href="/dashboard/finance/accounting" className="btn-ghost text-xs">Accounting</Link>
+          <Link href="/dashboard/finance/mpesa-settings" className="btn-ghost text-xs">M-Pesa Settings</Link>
         </div>
       </div>
 
@@ -174,7 +178,7 @@ export default function FinancePage() {
                           <div className="flex items-center justify-center gap-2 flex-wrap">
                             <InvoiceButton invoiceId={inv.id} invoiceNumber={inv.invoiceNumber} compact/>
                             {balance > 0 && (
-                              <button onClick={() => setMpeza({ invoiceId: inv.id, phone: inv.learner?.guardianPhone || '' })}
+                              <button onClick={() => setMpeza({ learnerId: inv.id, phone: inv.learner?.guardianPhone || '', amount: String(balance) })}
                                 className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700 font-medium">
                                 M-Pesa
                               </button>
@@ -208,14 +212,18 @@ export default function FinancePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm p-6">
             <h3 className="text-lg font-bold text-theme-heading mb-1">Send M-Pesa Request</h3>
-            <p className="text-sm text-theme-muted mb-4">Parent will receive an M-Pesa prompt on their phone</p>
+            <p className="text-sm text-theme-muted mb-4">Parent will receive an M-Pesa prompt on their phone (needs the school's Paybill set up under Finance → M-Pesa Settings)</p>
             <label className="label">Parent Phone Number</label>
             <input value={mpeza.phone}
               onChange={e => setMpeza(m => m ? {...m, phone: e.target.value} : null)}
-              placeholder="+254 7XX XXX XXX" className="input mb-4"/>
+              placeholder="+254 7XX XXX XXX" className="input mb-3"/>
+            <label className="label">Amount (KES)</label>
+            <input type="number" min={1} value={mpeza.amount}
+              onChange={e => setMpeza(m => m ? {...m, amount: e.target.value} : null)}
+              placeholder="e.g. 5000" className="input mb-4"/>
             <div className="flex gap-3">
               <button onClick={() => setMpeza(null)} className="btn-ghost flex-1">Cancel</button>
-              <button onClick={sendStk} disabled={mpezaLoading || !mpeza.phone} className="btn-primary flex-1">
+              <button onClick={sendStk} disabled={mpezaLoading || !mpeza.phone || !Number(mpeza.amount)} className="btn-primary flex-1">
                 {mpezaLoading ? <><Loader2 size={14} className="animate-spin"/> Sending…</> : '📱 Send STK Push'}
               </button>
             </div>
