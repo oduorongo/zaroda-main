@@ -1187,21 +1187,29 @@ class MpesaPaybillController {
     return { message: 'C2B payment URLs registered with Safaricom. Parents can now pay this Paybill directly.', response: data };
   }
 
-  // Triggers a push to the PARENT'S phone (school-initiated) — distinct from
-  // C2B, where the parent pays unprompted from their own M-Pesa menu. Branches
-  // on the school's chosen gateway: 'daraja' talks to Safaricom directly using
-  // the school's own Paybill; 'tuma' goes through the school's own Tuma
-  // account instead — simpler onboarding (no Safaricom developer approval
-  // needed), STK push only (no C2B/walk-up payments).
+  // Triggers a push to the PARENT'S phone — distinct from C2B, where the
+  // parent pays unprompted from their own M-Pesa menu. Branches on the
+  // school's chosen gateway: 'daraja' talks to Safaricom directly using the
+  // school's own Paybill; 'tuma' goes through the school's own Tuma account
+  // instead — simpler onboarding (no Safaricom developer approval needed),
+  // STK push only (no C2B/walk-up payments).
+  //
+  // Two ways in: staff (bursar/admin) requesting on a parent's behalf from
+  // the Fee Invoices list, OR the parent themselves, self-service, from
+  // their own ZARODA account — same idea as a teacher topping up their own
+  // Professional Records wallet. A parent may only trigger this for a
+  // learner actually linked to their account (verified below); staff may
+  // trigger it for anyone.
   @Post('stk-push')
   async stkPush(@Request() req: any, @Body() dto: { learnerId: string; phone: string; amount: number }) {
-    if (!MPESA_STAFF_ROLES.includes(req.user.role)) {
-      throw new BadRequestException('Only the bursar or an administrator can request a payment.');
+    const isParent = req.user.role === 'parent';
+    if (!MPESA_STAFF_ROLES.includes(req.user.role) && !isParent) {
+      throw new BadRequestException('Only the bursar, an administrator, or the learner\'s own parent can request a payment.');
     }
     const tenantId = req.user.tenantId;
     const settings = await getMpesaSettingsRow(this.ds, tenantId);
     if (!settings) {
-      throw new BadRequestException('M-Pesa is not set up yet — configure it in Finance → M-Pesa Settings first.');
+      throw new BadRequestException('This school hasn\'t set up M-Pesa payments yet — ask the bursar to configure it in Finance → M-Pesa Settings.');
     }
     const phone = normalisePhoneForTuma(dto.phone || '');
     if (!phone) throw new BadRequestException('Enter a valid M-Pesa phone number.');
@@ -1210,11 +1218,15 @@ class MpesaPaybillController {
     if (!dto.learnerId) throw new BadRequestException('Select a learner.');
 
     const learnerRows = await this.ds.query(
-      `SELECT admission_number AS "admissionNumber", first_name AS "firstName", last_name AS "lastName"
+      `SELECT admission_number AS "admissionNumber", first_name AS "firstName", last_name AS "lastName",
+              guardian_email AS "guardianEmail"
          FROM learners WHERE id::text = $1 AND tenant_id::text = $2`,
       [dto.learnerId, tenantId],
     ).catch(() => []);
     const learner = learnerRows[0];
+    if (isParent && (!learner || String(learner.guardianEmail || '').toLowerCase() !== String(req.user.email || '').toLowerCase())) {
+      throw new BadRequestException('You can only pay fees for your own child.');
+    }
     const accountRef = (learner?.admissionNumber || 'FEES').slice(0, 20); // Daraja caps this field
     const base = (process.env.APP_URL || '').replace(/\/+$/, '');
 

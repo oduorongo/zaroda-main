@@ -143,11 +143,36 @@ export default function ParentPortalPage() {
 
   const openFees = async (c: any) => {
     setFeesChild(c); setFeesData(null); setFeesLoading(true);
+    setPayAmount(''); setShowPay(false);
     try {
       const r = await apiClient.get(`/finance/payments/my-child/${c.id}`);
       setFeesData(r.data);
     } catch { setFeesData(null); }
     finally { setFeesLoading(false); }
+  };
+
+  // Self-service M-Pesa payment — same idea as a teacher topping up their own
+  // Professional Records wallet: the parent triggers this themselves from
+  // their own account rather than needing to call the bursar's office. Uses
+  // whichever gateway (Daraja Paybill or Tuma) the school has configured;
+  // the payment reconciles to this exact child via their admission number.
+  const [showPay, setShowPay] = useState(false);
+  const [payPhone, setPayPhone] = useState('');
+  const [payAmount, setPayAmount] = useState('');
+  const [paying, setPaying] = useState(false);
+  const payFees = async () => {
+    if (!feesChild) return;
+    const amount = Number(payAmount);
+    if (!payPhone.trim()) { toast.error('Enter your M-Pesa phone number'); return; }
+    if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
+    setPaying(true);
+    try {
+      const { data } = await apiClient.post('/finance/mpesa/stk-push', { learnerId: feesChild.id, phone: payPhone, amount });
+      toast.success(data.message || 'Check your phone and enter your M-Pesa PIN.');
+      setShowPay(false); setPayAmount('');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not send the M-Pesa request.');
+    } finally { setPaying(false); }
   };
   const downloadChildReport = async (c: any) => {
     const term = 'term_2';
@@ -358,6 +383,32 @@ export default function ParentPortalPage() {
                     <div className="bg-surface-2 rounded-xl p-3"><div className="text-[10px] text-theme-muted uppercase">Paid</div><div className="font-black text-green-600 text-sm">KES {Number(feesData.totalPaid||0).toLocaleString('en-KE')}</div></div>
                     <div className="bg-surface-2 rounded-xl p-3"><div className="text-[10px] text-theme-muted uppercase">Balance</div><div className={`font-black text-sm ${feesData.balance>0?'text-[#f5820a]':'text-green-600'}`}>KES {Number(feesData.balance||0).toLocaleString('en-KE')}</div></div>
                   </div>
+
+                  {feesData.balance > 0 && (
+                    <div className="mb-4">
+                      {!showPay ? (
+                        <button onClick={() => { setShowPay(true); setPayAmount(String(feesData.balance)); }}
+                          className="btn-primary w-full justify-center">
+                          <CreditCard size={15}/> Pay via M-Pesa
+                        </button>
+                      ) : (
+                        <div className="bg-surface-2 rounded-xl p-3 space-y-2">
+                          <label className="label">Your M-Pesa phone number</label>
+                          <input value={payPhone} onChange={e => setPayPhone(e.target.value)} placeholder="07XXXXXXXX" className="input"/>
+                          <label className="label">Amount (KES)</label>
+                          <input type="number" min={1} value={payAmount} onChange={e => setPayAmount(e.target.value)} className="input"/>
+                          <div className="flex gap-2 pt-1">
+                            <button onClick={() => setShowPay(false)} className="btn-ghost flex-1 justify-center text-sm">Cancel</button>
+                            <button onClick={payFees} disabled={paying} className="btn-primary flex-1 justify-center text-sm">
+                              {paying ? <Loader2 size={14} className="animate-spin"/> : '📱 Send Request'}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-theme-muted">You'll get an M-Pesa prompt — enter your PIN to complete the payment. It posts to {feesChild.firstName}'s account automatically.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <h4 className="font-semibold text-theme-heading text-sm mb-2">Payment history</h4>
                   {(feesData.payments||[]).length === 0 ? (
                     <p className="text-sm text-theme-muted">No payments recorded yet.</p>
@@ -373,7 +424,7 @@ export default function ParentPortalPage() {
                       ))}
                     </div>
                   )}
-                  <p className="text-[11px] text-theme-muted mt-4">For payments or fee questions, please contact the school bursar’s office.</p>
+                  <p className="text-[11px] text-theme-muted mt-4">For fee questions, please contact the school bursar’s office.</p>
                 </>
               )}
             </div>
