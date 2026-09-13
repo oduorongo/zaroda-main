@@ -624,14 +624,17 @@ export class AutoTimetabler {
     // Flatten grid → slots
     const slots: PlacedSlot[] = [];
     DAYS.forEach(d => lessonPeriods.forEach(p => { const c = grid[d][p.period]; if (c) slots.push(c); }));
-    if (ppiSlot) slots.push(ppiSlot);  // dedicated JS Friday PPI (after 3:20 pm)
+    if (ppiSlot) slots.push(ppiSlot);  // dedicated Friday-only PPI slot (Junior School and Grades 1-3)
 
     const placed = slots.length;
-    if (unplaced.length === 1) {
-      // Expected only on Lower Primary (31→30) where PPI takes a daily slot: one lower-priority
-      // lesson yields, exactly as the KICD sample timetable (Appendix 2) does.
-      warnings.push(`${unplaced[0]} has one fewer lesson this week (PPI occupies a slot), per the KICD sample timetable.`);
-    } else if (unplaced.length > 1) {
+    // Every band's official KICD structure is designed so total weekly lesson
+    // demand exactly equals total lesson-period capacity once PPI is correctly
+    // treated as its own dedicated slot rather than eating a real lesson period
+    // (see the GRADE_1_3_PERIODS comment — that used to be the one band still
+    // getting this wrong). So there's no "expected" shortfall to special-case
+    // anymore: any unplaced lesson at all means something genuinely didn't fit
+    // and is worth a school looking into.
+    if (unplaced.length > 0) {
       warnings.push(`${unplaced.length} lesson(s) could not be placed and were skipped — review teacher load/streams.`);
     }
     if (teacherlessConflicts.length) {

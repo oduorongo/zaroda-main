@@ -47,8 +47,16 @@ export const PRE_PRIMARY_PERIODS: PeriodSlot[] = [
 // Reporting 8:00am · 8:00–8:20 health check
 // Start 8:20am · End 12:30pm
 // Breaks: 10 min (after P2) + 30 min (after P4)
+// PPI is a DEDICATED slot (like Junior School's) — the official school sample
+// timetable plots it in Friday's 8:00-8:20 health-check/roll-call slot, not as
+// one of the 6 real lesson periods. Without a `type: 'ppi'` entry here, the
+// generator fell back to consuming lessonPeriods[0] on Friday instead — a real
+// learning-area lesson lost that slot even though total demand (30 subject
+// lessons) exactly equals the 6x5=30 lesson-period capacity, so nothing
+// actually needed to be dropped. This entry fixes that at the root.
 export const GRADE_1_3_PERIODS: PeriodSlot[] = [
   { period: 0, startTime: '08:00', endTime: '08:20', type: 'assembly', label: 'Health Check & Roll Call' },
+  { period: 0, startTime: '08:00', endTime: '08:20', type: 'ppi', label: 'PPI (Friday only, replaces health check/roll call)' },
   { period: 1, startTime: '08:20', endTime: '08:50', type: 'lesson' },
   { period: 2, startTime: '08:50', endTime: '09:20', type: 'lesson' },
   { period: 0, startTime: '09:20', endTime: '09:30', type: 'break', label: 'Health Break 1 (10 min)' },
