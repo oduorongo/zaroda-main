@@ -21,7 +21,12 @@ const BAND_GRADES = [
   { value: 'grade_7', label: 'Junior School (Grade 7–9)' },
 ];
 
-const PERIOD_TYPES = ['lesson', 'break', 'lunch', 'assembly', 'non_formal', 'ppi', 'games', 'free_choice'];
+// 'remedial': an early-morning or evening catch-up slot — schedulable like a
+// real lesson (assign a subject/teacher to it manually), but deliberately
+// left OUT of Auto-generate's KICD-driven fill, since remedial time isn't
+// part of the mandated weekly allocation — it's extra, and up to the school
+// who/what goes into it.
+const PERIOD_TYPES = ['lesson', 'remedial', 'break', 'lunch', 'assembly', 'non_formal', 'ppi', 'games', 'free_choice'];
 
 type Period = { period: number; startTime: string; endTime: string; type: string; label?: string };
 type Allocation = { name: string; lessons: number; beforeBreak?: boolean; doubleAllowed?: boolean; isPpi?: boolean };
@@ -135,7 +140,7 @@ export default function CustomizeTimetableStructurePage() {
                     {PERIOD_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
                   </select>
                   <input value={p.label || ''} onChange={e => updatePeriod(i, { label: e.target.value })}
-                    placeholder={p.type === 'lesson' ? `Period ${p.period} (auto)` : 'Label, e.g. Lunch Break'} className="input py-1.5 text-sm"/>
+                    placeholder={p.type === 'lesson' ? `Period ${p.period} (auto)` : p.type === 'remedial' ? 'Give it a distinct name, e.g. "Early Morning Remedial"' : 'Label, e.g. Lunch Break'} className="input py-1.5 text-sm"/>
                   <button onClick={() => removePeriod(i)} className="text-theme-muted hover:text-red-600"><Trash2 size={15}/></button>
                 </div>
               ))}

@@ -98,8 +98,8 @@ export default function TimetablePage() {
     const fixedLabel: Record<string,string> = { break:'Health Break', lunch:'Lunch Break', games:'Games / Co-curricular', ppi:'PPI (Friday only)', assembly:'Assembly / Roll Call', non_formal:'Non-formal', free_choice:'Free Choice' };
     let body = '';
     rows.forEach((p:any) => {
-      if (p.type === 'lesson') {
-        const label = `Period ${p.period}`;
+      if (p.type === 'lesson' || p.type === 'remedial') {
+        const label = periodKey(p); // must match the on-screen grid's key exactly
         body += `<tr><td class="ph">${label}<br><small>${p.startTime}–${p.endTime}</small></td>` +
           DAYS.map(day => {
             const l = grid[label]?.[day];
@@ -236,23 +236,37 @@ export default function TimetablePage() {
   useEffect(() => { loadTimetable(); }, [streamId, streams]);
 
   // Official lesson period labels (e.g. "Period 1") + their times, from the doc.
-  // Non-lesson rows (break/lunch/assembly) are shown but not editable.
-  const lessonPeriods = (structure?.periods || []).filter((p: any) => p.type === 'lesson');
-  const PERIODS: string[] = lessonPeriods.map((p: any) => `Period ${p.period}`);
+  // Non-lesson rows (break/lunch/assembly) are shown but not editable — EXCEPT
+  // 'remedial' (early-morning/evening catch-up lessons, added via Customize
+  // Structure), which is assignable just like a real lesson period but is
+  // deliberately excluded from Auto-generate's KICD-driven fill (see
+  // auto-timetabler.ts's `lessonPeriods`, still strictly 'lesson' only) —
+  // it's extra time the school assigns by hand, not part of the mandated
+  // weekly allocation. Its grid key is its own label (admin-set, e.g. "Early
+  // Morning Remedial") rather than "Period N", since it isn't numbered
+  // alongside the official periods.
+  const isAssignable = (p: any) => p.type === 'lesson' || p.type === 'remedial';
+  const periodKey = (p: any) => p.type === 'lesson' ? `Period ${p.period}` : (p.label || `${p.type} ${p.period}`);
+  const lessonPeriods = (structure?.periods || []).filter(isAssignable);
+  const PERIODS: string[] = lessonPeriods.map(periodKey);
   const periodTime: Record<string, string> = {};
-  lessonPeriods.forEach((p: any) => { periodTime[`Period ${p.period}`] = `${p.startTime}–${p.endTime}`; });
+  lessonPeriods.forEach((p: any) => { periodTime[periodKey(p)] = `${p.startTime}–${p.endTime}`; });
 
   // Full day structure (in order) so the grid also SHOWS breaks, lunch, games & PPI rows.
   // Each row: { kind: 'lesson'|'fixed', label, time, type }
   const STRUCTURE_ROWS = (structure?.periods || []).map((p: any) => {
-    const isLesson = p.type === 'lesson';
+    const assignable = isAssignable(p);
     const niceType: Record<string,string> = {
       break: 'Health Break', lunch: 'Lunch Break', games: 'Games / Co-curricular',
       ppi: 'PPI', assembly: 'Assembly / Roll Call', non_formal: 'Non-formal', free_choice: 'Free Choice',
+      remedial: 'Remedial',
     };
     return {
-      kind: isLesson ? 'lesson' : 'fixed',
-      label: isLesson ? `Period ${p.period}` : (p.label || niceType[p.type] || p.type),
+      // For assignable rows, `label` doubles as the grid/assignment key — MUST
+      // match periodKey(p) exactly (used to build PERIODS/periodTime/grid
+      // above) or a remedial row's cells wouldn't line up with its own column.
+      kind: assignable ? 'lesson' : 'fixed',
+      label: assignable ? periodKey(p) : (p.label || niceType[p.type] || p.type),
       time: `${p.startTime}–${p.endTime}`,
       type: p.type,
     };

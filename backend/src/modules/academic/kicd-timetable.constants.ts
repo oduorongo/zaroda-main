@@ -22,7 +22,12 @@ export interface PeriodSlot {
   period:    number;
   startTime: string;
   endTime:   string;
-  type:      'lesson' | 'break' | 'assembly' | 'lunch' | 'non_formal' | 'free_choice' | 'ppi' | 'games';
+  // 'remedial': an early-morning/evening catch-up slot a school adds via its
+  // own timetable-structure override — assignable like 'lesson' but always
+  // excluded from AutoTimetabler's own KICD-allocation fill (see
+  // auto-timetabler.ts's `lessonPeriods`, which still filters strictly to
+  // 'lesson'), since it's extra time outside the mandated weekly allocation.
+  type: 'lesson' | 'remedial' | 'break' | 'assembly' | 'lunch' | 'non_formal' | 'free_choice' | 'ppi' | 'games';
   label?:    string;
 }
 
