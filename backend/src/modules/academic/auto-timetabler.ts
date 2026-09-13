@@ -42,6 +42,38 @@ function groupOf(subject: string): number {
 
 const isPpi = (name: string) => /pastoral|ppi|religious programs/i.test(name);
 
+// Some KICD learning-area labels used here for period allocation (the official
+// long-form names, e.g. from the MoE timetable guideline tables) differ in
+// wording from the shorter canonical subject names schools actually pick from
+// when assigning a teacher to a stream (frontend/lib/cbc/constants.ts
+// LEARNING_AREAS — kept short there so marks/report-card columns stay
+// readable). Without this, the exact per-stream lookup and even the fuzzy
+// substring fallback both failed for these — e.g. "Mathematical Activities"
+// (this file) vs "Mathematics Activities" (assignment picker) share no
+// contiguous substring — so the subject was plotted with NO teacher, and
+// others (e.g. "Kiswahili / Kenya Sign Language" vs "Kiswahili") only ever
+// matched via the loose cross-stream fallback instead of the actual per-stream
+// assignment, which could pick the wrong teacher. Aliasing to the canonical
+// short name before matching fixes both; the timetable still displays the
+// full official label (`lesson.subject`, unchanged) either way.
+const SUBJECT_MATCH_ALIASES: Record<string, string> = {
+  // ECDE (pre_primary)
+  'mathematical activities': 'mathematics activities',
+  'creative activities': 'creative arts activities',
+  'religious activities': 'religious education activities',
+  // Lower Primary (grade_1_3) — Mathematical/Creative aliases above apply here too
+  'kiswahili language activities / ksl': 'kiswahili language activities',
+  // Upper Primary (grade_4_6)
+  'kiswahili / kenya sign language': 'kiswahili',
+  // Junior School (grade_7_9)
+  'kiswahili / kenya sign language (ksl)': 'kiswahili',
+  'social studies (including life skills)': 'social studies',
+};
+function matchKey(subject: string): string {
+  const s = subject.toLowerCase().trim();
+  return SUBJECT_MATCH_ALIASES[s] || s;
+}
+
 interface Lesson {
   subject: string;
   beforeBreak: boolean;
@@ -92,8 +124,16 @@ export class AutoTimetabler {
   }
 
   // Pick a teacher for a subject+stream who is free at this day/period.
-  private pickTeacher(subject: string, streamId: string, teachers: TeacherOpt[], day: string, periodNumber: number): TeacherOpt | null {
-    const sl = subject.toLowerCase().trim();
+  // `classTeacherId`, when given, is this stream's own class teacher — the last-
+  // resort fallback for ECDE/Lower Primary, where (per actual Kenyan primary
+  // practice, and consistent with SchemeService.assertAssignedToTeach elsewhere
+  // in this app) one class teacher normally teaches every subject for their own
+  // class rather than schools running subject specialists that young.
+  private pickTeacher(
+    subject: string, streamId: string, teachers: TeacherOpt[], day: string, periodNumber: number,
+    classTeacherId?: string | null,
+  ): TeacherOpt | null {
+    const sl = matchKey(subject);
 
     // 1) EXACT per-stream assignment wins: the teacher set to teach this subject in THIS stream.
     const exactId = this.streamSubjectTeacher.get(`${streamId}|${sl}`);
@@ -107,7 +147,7 @@ export class AutoTimetabler {
     // 2) Fallback (no per-stream assignment): any teacher who lists this subject.
     const matches = teachers.filter(t =>
       t.subjects.some(sub => {
-        const a = sub.toLowerCase();
+        const a = matchKey(sub);
         return a === sl || a.includes(sl) || sl.includes(a);
       }),
     );
@@ -117,6 +157,15 @@ export class AutoTimetabler {
     ];
     for (const t of ordered) {
       if (this.isTeacherFree(t.id, day, periodNumber)) return t;
+    }
+
+    // 3) Last resort: this stream's own class teacher, if free — covers subjects
+    // with no dedicated assignment-picker entry at all (e.g. Indigenous Language
+    // Activities) and schools that never bothered assigning per-subject teachers
+    // for their youngest classes.
+    if (classTeacherId) {
+      const ct = teachers.find(t => t.id === classTeacherId);
+      if (ct && this.isTeacherFree(ct.id, day, periodNumber)) return ct;
     }
     return null;
   }
@@ -146,10 +195,16 @@ export class AutoTimetabler {
 
   // Generate one stream's timetable (in memory). Returns placed slots + diagnostics.
   private planStream(
-    stream: { id: string; name: string; gradeLevel: string },
+    stream: { id: string; name: string; gradeLevel: string; classTeacherId?: string | null },
     teachers: TeacherOpt[],
   ): { slots: PlacedSlot[]; result: AutoTimetableResult } {
     const band = getGradeBand(stream.gradeLevel);
+    // Class-teacher fallback only for the bands where that's actually how Kenyan
+    // primary schools run (one teacher, whole class) — Upper Primary/Junior
+    // School have real subject specialists, so an unassigned subject there
+    // should surface as unplaced/no-teacher rather than being silently
+    // absorbed by whoever happens to be the class teacher.
+    const classTeacherId = ['pre_primary', 'grade_1_3'].includes(band) ? stream.classTeacherId : null;
     const structure = getPeriodStructure(band);
     // Lesson periods only, in order; remember which are "before a break".
     const lessonPeriods = structure.filter(p => p.type === 'lesson');
@@ -329,7 +384,7 @@ export class AutoTimetabler {
       }
 
       const pi = lessonPeriods.findIndex(p => p.period === best!.period.period);
-      const tchr = this.pickTeacher(lesson.subject, stream.id, teachers, best.day, best.period.period);
+      const tchr = this.pickTeacher(lesson.subject, stream.id, teachers, best.day, best.period.period, classTeacherId);
       grid[best.day][best.period.period] = this.place(best.day, best.period, lesson.subject, tchr?.id || null, tchr?.name || null, lessonPeriods);
       if (tchr) this.markTeacher(tchr.id, best.day, best.period.period);
 
@@ -380,7 +435,8 @@ export class AutoTimetabler {
   async generate(tenantId: string, streamIds: string[] | null): Promise<{ results: AutoTimetableResult[] }> {
     // Load streams
     const allStreams = await this.ds.query(
-      `SELECT id::text AS id, name, grade_level AS "gradeLevel" FROM streams WHERE tenant_id::text = $1`,
+      `SELECT id::text AS id, name, grade_level AS "gradeLevel", class_teacher_id::text AS "classTeacherId"
+         FROM streams WHERE tenant_id::text = $1`,
       [tenantId],
     );
     const streams = (streamIds && streamIds.length)
@@ -415,7 +471,7 @@ export class AutoTimetabler {
     ).catch(() => []);
     this.streamSubjectTeacher = new Map();
     for (const r of streamSubjectRows) {
-      this.streamSubjectTeacher.set(`${r.streamId}|${String(r.subject).toLowerCase().trim()}`, r.teacherId);
+      this.streamSubjectTeacher.set(`${r.streamId}|${matchKey(String(r.subject))}`, r.teacherId);
     }
 
     // Reset cross-stream teacher usage for this run
