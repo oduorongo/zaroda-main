@@ -271,41 +271,58 @@ export class AutoTimetabler {
       return /\bmathematic|\bmaths?\b|\benglish\b/.test(s);
     };
 
-    // 2) Order the pool: doubles first, then before-break subjects, then
-    //    "wants early" subjects (English/Maths — confined to periods 1–3, and
-    //    period 2 is usually already claimed by a beforeBreak subject like
-    //    Creative Arts, leaving very few qualifying slots across the week), then
-    //    by FEWEST lessons first among what's left.
+    // 2) Order the pool. Doubles and before-break subjects (rare — usually just
+    //    one practical/Creative Arts area) are placed first in a flat pass, same
+    //    as before: they're few enough that sequencing them against each other
+    //    barely matters.
     //
-    //    A subject with only 3 lessons/week (e.g. Social Studies, Religious
-    //    Education) is the most constrained of the "ordinary" subjects — it
-    //    needs 3 DIFFERENT days (the per-day cap below forbids doubling it up
-    //    when its total already fits within the 5 weekdays) — so placing
-    //    higher-count subjects first (the original order) greedily saturated
-    //    Monday–Thursday and stranded it on Friday alone, losing 2 lessons.
-    //    Fewest-first fixed that, but on its own it broke English/Maths
-    //    instead: those aren't small in count (5/week), so fewest-first placed
-    //    them AFTER the small subjects, which — having no positional
-    //    restriction of their own — happily grabbed period-1/3 slots on their
-    //    way past, leaving English/Maths without enough of their few legal
-    //    slots and stranding THEM on later, non-early periods instead. Slotting
-    //    "wants early" subjects in ahead of the plain fewest-first tier reserves
-    //    their limited legal periods before anything else can claim them.
+    //    Every ORDINARY subject, though, is placed ROUND-ROBIN rather than one
+    //    subject fully finished before the next starts. Fully placing subjects
+    //    one at a time (even in a good priority order — tried fewest-lessons-
+    //    first, then wants-early-first) kept hitting the same failure mode:
+    //    whichever subject got processed first in its tier greedily claimed
+    //    whichever 4-5 days it liked, and by the time same-tier subjects with
+    //    an EQUAL weekly count (e.g. Kiswahili/Science & Technology/Agriculture,
+    //    all 4/week in Upper Primary) got their turn, Monday–Wednesday were
+    //    already fully saturated — leaving the last one of the tied group only
+    //    2 days to work with for its 4 required lessons, forcing it to double
+    //    up on both of them (exactly what was reported: Agriculture twice on
+    //    both Thursday AND Friday, despite being under the 5/week threshold
+    //    that's supposed to forbid appearing twice in a single day).
     //
-    //    When total demand exceeds total capacity by exactly one (Lower Primary
-    //    31→30, JS 41→40 once PPI takes a slot), this does mean a
-    //    higher-allocation, non-restricted area yields its last unit instead of
-    //    the smallest one — a cosmetic difference (still just one lesson short
-    //    overall) far preferable to any subject losing two.
+    //    Round-robin fixes this at the root: round 1 gives every ordinary
+    //    subject its FIRST lesson (in priority order — wants-early subjects
+    //    first, since their legal periods are scarcest, then fewest-lessons-
+    //    first among the rest) before anyone gets a second; round 2 gives
+    //    everyone still needing more their second, and so on. Subjects with
+    //    equal weekly counts now compete for each round's slot at the same
+    //    time instead of one exhausting the week before the next has a chance,
+    //    so every subject's required distinct-day spread is preserved.
     const lessonsBySubject: Record<string, number> = {};
     pool.forEach(u => { lessonsBySubject[u.subject] = (lessonsBySubject[u.subject] || 0) + 1; });
-    pool.sort((a, b) => {
-      if (a.double !== b.double) return a.double ? -1 : 1;
-      if (a.beforeBreak !== b.beforeBreak) return a.beforeBreak ? -1 : 1;
-      const aEarly = wantsEarly(a.subject), bEarly = wantsEarly(b.subject);
+
+    const specialFirst = pool.filter(l => l.double || l.beforeBreak)
+      .sort((a, b) => (a.double === b.double ? 0 : a.double ? -1 : 1));
+    const ordinary = pool.filter(l => !l.double && !l.beforeBreak);
+
+    const subjectPriority = Array.from(new Set(ordinary.map(l => l.subject))).sort((a, b) => {
+      const aEarly = wantsEarly(a), bEarly = wantsEarly(b);
       if (aEarly !== bEarly) return aEarly ? -1 : 1;
-      return (lessonsBySubject[a.subject] || 0) - (lessonsBySubject[b.subject] || 0);
+      return (lessonsBySubject[a] || 0) - (lessonsBySubject[b] || 0);
     });
+    const queueBySubject: Record<string, Lesson[]> = {};
+    for (const l of ordinary) (queueBySubject[l.subject] ||= []).push(l);
+    const roundRobin: Lesson[] = [];
+    for (let more = true; more; ) {
+      more = false;
+      for (const subj of subjectPriority) {
+        const q = queueBySubject[subj];
+        if (q?.length) { roundRobin.push(q.shift()!); more = true; }
+      }
+    }
+
+    pool.length = 0;
+    pool.push(...specialFirst, ...roundRobin);
 
     const expected = pool.length + 1; // learning-area lessons + the one weekly PPI
     const unplaced: string[] = [];
