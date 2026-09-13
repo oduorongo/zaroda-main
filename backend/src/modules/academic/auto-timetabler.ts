@@ -21,8 +21,9 @@
 import { DataSource } from 'typeorm';
 import {
   getGradeBand, getPeriodStructure, getLearningAreaAllocations,
-  allowsDoubleLesson, mustBeBeforeBreak,
+  allowsDoubleLesson, mustBeBeforeBreak, GradeBand,
 } from './kicd-timetable.constants';
+import type { PeriodSlot, LearningAreaAllocation } from './kicd-timetable.constants';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -238,11 +239,17 @@ export class AutoTimetabler {
     return null;
   }
 
-  // Build the pool of individual lessons for a grade band.
-  private buildLessonPool(gradeLevel: string): Lesson[] {
+  // Build the pool of individual lessons for a grade band. `override`, when
+  // given, is a tenant's own customized subject list/allocation for this band
+  // (see TenantTimetableOverride below) — falls back to the official KICD
+  // table otherwise, unchanged for every tenant that hasn't customized it.
+  private buildLessonPool(
+    gradeLevel: string,
+    override?: { allocations?: LearningAreaAllocation[]; allowsDouble?: boolean },
+  ): Lesson[] {
     const band = getGradeBand(gradeLevel);
-    const allocations = getLearningAreaAllocations(band);
-    const canDouble = allowsDoubleLesson(band);
+    const allocations = override?.allocations ?? getLearningAreaAllocations(band);
+    const canDouble = override?.allowsDouble ?? allowsDoubleLesson(band);
     const pool: Lesson[] = [];
 
     for (const a of allocations) {
@@ -262,9 +269,15 @@ export class AutoTimetabler {
   }
 
   // Generate one stream's timetable (in memory). Returns placed slots + diagnostics.
+  // `override` is this tenant's own customized structure/allocations for this
+  // stream's grade band, if they've set one (see TenantTimetableOverride /
+  // loadTimetableOverrides below) — every check, scoring rule and fallback
+  // pass below keeps working unchanged either way, since they all read from
+  // `structure`/`pool` rather than calling the KICD constants directly.
   private planStream(
     stream: { id: string; name: string; gradeLevel: string; classTeacherId?: string | null },
     teachers: TeacherOpt[],
+    override?: { periods?: PeriodSlot[]; allocations?: LearningAreaAllocation[]; allowsDouble?: boolean },
   ): { slots: PlacedSlot[]; result: AutoTimetableResult } {
     const band = getGradeBand(stream.gradeLevel);
     // Class-teacher fallback only for the bands where that's actually how Kenyan
@@ -273,7 +286,7 @@ export class AutoTimetabler {
     // should surface as unplaced/no-teacher rather than being silently
     // absorbed by whoever happens to be the class teacher.
     const classTeacherId = ['pre_primary', 'grade_1_3'].includes(band) ? stream.classTeacherId : null;
-    const structure = getPeriodStructure(band);
+    const structure = override?.periods ?? getPeriodStructure(band);
     // Lesson periods only, in order; remember which are "before a break".
     const lessonPeriods = structure.filter(p => p.type === 'lesson');
     // A lesson period is "before break" if the very next structure entry is a break/lunch.
@@ -285,7 +298,8 @@ export class AutoTimetabler {
       }
     }
 
-    const pool = this.buildLessonPool(stream.gradeLevel);
+    const allocations = override?.allocations ?? getLearningAreaAllocations(band);
+    const pool = this.buildLessonPool(stream.gradeLevel, override);
     const warnings: string[] = [];
 
     // ── Per-day repetition cap ──────────────────────────────────────
@@ -295,7 +309,7 @@ export class AutoTimetabler {
     // two; everything else stays once per day. For JS, the only twice-in-a-day case is
     // the practical DOUBLE (two adjacent periods), handled separately below.
     const weeklyAlloc: Record<string, number> = {};
-    for (const a of getLearningAreaAllocations(band)) {
+    for (const a of allocations) {
       if (!isPpi(a.name)) weeklyAlloc[a.name.toLowerCase()] = a.lessons;
     }
     const numDays = DAYS.length; // 5
@@ -672,6 +686,40 @@ export class AutoTimetabler {
     };
   }
 
+  // Reads whatever custom period structure / subject allocations this tenant
+  // has saved per grade band (self-healing table — matches the pattern used
+  // throughout stubs.module.ts). Absent for any band the tenant hasn't
+  // customized, so those bands keep using the stock KICD tables exactly as
+  // before.
+  private async loadTimetableOverrides(
+    tenantId: string,
+  ): Promise<Map<GradeBand, { periods?: PeriodSlot[]; allocations?: LearningAreaAllocation[]; allowsDouble?: boolean }>> {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS tenant_timetable_overrides (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, grade_band text,
+         period_structure jsonb, learning_areas jsonb, allows_double boolean,
+         updated_at timestamptz DEFAULT NOW(),
+         UNIQUE(tenant_id, grade_band)
+       )`,
+    ).catch(() => null);
+    const rows = await this.ds.query(
+      `SELECT grade_band AS "gradeBand", period_structure AS "periodStructure",
+              learning_areas AS "learningAreas", allows_double AS "allowsDouble"
+         FROM tenant_timetable_overrides WHERE tenant_id::text = $1`,
+      [tenantId],
+    ).catch(() => []);
+    const map = new Map<GradeBand, { periods?: PeriodSlot[]; allocations?: LearningAreaAllocation[]; allowsDouble?: boolean }>();
+    for (const r of rows as any[]) {
+      map.set(r.gradeBand as GradeBand, {
+        periods: r.periodStructure || undefined,
+        allocations: r.learningAreas || undefined,
+        allowsDouble: r.allowsDouble ?? undefined,
+      });
+    }
+    return map;
+  }
+
   // ── Public: generate for one or many streams, write to DB ────
   async generate(tenantId: string, streamIds: string[] | null): Promise<{ results: AutoTimetableResult[] }> {
     // Load streams
@@ -734,6 +782,12 @@ export class AutoTimetabler {
     this.teacherUsage = new Map();
     this.fallbackTeacherChosen = new Map();
 
+    // A tenant that's customized its structure for a grade band (see
+    // saveTimetableOverride in stubs.module.ts's AcademicController) gets that
+    // instead of the stock KICD table — every other tenant is unaffected,
+    // since this is empty unless they've explicitly opted in.
+    const overridesByBand = await this.loadTimetableOverrides(tenantId);
+
     const results: AutoTimetableResult[] = [];
 
     // Plan all streams (in memory), then persist in one transaction.
@@ -741,7 +795,8 @@ export class AutoTimetabler {
     // Plot larger grade bands first (junior) so their teacher needs are reserved first.
     const order = [...streams].sort((a, b) => bandRank(b.gradeLevel) - bandRank(a.gradeLevel));
     for (const s of order) {
-      const { slots, result } = this.planStream(s, teachers);
+      const band = getGradeBand(s.gradeLevel);
+      const { slots, result } = this.planStream(s, teachers, overridesByBand.get(band));
       allSlots.push({ streamId: s.id, slots });
       results.push(result);
     }

@@ -118,6 +118,81 @@ export class AcademicService {
     private dataSource: DataSource,
   ) {}
 
+  // ── Timetable structure customization (per tenant, per grade band) ──
+  // Most schools use the stock KICD structure/allocations unchanged — this
+  // table only has rows for tenants who've explicitly customized a band, so
+  // it never affects anyone else. AutoTimetabler.loadTimetableOverrides()
+  // reads the same table when actually generating.
+  private async ensureTimetableOverridesTable() {
+    await this.dataSource.query(
+      `CREATE TABLE IF NOT EXISTS tenant_timetable_overrides (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, grade_band text,
+         period_structure jsonb, learning_areas jsonb, allows_double boolean,
+         updated_at timestamptz DEFAULT NOW(),
+         UNIQUE(tenant_id, grade_band)
+       )`,
+    ).catch(() => null);
+  }
+
+  async getTimetableStructure(tenantId: string, gradeLevel: string) {
+    const band = getGradeBand(gradeLevel || 'grade_7');
+    await this.ensureTimetableOverridesTable();
+    const rows = await this.dataSource.query(
+      `SELECT period_structure AS "periodStructure", learning_areas AS "learningAreas",
+              allows_double AS "allowsDouble", updated_at AS "updatedAt"
+         FROM tenant_timetable_overrides WHERE tenant_id::text = $1 AND grade_band = $2 LIMIT 1`,
+      [tenantId, band],
+    ).catch(() => []);
+    const override = rows[0];
+    return {
+      gradeLevel, band,
+      lessonsPerWeek: getLessonsPerWeek(band),
+      lessonDuration: getLessonDurationMinutes(band),
+      allowsDouble:   override?.allowsDouble ?? allowsDoubleLesson(band),
+      periods:        override?.periodStructure || getPeriodStructure(band),
+      allocations:    override?.learningAreas || getLearningAreaAllocations(band),
+      customized:     !!override,
+      updatedAt:      override?.updatedAt || null,
+      // The stock KICD values, always included, so a "Reset to KICD default"
+      // action in the UI has something to diff against / revert to even while
+      // a customization is active.
+      defaultPeriods:     getPeriodStructure(band),
+      defaultAllocations: getLearningAreaAllocations(band),
+      defaultAllowsDouble: allowsDoubleLesson(band),
+    };
+  }
+
+  async saveTimetableOverride(tenantId: string, dto: any) {
+    const band = getGradeBand(dto?.gradeLevel || '');
+    if (!Array.isArray(dto?.periods) || !dto.periods.length) {
+      throw new BadRequestException('Provide the period structure (at least one period).');
+    }
+    if (!Array.isArray(dto?.allocations) || !dto.allocations.length) {
+      throw new BadRequestException('Provide at least one learning area.');
+    }
+    await this.ensureTimetableOverridesTable();
+    await this.dataSource.query(
+      `INSERT INTO tenant_timetable_overrides (tenant_id, grade_band, period_structure, learning_areas, allows_double, updated_at)
+       VALUES ($1,$2,$3,$4,$5,NOW())
+       ON CONFLICT (tenant_id, grade_band) DO UPDATE SET
+         period_structure = EXCLUDED.period_structure, learning_areas = EXCLUDED.learning_areas,
+         allows_double = EXCLUDED.allows_double, updated_at = NOW()`,
+      [tenantId, band, JSON.stringify(dto.periods), JSON.stringify(dto.allocations), !!dto.allowsDouble],
+    );
+    return { message: `Timetable structure customized for ${band.replace(/_/g, ' ')}. Re-run Auto-generate to apply it.` };
+  }
+
+  async resetTimetableOverride(tenantId: string, gradeLevel: string) {
+    const band = getGradeBand(gradeLevel || '');
+    await this.ensureTimetableOverridesTable();
+    await this.dataSource.query(
+      `DELETE FROM tenant_timetable_overrides WHERE tenant_id::text = $1 AND grade_band = $2`,
+      [tenantId, band],
+    ).catch(() => null);
+    return { message: `Reset ${band.replace(/_/g, ' ')} to the official KICD structure.` };
+  }
+
   // ── Streams ──────────────────────────────────────────────
   getStreams(tenantId: string) {
     // Live learner count per stream (the static column was never maintained).
@@ -2912,16 +2987,29 @@ export class AcademicController {
   // learning-area allocation for a grade level, straight from the MoE/KICD
   // guidelines. The timetable grid uses this so it strictly matches the doc.
   @Get('timetable/structure')
-  timetableStructure(@Query('gradeLevel') gradeLevel: string) {
-    const band = getGradeBand(gradeLevel || 'grade_7');
-    return {
-      gradeLevel, band,
-      lessonsPerWeek:   getLessonsPerWeek(band),
-      lessonDuration:   getLessonDurationMinutes(band),
-      allowsDouble:     allowsDoubleLesson(band),
-      periods:          getPeriodStructure(band),
-      allocations:      getLearningAreaAllocations(band),
-    };
+  timetableStructure(@Request() req: any, @Query('gradeLevel') gradeLevel: string) {
+    return this.academicService.getTimetableStructure(req.user.tenantId, gradeLevel);
+  }
+
+  // A school whose own timetable, subjects, or lesson counts don't fit the
+  // stock KICD structure can override it per grade band — Auto-generate then
+  // builds against their version instead. Nobody else is affected: this is a
+  // per-tenant row, empty (falling back to the KICD default) for every school
+  // that hasn't customized anything.
+  @Post('timetable/override')
+  saveTimetableOverride(@Request() req: any, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
+      throw new BadRequestException('Only an administrator can customize the timetable structure.');
+    }
+    return this.academicService.saveTimetableOverride(req.user.tenantId, dto);
+  }
+
+  @Delete('timetable/override')
+  resetTimetableOverride(@Request() req: any, @Query('gradeLevel') gradeLevel: string) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
+      throw new BadRequestException('Only an administrator can reset the timetable structure.');
+    }
+    return this.academicService.resetTimetableOverride(req.user.tenantId, gradeLevel);
   }
 
   // ── Curriculum Based Establishment (Section B) ──

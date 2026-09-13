@@ -1,7 +1,8 @@
 // app/dashboard/academic/timetable/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
-import { Calendar, Pencil, Check, X, Loader2, UserCheck, Trash2, Wand2, LayoutGrid, Download, Printer } from 'lucide-react';
+import Link from 'next/link';
+import { Calendar, Pencil, Check, X, Loader2, UserCheck, Trash2, Wand2, LayoutGrid, Download, Printer, SlidersHorizontal } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { learningAreasFor, learningAreaMatches } from '@/lib/cbc/constants';
@@ -332,6 +333,9 @@ export default function TimetablePage() {
               <button onClick={()=>{ setMasterOpen(true); loadMaster(); }} className="btn-ghost" title="Whole-school block timetable">
                 <LayoutGrid size={15}/> Master grid
               </button>
+              <Link href="/dashboard/academic/timetable/customize" className="btn-ghost" title="Customize the period structure or subjects for a grade band">
+                <SlidersHorizontal size={15}/> Customize Structure
+              </Link>
               <button onClick={() => setEditMode(!editMode)} className={editMode ? 'btn-primary' : 'btn-ghost'}>
                 {editMode ? <><Check size={15}/> Done</> : <><Pencil size={15}/> Edit</>}
               </button>
