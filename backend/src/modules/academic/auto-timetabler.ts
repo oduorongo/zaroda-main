@@ -685,19 +685,24 @@ export class AutoTimetabler {
       : allStreams;
     if (!streams.length) return { results: [] };
 
-    // Load teachers (subjects comma-string → array). Includes hoi/dhois — the
-    // school signup flow makes the founding admin a 'hoi' by default (see
-    // AuthService.signup), and Heads/Deputy Heads very commonly keep an actual
-    // teaching load, especially at smaller schools. Excluding them meant any
-    // subject assigned to the HOI in teacher_stream_subjects could never resolve
-    // to a teacher here at all — they were never in this candidate pool to match
+    // Load teachers (subjects comma-string → array). Includes hoi/dhois/
+    // tenant_owner — the school signup flow makes the founding admin a 'hoi'
+    // by default (see AuthService.signup), and Heads/Deputy Heads very
+    // commonly keep an actual teaching load, especially at smaller schools.
+    // tenant_owner ("School Owner") is a private-school-only role for the
+    // proprietor, distinct from the HOI who runs the school day-to-day — but
+    // nothing stops a proprietor from also teaching (common at small private
+    // schools), and the assignment picker lets subjects be set on that account
+    // like any other staff record. Excluding any of these meant a subject
+    // assigned to them in teacher_stream_subjects could never resolve to a
+    // teacher here at all — they were never in this candidate pool to match
     // against, regardless of the subject name matching itself.
     const teacherRows = await this.ds.query(
       `SELECT id::text AS id, first_name AS "firstName", last_name AS "lastName",
               subjects, stream_id::text AS "streamId"
        FROM users
        WHERE tenant_id::text = $1
-         AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois')`,
+         AND role IN ('class_teacher','subject_teacher','overall_class_teacher','hoi','dhois','tenant_owner')`,
       [tenantId],
     ).catch(() => []);
     const teachers: TeacherOpt[] = teacherRows.map((t: any) => ({
