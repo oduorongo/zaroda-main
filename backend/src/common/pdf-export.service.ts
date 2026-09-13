@@ -12,6 +12,28 @@ export class PdfExportService {
   private readonly logger = new Logger(PdfExportService.name);
   private browser: puppeteer.Browser | null = null;
 
+  // Tried first, only on Linux (this package only ships Linux binaries — on a
+  // Windows/Mac dev machine this always resolves to null and the code below
+  // falls through to puppeteer's normal bundled/local Chrome instead).
+  // @sparticuz/chromium ships its Chromium binary *inside* the npm package
+  // (extracted from a bundled brotli file at runtime) rather than fetching it
+  // over the network during `npm install` — so it works even when the host's
+  // build step can't/doesn't complete puppeteer's own Chromium download (which
+  // is what was actually happening on Render: after fixing the env vars that
+  // were wrongly skipping the download, it was *still* missing at runtime,
+  // meaning the download itself wasn't completing during Render's build).
+  private async sparticuzExecutablePath(): Promise<string | null> {
+    if (process.platform !== 'linux') return null;
+    try {
+      const chromium = (await import('@sparticuz/chromium')).default;
+      const path = await chromium.executablePath();
+      return path && fs.existsSync(path) ? path : null;
+    } catch (e: any) {
+      this.logger.warn(`@sparticuz/chromium unavailable (${e?.message}) — falling back.`);
+      return null;
+    }
+  }
+
   private async getBrowser(): Promise<puppeteer.Browser> {
     // A previously-launched browser can die between requests (most commonly: the
     // Chromium process gets OOM-killed on a small Render instance) — reusing a
@@ -31,23 +53,30 @@ export class PdfExportService {
       '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
       '--disable-gpu', '--single-process', '--no-zygote',
     ];
-    try {
-      this.browser = await puppeteer.launch({ headless: true, args: baseArgs });
-    } catch (e: any) {
-      this.logger.warn(`Bundled Chromium launch failed (${e.message}); trying a system browser…`);
-      const candidates = [
-        process.env.PUPPETEER_EXECUTABLE_PATH,
-        '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium',
-      ].filter(Boolean) as string[];
-      const found = candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
-      if (!found) {
-        throw new Error(
-          'No Chromium/Chrome found for PDF generation. Run "npx puppeteer browsers install chrome" ' +
-          'in the backend folder, or set PUPPETEER_EXECUTABLE_PATH to a Chrome/Edge executable.',
-        );
+
+    const sparticuzPath = await this.sparticuzExecutablePath();
+    if (sparticuzPath) {
+      this.logger.log(`Using @sparticuz/chromium for PDF: ${sparticuzPath}`);
+      this.browser = await puppeteer.launch({ headless: true, args: baseArgs, executablePath: sparticuzPath });
+    } else {
+      try {
+        this.browser = await puppeteer.launch({ headless: true, args: baseArgs });
+      } catch (e: any) {
+        this.logger.warn(`Bundled Chromium launch failed (${e.message}); trying a system browser…`);
+        const candidates = [
+          process.env.PUPPETEER_EXECUTABLE_PATH,
+          '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium',
+        ].filter(Boolean) as string[];
+        const found = candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+        if (!found) {
+          throw new Error(
+            'No Chromium/Chrome found for PDF generation. Run "npx puppeteer browsers install chrome" ' +
+            'in the backend folder, or set PUPPETEER_EXECUTABLE_PATH to a Chrome/Edge executable.',
+          );
+        }
+        this.logger.log(`Using system browser for PDF: ${found}`);
+        this.browser = await puppeteer.launch({ headless: true, args: baseArgs, executablePath: found });
       }
-      this.logger.log(`Using system browser for PDF: ${found}`);
-      this.browser = await puppeteer.launch({ headless: true, args: baseArgs, executablePath: found });
     }
     this.browser.on('disconnected', () => {
       this.logger.warn('Chromium instance disconnected — will relaunch on next PDF request.');
