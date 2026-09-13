@@ -36,6 +36,17 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 // band's period structure, so it's a reasonable widening of "morning".
 const EARLY_PERIOD_WINDOW = 4;
 
+// Creative Arts / Creative Arts & Sports (the only `beforeBreak` subjects) were
+// consistently grabbing Period 2 every day — it's the earliest-scored
+// "before a break" period, and a beforeBreak subject has no other placement
+// restriction pulling it elsewhere. That ate directly into the exact same
+// early window Maths/English/Kiswahili need (see EARLY_PERIOD_WINDOW above),
+// which was still forcing Maths to double up on a day despite the earlier
+// widening. CA/CAS have two OTHER qualifying before-a-break periods in every
+// band's structure (before lunch, before the second break) plus the whole
+// afternoon if needed — reserving Period 2 for the early subjects instead.
+const RESERVED_FOR_EARLY_SUBJECTS_PERIOD = 2;
+
 // Similarity groups — members must not follow one another consecutively.
 const SIMILAR_GROUPS: string[][] = [
   ['english', 'kiswahili', 'indigenous', 'language', 'lugha', 'literacy', 'ksl', 'sign'],
@@ -412,6 +423,7 @@ export class AutoTimetabler {
           const p = lessonPeriods[pi];
           if (grid[day][p.period]) continue;                       // slot taken
           if (lesson.beforeBreak && !beforeBreakNums.has(p.period)) continue; // must be before a break
+          if (lesson.beforeBreak && p.period === RESERVED_FOR_EARLY_SUBJECTS_PERIOD) continue;
           if (lesson.double) {
             const nextP = lessonPeriods[pi + 1];
             if (!nextP || grid[day][nextP.period]) continue;       // need 2 consecutive free
@@ -452,10 +464,13 @@ export class AutoTimetabler {
       }
 
       // Relax the before-break rule if nothing fit (still valid, just less ideal).
+      // Period 2 stays reserved for Maths/English/Kiswahili even here — CA/CAS
+      // should genuinely prefer the afternoon over taking that slot back.
       if (!best && lesson.beforeBreak) {
         for (const day of DAYS) {
           for (const p of lessonPeriods) {
             if (grid[day][p.period]) continue;
+            if (p.period === RESERVED_FOR_EARLY_SUBJECTS_PERIOD) continue;
             if (!exactTeacherFree(day, p.period)) continue;
             if (similarAdjacent(day, p.period, lesson.groupId)) continue;
             if (!lesson.double && countOnDay(day, lesson.subject) >= 1) {
@@ -474,6 +489,7 @@ export class AutoTimetabler {
         for (const day of DAYS) {
           for (const p of lessonPeriods) {
             if (grid[day][p.period]) continue;
+            if (lesson.beforeBreak && p.period === RESERVED_FOR_EARLY_SUBJECTS_PERIOD) continue;
             if (!exactTeacherFree(day, p.period)) continue;
             if (!lesson.double && countOnDay(day, lesson.subject) >= 1) {
               const allowance = doubleUpDaysAllowed(lesson.subject);
@@ -484,7 +500,7 @@ export class AutoTimetabler {
           if (best) break;
         }
       }
-      // Give up on teacher availability too, but still respect the day cap —
+      // Give up on the Period-2 reservation too, but still respect the day cap —
       // a genuinely over-committed teacher (assigned to more lessons than the
       // week has slots for) shouldn't leave the subject entirely unplaced.
       if (!best) {
