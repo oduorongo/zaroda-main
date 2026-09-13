@@ -70,6 +70,10 @@ async function ensureMpesaSettingsTable(ds: DataSource) {
   const cols: [string, string][] = [
     ['shortcode', 'text'], ['consumer_key', 'text'], ['consumer_secret', 'text'],
     ['passkey', 'text'], ['environment', "text DEFAULT 'production'"],
+    // gateway: 'daraja' (school's own Safaricom Daraja app — supports STK push AND
+    // C2B/walk-up payments) or 'tuma' (school's own Tuma account — STK push only,
+    // no C2B; simpler onboarding since it skips Safaricom's developer approval).
+    ['gateway', "text DEFAULT 'daraja'"], ['tuma_email', 'text'], ['tuma_api_key', 'text'],
     ['updated_at', 'timestamptz DEFAULT NOW()'],
   ];
   for (const [n, t] of cols) {
@@ -103,7 +107,8 @@ async function getMpesaSettingsRow(ds: DataSource, tenantId: string): Promise<an
   await ensureMpesaSettingsTable(ds);
   const rows = await ds.query(
     `SELECT shortcode, consumer_key AS "consumerKey", consumer_secret AS "consumerSecret",
-            passkey, environment
+            passkey, environment, COALESCE(gateway, 'daraja') AS gateway,
+            tuma_email AS "tumaEmail", tuma_api_key AS "tumaApiKey"
        FROM tenant_mpesa_settings WHERE tenant_id::text = $1 LIMIT 1`,
     [tenantId],
   ).catch(() => []);
@@ -1094,10 +1099,11 @@ class MpesaPaybillController {
     if (!MPESA_STAFF_ROLES.includes(req.user.role)) return { error: 'forbidden' };
     await ensureMpesaSettingsTable(this.ds);
     const rows = await this.ds.query(
-      `SELECT shortcode, environment,
+      `SELECT shortcode, environment, COALESCE(gateway, 'daraja') AS gateway, tuma_email AS "tumaEmail",
               (consumer_key IS NOT NULL AND consumer_key <> '')       AS "hasConsumerKey",
               (consumer_secret IS NOT NULL AND consumer_secret <> '') AS "hasConsumerSecret",
               (passkey IS NOT NULL AND passkey <> '')                 AS "hasPasskey",
+              (tuma_api_key IS NOT NULL AND tuma_api_key <> '')       AS "hasTumaApiKey",
               updated_at AS "updatedAt"
          FROM tenant_mpesa_settings WHERE tenant_id::text = $1 LIMIT 1`,
       [req.user.tenantId],
@@ -1110,24 +1116,34 @@ class MpesaPaybillController {
     if (!MPESA_ADMIN_ROLES.includes(req.user.role)) {
       throw new BadRequestException('Only an administrator can configure the Paybill.');
     }
-    if (!dto?.shortcode) throw new BadRequestException('Enter the Paybill (or Till) shortcode.');
+    const gateway = dto?.gateway === 'tuma' ? 'tuma' : 'daraja';
+    if (gateway === 'daraja' && !dto?.shortcode) {
+      throw new BadRequestException('Enter the Paybill (or Till) shortcode.');
+    }
+    if (gateway === 'tuma' && !dto?.tumaEmail) {
+      throw new BadRequestException('Enter the email address for your school\'s Tuma account.');
+    }
     await ensureMpesaSettingsTable(this.ds);
     // COALESCE on the secret fields: leave a previously-saved key/secret/passkey in
     // place if the admin didn't retype it this time (the form never shows them back).
     await this.ds.query(
-      `INSERT INTO tenant_mpesa_settings (tenant_id, shortcode, consumer_key, consumer_secret, passkey, environment, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,NOW())
+      `INSERT INTO tenant_mpesa_settings
+         (tenant_id, shortcode, consumer_key, consumer_secret, passkey, environment, gateway, tuma_email, tuma_api_key, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
        ON CONFLICT (tenant_id) DO UPDATE SET
          shortcode = EXCLUDED.shortcode,
          consumer_key = COALESCE(NULLIF(EXCLUDED.consumer_key, ''), tenant_mpesa_settings.consumer_key),
          consumer_secret = COALESCE(NULLIF(EXCLUDED.consumer_secret, ''), tenant_mpesa_settings.consumer_secret),
          passkey = COALESCE(NULLIF(EXCLUDED.passkey, ''), tenant_mpesa_settings.passkey),
          environment = EXCLUDED.environment,
+         gateway = EXCLUDED.gateway,
+         tuma_email = EXCLUDED.tuma_email,
+         tuma_api_key = COALESCE(NULLIF(EXCLUDED.tuma_api_key, ''), tenant_mpesa_settings.tuma_api_key),
          updated_at = NOW()`,
-      [req.user.tenantId, dto.shortcode, dto.consumerKey || '', dto.consumerSecret || '', dto.passkey || '',
-       dto.environment === 'sandbox' ? 'sandbox' : 'production'],
+      [req.user.tenantId, dto.shortcode || null, dto.consumerKey || '', dto.consumerSecret || '', dto.passkey || '',
+       dto.environment === 'sandbox' ? 'sandbox' : 'production', gateway, dto.tumaEmail || null, dto.tumaApiKey || ''],
     );
-    return { message: 'M-Pesa Paybill settings saved.' };
+    return { message: 'M-Pesa settings saved.' };
   }
 
   // Tells Safaricom where to send C2B payments for THIS shortcode — a parent
@@ -1140,6 +1156,9 @@ class MpesaPaybillController {
       throw new BadRequestException('Only an administrator can do this.');
     }
     const settings = await getMpesaSettingsRow(this.ds, req.user.tenantId);
+    if (settings?.gateway === 'tuma') {
+      throw new BadRequestException('C2B (parents paying unprompted) isn\'t available on Tuma — only STK push is. Switch to a Daraja Paybill in settings for C2B.');
+    }
     if (!settings?.shortcode || !settings.consumerKey || !settings.consumerSecret) {
       throw new BadRequestException('Save your shortcode, consumer key and consumer secret first.');
     }
@@ -1169,7 +1188,11 @@ class MpesaPaybillController {
   }
 
   // Triggers a push to the PARENT'S phone (school-initiated) — distinct from
-  // C2B, where the parent pays unprompted from their own M-Pesa menu.
+  // C2B, where the parent pays unprompted from their own M-Pesa menu. Branches
+  // on the school's chosen gateway: 'daraja' talks to Safaricom directly using
+  // the school's own Paybill; 'tuma' goes through the school's own Tuma
+  // account instead — simpler onboarding (no Safaricom developer approval
+  // needed), STK push only (no C2B/walk-up payments).
   @Post('stk-push')
   async stkPush(@Request() req: any, @Body() dto: { learnerId: string; phone: string; amount: number }) {
     if (!MPESA_STAFF_ROLES.includes(req.user.role)) {
@@ -1177,8 +1200,8 @@ class MpesaPaybillController {
     }
     const tenantId = req.user.tenantId;
     const settings = await getMpesaSettingsRow(this.ds, tenantId);
-    if (!settings?.shortcode || !settings.consumerKey || !settings.consumerSecret || !settings.passkey) {
-      throw new BadRequestException('M-Pesa Paybill is not set up yet — configure it in Finance → M-Pesa Settings first.');
+    if (!settings) {
+      throw new BadRequestException('M-Pesa is not set up yet — configure it in Finance → M-Pesa Settings first.');
     }
     const phone = normalisePhoneForTuma(dto.phone || '');
     if (!phone) throw new BadRequestException('Enter a valid M-Pesa phone number.');
@@ -1193,7 +1216,35 @@ class MpesaPaybillController {
     ).catch(() => []);
     const learner = learnerRows[0];
     const accountRef = (learner?.admissionNumber || 'FEES').slice(0, 20); // Daraja caps this field
+    const base = (process.env.APP_URL || '').replace(/\/+$/, '');
 
+    if (settings.gateway === 'tuma') {
+      if (!settings.tumaEmail || !settings.tumaApiKey) {
+        throw new BadRequestException('Your school\'s Tuma account isn\'t set up yet — add the email and API key in Finance → M-Pesa Settings first.');
+      }
+      const result = await initiateStkPush({
+        amount, phone,
+        description: `School fees${learner ? ` — ${learner.firstName} ${learner.lastName}` : ''}`.slice(0, 100),
+        callbackUrl: `${base}/api/v1/finance/mpesa/tuma-callback`,
+        creds: { email: settings.tumaEmail, apiKey: settings.tumaApiKey },
+      });
+      if (!result.ok || !result.merchantRequestId) {
+        throw new BadRequestException(result.detail || 'Could not send the M-Pesa prompt.');
+      }
+      await ensureMpesaTransactionsTable(this.ds);
+      await this.ds.query(
+        `INSERT INTO mpesa_transactions
+           (tenant_id, type, merchant_request_id, phone, amount, account_reference, learner_id, status, created_at)
+         VALUES ($1,'tuma_stk',$2,$3,$4,$5,$6,'pending',NOW())`,
+        [tenantId, result.merchantRequestId, phone, amount, accountRef, dto.learnerId],
+      );
+      return { merchantRequestId: result.merchantRequestId, message: `STK push sent to ${phone}. Ask the parent to enter their M-Pesa PIN.` };
+    }
+
+    // ── Daraja (direct Safaricom Paybill) ──
+    if (!settings.shortcode || !settings.consumerKey || !settings.consumerSecret || !settings.passkey) {
+      throw new BadRequestException('M-Pesa Paybill is not set up yet — configure it in Finance → M-Pesa Settings first.');
+    }
     let token: string;
     try {
       token = await getDarajaToken(settings.environment, settings.consumerKey, settings.consumerSecret);
@@ -1202,7 +1253,6 @@ class MpesaPaybillController {
     }
     const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
     const password = Buffer.from(`${settings.shortcode}${settings.passkey}${timestamp}`).toString('base64');
-    const base = (process.env.APP_URL || '').replace(/\/+$/, '');
 
     let data: any;
     try {
@@ -1392,6 +1442,36 @@ class MpesaCallbackController {
       ).catch(() => null);
     }
     return { ResultCode: 0, ResultDesc: 'Accepted' };
+  }
+
+  // Tuma's equivalent of stk-callback above, for schools using their own Tuma
+  // account instead of a direct Daraja Paybill (see stkPush's gateway branch).
+  // Tuma has no published webhook schema — parseTumaCallback is deliberately
+  // permissive (see src/common/tuma.ts) and the raw body is always kept.
+  @Post('tuma-callback')
+  async tumaCallback(@Body() body: any) {
+    const parsed = parseTumaCallback(body);
+    if (!parsed.merchantRequestId) return { ok: true };
+    const rows = await this.ds.query(
+      `SELECT * FROM mpesa_transactions WHERE merchant_request_id = $1 AND type = 'tuma_stk' LIMIT 1`,
+      [parsed.merchantRequestId],
+    ).catch(() => []);
+    const txn = rows[0];
+    if (!txn) return { ok: true };
+
+    if (parsed.success) {
+      await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3 WHERE id::text = $1`,
+        [txn.id, parsed.mpesaReceipt || null, JSON.stringify(body)],
+      ).catch(() => null);
+      await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, Number(txn.amount), txn.phone, parsed.mpesaReceipt || '');
+    } else {
+      await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1`,
+        [txn.id, JSON.stringify(body)],
+      ).catch(() => null);
+    }
+    return { ok: true };
   }
 
   // Safaricom requires a Validation URL to exist even though we don't use it

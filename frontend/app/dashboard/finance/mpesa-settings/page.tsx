@@ -13,7 +13,11 @@ export default function MpesaSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [registering, setRegistering] = useState(false);
-  const [form, setForm] = useState({ shortcode: '', consumerKey: '', consumerSecret: '', passkey: '', environment: 'production' });
+  const [form, setForm] = useState({
+    gateway: 'daraja' as 'daraja' | 'tuma',
+    shortcode: '', consumerKey: '', consumerSecret: '', passkey: '', environment: 'production',
+    tumaEmail: '', tumaApiKey: '',
+  });
 
   const [txns, setTxns] = useState<any[]>([]);
   const [unmatched, setUnmatched] = useState<any[]>([]);
@@ -24,7 +28,10 @@ export default function MpesaSettingsPage() {
     apiClient.get('/finance/mpesa/settings')
       .then(r => {
         setSettings(r.data);
-        if (r.data) setForm(f => ({ ...f, shortcode: r.data.shortcode || '', environment: r.data.environment || 'production' }));
+        if (r.data) setForm(f => ({
+          ...f, shortcode: r.data.shortcode || '', environment: r.data.environment || 'production',
+          gateway: r.data.gateway === 'tuma' ? 'tuma' : 'daraja', tumaEmail: r.data.tumaEmail || '',
+        }));
       })
       .catch(() => setSettings(null))
       .finally(() => setLoading(false));
@@ -37,12 +44,13 @@ export default function MpesaSettingsPage() {
 
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.shortcode.trim()) { toast.error('Enter your Paybill or Till shortcode'); return; }
+    if (form.gateway === 'daraja' && !form.shortcode.trim()) { toast.error('Enter your Paybill or Till shortcode'); return; }
+    if (form.gateway === 'tuma' && !form.tumaEmail.trim()) { toast.error("Enter your school's Tuma account email"); return; }
     setSaving(true);
     try {
       await apiClient.post('/finance/mpesa/settings', form);
-      toast.success('Saved. Consumer key/secret/passkey are kept even if you leave them blank next time.');
-      setForm(f => ({ ...f, consumerKey: '', consumerSecret: '', passkey: '' })); // never echo secrets back
+      toast.success('Saved. Any keys you leave blank next time stay as they were.');
+      setForm(f => ({ ...f, consumerKey: '', consumerSecret: '', passkey: '', tumaApiKey: '' })); // never echo secrets back
       loadSettings();
     } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save settings'); }
     finally { setSaving(false); }
@@ -104,60 +112,84 @@ export default function MpesaSettingsPage() {
       {tab === 'settings' && (
         loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-theme-muted" size={26}/></div> : (
         <>
-          <div className="card p-5 space-y-3 border border-blue-200/60 bg-blue-50/30">
-            <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Smartphone size={16}/> How this works</div>
-            <ol className="text-sm text-theme-muted space-y-1.5 list-decimal list-inside">
-              <li>Get a Daraja API app from <a href="https://developer.safaricom.co.ke" target="_blank" rel="noreferrer" className="text-[#1a2e5a] underline">developer.safaricom.co.ke</a> for your school's own Paybill/Till — this gives you a Consumer Key, Consumer Secret and (for STK push) a Passkey.</li>
-              <li>Enter them below and save.</li>
-              <li><b>Send M-Pesa Request</b> (the "M-Pesa" button next to an invoice) pushes a prompt straight to a parent's phone — they just enter their PIN.</li>
-              <li><b>Register with Safaricom</b> below additionally lets parents pay anytime, unprompted, straight from their own M-Pesa menu — either way, the payment posts to the right learner automatically using their admission number.</li>
-            </ol>
+          <div className="card p-5 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Smartphone size={16}/> Choose how to collect payments</div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <button type="button" onClick={() => setForm(f => ({...f, gateway: 'daraja'}))}
+                className={`text-left p-3 rounded-xl border transition-all ${form.gateway==='daraja' ? 'border-[#1a2e5a] bg-surface-2' : 'border-theme'}`}>
+                <div className="font-bold text-theme-heading text-sm">Direct Paybill (Safaricom Daraja)</div>
+                <div className="text-xs text-theme-muted mt-1">Needs a Daraja app from Safaricom's developer portal, but supports both STK push AND parents paying you unprompted (C2B) straight from their own M-Pesa menu.</div>
+              </button>
+              <button type="button" onClick={() => setForm(f => ({...f, gateway: 'tuma'}))}
+                className={`text-left p-3 rounded-xl border transition-all ${form.gateway==='tuma' ? 'border-[#1a2e5a] bg-surface-2' : 'border-theme'}`}>
+                <div className="font-bold text-theme-heading text-sm">Tuma</div>
+                <div className="text-xs text-theme-muted mt-1">Just sign up at tuma.co.ke for an email + API key — no Safaricom developer approval needed. STK push only (parents can't pay unprompted).</div>
+              </button>
+            </div>
+            <p className="text-sm text-theme-muted pt-1">Either way: <b>Send M-Pesa Request</b> (the "M-Pesa" button next to an invoice) pushes a prompt to a parent's phone, and the payment posts to the right learner automatically using their admission number.</p>
           </div>
 
           <form onSubmit={saveSettings} className="card p-5 space-y-4">
-            <div>
-              <label className="label">Paybill / Till Number *</label>
-              <input value={form.shortcode} onChange={e => setForm(f => ({...f, shortcode: e.target.value}))} className="input" placeholder="e.g. 400200"/>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="label">Consumer Key {settings?.hasConsumerKey && <span className="text-green-600 font-normal">· already set</span>}</label>
-                <input value={form.consumerKey} onChange={e => setForm(f => ({...f, consumerKey: e.target.value}))} className="input" placeholder={settings?.hasConsumerKey ? '•••••••• (leave blank to keep)' : 'From Daraja app'}/>
-              </div>
-              <div>
-                <label className="label">Consumer Secret {settings?.hasConsumerSecret && <span className="text-green-600 font-normal">· already set</span>}</label>
-                <input type="password" value={form.consumerSecret} onChange={e => setForm(f => ({...f, consumerSecret: e.target.value}))} className="input" placeholder={settings?.hasConsumerSecret ? '•••••••• (leave blank to keep)' : 'From Daraja app'}/>
-              </div>
-            </div>
-            <div>
-              <label className="label">Passkey (for STK Push) {settings?.hasPasskey && <span className="text-green-600 font-normal">· already set</span>}</label>
-              <input type="password" value={form.passkey} onChange={e => setForm(f => ({...f, passkey: e.target.value}))} className="input" placeholder={settings?.hasPasskey ? '•••••••• (leave blank to keep)' : 'Lipa Na M-Pesa Online passkey'}/>
-            </div>
-            <div>
-              <label className="label">Environment</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['production','sandbox'] as const).map(env => (
-                  <button key={env} type="button" onClick={() => setForm(f => ({...f, environment: env}))}
-                    className={`text-sm px-3 py-2.5 rounded-xl border transition-all capitalize ${form.environment===env ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]' : 'bg-white text-[#1a2e5a] border-theme'}`}>
-                    {env}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-theme-muted mt-1">Use sandbox while testing with Safaricom's test credentials; switch to production once your Paybill is live.</p>
-            </div>
+            {form.gateway === 'daraja' ? (
+              <>
+                <div>
+                  <label className="label">Paybill / Till Number *</label>
+                  <input value={form.shortcode} onChange={e => setForm(f => ({...f, shortcode: e.target.value}))} className="input" placeholder="e.g. 400200"/>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Consumer Key {settings?.hasConsumerKey && <span className="text-green-600 font-normal">· already set</span>}</label>
+                    <input value={form.consumerKey} onChange={e => setForm(f => ({...f, consumerKey: e.target.value}))} className="input" placeholder={settings?.hasConsumerKey ? '•••••••• (leave blank to keep)' : 'From Daraja app'}/>
+                  </div>
+                  <div>
+                    <label className="label">Consumer Secret {settings?.hasConsumerSecret && <span className="text-green-600 font-normal">· already set</span>}</label>
+                    <input type="password" value={form.consumerSecret} onChange={e => setForm(f => ({...f, consumerSecret: e.target.value}))} className="input" placeholder={settings?.hasConsumerSecret ? '•••••••• (leave blank to keep)' : 'From Daraja app'}/>
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Passkey (for STK Push) {settings?.hasPasskey && <span className="text-green-600 font-normal">· already set</span>}</label>
+                  <input type="password" value={form.passkey} onChange={e => setForm(f => ({...f, passkey: e.target.value}))} className="input" placeholder={settings?.hasPasskey ? '•••••••• (leave blank to keep)' : 'Lipa Na M-Pesa Online passkey'}/>
+                </div>
+                <div>
+                  <label className="label">Environment</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['production','sandbox'] as const).map(env => (
+                      <button key={env} type="button" onClick={() => setForm(f => ({...f, environment: env}))}
+                        className={`text-sm px-3 py-2.5 rounded-xl border transition-all capitalize ${form.environment===env ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]' : 'bg-white text-[#1a2e5a] border-theme'}`}>
+                        {env}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-theme-muted mt-1">Use sandbox while testing with Safaricom's test credentials; switch to production once your Paybill is live.</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="label">Tuma Account Email *</label>
+                  <input type="email" value={form.tumaEmail} onChange={e => setForm(f => ({...f, tumaEmail: e.target.value}))} className="input" placeholder="you@yourschool.ac.ke"/>
+                </div>
+                <div>
+                  <label className="label">Tuma API Key {settings?.hasTumaApiKey && <span className="text-green-600 font-normal">· already set</span>}</label>
+                  <input type="password" value={form.tumaApiKey} onChange={e => setForm(f => ({...f, tumaApiKey: e.target.value}))} className="input" placeholder={settings?.hasTumaApiKey ? '•••••••• (leave blank to keep)' : 'From your Tuma dashboard'}/>
+                </div>
+              </>
+            )}
             <button type="submit" disabled={saving} className="btn-primary w-full justify-center">
               {saving ? <Loader2 size={15} className="animate-spin"/> : <Save size={15}/>} Save Settings
             </button>
           </form>
 
-          <div className="card p-5 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Link2 size={16}/> Accept payments parents send directly (C2B)</div>
-            <p className="text-sm text-theme-muted">Registers this Paybill's confirmation URL with Safaricom, so any payment a parent sends — even without you prompting them — posts automatically. Save your settings above first.</p>
-            <button onClick={registerC2b} disabled={registering || !settings?.shortcode} className="btn-primary">
-              {registering ? <Loader2 size={15} className="animate-spin"/> : <RefreshCw size={15}/>} Register with Safaricom
-            </button>
-            {!settings?.shortcode && <p className="text-xs text-amber-600">Save your Paybill shortcode first.</p>}
-          </div>
+          {form.gateway === 'daraja' && (
+            <div className="card p-5 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Link2 size={16}/> Accept payments parents send directly (C2B)</div>
+              <p className="text-sm text-theme-muted">Registers this Paybill's confirmation URL with Safaricom, so any payment a parent sends — even without you prompting them — posts automatically. Save your settings above first.</p>
+              <button onClick={registerC2b} disabled={registering || !settings?.shortcode} className="btn-primary">
+                {registering ? <Loader2 size={15} className="animate-spin"/> : <RefreshCw size={15}/>} Register with Safaricom
+              </button>
+              {!settings?.shortcode && <p className="text-xs text-amber-600">Save your Paybill shortcode first.</p>}
+            </div>
+          )}
         </>
         )
       )}

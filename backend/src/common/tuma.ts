@@ -10,7 +10,13 @@
 
 const TUMA_BASE = 'https://api.tuma.co.ke';
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+export interface TumaCreds { email: string; apiKey: string; }
+
+// Keyed by email so multiple accounts (ZARODA's own platform account via
+// TUMA_EMAIL/TUMA_API_KEY, plus any number of individual schools' own Tuma
+// accounts for fee collection — see MpesaPaybillController) each get their
+// own cached token instead of clobbering one shared one.
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 /** Decode a JWT's exp claim (seconds since epoch) without verifying the signature —
  *  we only need it to know when to refresh, the token itself is opaque to us. */
@@ -23,12 +29,16 @@ function jwtExpiry(token: string): number | null {
   }
 }
 
-async function getToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt - 60_000 > Date.now()) return cachedToken.token;
+/** `creds` omitted → falls back to the platform's own TUMA_EMAIL/TUMA_API_KEY
+ *  (ZARODA's subscription/wallet billing); passed → that account's token instead
+ *  (a school's own Tuma account for fee collection). */
+async function getToken(creds?: TumaCreds): Promise<string> {
+  const email = creds?.email || process.env.TUMA_EMAIL;
+  const apiKey = creds?.apiKey || process.env.TUMA_API_KEY;
+  if (!email || !apiKey) throw new Error('Tuma not configured (email / api key missing).');
 
-  const email = process.env.TUMA_EMAIL;
-  const apiKey = process.env.TUMA_API_KEY;
-  if (!email || !apiKey) throw new Error('Tuma not configured (TUMA_EMAIL / TUMA_API_KEY missing).');
+  const cached = tokenCache.get(email);
+  if (cached && cached.expiresAt - 60_000 > Date.now()) return cached.token;
 
   const resp = await fetch(`${TUMA_BASE}/auth/token`, {
     method: 'POST',
@@ -44,7 +54,7 @@ async function getToken(): Promise<string> {
 
   // Fall back to a 23h TTL (their sample tokens are valid 24h) if exp can't be read.
   const expiresAt = jwtExpiry(token) || Date.now() + 23 * 60 * 60 * 1000;
-  cachedToken = { token, expiresAt };
+  tokenCache.set(email, { token, expiresAt });
   return token;
 }
 
@@ -67,7 +77,7 @@ export interface StkPushResult {
 }
 
 export async function initiateStkPush(opts: {
-  amount: number; phone: string; description: string; callbackUrl: string;
+  amount: number; phone: string; description: string; callbackUrl: string; creds?: TumaCreds;
 }): Promise<StkPushResult> {
   // Cloudflare-fronted 5xx (522 "connection timed out" is the one actually seen in
   // production) means Tuma's own backend didn't respond in time — a transient blip,
@@ -75,7 +85,7 @@ export async function initiateStkPush(opts: {
   // most of these without the customer having to re-enter their PIN prompt request.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const token = await getToken();
+      const token = await getToken(opts.creds);
       const resp = await fetch(`${TUMA_BASE}/payment/stk-push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -114,9 +124,9 @@ export interface PaymentStatusResult {
   detail?: string;
 }
 
-export async function checkPaymentStatus(merchantRequestId: string): Promise<PaymentStatusResult> {
+export async function checkPaymentStatus(merchantRequestId: string, creds?: TumaCreds): Promise<PaymentStatusResult> {
   try {
-    const token = await getToken();
+    const token = await getToken(creds);
     const resp = await fetch(`${TUMA_BASE}/payment/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
