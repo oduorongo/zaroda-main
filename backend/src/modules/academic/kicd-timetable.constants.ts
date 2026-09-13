@@ -56,7 +56,7 @@ export const PRE_PRIMARY_PERIODS: PeriodSlot[] = [
 // actually needed to be dropped. This entry fixes that at the root.
 export const GRADE_1_3_PERIODS: PeriodSlot[] = [
   { period: 0, startTime: '08:00', endTime: '08:20', type: 'assembly', label: 'Health Check & Roll Call' },
-  { period: 0, startTime: '08:00', endTime: '08:20', type: 'ppi', label: 'PPI (Friday only, replaces health check/roll call)' },
+  { period: 0, startTime: '08:00', endTime: '08:20', type: 'ppi', label: 'PPI (Friday only, health check slot)' },
   { period: 1, startTime: '08:20', endTime: '08:50', type: 'lesson' },
   { period: 2, startTime: '08:50', endTime: '09:20', type: 'lesson' },
   { period: 0, startTime: '09:20', endTime: '09:30', type: 'break', label: 'Health Break 1 (10 min)' },
