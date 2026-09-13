@@ -397,6 +397,24 @@ export class AutoTimetabler {
           if (best) break;
         }
       }
+      // Absolute last resort: this greedy, non-backtracking placer can still box
+      // itself into a corner in a zero-slack week (total weekly lessons across
+      // every learning area exactly equal to total period slots, e.g. Upper
+      // Primary's 34 + 1 PPI = 35 = 7 periods × 5 days) — an earlier subject can
+      // take a day this one needed, even with the priority ordering above doing
+      // its best to avoid that. When that happens, a genuinely BLANK grid cell
+      // (visible, unmistakably wrong — a period with no lesson and no teacher at
+      // all) is worse than this subject appearing on a day it's already on, so
+      // fill any remaining free slot outright rather than leave it empty.
+      if (!best) {
+        for (const day of DAYS) {
+          for (const p of lessonPeriods) {
+            if (grid[day][p.period]) continue;
+            best = { day, period: p }; break;
+          }
+          if (best) break;
+        }
+      }
 
       if (!best) { unplaced.push(lesson.subject); continue; }
 
