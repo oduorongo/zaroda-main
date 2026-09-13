@@ -263,27 +263,47 @@ export class AutoTimetabler {
       grid['Friday'][firstPeriod] = this.place('Friday', lessonPeriods[0], 'Pastoral Programme of Instruction (PPI)', null, null, lessonPeriods);
     }
 
-    // 2) Order the pool: doubles first, then before-break subjects, then by FEWEST
-    //    lessons first. A subject with only 3 lessons/week (e.g. Social Studies,
-    //    Religious Education) is the most constrained — it needs 3 DIFFERENT days
-    //    (the per-day cap below forbids doubling it up when its total already fits
-    //    within the 5 weekdays), so if the grid fills up before it gets a turn, it
-    //    can be stranded with only 1 day left to use, losing 2 lessons at once —
-    //    exactly what happened here when higher-allocation subjects (placed first
-    //    under the old "biggest first" order) greedily saturated Monday–Thursday.
-    //    Placing the tightest-constrained subjects first, while the most days are
-    //    still free, lets them spread out properly; a high-allocation subject
-    //    (English, Creative Arts) is far more flexible about which slots it ends
-    //    up in and easily fills whatever's left. When total demand exceeds total
-    //    capacity by exactly one (Lower Primary 31→30, JS 41→40 once PPI takes a
-    //    slot), this does mean a higher-allocation area yields its last unit
-    //    instead of the smallest one — a cosmetic difference (still just one
-    //    lesson short overall) far preferable to a smaller subject losing two.
+    // Mathematics & English are core literacy/numeracy — schedule them in the first
+    // three periods of the day where possible. Defined before the pool sort below
+    // since it now needs this to rank placement priority, not just scoring.
+    const wantsEarly = (subject: string): boolean => {
+      const s = subject.toLowerCase();
+      return /\bmathematic|\bmaths?\b|\benglish\b/.test(s);
+    };
+
+    // 2) Order the pool: doubles first, then before-break subjects, then
+    //    "wants early" subjects (English/Maths — confined to periods 1–3, and
+    //    period 2 is usually already claimed by a beforeBreak subject like
+    //    Creative Arts, leaving very few qualifying slots across the week), then
+    //    by FEWEST lessons first among what's left.
+    //
+    //    A subject with only 3 lessons/week (e.g. Social Studies, Religious
+    //    Education) is the most constrained of the "ordinary" subjects — it
+    //    needs 3 DIFFERENT days (the per-day cap below forbids doubling it up
+    //    when its total already fits within the 5 weekdays) — so placing
+    //    higher-count subjects first (the original order) greedily saturated
+    //    Monday–Thursday and stranded it on Friday alone, losing 2 lessons.
+    //    Fewest-first fixed that, but on its own it broke English/Maths
+    //    instead: those aren't small in count (5/week), so fewest-first placed
+    //    them AFTER the small subjects, which — having no positional
+    //    restriction of their own — happily grabbed period-1/3 slots on their
+    //    way past, leaving English/Maths without enough of their few legal
+    //    slots and stranding THEM on later, non-early periods instead. Slotting
+    //    "wants early" subjects in ahead of the plain fewest-first tier reserves
+    //    their limited legal periods before anything else can claim them.
+    //
+    //    When total demand exceeds total capacity by exactly one (Lower Primary
+    //    31→30, JS 41→40 once PPI takes a slot), this does mean a
+    //    higher-allocation, non-restricted area yields its last unit instead of
+    //    the smallest one — a cosmetic difference (still just one lesson short
+    //    overall) far preferable to any subject losing two.
     const lessonsBySubject: Record<string, number> = {};
     pool.forEach(u => { lessonsBySubject[u.subject] = (lessonsBySubject[u.subject] || 0) + 1; });
     pool.sort((a, b) => {
       if (a.double !== b.double) return a.double ? -1 : 1;
       if (a.beforeBreak !== b.beforeBreak) return a.beforeBreak ? -1 : 1;
+      const aEarly = wantsEarly(a.subject), bEarly = wantsEarly(b.subject);
+      if (aEarly !== bEarly) return aEarly ? -1 : 1;
       return (lessonsBySubject[a.subject] || 0) - (lessonsBySubject[b.subject] || 0);
     });
 
@@ -304,13 +324,6 @@ export class AutoTimetabler {
     };
     const countOnDay = (day: string, subject: string): number =>
       lessonPeriods.reduce((n, p) => n + (grid[day][p.period]?.subject === subject ? 1 : 0), 0);
-
-    // Mathematics & English are core literacy/numeracy — schedule them in the first
-    // three periods of the day where possible.
-    const wantsEarly = (subject: string): boolean => {
-      const s = subject.toLowerCase();
-      return /\bmathematic|\bmaths?\b|\benglish\b/.test(s);
-    };
 
     // 3) Place each lesson.
     for (const lesson of pool) {
