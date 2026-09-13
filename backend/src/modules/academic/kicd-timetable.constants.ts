@@ -45,8 +45,13 @@ export const PRE_PRIMARY_PERIODS: PeriodSlot[] = [
 // ── GRADE 1–3 ──────────────────────────────────────────────
 // 6 lessons/day + 1 PPI/week = 31 lessons/week · 30 min each
 // Reporting 8:00am · 8:00–8:20 health check
-// Start 8:20am · End 12:30pm
+// Start 8:20am · Last lesson ends 12:30pm
 // Breaks: 10 min (after P2) + 30 min (after P4)
+// The official school day runs to 3:00pm, not 12:30pm — lunch is followed by
+// non-formal programmes (games, clubs, guidance & counselling), same idea as
+// the Non-formal Programs / Games-Co-curricular block already in the Upper
+// Primary and Junior School structures below. Included here as its own entry
+// so it shows up the same way rather than the day just stopping at lunch.
 // PPI is a DEDICATED slot (like Junior School's) — the official school sample
 // timetable plots it in Friday's 8:00-8:20 health-check/roll-call slot, not as
 // one of the 6 real lesson periods. Without a `type: 'ppi'` entry here, the
@@ -66,6 +71,7 @@ export const GRADE_1_3_PERIODS: PeriodSlot[] = [
   { period: 5, startTime: '11:00', endTime: '11:30', type: 'lesson' },
   { period: 6, startTime: '11:30', endTime: '12:00', type: 'lesson' },
   { period: 0, startTime: '12:00', endTime: '12:30', type: 'lunch', label: 'Lunch Break' },
+  { period: 0, startTime: '12:30', endTime: '15:00', type: 'non_formal', label: 'Non-formal Programs' },
 ];
 
 // ── GRADE 4–6 ──────────────────────────────────────────────
