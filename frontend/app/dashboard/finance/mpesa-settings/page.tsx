@@ -144,7 +144,7 @@ export default function MpesaSettingsPage() {
               </button>
             </div>
             <p className="text-xs text-theme-muted">
-              Common in primary/JS schools where the class teacher — not a bursar — collects money from learners. When on, each class teacher gets a "Collect Fees" option in their own workspace, but can only record payments for learners in the class(es) they're registered as class teacher of. Editing or deleting a payment still needs the bursar or an administrator.
+              Common in primary/JS schools where the class teacher — not a bursar — collects money from learners. When on, each class teacher gets a "Collect Fees" option in their own workspace, but can only record payments for learners in the class(es) they're registered as class teacher of. The admin/bursar still sets up the fee structure (vote heads and amounts, under Fee Structures) — class teachers only collect against it, and editing or deleting a payment still needs the bursar or an administrator.
             </p>
           </div>
 
