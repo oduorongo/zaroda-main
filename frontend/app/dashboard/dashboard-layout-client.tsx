@@ -7,7 +7,7 @@ import {
   Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
   Menu, X, ChevronRight, Users, BarChart2,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
-  CalendarDays,
+  CalendarDays, CalendarClock,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -43,6 +43,8 @@ const NAV_ITEMS = [
   { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
   { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'staff' },
   { href: '/dashboard/duty-roster',            icon: CalendarDays, label: 'Duty Roster & Calendar', roles: 'staff' },
+  { href: '/dashboard/hr/staff',                icon: Users,        label: 'Staff Records',        roles: 'admin' },
+  { href: '/dashboard/hr/leave',                icon: CalendarClock,label: 'Leave',                 roles: 'staff' },
 ];
 
 function canSee(roleKey: string, userRole: string): boolean {
@@ -107,7 +109,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   // during a full-reload navigation doesn't bounce a logged-in user to login.
   // Dashboard pages teachers ARE allowed to open (shared modules), despite otherwise being
   // routed to their own /teacher workspace.
-  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records', '/dashboard/duty-roster'];
+  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records', '/dashboard/duty-roster', '/dashboard/hr/leave'];
   // Fee collection is a class-teacher-only override (see settings/class-teacher-override) —
   // subject teachers with no class of their own have no reason to be here.
   const isClassTeacher = ['class_teacher', 'overall_class_teacher'].includes(user?.role || '');

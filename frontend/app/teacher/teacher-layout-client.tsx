@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
   Sparkles, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
-  CalendarDays, DollarSign,
+  CalendarDays, DollarSign, CalendarClock,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -29,6 +29,7 @@ const TEACHER_NAV = [
   { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },
   { href: '/dashboard/duty-roster', icon: CalendarDays, label: 'Duty Roster & Calendar' },
+  { href: '/dashboard/hr/leave', icon: CalendarClock, label: 'My Leave' },
   { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },
 ];
 // Shown only to class teachers, and only once their school's HOI/admin has turned

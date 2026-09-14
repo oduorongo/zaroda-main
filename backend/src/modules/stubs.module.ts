@@ -3831,6 +3831,266 @@ class DutyRosterController {
 })
 export class DutyRosterModule {}
 
+// ═══════════════════════════════════════════════════════════
+// HR MODULE — staff records (teaching + non-teaching) and leave
+// ═══════════════════════════════════════════════════════════
+const HR_ADMIN_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin'];
+// Anyone with a login who counts as "staff" for leave purposes — mirrors
+// PAYROLL_STAFF_ROLES above, kept as its own list since HR/payroll may
+// diverge later (e.g. a role that's staff for HR but not paid via payroll).
+const HR_STAFF_LOGIN_ROLES = [
+  'hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar',
+  'class_teacher', 'subject_teacher', 'overall_class_teacher', 'games_dept',
+];
+
+@Controller('hr')
+@UseGuards(JwtAuthGuard)
+class HrController {
+  constructor(private readonly ds: DataSource) {}
+
+  private assertAdmin(req: any) {
+    if (!HR_ADMIN_ROLES.includes(req.user.role)) {
+      throw new BadRequestException('Only the HOI or an administrator can manage staff HR records.');
+    }
+  }
+
+  private async ensureTables() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS hr_staff (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      // linked_user_id: set when this HR record belongs to someone who also has a
+      // ZARODA login (a teacher/admin/bursar) — left null for non-teaching staff
+      // (cooks, drivers, security, …) who have no reason to log in.
+      ['linked_user_id', 'uuid'], ['first_name', 'text'], ['last_name', 'text'],
+      ['job_title', 'text'], ['department', "text DEFAULT 'support'"], // 'teaching' | 'admin' | 'support'
+      ['employment_type', "text DEFAULT 'permanent'"], // permanent | contract | casual
+      ['id_number', 'text'], ['staff_number', 'text'], ['tsc_number', 'text'],
+      ['phone', 'text'], ['email', 'text'], ['start_date', 'date'], ['end_date', 'date'],
+      ['next_of_kin_name', 'text'], ['next_of_kin_phone', 'text'],
+      ['is_active', 'boolean DEFAULT true'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE hr_staff ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE UNIQUE INDEX IF NOT EXISTS hr_staff_tenant_user_uq ON hr_staff (tenant_id, linked_user_id) WHERE linked_user_id IS NOT NULL`).catch(() => null);
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS leave_requests (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      // Either staff_user_id (self-service, staff with a login) or hr_staff_id (a
+      // non-teaching staff member with no login, applied on their behalf) is set.
+      ['staff_user_id', 'uuid'], ['hr_staff_id', 'uuid'], ['staff_name', 'text'],
+      ['leave_type', 'text'], ['start_date', 'date'], ['end_date', 'date'], ['days', 'int'],
+      ['reason', 'text'], ['status', "text DEFAULT 'pending'"],
+      ['applied_by', 'uuid'], ['applied_by_name', 'text'],
+      ['reviewed_by', 'uuid'], ['reviewed_by_name', 'text'], ['reviewed_at', 'timestamptz'],
+      ['review_comment', 'text'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+  }
+
+  private async displayName(userId: string, fallback: string): Promise<string> {
+    if (!userId) return fallback;
+    const rows = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 LIMIT 1`,
+      [userId],
+    ).catch(() => []);
+    const u = rows[0];
+    const name = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+    return name || fallback;
+  }
+
+  // Every staff member for HR purposes: existing hr_staff rows, PLUS any teaching/
+  // admin user who doesn't have one yet (shown so the admin can fill in employment
+  // details without re-typing a name that already exists in the system).
+  @Get('staff')
+  async listStaff(@Request() req: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    const hrRows = await this.ds.query(
+      `SELECT h.id, h.linked_user_id AS "linkedUserId", h.first_name AS "firstName", h.last_name AS "lastName",
+              h.job_title AS "jobTitle", h.department, h.employment_type AS "employmentType",
+              h.id_number AS "idNumber", h.staff_number AS "staffNumber", h.tsc_number AS "tscNumber",
+              h.phone, h.email, h.start_date AS "startDate", h.next_of_kin_name AS "nextOfKinName",
+              h.next_of_kin_phone AS "nextOfKinPhone", u.role
+         FROM hr_staff h LEFT JOIN users u ON u.id::text = h.linked_user_id::text
+        WHERE h.tenant_id::text = $1 AND h.is_active = true
+        ORDER BY h.first_name`,
+      [tenantId],
+    ).catch(() => []);
+    const linkedIds = new Set((hrRows as any[]).filter(r => r.linkedUserId).map(r => r.linkedUserId));
+    const unlinkedUsers = await this.ds.query(
+      `SELECT id, first_name AS "firstName", last_name AS "lastName", role
+         FROM users WHERE tenant_id::text = $1 AND role = ANY($2) AND is_active = true`,
+      [tenantId, HR_STAFF_LOGIN_ROLES],
+    ).catch(() => []);
+    const noDetails = (unlinkedUsers as any[])
+      .filter(u => !linkedIds.has(u.id))
+      .map(u => ({
+        id: `user:${u.id}`, linkedUserId: u.id, firstName: u.firstName, lastName: u.lastName,
+        role: u.role, jobTitle: null, department: 'teaching', employmentType: null, noDetailsYet: true,
+      }));
+    return [...(hrRows as any[]), ...noDetails];
+  }
+
+  @Post('staff')
+  async createStaff(@Request() req: any, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto?.firstName?.trim() || !dto?.lastName?.trim()) throw new BadRequestException('First and last name are required.');
+    const rows = await this.ds.query(
+      `INSERT INTO hr_staff
+         (tenant_id, linked_user_id, first_name, last_name, job_title, department, employment_type,
+          id_number, staff_number, tsc_number, phone, email, start_date, next_of_kin_name, next_of_kin_phone, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
+       RETURNING id`,
+      [
+        req.user.tenantId, dto.linkedUserId || null, dto.firstName.trim(), dto.lastName.trim(),
+        dto.jobTitle || null, dto.department || 'support', dto.employmentType || 'permanent',
+        dto.idNumber || null, dto.staffNumber || null, dto.tscNumber || null,
+        dto.phone || null, dto.email || null, dto.startDate || null,
+        dto.nextOfKinName || null, dto.nextOfKinPhone || null,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save: ${e.message}`); });
+    return { id: rows[0].id };
+  }
+
+  @Patch('staff/:id')
+  async updateStaff(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    const map: Record<string, string> = {
+      firstName: 'first_name', lastName: 'last_name', jobTitle: 'job_title', department: 'department',
+      employmentType: 'employment_type', idNumber: 'id_number', staffNumber: 'staff_number',
+      tscNumber: 'tsc_number', phone: 'phone', email: 'email', startDate: 'start_date',
+      endDate: 'end_date', nextOfKinName: 'next_of_kin_name', nextOfKinPhone: 'next_of_kin_phone',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(dto[k] || null); }
+    }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()');
+    vals.push(id, req.user.tenantId);
+    await this.ds.query(
+      `UPDATE hr_staff SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(`Could not update: ${e.message}`); });
+    return { updated: true };
+  }
+
+  @Delete('staff/:id')
+  async deactivateStaff(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(
+      `UPDATE hr_staff SET is_active = false, updated_at = NOW() WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId],
+    ).catch(() => null);
+    return { deactivated: true };
+  }
+
+  // ── Leave ────────────────────────────────────────────────
+  // A staff member with a login applies for themselves; an admin applies on
+  // behalf of a non-teaching staff member (hrStaffId) who has none.
+  @Post('leave')
+  async applyLeave(@Request() req: any, @Body() dto: any) {
+    await this.ensureTables();
+    const isAdmin = HR_ADMIN_ROLES.includes(req.user.role);
+    if (!dto?.leaveType || !dto?.startDate || !dto?.endDate) {
+      throw new BadRequestException('Leave type, start date and end date are required.');
+    }
+    let staffUserId: string | null = null, hrStaffId: string | null = null, staffName: string;
+    if (dto.hrStaffId) {
+      if (!isAdmin) throw new BadRequestException('Only an administrator can apply for leave on someone else\'s behalf.');
+      const rows = await this.ds.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM hr_staff WHERE id::text = $1 AND tenant_id::text = $2`,
+        [dto.hrStaffId, req.user.tenantId],
+      ).catch(() => []);
+      if (!rows.length) throw new BadRequestException('Staff record not found.');
+      hrStaffId = dto.hrStaffId;
+      staffName = `${rows[0].firstName} ${rows[0].lastName}`;
+    } else {
+      staffUserId = req.user.id;
+      staffName = await this.displayName(req.user.id, req.user.email || '');
+    }
+    const start = new Date(dto.startDate), end = new Date(dto.endDate);
+    if (end < start) throw new BadRequestException('End date cannot be before the start date.');
+    const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    const applierName = await this.displayName(req.user.id, req.user.email || '');
+    const rows = await this.ds.query(
+      `INSERT INTO leave_requests
+         (tenant_id, staff_user_id, hr_staff_id, staff_name, leave_type, start_date, end_date, days,
+          reason, status, applied_by, applied_by_name, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,NOW())
+       RETURNING id`,
+      [req.user.tenantId, staffUserId, hrStaffId, staffName, dto.leaveType, dto.startDate, dto.endDate, days,
+       dto.reason || null, req.user.id, applierName],
+    );
+    return { id: rows[0].id, days };
+  }
+
+  // Admins see every request; anyone else sees only their own.
+  @Get('leave')
+  async listLeave(@Request() req: any, @Query() q: any) {
+    await this.ensureTables();
+    const isAdmin = HR_ADMIN_ROLES.includes(req.user.role);
+    const params: any[] = [req.user.tenantId];
+    let where = 'tenant_id::text = $1';
+    if (!isAdmin) { params.push(req.user.id); where += ` AND staff_user_id::text = $${params.length}`; }
+    else if (q.status) { params.push(q.status); where += ` AND status = $${params.length}`; }
+    return this.ds.query(
+      `SELECT id, staff_user_id AS "staffUserId", hr_staff_id AS "hrStaffId", staff_name AS "staffName",
+              leave_type AS "leaveType", start_date AS "startDate", end_date AS "endDate", days,
+              reason, status, applied_by_name AS "appliedByName",
+              reviewed_by_name AS "reviewedByName", reviewed_at AS "reviewedAt", review_comment AS "reviewComment",
+              created_at AS "createdAt"
+         FROM leave_requests WHERE ${where} ORDER BY created_at DESC`,
+      params,
+    ).catch(() => []);
+  }
+
+  @Patch('leave/:id/review')
+  async reviewLeave(@Request() req: any, @Param('id') id: string, @Body() dto: { action: 'approved' | 'rejected'; comment?: string }) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!['approved', 'rejected'].includes(dto?.action)) throw new BadRequestException('action must be approved or rejected.');
+    const name = await this.displayName(req.user.id, req.user.email || '');
+    const rows = await this.ds.query(
+      `UPDATE leave_requests SET status = $1, reviewed_by = $2, reviewed_by_name = $3, reviewed_at = NOW(), review_comment = $4
+        WHERE id::text = $5 AND tenant_id::text = $6 RETURNING id`,
+      [dto.action, req.user.id, name, dto.comment || null, id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Leave request not found.');
+    return { updated: true };
+  }
+
+  @Delete('leave/:id')
+  async cancelLeave(@Request() req: any, @Param('id') id: string) {
+    await this.ensureTables();
+    const isAdmin = HR_ADMIN_ROLES.includes(req.user.role);
+    const rows = await this.ds.query(
+      `SELECT staff_user_id AS "staffUserId", status FROM leave_requests WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Leave request not found.');
+    if (!isAdmin && rows[0].staffUserId !== req.user.id) throw new BadRequestException('You can only cancel your own leave request.');
+    if (rows[0].status !== 'pending' && !isAdmin) throw new BadRequestException('This request has already been reviewed — ask an administrator to change it.');
+    await this.ds.query(`DELETE FROM leave_requests WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+}
+
+@Module({ controllers: [HrController] })
+export class HrModule {}
+
 
 // ═══════════════════════════════════════════════════════════
 // REFERRAL MODULE (Share invite links)
