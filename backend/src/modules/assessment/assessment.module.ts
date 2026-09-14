@@ -228,7 +228,7 @@ export class AssessmentService {
       for (const r of rows) {
         const urls: string[] = r.youtubeUrls || [];
         (strands[r.strandName] = strands[r.strandName] || { strand: r.strandName, substrands: [] }).substrands.push({
-          name: r.subName, level: levelBy[r.substrandId] || null, videos: urls, video: urls[0] || null,
+          substrandId: r.substrandId, name: r.subName, level: levelBy[r.substrandId] || null, videos: urls, video: urls[0] || null,
         });
       }
       out.push({ learningArea: a.learningArea, strands: Object.values(strands) });
@@ -420,6 +420,56 @@ export class AssessmentService {
     return { message: 'Resource saved' };
   }
 
+  // ── VIDEO VIEW TRACKING ──────────────────────────────────
+  // The video links are plain external YouTube URLs, so there's no way to know
+  // "views" from YouTube's side scoped to just ZARODA users — this logs every
+  // time someone clicks a video link FROM the app instead, which is the
+  // actually-answerable version of that question. Fire-and-forget from the
+  // frontend (see logResourceClick calls in teacher/assessment and
+  // dashboard/parent) — never blocks opening the video.
+  private async ensureResourceClicksTable() {
+    await this.dataSource.query(
+      `CREATE TABLE IF NOT EXISTS video_resource_clicks (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, substrand_id uuid, video_url text,
+         user_id uuid, user_role text, learner_id uuid,
+         created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+  }
+
+  async logResourceClick(user: any, substrandId: string, videoUrl: string, learnerId?: string) {
+    if (!substrandId || !videoUrl) return { ok: false };
+    await this.ensureResourceClicksTable();
+    await this.dataSource.query(
+      `INSERT INTO video_resource_clicks (tenant_id, substrand_id, video_url, user_id, user_role, learner_id)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [user.tenantId, substrandId, videoUrl, user.id, user.role, learnerId || null],
+    ).catch(() => null);
+    return { ok: true };
+  }
+
+  // Owner-only: which videos are actually being watched, across every school.
+  // One row per (substrand, video URL) so a sub-strand with multiple videos
+  // shows each one's own count.
+  async getResourceViewStats() {
+    await this.ensureResourceClicksTable();
+    return this.dataSource.query(
+      `SELECT c.substrand_id AS "substrandId", c.video_url AS "videoUrl",
+              ss.name AS "substrandName", st.name AS "strandName", t.learning_area AS "learningArea",
+              COUNT(*)::int AS clicks,
+              COUNT(DISTINCT c.user_id)::int AS "uniqueUsers",
+              COUNT(DISTINCT c.tenant_id)::int AS "schoolsReached",
+              MAX(c.created_at) AS "lastClickedAt"
+         FROM video_resource_clicks c
+         LEFT JOIN assessment_substrands ss ON ss.id = c.substrand_id
+         LEFT JOIN assessment_strands st ON st.id = ss.strand_id
+         LEFT JOIN assessment_templates t ON t.id = st.template_id
+        GROUP BY c.substrand_id, c.video_url, ss.name, st.name, t.learning_area
+        ORDER BY clicks DESC`,
+    ).catch(() => []);
+  }
+
   // ── SUMMATIVE (CATs & End-Term, admin-created exam events) ──
   // List the exam events the admin has created for this tenant.
   async listExams(tenantId: string, gradeLevel?: string) {
@@ -597,6 +647,20 @@ export class AssessmentController {
   @Post('resource')
   setResource(@Request() req: any, @Body() dto: any) {
     return this.svc.setResource(req.user, dto.substrandId, dto.youtubeUrl, dto.youtubeUrls);
+  }
+
+  // Fire-and-forget click log — the frontend calls this the moment a video
+  // link is opened, without waiting for the response.
+  @Post('resource/click')
+  logResourceClick(@Request() req: any, @Body() dto: any) {
+    return this.svc.logResourceClick(req.user, dto.substrandId, dto.videoUrl, dto.learnerId);
+  }
+
+  // Owner-only view stats across every school.
+  @Get('resource/views')
+  getResourceViews(@Request() req: any) {
+    if (req.user.role !== 'super_admin') return { error: 'forbidden', data: [] };
+    return this.svc.getResourceViewStats();
   }
 
   // ── Owner rubric editing ──

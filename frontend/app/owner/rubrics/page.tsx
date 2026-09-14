@@ -3,7 +3,7 @@
 // add/edit the YouTube resource link on each sub-strand. Not tied to a stream or learner.
 'use client';
 import { useState, useEffect } from 'react';
-import { BookOpen, Loader2, Youtube, Save, X, Pencil, Plus, Trash2, PlusCircle } from 'lucide-react';
+import { BookOpen, Loader2, Youtube, Save, X, Pencil, Plus, Trash2, PlusCircle, BarChart3 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -25,6 +25,26 @@ export default function OwnerRubricsPage() {
   const [editFor, setEditFor] = useState<any>(null);
   const [urls, setUrls]       = useState<string[]>(['']);
   const [saving, setSaving]   = useState(false);
+
+  // Views: the videos are plain external YouTube links, so there's no
+  // "views" from YouTube's side scoped to just ZARODA users — this shows how
+  // many times each one has actually been clicked open FROM the app (teacher
+  // Assessment Rubric page + parent's child-rubric view), which is the
+  // real, answerable version of that question.
+  const [showViews, setShowViews] = useState(false);
+  const [viewStats, setViewStats] = useState<any[] | null>(null);
+  const [viewsLoading, setViewsLoading] = useState(false);
+  const toggleViews = () => {
+    const next = !showViews;
+    setShowViews(next);
+    if (next && !viewStats) {
+      setViewsLoading(true);
+      apiClient.get('/assessment/resource/views')
+        .then(r => setViewStats(Array.isArray(r.data) ? r.data : []))
+        .catch(() => setViewStats([]))
+        .finally(() => setViewsLoading(false));
+    }
+  };
 
   useEffect(() => {
     apiClient.get(`/assessment/learning-areas?gradeLevel=${grade}`)
@@ -113,11 +133,56 @@ export default function OwnerRubricsPage() {
   return (
     <div className="p-4 sm:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
-        <div className="flex items-center gap-2">
-          <BookOpen className="text-theme-muted" size={20}/>
-          <h1 className="text-xl font-black text-theme-heading">Assessment Rubrics</h1>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <BookOpen className="text-theme-muted" size={20}/>
+            <h1 className="text-xl font-black text-theme-heading">Assessment Rubrics</h1>
+          </div>
+          <button onClick={toggleViews} className={showViews ? 'btn-primary text-sm' : 'btn-ghost text-sm'}>
+            <BarChart3 size={14}/> Video Views
+          </button>
         </div>
         <p className="text-sm text-theme-muted">Edit the rubric for any grade, learning area and term — add, rename or delete strands and sub-strands, and attach YouTube resource links (watched by teachers and parents at home).</p>
+
+        {showViews && (
+          <div className="card p-4">
+            <p className="text-xs text-theme-muted mb-3">
+              Counts how many times each video link has been opened from inside ZARODA (teachers' Assessment Rubric page, and parents' child-rubric view) — YouTube's own view counts aren't scoped to ZARODA users, so this is the answerable version of "how many views."
+            </p>
+            {viewsLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+            ) : !viewStats || viewStats.length === 0 ? (
+              <p className="text-sm text-theme-muted text-center py-6">No video clicks recorded yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-theme-muted border-b border-theme">
+                    <th className="px-2 py-2">Sub-strand</th>
+                    <th className="px-2 py-2">Strand / Learning Area</th>
+                    <th className="px-2 py-2">Video</th>
+                    <th className="px-2 py-2 text-right">Clicks</th>
+                    <th className="px-2 py-2 text-right">Unique users</th>
+                    <th className="px-2 py-2 text-right">Schools</th>
+                    <th className="px-2 py-2">Last clicked</th>
+                  </tr></thead>
+                  <tbody>
+                    {viewStats.map((v: any, i: number) => (
+                      <tr key={i} className="border-b border-theme/40">
+                        <td className="px-2 py-2 font-semibold text-theme-heading">{v.substrandName || '—'}</td>
+                        <td className="px-2 py-2 text-theme-muted text-xs">{v.strandName}{v.learningArea ? ` · ${v.learningArea}` : ''}</td>
+                        <td className="px-2 py-2"><a href={v.videoUrl} target="_blank" rel="noreferrer" className="text-[#1a2e5a] hover:underline inline-flex items-center gap-1"><Youtube size={13}/> Watch</a></td>
+                        <td className="px-2 py-2 text-right font-black text-theme-heading">{v.clicks}</td>
+                        <td className="px-2 py-2 text-right">{v.uniqueUsers}</td>
+                        <td className="px-2 py-2 text-right">{v.schoolsReached}</td>
+                        <td className="px-2 py-2 text-theme-muted text-xs">{v.lastClickedAt ? new Date(v.lastClickedAt).toLocaleDateString('en-KE') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="card p-4 flex flex-wrap gap-2">
           <div>

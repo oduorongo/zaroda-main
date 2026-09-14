@@ -6,6 +6,14 @@ import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { learningAreaMatches } from '@/lib/cbc/constants';
 
+// Fire-and-forget — the owner asked how to know view counts for the rubric
+// video links, which are plain external YouTube URLs with no view data of
+// their own scoped to ZARODA users. This logs the click without ever
+// blocking/delaying the actual video opening.
+const logVideoClick = (substrandId: string, videoUrl: string) => {
+  apiClient.post('/assessment/resource/click', { substrandId, videoUrl }).catch(() => {});
+};
+
 const gradeLabelFor = (g: string): string => {
   const map: Record<string,string> = {
     playgroup:'Playgroup', pp1:'PP1', pp2:'PP2',
@@ -254,6 +262,7 @@ export default function TeacherAssessment() {
                       <div className="flex items-center gap-1.5">
                         {(ss.youtubeUrls || []).map((u: string, ui: number) => (
                           <a key={ui} href={u} target="_blank" rel="noreferrer" title={`Watch resource ${ui + 1}`}
+                            onClick={() => logVideoClick(ss.id, u)}
                             className="flex items-center justify-center w-6 h-6 rounded-full shrink-0 shadow-sm transition-colors"
                             style={{ background: '#1a2e5a', color: '#d4af37' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#243f7a')}
