@@ -174,6 +174,57 @@ export default function ParentPortalPage() {
       toast.error(err?.response?.data?.message || 'Could not send the M-Pesa request.');
     } finally { setPaying(false); }
   };
+  // "Pay for all my children" — a convenience over doing this once per child:
+  // fetches every child's balance up front, then fires off a SEPARATE STK
+  // push per child in sequence (Safaricom/Tuma only carry one account
+  // reference per request, so this can never be a single combined payment —
+  // see the per-child structure above). Each still needs its own M-Pesa PIN
+  // entry; this just saves navigating back to the dashboard between them.
+  const [showPayAll, setShowPayAll] = useState(false);
+  const [payAllPhone, setPayAllPhone] = useState('');
+  const [payAllRows, setPayAllRows] = useState<any[]>([]); // { child, balance, amount, status }
+  const [payAllLoading, setPayAllLoading] = useState(false);
+  const [payAllRunning, setPayAllRunning] = useState(false);
+
+  const openPayAll = async () => {
+    setShowPayAll(true); setPayAllLoading(true);
+    try {
+      const results = await Promise.all(children.map(async (c: any) => {
+        try {
+          const r = await apiClient.get(`/finance/payments/my-child/${c.id}`);
+          return { child: c, balance: Number(r.data?.balance || 0), amount: String(Math.max(0, Number(r.data?.balance || 0))), status: 'idle' };
+        } catch {
+          return { child: c, balance: 0, amount: '0', status: 'idle' };
+        }
+      }));
+      setPayAllRows(results);
+    } finally { setPayAllLoading(false); }
+  };
+
+  const updatePayAllAmount = (childId: string, amount: string) =>
+    setPayAllRows(rows => rows.map(r => r.child.id === childId ? { ...r, amount } : r));
+
+  const sendPayAll = async () => {
+    if (!payAllPhone.trim()) { toast.error('Enter your M-Pesa phone number'); return; }
+    const toSend = payAllRows.filter(r => Number(r.amount) > 0);
+    if (!toSend.length) { toast.error('Enter an amount for at least one child'); return; }
+    setPayAllRunning(true);
+    for (const row of toSend) {
+      setPayAllRows(rows => rows.map(r => r.child.id === row.child.id ? { ...r, status: 'sending' } : r));
+      try {
+        await apiClient.post('/finance/mpesa/stk-push', { learnerId: row.child.id, phone: payAllPhone, amount: Number(row.amount) });
+        setPayAllRows(rows => rows.map(r => r.child.id === row.child.id ? { ...r, status: 'sent' } : r));
+      } catch (err: any) {
+        setPayAllRows(rows => rows.map(r => r.child.id === row.child.id ? { ...r, status: 'error', error: err?.response?.data?.message || 'Failed' } : r));
+      }
+      // A brief pause between pushes — several near-simultaneous STK prompts to
+      // the same phone can otherwise arrive in a confusing order.
+      if (toSend.indexOf(row) < toSend.length - 1) await new Promise(res => setTimeout(res, 1500));
+    }
+    setPayAllRunning(false);
+    toast.success('Requests sent — check your phone for each M-Pesa prompt in turn.');
+  };
+
   const downloadChildReport = async (c: any) => {
     const term = 'term_2';
     const year = '2025/2026';
@@ -313,7 +364,14 @@ export default function ParentPortalPage() {
 
       {/* My children */}
       <div>
-        <h2 className="section-title">My Children</h2>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h2 className="section-title">My Children</h2>
+          {!loading && children.length > 1 && (
+            <button onClick={openPayAll} className="btn-primary text-sm mb-4">
+              <CreditCard size={14}/> Pay for all my children
+            </button>
+          )}
+        </div>
         {loading ? (
           <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-28 shimmer rounded-2xl"/>)}</div>
         ) : children.length === 0 ? (
@@ -363,6 +421,49 @@ export default function ParentPortalPage() {
           </div>
         )}
       </div>
+
+      {showPayAll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[85vh] flex flex-col" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-bold text-theme-heading">Pay for all my children</h3>
+              <button onClick={() => setShowPayAll(false)}>✕</button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-3">
+              {payAllLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+              ) : (
+                <>
+                  <p className="text-xs text-theme-muted">M-Pesa can only carry one child's account reference per payment, so this sends a separate request for each child below — you'll get one prompt at a time on your phone.</p>
+                  <div>
+                    <label className="label">Your M-Pesa phone number</label>
+                    <input value={payAllPhone} onChange={e => setPayAllPhone(e.target.value)} placeholder="07XXXXXXXX" className="input"/>
+                  </div>
+                  <div className="space-y-2">
+                    {payAllRows.map(row => (
+                      <div key={row.child.id} className="flex items-center gap-2 bg-surface-2 rounded-xl p-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-theme-heading truncate">{row.child.firstName} {row.child.lastName}</div>
+                          <div className="text-[11px] text-theme-muted">Balance: KES {row.balance.toLocaleString('en-KE')}</div>
+                          {row.status === 'error' && <div className="text-[11px] text-red-600">{row.error}</div>}
+                        </div>
+                        <input type="number" min={0} value={row.amount} disabled={row.status === 'sending' || row.status === 'sent'}
+                          onChange={e => updatePayAllAmount(row.child.id, e.target.value)}
+                          className="input w-28 py-1.5 text-sm text-right"/>
+                        {row.status === 'sending' && <Loader2 size={16} className="animate-spin text-theme-muted flex-shrink-0"/>}
+                        {row.status === 'sent' && <CheckCircle size={16} className="text-green-600 flex-shrink-0"/>}
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={sendPayAll} disabled={payAllRunning} className="btn-primary w-full justify-center">
+                    {payAllRunning ? <><Loader2 size={14} className="animate-spin"/> Sending requests…</> : '📱 Send M-Pesa Requests'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {feesChild && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
