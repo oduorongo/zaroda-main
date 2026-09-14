@@ -14,7 +14,7 @@ function buildMessages(schoolName: string, signupUrl: string) {
   const short =
 `Dear colleague teacher, 📚
 
-Still adding and ranking marks on paper and writing report cards by hand? I use *ZARODA School Management System* at ${school} — teachers enter marks online, mark lists and CBC report cards (both the 4 and 8 performance levels) generate automatically, and fees are tracked per learner.
+Still adding and ranking marks on paper, writing report cards by hand, and typing your schemes of work and lesson plans from scratch? I use *ZARODA School Management System* at ${school} — teachers enter marks online, mark lists and CBC report cards (both the 4 and 8 performance levels) generate automatically, schemes of work/lesson plans/lesson notes generate in seconds, fees are tracked per learner, and there's a free library of video learning resources per subject and grade.
 
 A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}
 
@@ -23,7 +23,7 @@ A class teacher can sign up and manage learners and subject teachers — the res
   const detailed =
 `Dear colleague teacher,
 
-Tired of adding and ranking marks manually on paper and writing report cards by hand? 📚
+Tired of adding and ranking marks manually on paper, writing report cards by hand, and spending your evenings typing schemes of work and lesson plans? 📚
 
 I'm using *ZARODA School Management System* at ${school} and it has changed how we run the school.
 
@@ -31,11 +31,15 @@ If your school still struggles with:
 • Teachers submitting marks late, on loose sheets
 • Hours spent compiling mark lists and ranking learners by hand
 • Report cards that don't follow both the 4 and 8 CBC performance levels
+• Hours spent typing schemes of work, lesson plans and lesson notes from scratch
 • No quick way for parents to see how their child is doing
+• No ready video resources to support each lesson
 
 …ZARODA fixes all of it:
 ✅ Teachers enter marks online; mark lists & rankings compile automatically
 ✅ CBC-compliant report cards (Grade 1–12) in seconds
+✅ Schemes of work, lesson plans and lesson notes generated for you in seconds, in the official KICD format
+✅ A free library of video learning resources for every subject and grade (Retooling)
 ✅ Fees, invoices and balances tracked per learner
 ✅ Class teachers, HOI and parents each get the right access
 ✅ Built in Kenya, for the Kenyan CBC/CBE curriculum
