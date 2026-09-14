@@ -882,7 +882,7 @@ export default function ProfessionalRecordsPage() {
                     <label className="label mb-0">Strands and sub-strands to cover *</label>
                     <button type="button" onClick={addStrand} className="btn-ghost text-xs py-1 px-2">+ Add strand</button>
                   </div>
-                  <p className="hint text-[11px] text-theme-muted mt-1 mb-2">Required — list exactly what you plan to teach this term; leaving it to the AI's own KICD-sequence guess drifted a lot in practice (wrong pacing, repeated or skipped sub-strands). Give each sub-strand a short scope description too — a bare title (e.g. just "Plants") drifts into generic, over-wide content; "Plants: parts of a plant and their functions" keeps it tight.</p>
+                  <p className="hint text-[11px] text-theme-muted mt-1 mb-2">Required — list exactly what you plan to teach this term. Give each sub-strand a short scope description too — a bare title (e.g. just "Plants") drifts into generic, over-wide content; "Plants: parts of a plant and their functions" keeps it tight.</p>
                   {form.strandFocus.length === 0 ? (
                     <div className="border border-dashed border-red-300 bg-red-50/40 rounded-lg p-3 text-xs text-red-700 text-center">No strands added yet — add at least one strand and sub-strand before generating.</div>
                   ) : (
