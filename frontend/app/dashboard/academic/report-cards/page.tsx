@@ -1,7 +1,8 @@
 // app/dashboard/academic/report-cards/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
-import { Save, Loader2, ArrowLeft, Info } from 'lucide-react';
+import { Save, Loader2, ArrowLeft, Info, Settings } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -141,6 +142,7 @@ export default function ReportCardsPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Link href="/dashboard/academic/report-card-settings" className="btn-ghost text-sm"><Settings size={14}/> Settings</Link>
           <button onClick={saveResults} disabled={saving} className="btn-ghost text-sm">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save
           </button>

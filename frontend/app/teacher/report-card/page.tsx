@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, Pencil, X, Save } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { BulkReportCardsButton, ReportCardButton } from '@/components/pdf/pdf-buttons';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
+import toast from 'react-hot-toast';
 
 const STYLE: Record<string, string> = {
   EE: 'bg-[#E1F5EE] text-[#085041]', EE1: 'bg-[#E1F5EE] text-[#085041]', EE2: 'bg-[#E1F5EE] text-[#085041]',
@@ -58,6 +59,32 @@ export default function ReportCard() {
       .finally(() => setLoading(false));
   }, [learnerId, term]);
 
+  // Manual remark override — replaces the auto-generated CBC-competency-language
+  // comment on the printed report card for this exact learner/term/year when set.
+  const [showRemarks, setShowRemarks] = useState(false);
+  const [remarkForm, setRemarkForm] = useState({ teacherRemark: '', hoiRemark: '' });
+  const [loadingRemark, setLoadingRemark] = useState(false);
+  const [savingRemark, setSavingRemark] = useState(false);
+  const academicYear = '2025/2026';
+  const openRemarks = async () => {
+    setShowRemarks(true);
+    setLoadingRemark(true);
+    try {
+      const { data } = await apiClient.get(`/pdf/report-card-remarks/${learnerId}`, { params: { term: termCode, academicYear } });
+      setRemarkForm({ teacherRemark: data?.teacherRemark || '', hoiRemark: data?.hoiRemark || '' });
+    } catch { setRemarkForm({ teacherRemark: '', hoiRemark: '' }); }
+    finally { setLoadingRemark(false); }
+  };
+  const saveRemarks = async () => {
+    setSavingRemark(true);
+    try {
+      await apiClient.post('/pdf/report-card-remarks', { learnerId, term: termCode, academicYear, ...remarkForm });
+      toast.success('Saved — the printed report card will use this instead of the auto-generated remark.');
+      setShowRemarks(false);
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save'); }
+    finally { setSavingRemark(false); }
+  };
+
   return (
     <div className="space-y-4">
       <div className="page-header">
@@ -90,12 +117,15 @@ export default function ReportCard() {
         {streamId && (
           <div className="flex items-center gap-2 ml-auto">
             {learnerId && (
-              <ReportCardButton
-                learnerId={learnerId}
-                term={termCode}
-                academicYear="2025/2026"
-                learnerName={learners.find(l => l.id === learnerId) ? `${learners.find(l => l.id === learnerId).firstName} ${learners.find(l => l.id === learnerId).lastName}` : ''}
-              />
+              <>
+                <button onClick={openRemarks} className="btn-ghost text-sm py-1.5"><Pencil size={13}/> Edit Remarks</button>
+                <ReportCardButton
+                  learnerId={learnerId}
+                  term={termCode}
+                  academicYear="2025/2026"
+                  learnerName={learners.find(l => l.id === learnerId) ? `${learners.find(l => l.id === learnerId).firstName} ${learners.find(l => l.id === learnerId).lastName}` : ''}
+                />
+              </>
             )}
             <BulkReportCardsButton streamId={streamId} term={termCode} academicYear="2025/2026" streamName={streams.find(s=>s.id===streamId)?.name}/>
           </div>
@@ -181,6 +211,42 @@ export default function ReportCard() {
               CAT scores are shown for reference only. The performance level is determined by the End-Term result.
             </p>
           )}
+        </div>
+      )}
+
+      {showRemarks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-bold text-theme-heading">Edit Remarks — {term}</h3>
+              <button onClick={() => setShowRemarks(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            {loadingRemark ? (
+              <div className="flex justify-center py-10"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+            ) : (
+              <div className="p-5 space-y-4">
+                <p className="text-xs text-theme-muted">
+                  Leave either box blank to keep using the system's auto-generated CBC-language remark for this learner. Typing something here overrides it on the printed report card, for this term only.
+                </p>
+                <div>
+                  <label className="label">Class Teacher's Remark</label>
+                  <textarea value={remarkForm.teacherRemark} onChange={e => setRemarkForm(f => ({ ...f, teacherRemark: e.target.value }))}
+                    className="input resize-y" rows={3} placeholder="Leave blank for the auto-generated remark"/>
+                </div>
+                <div>
+                  <label className="label">Head of Institution's Remark</label>
+                  <textarea value={remarkForm.hoiRemark} onChange={e => setRemarkForm(f => ({ ...f, hoiRemark: e.target.value }))}
+                    className="input resize-y" rows={3} placeholder="Leave blank for the auto-generated remark"/>
+                </div>
+                <div className="flex gap-3 pt-1 border-t border-theme">
+                  <button onClick={() => setShowRemarks(false)} className="btn-ghost flex-1">Cancel</button>
+                  <button onClick={saveRemarks} disabled={savingRemark} className="btn-primary flex-1">
+                    {savingRemark ? <Loader2 size={14} className="animate-spin"/> : <><Save size={14}/> Save</>}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

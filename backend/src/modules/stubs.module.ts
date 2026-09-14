@@ -4762,6 +4762,110 @@ export class ReferralModule {}
 class PdfController {
   constructor(private readonly ds: DataSource) {}
 
+  // ── Report card customization ─────────────────────────────
+  // A direct response to schools whose report card "doesn't conform" to a fixed
+  // CBC letter-band layout — a bounded set of toggles (not a free-form template
+  // editor) so the change surface stays small and every school's report card
+  // keeps rendering from the same well-tested code path.
+  private async ensureReportCardSettingsTable() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS tenant_report_card_settings (
+         tenant_id uuid PRIMARY KEY, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['show_performance_levels', 'boolean DEFAULT true'], // EE/ME/AE/BE letter bands vs percentage-only
+      ['show_points_total', 'boolean DEFAULT true'],        // "Performance-level total: X/Y" vs a plain average %
+      ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE tenant_report_card_settings ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS report_card_remarks (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['learner_id', 'uuid'], ['term', 'text'], ['academic_year', 'text'],
+      ['teacher_remark', 'text'], ['hoi_remark', 'text'],
+      ['updated_by', 'uuid'], ['updated_by_name', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE report_card_remarks ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE UNIQUE INDEX IF NOT EXISTS report_card_remarks_uq ON report_card_remarks (tenant_id, learner_id, term, academic_year)`).catch(() => null);
+  }
+
+  @Get('report-card-settings')
+  async getReportCardSettings(@Request() req: any) {
+    await this.ensureReportCardSettingsTable();
+    const rows = await this.ds.query(
+      `SELECT show_performance_levels AS "showPerformanceLevels", show_points_total AS "showPointsTotal"
+         FROM tenant_report_card_settings WHERE tenant_id::text = $1`,
+      [req.user.tenantId],
+    ).catch(() => []);
+    return rows[0] || { showPerformanceLevels: true, showPointsTotal: true };
+  }
+
+  @Post('report-card-settings')
+  async setReportCardSettings(@Request() req: any, @Body() dto: { showPerformanceLevels?: boolean; showPointsTotal?: boolean }) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
+      throw new BadRequestException('Only the HOI or an administrator can change report card settings.');
+    }
+    await this.ensureReportCardSettingsTable();
+    await this.ds.query(
+      `INSERT INTO tenant_report_card_settings (tenant_id, show_performance_levels, show_points_total, updated_at)
+       VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         show_performance_levels = $2, show_points_total = $3, updated_at = NOW()`,
+      [req.user.tenantId, dto.showPerformanceLevels !== false, dto.showPointsTotal !== false],
+    );
+    return { saved: true };
+  }
+
+  // A class teacher/HOI can type a remark that overrides the auto-generated CBC
+  // competency-language comment for one learner/term — left blank, the report
+  // card falls back to the auto text as before.
+  @Get('report-card-remarks/:learnerId')
+  async getReportCardRemark(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
+    await this.ensureReportCardSettingsTable();
+    const rows = await this.ds.query(
+      `SELECT teacher_remark AS "teacherRemark", hoi_remark AS "hoiRemark"
+         FROM report_card_remarks WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3 AND academic_year = $4`,
+      [req.user.tenantId, learnerId, q.term || '', q.academicYear || ''],
+    ).catch(() => []);
+    return rows[0] || { teacherRemark: '', hoiRemark: '' };
+  }
+
+  @Post('report-card-remarks')
+  async saveReportCardRemark(@Request() req: any, @Body() dto: any) {
+    if (!['class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(req.user.role)) {
+      throw new BadRequestException('Only teaching staff or an administrator can set report card remarks.');
+    }
+    if (!dto?.learnerId || !dto?.term || !dto?.academicYear) throw new BadRequestException('learnerId, term and academicYear are required.');
+    await this.ensureReportCardSettingsTable();
+    const name = await this.displayNameForUser(req.user.id, req.user.email || '');
+    await this.ds.query(
+      `INSERT INTO report_card_remarks
+         (tenant_id, learner_id, term, academic_year, teacher_remark, hoi_remark, updated_by, updated_by_name, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+       ON CONFLICT (tenant_id, learner_id, term, academic_year) DO UPDATE SET
+         teacher_remark = $5, hoi_remark = $6, updated_by = $7, updated_by_name = $8, updated_at = NOW()`,
+      [req.user.tenantId, dto.learnerId, dto.term, dto.academicYear, dto.teacherRemark || null, dto.hoiRemark || null, req.user.id, name],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save: ${e.message}`); });
+    return { saved: true };
+  }
+
+  private async displayNameForUser(userId: string, fallback: string): Promise<string> {
+    if (!userId) return fallback;
+    const rows = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 LIMIT 1`,
+      [userId],
+    ).catch(() => []);
+    const u = rows[0];
+    const name = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+    return name || fallback;
+  }
+
   // Printable RANKING for a single learning area: every learner in the stream ranked
   // high→low for one subject, showing raw score, percentage and CBC performance level.
   // For subject teachers who want a per-area ranked list.
@@ -5493,6 +5597,20 @@ class PdfController {
     ).catch(() => []))[0];
     if (!lr) throw new Error('Learner not found');
 
+    await this.ensureReportCardSettingsTable();
+    const settingsRows = await this.ds.query(
+      `SELECT show_performance_levels AS "showPerformanceLevels", show_points_total AS "showPointsTotal"
+         FROM tenant_report_card_settings WHERE tenant_id::text = $1`,
+      [tenantId],
+    ).catch(() => []);
+    const rcSettings = settingsRows[0] || { showPerformanceLevels: true, showPointsTotal: true };
+    const remarkRows = await this.ds.query(
+      `SELECT teacher_remark AS "teacherRemark", hoi_remark AS "hoiRemark"
+         FROM report_card_remarks WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3 AND academic_year = $4`,
+      [tenantId, learnerId, term || '', academicYear || ''],
+    ).catch(() => []);
+    const remarkOverride = remarkRows[0] || null;
+
     const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(lr.gradeLevel || '');
     const lvl = (p: number) => senior
       ? (p>=90?'EE1':p>=75?'EE2':p>=58?'ME1':p>=41?'ME2':p>=31?'AE1':p>=21?'AE2':p>=11?'BE1':'BE2')
@@ -5573,17 +5691,18 @@ class PdfController {
     const usedExams = assessments.filter((a: any) => rows.some((r: any) => r.examId === a.id));
     const cols = usedExams.length ? usedExams : [{ id: 'x', name: 'Score' }];
 
+    const showLevels = rcSettings.showPerformanceLevels !== false;
     let totalPoints = 0; const maxPoints = areaNames.length * (senior ? 8 : 4);
     const body = areaNames.map((area: string) => {
       const cells = cols.map((c: any) => {
         const p = byArea[area][c.id];
-        return p != null ? `<td class="c">${p}% <b>${lvl(p)}</b></td>` : `<td class="c">-</td>`;
+        return p != null ? `<td class="c">${p}%${showLevels ? ` <b>${lvl(p)}</b>` : ''}</td>` : `<td class="c">-</td>`;
       }).join('');
       // Average across this area's assessments for the term column + points.
       const vals = Object.values(byArea[area]);
       const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
       totalPoints += pts(avg);
-      return `<tr><td>${esc(area)}</td>${cells}<td class="c"><b>${avg}% ${lvl(avg)}</b></td></tr>`;
+      return `<tr><td>${esc(area)}</td>${cells}<td class="c"><b>${avg}%${showLevels ? ` ${lvl(avg)}` : ''}</b></td></tr>`;
     }).join('');
     const headCols = cols.map((c: any) => `<th class="c">${esc(c.name)}</th>`).join('');
 
@@ -5618,17 +5737,22 @@ class PdfController {
       AE: support.length ? ` Focused practice in ${listN(support)}, with teacher and parental support, will strengthen these competencies.` : ` Focused practice will strengthen these competencies.`,
       BE: support.length ? ` A structured remediation plan in ${listN(support)}, supported at home and school, is recommended.` : ` A structured remediation plan, supported at home and school, is recommended.`,
     };
-    let teacherComment = openers[overallFam] || openers.BE;
-    if (strong.length) teacherComment += ` Particular strength is evident in ${listN(strong)}.`;
-    else if (meeting.length) teacherComment += ` Competency is well demonstrated in ${listN(meeting)}.`;
-    teacherComment += nextSteps[overallFam] || '';
+    let autoTeacherComment = openers[overallFam] || openers.BE;
+    if (strong.length) autoTeacherComment += ` Particular strength is evident in ${listN(strong)}.`;
+    else if (meeting.length) autoTeacherComment += ` Competency is well demonstrated in ${listN(meeting)}.`;
+    autoTeacherComment += nextSteps[overallFam] || '';
     const hoiRemark: Record<string, string> = {
       EE: `An excellent competency profile. ${fn} is encouraged to sustain this exemplary effort.`,
       ME: `A commendable competency profile. ${fn} should keep building on these strengths each term.`,
       AE: `${fn} is making steady progress. Consistent effort and support will move performance to the next level.`,
       BE: `${fn} needs close support from both school and home to build the foundational competencies.`,
     };
-    const hoiComment = hoiRemark[overallFam] || hoiRemark.BE;
+    const autoHoiComment = hoiRemark[overallFam] || hoiRemark.BE;
+    // A manually-typed remark (Report Card → Remarks) takes over from the
+    // auto-generated CBC-language text whenever one's been saved for this
+    // learner/term/year.
+    const teacherComment = remarkOverride?.teacherRemark?.trim() || autoTeacherComment;
+    const hoiComment = remarkOverride?.hoiRemark?.trim() || autoHoiComment;
 
     // ── Term opening/closing dates from school settings (schools.settings.termDates) ──
     const tdRows = await this.ds.query(
@@ -5693,7 +5817,11 @@ class PdfController {
           <thead><tr><th>Learning Area</th>${headCols}<th class="c">Term Average</th></tr></thead>
           <tbody>${body || `<tr><td colspan="${cols.length + 2}" class="c">No marks recorded this term.</td></tr>`}</tbody>
         </table>
-        ${areaNames.length ? `<p class="rc-total">Performance-level total: ${totalPoints} / ${maxPoints} (${areaNames.length} learning areas)</p>` : ''}
+        ${areaNames.length ? `<p class="rc-total">${
+          rcSettings.showPointsTotal !== false
+            ? `Performance-level total: ${totalPoints} / ${maxPoints} (${areaNames.length} learning areas)`
+            : `Term Average: ${overallAvg}% (${areaNames.length} learning areas)`
+        }</p>` : ''}
         ${areaNames.length ? `
         <div class="rc-comment">
           <div class="rc-comment-label">Class Teacher's Remark</div>
