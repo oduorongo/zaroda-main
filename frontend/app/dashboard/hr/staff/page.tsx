@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Users, Plus, X, Save, Trash2, Star, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Loader2, Users, Plus, X, Save, Trash2, Star, ShieldAlert, Briefcase } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -99,6 +99,7 @@ export default function HrStaffPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Link href="/dashboard/hr/jobs" className="btn-ghost text-sm"><Briefcase size={14}/> Recruitment</Link>
           <Link href="/dashboard/hr/appraisals" className="btn-ghost text-sm"><Star size={14}/> Appraisals</Link>
           <Link href="/dashboard/hr/incidents" className="btn-ghost text-sm"><ShieldAlert size={14}/> Disciplinary</Link>
           <button onClick={openNew} className="btn-primary"><Plus size={16}/> Add Non-Teaching Staff</button>

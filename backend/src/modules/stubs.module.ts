@@ -3923,6 +3923,35 @@ class HrController {
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE staff_incidents ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
     }
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS job_postings (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['title', 'text'], ['department', "text DEFAULT 'teaching'"], // teaching | admin | support
+      ['employment_type', "text DEFAULT 'permanent'"], ['location', 'text'],
+      ['description', 'text'], ['requirements', 'text'],
+      ['status', "text DEFAULT 'open'"], ['closes_on', 'date'],
+      ['posted_by', 'uuid'], ['posted_by_name', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS job_applications (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['job_posting_id', 'uuid'], ['applicant_name', 'text'], ['applicant_email', 'text'],
+      ['applicant_phone', 'text'], ['cover_note', 'text'],
+      ['status', "text DEFAULT 'new'"], // new | shortlisted | interviewed | offered | rejected | hired
+      ['notes', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
   }
 
   private async displayName(userId: string, fallback: string): Promise<string> {
@@ -4274,9 +4303,173 @@ class HrController {
     await this.ds.query(`DELETE FROM staff_incidents WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
   }
+
+  // ── Recruitment: job postings ─────────────────────────────
+  @Get('jobs')
+  async listJobs(@Request() req: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT j.id, j.title, j.department, j.employment_type AS "employmentType", j.location,
+              j.description, j.requirements, j.status, j.closes_on AS "closesOn",
+              j.posted_by_name AS "postedByName", j.created_at AS "createdAt",
+              COUNT(a.id) AS "applicationCount"
+         FROM job_postings j LEFT JOIN job_applications a ON a.job_posting_id::text = j.id::text
+        WHERE j.tenant_id::text = $1
+        GROUP BY j.id ORDER BY j.created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('jobs')
+  async createJob(@Request() req: any, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto?.title?.trim()) throw new BadRequestException('Enter a job title.');
+    const name = await this.displayName(req.user.id, req.user.email || '');
+    const rows = await this.ds.query(
+      `INSERT INTO job_postings
+         (tenant_id, title, department, employment_type, location, description, requirements,
+          closes_on, posted_by, posted_by_name, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()) RETURNING id`,
+      [
+        req.user.tenantId, dto.title.trim(), dto.department || 'teaching', dto.employmentType || 'permanent',
+        dto.location || null, dto.description || null, dto.requirements || null,
+        dto.closesOn || null, req.user.id, name,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save: ${e.message}`); });
+    return { id: rows[0].id };
+  }
+
+  @Patch('jobs/:id')
+  async updateJob(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    const map: Record<string, string> = {
+      title: 'title', department: 'department', employmentType: 'employment_type', location: 'location',
+      description: 'description', requirements: 'requirements', status: 'status', closesOn: 'closes_on',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(dto[k] || null); }
+    }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()');
+    vals.push(id, req.user.tenantId);
+    await this.ds.query(
+      `UPDATE job_postings SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(`Could not update: ${e.message}`); });
+    return { updated: true };
+  }
+
+  @Delete('jobs/:id')
+  async deleteJob(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(`DELETE FROM job_applications WHERE job_posting_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    await this.ds.query(`DELETE FROM job_postings WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  @Get('jobs/:id/applications')
+  async listApplications(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, applicant_name AS "applicantName", applicant_email AS "applicantEmail",
+              applicant_phone AS "applicantPhone", cover_note AS "coverNote", status, notes,
+              created_at AS "createdAt"
+         FROM job_applications WHERE job_posting_id::text = $1 AND tenant_id::text = $2
+        ORDER BY created_at DESC`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Patch('applications/:id')
+  async updateApplication(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    if (dto.status !== undefined) { fields.push(`status = $${i++}`); vals.push(dto.status); }
+    if (dto.notes !== undefined) { fields.push(`notes = $${i++}`); vals.push(dto.notes || null); }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()');
+    vals.push(id, req.user.tenantId);
+    await this.ds.query(
+      `UPDATE job_applications SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(`Could not update: ${e.message}`); });
+    return { updated: true };
+  }
+
+  @Delete('applications/:id')
+  async deleteApplication(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(`DELETE FROM job_applications WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
 }
 
-@Module({ controllers: [HrController] })
+// ── Recruitment: public side (no login — external applicants) ────────────
+@Controller('public/careers')
+class PublicCareersController {
+  constructor(private readonly ds: DataSource) {}
+
+  private async ensureTables() {
+    // Same tables as HrController — created there on first use by any tenant, but
+    // a candidate could hit this public endpoint before any admin has, so the
+    // check is repeated here too (cheap once the tables exist — IF NOT EXISTS).
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS job_postings (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS job_applications (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+  }
+
+  @Get(':tenantId')
+  async openPostings(@Param('tenantId') tenantId: string) {
+    await this.ensureTables();
+    const school = await this.ds.query(`SELECT name FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId])
+      .then((r: any[]) => r[0]?.name || null).catch(() => null);
+    const jobs = await this.ds.query(
+      `SELECT id, title, department, employment_type AS "employmentType", location,
+              description, requirements, closes_on AS "closesOn", created_at AS "createdAt"
+         FROM job_postings
+        WHERE tenant_id::text = $1 AND status = 'open' AND (closes_on IS NULL OR closes_on >= CURRENT_DATE)
+        ORDER BY created_at DESC`,
+      [tenantId],
+    ).catch(() => []);
+    return { schoolName: school, jobs };
+  }
+
+  @Post(':tenantId/:jobId/apply')
+  async apply(@Param('tenantId') tenantId: string, @Param('jobId') jobId: string, @Body() dto: any) {
+    await this.ensureTables();
+    if (!dto?.applicantName?.trim()) throw new BadRequestException('Enter your name.');
+    if (!dto?.applicantEmail?.trim() && !dto?.applicantPhone?.trim()) throw new BadRequestException('Enter an email or phone number so the school can reach you.');
+    const job = await this.ds.query(
+      `SELECT id FROM job_postings WHERE id::text = $1 AND tenant_id::text = $2 AND status = 'open'`,
+      [jobId, tenantId],
+    ).catch(() => []);
+    if (!job.length) throw new BadRequestException('This position is no longer accepting applications.');
+    await this.ds.query(
+      `INSERT INTO job_applications
+         (tenant_id, job_posting_id, applicant_name, applicant_email, applicant_phone, cover_note, status, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'new',NOW())`,
+      [tenantId, jobId, dto.applicantName.trim(), dto.applicantEmail || null, dto.applicantPhone || null, dto.coverNote || null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not submit application: ${e.message}`); });
+    return { submitted: true };
+  }
+}
+
+@Module({ controllers: [HrController, PublicCareersController] })
 export class HrModule {}
 
 
