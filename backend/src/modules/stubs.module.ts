@@ -157,6 +157,58 @@ class Invoice {
 class FinanceController {
   constructor(private readonly ds: DataSource) {}
 
+  // ── Class-teacher fee-collection override ─────────────────
+  // Off by default (platform-wide) — many primary/JS schools let the class teacher
+  // collect fees directly instead of running everything through a bursar's office.
+  // The HOI/admin flips this on per tenant; once on, a class_teacher/overall_class_teacher
+  // may record payments, but ONLY for learners in a stream where they're the
+  // registered class teacher (streams.class_teacher_id) — never school-wide.
+  private async ensureClassTeacherOverrideColumn() {
+    await this.ds.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS class_teachers_collect_fees boolean DEFAULT false`).catch(() => null);
+  }
+
+  @Get('settings/class-teacher-override')
+  async getClassTeacherOverride(@Request() req: any) {
+    await this.ensureClassTeacherOverrideColumn();
+    const enabled = await this.ds.query(
+      `SELECT COALESCE(class_teachers_collect_fees, false) AS e FROM tenants WHERE id::text = $1`,
+      [req.user.tenantId],
+    ).then((r: any[]) => !!r[0]?.e).catch(() => false);
+    return { enabled };
+  }
+
+  @Patch('settings/class-teacher-override')
+  async setClassTeacherOverride(@Request() req: any, @Body() dto: { enabled: boolean }) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
+      throw new BadRequestException('Only the HOI or administrator can change this setting.');
+    }
+    await this.ensureClassTeacherOverrideColumn();
+    await this.ds.query(
+      `UPDATE tenants SET class_teachers_collect_fees = $1 WHERE id::text = $2`,
+      [!!dto.enabled, req.user.tenantId],
+    );
+    return { enabled: !!dto.enabled };
+  }
+
+  // Throws unless this class teacher may record a payment for this exact learner —
+  // the override must be on AND the learner must sit in a stream this teacher is
+  // registered as class teacher of.
+  private async assertClassTeacherCanRecordPayment(tenantId: string, teacherId: string, learnerId: string) {
+    if (!learnerId) throw new BadRequestException('Please select a learner.');
+    await this.ensureClassTeacherOverrideColumn();
+    const enabled = await this.ds.query(
+      `SELECT COALESCE(class_teachers_collect_fees, false) AS e FROM tenants WHERE id::text = $1`,
+      [tenantId],
+    ).then((r: any[]) => !!r[0]?.e).catch(() => false);
+    if (!enabled) throw new BadRequestException('Class teachers cannot record payments here yet — ask your HOI/administrator to enable this in Finance → M-Pesa Settings.');
+    const owns = await this.ds.query(
+      `SELECT 1 FROM learners l JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.id::text = $1 AND l.tenant_id::text = $2 AND s.class_teacher_id::text = $3 LIMIT 1`,
+      [learnerId, tenantId, teacherId],
+    ).catch(() => []);
+    if (!owns.length) throw new BadRequestException('You can only record payments for learners in your own class.');
+  }
+
   // ── FEE STRUCTURES (set by HOI / bursar / admin) ──────────
   @Get('fee-structures')
   async getFeeStructures(@Request() req: any) {
@@ -840,8 +892,13 @@ class FinanceController {
   @Post('payments')
   async recordPayment(@Request() req: any, @Body() dto: any) {
     const role = req.user.role;
-    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
-      throw new BadRequestException('Only the bursar or an administrator can record payments.');
+    const staffRoles = ['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'];
+    if (!staffRoles.includes(role)) {
+      if (['class_teacher', 'overall_class_teacher'].includes(role)) {
+        await this.assertClassTeacherCanRecordPayment(req.user.tenantId, req.user.id, dto?.learnerId);
+      } else {
+        throw new BadRequestException('Only the bursar or an administrator can record payments.');
+      }
     }
     if (!dto?.learnerId) throw new BadRequestException('Please select a learner.');
     const amount = Number(dto.amount);

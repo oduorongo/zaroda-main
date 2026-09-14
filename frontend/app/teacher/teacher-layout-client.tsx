@@ -5,12 +5,13 @@ import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
   Sparkles, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
-  CalendarDays,
+  CalendarDays, DollarSign,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useTheme } from '@/lib/hooks/useTheme';
+import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
 // Teacher-only navigation — nothing admin here
@@ -30,6 +31,10 @@ const TEACHER_NAV = [
   { href: '/dashboard/duty-roster', icon: CalendarDays, label: 'Duty Roster & Calendar' },
   { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },
 ];
+// Shown only to class teachers, and only once their school's HOI/admin has turned
+// on the "class teachers collect fees" override (Finance → M-Pesa Settings) — most
+// schools route fee collection through a bursar, so this stays hidden by default.
+const FEE_COLLECTION_NAV_ITEM = { href: '/dashboard/finance/payments', icon: DollarSign, label: 'Collect Fees' };
 
 // Individual accounts (a teacher without a school tenant) land in this same
 // portal after login, and every one of these nav items still shows — but only
@@ -67,6 +72,19 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
+  const isClassTeacher = ['class_teacher', 'overall_class_teacher'].includes(user?.role || '');
+  const [feeCollectionEnabled, setFeeCollectionEnabled] = useState(false);
+  useEffect(() => {
+    if (!ready || !isClassTeacher) return;
+    apiClient.get('/finance/settings/class-teacher-override')
+      .then(r => setFeeCollectionEnabled(!!r.data?.enabled))
+      .catch(() => setFeeCollectionEnabled(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, isClassTeacher]);
+  const navItems = isClassTeacher && feeCollectionEnabled
+    ? [...TEACHER_NAV, FEE_COLLECTION_NAV_ITEM]
+    : TEACHER_NAV;
+
   if (!ready) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
       <div className="text-theme-muted text-sm">Loading your workspace…</div>
@@ -86,7 +104,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
         </div>
       </div>
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {TEACHER_NAV.map(n => {
+        {navItems.map(n => {
           const Icon = n.icon;
           const blocked = isIndividualAccount(user?.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(n.href);
           return (
@@ -163,7 +181,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
               </button>
             )}
             <span className="text-sm font-medium text-theme-heading">
-              {TEACHER_NAV.find(n => isActive(n.href))?.label || 'My Dashboard'}
+              {navItems.find(n => isActive(n.href))?.label || 'My Dashboard'}
             </span>
           </div>
           <div className="flex items-center gap-2">

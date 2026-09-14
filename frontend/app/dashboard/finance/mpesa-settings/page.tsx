@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, Link2, RefreshCw, UserPlus2, Smartphone } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, Link2, RefreshCw, UserPlus2, Smartphone, Users } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { matchesLearner } from '@/components/LearnerSearch';
@@ -22,6 +22,29 @@ export default function MpesaSettingsPage() {
   const [txns, setTxns] = useState<any[]>([]);
   const [unmatched, setUnmatched] = useState<any[]>([]);
   const [tab, setTab] = useState<'settings' | 'activity' | 'unmatched'>('settings');
+
+  // Class-teacher fee-collection override — many primary/JS schools have the class
+  // teacher collect money directly rather than routing everything through a bursar.
+  const [classTeacherOverride, setClassTeacherOverride] = useState(false);
+  const [savingOverride, setSavingOverride] = useState(false);
+  useEffect(() => {
+    apiClient.get('/finance/settings/class-teacher-override')
+      .then(r => setClassTeacherOverride(!!r.data?.enabled))
+      .catch(() => {});
+  }, []);
+  const toggleClassTeacherOverride = async () => {
+    const next = !classTeacherOverride;
+    setSavingOverride(true);
+    try {
+      await apiClient.patch('/finance/settings/class-teacher-override', { enabled: next });
+      setClassTeacherOverride(next);
+      toast.success(next
+        ? 'Class teachers can now record payments for learners in their own class.'
+        : 'Class teachers can no longer record payments.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not update this setting.');
+    } finally { setSavingOverride(false); }
+  };
 
   const loadSettings = () => {
     setLoading(true);
@@ -112,6 +135,19 @@ export default function MpesaSettingsPage() {
       {tab === 'settings' && (
         loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-theme-muted" size={26}/></div> : (
         <>
+          <div className="card p-5 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Users size={16}/> Let class teachers collect fees</div>
+              <button type="button" onClick={toggleClassTeacherOverride} disabled={savingOverride}
+                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${classTeacherOverride ? 'bg-[#1a2e5a]' : 'bg-surface-2'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${classTeacherOverride ? 'translate-x-5' : ''}`}/>
+              </button>
+            </div>
+            <p className="text-xs text-theme-muted">
+              Common in primary/JS schools where the class teacher — not a bursar — collects money from learners. When on, each class teacher gets a "Collect Fees" option in their own workspace, but can only record payments for learners in the class(es) they're registered as class teacher of. Editing or deleting a payment still needs the bursar or an administrator.
+            </p>
+          </div>
+
           <div className="card p-5 space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Smartphone size={16}/> Choose how to collect payments</div>
             <div className="grid sm:grid-cols-2 gap-2">

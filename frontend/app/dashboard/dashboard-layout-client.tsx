@@ -108,7 +108,11 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   // Dashboard pages teachers ARE allowed to open (shared modules), despite otherwise being
   // routed to their own /teacher workspace.
   const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records', '/dashboard/duty-roster'];
-  const teacherAllowedHere = TEACHER_ALLOWED.some(p => pathname.startsWith(p));
+  // Fee collection is a class-teacher-only override (see settings/class-teacher-override) —
+  // subject teachers with no class of their own have no reason to be here.
+  const isClassTeacher = ['class_teacher', 'overall_class_teacher'].includes(user?.role || '');
+  const teacherAllowedHere = TEACHER_ALLOWED.some(p => pathname.startsWith(p))
+    || (isClassTeacher && pathname.startsWith('/dashboard/finance/payments'));
 
   useEffect(() => {
     if (!ready) return;

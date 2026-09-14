@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { DollarSign, Search, Loader2, CheckCircle, Printer, ArrowLeft } from 'lucide-react';
 import apiClient from '@/lib/api/client';
+import { useAuth, isBursar } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
 
 const METHODS = [
@@ -21,7 +22,13 @@ const TERMS = [
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
 
 export default function RecordPaymentPage() {
-  const [streams, setStreams]   = useState<any[]>([]);
+  const { user } = useAuth();
+  // A class teacher using the fee-collection override may only ever pick from their
+  // own class(es) — a bursar/admin sees every stream as before.
+  const isClassTeacher = ['class_teacher', 'overall_class_teacher'].includes(user?.role || '');
+  const staff = isBursar(user?.role || '');
+  const [allStreams, setAllStreams] = useState<any[]>([]);
+  const streams = isClassTeacher ? allStreams.filter(s => s.classTeacherId === user?.id) : allStreams;
   const [streamId, setStreamId] = useState('');
   const [learners, setLearners] = useState<any[]>([]);
   const [search, setSearch]     = useState('');
@@ -59,8 +66,13 @@ export default function RecordPaymentPage() {
   };
 
   useEffect(() => {
-    apiClient.get('/academic/streams').then(r => setStreams(r.data || [])).catch(() => {});
+    apiClient.get('/academic/streams').then(r => setAllStreams(r.data || [])).catch(() => {});
   }, []);
+  // If a class teacher only has one class, skip straight to it — they have nothing else to pick.
+  useEffect(() => {
+    if (isClassTeacher && streams.length === 1 && !streamId) setStreamId(streams[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streams]);
 
   useEffect(() => {
     if (!streamId) { setLearners([]); return; }
@@ -345,8 +357,12 @@ export default function RecordPaymentPage() {
                         <td className="px-2 py-2 text-theme-muted text-xs">{p.receiptNumber}</td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
                           <button onClick={() => openReceipt(p.id)} className="btn-ghost text-xs"><Printer size={12}/> Print</button>
-                          <button onClick={() => setEditPay({ ...p, paidOn: p.paidOn || (p.createdAt||'').slice(0,10) })} className="btn-ghost text-xs">Edit</button>
-                          <button onClick={() => removePay(p)} className="btn-ghost text-xs text-red-600">Delete</button>
+                          {staff && (
+                            <>
+                              <button onClick={() => setEditPay({ ...p, paidOn: p.paidOn || (p.createdAt||'').slice(0,10) })} className="btn-ghost text-xs">Edit</button>
+                              <button onClick={() => removePay(p)} className="btn-ghost text-xs text-red-600">Delete</button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}
