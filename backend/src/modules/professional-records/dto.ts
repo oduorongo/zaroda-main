@@ -22,8 +22,13 @@ export class GenerateSchemeDto {
   @IsOptional() @IsString() schoolContext?: string;
   // Per-strand detail — a short scope description on each sub-strand keeps the AI
   // anchored to what the teacher actually means instead of drifting into a generic
-  // treatment of a broad sub-strand name.
-  @IsOptional() @IsArray()  strandFocus?: { strand: string; subStrands: { name: string; description: string }[] }[];
+  // treatment of a broad sub-strand name. Mandatory — an empty/omitted list used to
+  // fall back to "AI follows its own guess at the KICD sequence," which drifted a
+  // lot in practice (wrong pacing, repeated/skipped sub-strands). The real
+  // non-empty check lives in SchemeService.generate() (needs to inspect the nested
+  // subStrands arrays too, not just array-non-empty); class-validator here just
+  // rejects the field being entirely missing/wrong-shaped.
+  @IsNotEmpty() @IsArray()  strandFocus: { strand: string; subStrands: { name: string; description: string }[] }[];
 
   // Document header fields — printed on the generated scheme, not used for AI generation.
   // schoolName is mandatory (even for individual accounts with no school tenant) — it's

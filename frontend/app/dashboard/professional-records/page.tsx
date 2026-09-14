@@ -298,6 +298,15 @@ export default function ProfessionalRecordsPage() {
         strand: s.strand.trim(),
         subStrands: s.subStrands.filter(ss => ss.name.trim()).map(ss => ({ name: ss.name.trim(), description: ss.description.trim() })),
       }));
+    // Strands/sub-strands are mandatory, not "leave blank to follow the KICD
+    // sequence" — letting the AI pick its own sequence drifted a lot in
+    // practice (wrong pacing, repeated or skipped sub-strands across terms).
+    // Requiring the teacher to specify them keeps the generated scheme tied
+    // to what's actually being taught.
+    if (!strandFocus.length || strandFocus.some(s => s.subStrands.length === 0)) {
+      toast.error('Add at least one strand with at least one sub-strand — required, not optional, so the scheme follows exactly what you plan to teach.');
+      return;
+    }
     const missingDetail = strandFocus.some(s => s.subStrands.some(ss => ss.description.length < 8));
     if (missingDetail) {
       toast.error('Give each sub-strand a short scope description (at least a few words) — a bare title drifts into generic content.');
@@ -870,12 +879,12 @@ export default function ProfessionalRecordsPage() {
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="label mb-0">Strands and sub-strands to cover</label>
+                    <label className="label mb-0">Strands and sub-strands to cover *</label>
                     <button type="button" onClick={addStrand} className="btn-ghost text-xs py-1 px-2">+ Add strand</button>
                   </div>
-                  <p className="hint text-[11px] text-theme-muted mt-1 mb-2">Leave empty to follow the KICD sequence for the term. Give each sub-strand a short scope description — a bare title (e.g. just "Plants") drifts into generic, over-wide content; "Plants: parts of a plant and their functions" keeps it tight.</p>
+                  <p className="hint text-[11px] text-theme-muted mt-1 mb-2">Required — list exactly what you plan to teach this term; leaving it to the AI's own KICD-sequence guess drifted a lot in practice (wrong pacing, repeated or skipped sub-strands). Give each sub-strand a short scope description too — a bare title (e.g. just "Plants") drifts into generic, over-wide content; "Plants: parts of a plant and their functions" keeps it tight.</p>
                   {form.strandFocus.length === 0 ? (
-                    <div className="border border-dashed border-theme rounded-lg p-3 text-xs text-theme-muted text-center">No strands added — the AI will follow the standard KICD sequence.</div>
+                    <div className="border border-dashed border-red-300 bg-red-50/40 rounded-lg p-3 text-xs text-red-700 text-center">No strands added yet — add at least one strand and sub-strand before generating.</div>
                   ) : (
                     <div className="space-y-3">
                       {form.strandFocus.map((s) => (

@@ -113,6 +113,15 @@ export class SchemeService {
 
   // ── GENERATE SCHEME OF WORK (AI) ──────────────────────────
   async generate(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
+    // Strands/sub-strands are mandatory, not "leave it blank and the AI will
+    // follow the KICD sequence" — that free-sequence fallback drifted a lot
+    // in practice (wrong pacing, repeated or skipped sub-strands across
+    // terms). Enforced here too, not just in the frontend form, since the
+    // frontend check alone can be bypassed by calling this endpoint directly.
+    if (!Array.isArray(dto.strandFocus) || dto.strandFocus.length === 0 || dto.strandFocus.some(s => !s.subStrands?.length)) {
+      throw new BadRequestException('List at least one strand with at least one sub-strand to cover this term — required, not optional.');
+    }
+
     const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
     const isIndividual = tenant?.accountType === 'individual';
 
