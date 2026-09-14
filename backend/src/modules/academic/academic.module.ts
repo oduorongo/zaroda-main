@@ -1488,6 +1488,46 @@ export class AcademicService {
     return { message: `${created.length} stream(s) created under ${gradeLabel}`, streams: created };
   }
 
+  /**
+   * Bulk version: pick several grades at once (from the fixed CBC grade-level list —
+   * see frontend lib/cbc/constants.ts) and apply the same set of stream names to
+   * every one of them in a single action — e.g. Blue/Green/Red across Grade 1–6 in
+   * one go instead of repeating "New Class & Streams" six times.
+   * dto = { gradeLevels: string[], streamNames: string[], academicYear? }
+   */
+  async bulkCreateClasses(tenantId: string, schoolId: string, dto: any) {
+    if (!schoolId) {
+      throw new BadRequestException('No school is linked to your account. Please log out and log in again.');
+    }
+    const gradeLevels: string[] = Array.isArray(dto.gradeLevels) ? dto.gradeLevels.filter((g: any) => !!g) : [];
+    if (!gradeLevels.length) throw new BadRequestException('Select at least one grade.');
+    const streamNames: string[] = Array.isArray(dto.streamNames)
+      ? dto.streamNames.map((s: any) => String(s).trim()).filter(Boolean) : [];
+    if (!streamNames.length) throw new BadRequestException('Add at least one stream name (e.g. Blue, Red).');
+
+    const created: any[] = [];
+    const skipped: string[] = [];
+    for (const gradeLevel of gradeLevels) {
+      const gradeLabel = String(gradeLevel).replace('grade_', 'Grade ').replace('pp', 'PP');
+      const existing = await this.streamRepo.find({ where: { tenantId, gradeLevel } });
+      const existingNames = new Set(existing.map(s => s.name.toLowerCase()));
+      for (const raw of streamNames) {
+        const name = /grade|pp|^g\d/i.test(raw) ? raw : `${gradeLabel} ${raw}`;
+        if (existingNames.has(name.toLowerCase())) { skipped.push(name); continue; }
+        const row = this.streamRepo.create({
+          tenantId, schoolId, gradeLevel, name,
+          academicYear: dto.academicYear || null,
+        });
+        created.push(await this.streamRepo.save(row));
+      }
+    }
+    const skippedNote = skipped.length ? `; ${skipped.length} already existed and were skipped` : '';
+    return {
+      message: `${created.length} stream(s) created across ${gradeLevels.length} grade(s)${skippedNote}`,
+      streams: created, skipped,
+    };
+  }
+
   // ── Learners ─────────────────────────────────────────────
   async getLearners(tenantId: string, filters: any) {
     const qb = this.learnerRepo.createQueryBuilder('l')
@@ -2725,6 +2765,11 @@ export class AcademicController {
   @Post('classes')
   createClassWithStreams(@Request() req: any, @Body() dto: any) {
     return this.academicService.createClassWithStreams(req.user.tenantId, req.user.schoolId, dto);
+  }
+
+  @Post('classes/bulk')
+  bulkCreateClasses(@Request() req: any, @Body() dto: any) {
+    return this.academicService.bulkCreateClasses(req.user.tenantId, req.user.schoolId, dto);
   }
 
   @Patch('streams/:id')

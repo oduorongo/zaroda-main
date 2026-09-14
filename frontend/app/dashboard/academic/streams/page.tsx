@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Grid, Plus, X, Loader2, Users, GraduationCap, ChevronRight, Pencil, Trash2, AlertTriangle, Layers } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS, EDUCATION_BANDS, bandsForSchoolLevels } from '@/lib/cbc/constants';
@@ -75,6 +75,46 @@ export default function StreamsPage() {
   const setStreamRow    = (i: number, k: string, v: string) =>
     setStreamRows(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row));
 
+  // ── Bulk create: pick several grades from the CBC list at once, apply the
+  // same stream names to all of them (e.g. Blue/Green across Grade 1–6). ──
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkGrades, setBulkGrades] = useState<string[]>([]);
+  const [bulkStreamNames, setBulkStreamNames] = useState<string[]>(['']);
+  const [bulkYear, setBulkYear] = useState('2025/2026');
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const resetBulkForm = () => {
+    setBulkGrades([]); setBulkStreamNames(['']); setBulkYear('2025/2026');
+  };
+  const toggleBulkGrade = (value: string) =>
+    setBulkGrades(g => g.includes(value) ? g.filter(v => v !== value) : [...g, value]);
+  const toggleBulkBand = (band: string) => {
+    const bandValues = GRADE_LEVELS.filter(g => g.band === band).map(g => g.value);
+    const allSelected = bandValues.every(v => bulkGrades.includes(v));
+    setBulkGrades(g => allSelected ? g.filter(v => !bandValues.includes(v)) : [...new Set([...g, ...bandValues])]);
+  };
+  const addBulkStreamName    = () => setBulkStreamNames(r => [...r, '']);
+  const removeBulkStreamName = (i: number) => setBulkStreamNames(r => r.length > 1 ? r.filter((_, idx) => idx !== i) : r);
+  const setBulkStreamName    = (i: number, v: string) => setBulkStreamNames(r => r.map((row, idx) => idx === i ? v : row));
+
+  const submitBulk = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkGrades.length) { toast.error('Select at least one grade'); return; }
+    const names = bulkStreamNames.map(n => n.trim()).filter(Boolean);
+    if (!names.length) { toast.error('Add at least one stream name (e.g. Blue, Red)'); return; }
+    setBulkSaving(true);
+    try {
+      const res = await apiClient.post('/academic/classes/bulk', {
+        gradeLevels: bulkGrades, streamNames: names, academicYear: bulkYear,
+      });
+      toast.success(res.data?.message || 'Streams created');
+      setShowBulk(false);
+      resetBulkForm();
+      load();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not bulk-create classes');
+    } finally { setBulkSaving(false); }
+  };
+
   // Create the grade with all its streams in one action.
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +145,10 @@ export default function StreamsPage() {
           <p className="text-sm text-theme-muted">Create classes and assign class teachers</p>
         </div>
         {isHoi(user?.role || '') && (
-          <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Stream</button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowBulk(true)} className="btn-ghost"><Layers size={16}/> Bulk Create</button>
+            <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Stream</button>
+          </div>
         )}
       </div>
 
@@ -235,6 +278,85 @@ export default function StreamsPage() {
                 <button type="button" onClick={() => { setShowNew(false); resetForm(); }} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">
                   {saving ? <><Loader2 size={14} className="animate-spin"/> Creating…</> : 'Create Class'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {showBulk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-lg border-theme" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="text-lg font-bold text-theme-heading">Bulk Create Classes</h3>
+              <button onClick={() => { setShowBulk(false); resetBulkForm(); }}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <form onSubmit={submitBulk} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              <p className="text-xs text-theme-muted">
+                Pick several grades at once, then give the same stream names to apply to every one of them — e.g. tick Grade 1–6 and add "Blue" and "Green" to create 12 streams in one go.
+              </p>
+              <div>
+                <label className="label">Grades *</label>
+                <div className="space-y-3 mt-1">
+                  {EDUCATION_BANDS.filter(band => allowedBands.includes(band)).map(band => {
+                    const bandGrades = GRADE_LEVELS.filter(g => g.band === band);
+                    const bandValues = bandGrades.map(g => g.value);
+                    const allSelected = bandValues.every(v => bulkGrades.includes(v));
+                    return (
+                      <div key={band}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-semibold text-theme-muted uppercase tracking-wide">{band}</span>
+                          <button type="button" onClick={() => toggleBulkBand(band)} className="text-xs font-semibold text-[#1a2e5a] hover:underline">
+                            {allSelected ? 'Deselect all' : 'Select all'}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {bandGrades.map(g => {
+                            const selected = bulkGrades.includes(g.value);
+                            return (
+                              <button key={g.value} type="button" onClick={() => toggleBulkGrade(g.value)}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${selected ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]' : 'border-theme text-theme-muted hover:border-[#1a2e5a]'}`}>
+                                {g.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Stream names *</label>
+                <p className="text-[11px] text-theme-muted mb-2">Applied to every grade selected above — e.g. Blue, Green, Red.</p>
+                <div className="space-y-2">
+                  {bulkStreamNames.map((name, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input value={name} onChange={e => setBulkStreamName(i, e.target.value)} className="input flex-1" placeholder="Stream name e.g. Blue"/>
+                      <button type="button" onClick={() => removeBulkStreamName(i)} disabled={bulkStreamNames.length === 1}
+                        className="btn-ghost px-2 disabled:opacity-30" title="Remove"><X size={16}/></button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={addBulkStreamName} className="btn-ghost mt-2 text-sm">
+                  <Plus size={14}/> Add another stream name
+                </button>
+              </div>
+
+              <div>
+                <label className="label">Academic Year</label>
+                <input value={bulkYear} onChange={e => setBulkYear(e.target.value)} className="input"/>
+              </div>
+              {bulkGrades.length > 0 && bulkStreamNames.some(n => n.trim()) && (
+                <p className="text-xs text-theme-muted bg-surface-2/60 rounded-lg px-3 py-2">
+                  Will create up to {bulkGrades.length * bulkStreamNames.filter(n => n.trim()).length} stream(s) — any that already exist are skipped.
+                </p>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => { setShowBulk(false); resetBulkForm(); }} className="btn-ghost flex-1">Cancel</button>
+                <button type="submit" disabled={bulkSaving} className="btn-primary flex-1">
+                  {bulkSaving ? <><Loader2 size={14} className="animate-spin"/> Creating…</> : 'Create Classes'}
                 </button>
               </div>
             </form>
