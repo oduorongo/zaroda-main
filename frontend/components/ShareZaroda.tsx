@@ -39,7 +39,7 @@ If your school still struggles with:
 ✅ Teachers enter marks online; mark lists & rankings compile automatically
 ✅ CBC-compliant report cards (Grade 1–12) in seconds
 ✅ Schemes of work, lesson plans and lesson notes generated for you in seconds, in the official KICD format
-✅ A free library of video learning resources for every subject and grade (Retooling)
+✅ A free library of video learning resources for every subject and grade
 ✅ Fees, invoices and balances tracked per learner
 ✅ Class teachers, HOI and parents each get the right access
 ✅ Built in Kenya, for the Kenyan CBC/CBE curriculum
