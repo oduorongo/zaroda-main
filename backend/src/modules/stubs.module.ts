@@ -3893,6 +3893,36 @@ class HrController {
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
     }
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS staff_appraisals (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['staff_user_id', 'uuid'], ['hr_staff_id', 'uuid'], ['staff_name', 'text'],
+      ['period', 'text'], // e.g. "Term 1 2026"
+      ['rating', 'int'],  // 1-5
+      ['goals', 'text'], ['strengths', 'text'], ['areas_for_improvement', 'text'], ['comments', 'text'],
+      ['reviewed_by', 'uuid'], ['reviewed_by_name', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE staff_appraisals ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS staff_incidents (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['staff_user_id', 'uuid'], ['hr_staff_id', 'uuid'], ['staff_name', 'text'],
+      ['category', 'text'], ['severity', "text DEFAULT 'minor'"], ['description', 'text'],
+      ['action_taken', 'text'], ['status', "text DEFAULT 'open'"],
+      ['reported_by', 'uuid'], ['reported_by_name', 'text'], ['reported_at', 'date'],
+      ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE staff_incidents ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
   }
 
   private async displayName(userId: string, fallback: string): Promise<string> {
@@ -4084,6 +4114,164 @@ class HrController {
     if (!isAdmin && rows[0].staffUserId !== req.user.id) throw new BadRequestException('You can only cancel your own leave request.');
     if (rows[0].status !== 'pending' && !isAdmin) throw new BadRequestException('This request has already been reviewed — ask an administrator to change it.');
     await this.ds.query(`DELETE FROM leave_requests WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // Resolves either a staffUserId or hrStaffId into a display name, and validates
+  // the target belongs to this tenant — shared by appraisals and incidents below.
+  private async resolveStaffName(tenantId: string, dto: any): Promise<string> {
+    if (dto.hrStaffId) {
+      const rows = await this.ds.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM hr_staff WHERE id::text = $1 AND tenant_id::text = $2`,
+        [dto.hrStaffId, tenantId],
+      ).catch(() => []);
+      if (!rows.length) throw new BadRequestException('Staff record not found.');
+      return `${rows[0].firstName} ${rows[0].lastName}`;
+    }
+    if (dto.staffUserId) {
+      const rows = await this.ds.query(
+        `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 AND tenant_id::text = $2`,
+        [dto.staffUserId, tenantId],
+      ).catch(() => []);
+      if (!rows.length) throw new BadRequestException('Staff account not found.');
+      return `${rows[0].firstName} ${rows[0].lastName}`;
+    }
+    throw new BadRequestException('Select a staff member.');
+  }
+
+  // ── Appraisals ───────────────────────────────────────────
+  @Get('appraisals')
+  async listAppraisals(@Request() req: any, @Query() q: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const params: any[] = [req.user.tenantId];
+    let where = 'tenant_id::text = $1';
+    if (q.staffUserId) { params.push(q.staffUserId); where += ` AND staff_user_id::text = $${params.length}`; }
+    if (q.hrStaffId) { params.push(q.hrStaffId); where += ` AND hr_staff_id::text = $${params.length}`; }
+    return this.ds.query(
+      `SELECT id, staff_user_id AS "staffUserId", hr_staff_id AS "hrStaffId", staff_name AS "staffName",
+              period, rating, goals, strengths, areas_for_improvement AS "areasForImprovement", comments,
+              reviewed_by_name AS "reviewedByName", updated_at AS "updatedAt", created_at AS "createdAt"
+         FROM staff_appraisals WHERE ${where} ORDER BY created_at DESC`,
+      params,
+    ).catch(() => []);
+  }
+
+  @Post('appraisals')
+  async createAppraisal(@Request() req: any, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto?.period?.trim()) throw new BadRequestException('Enter the review period (e.g. "Term 1 2026").');
+    const staffName = await this.resolveStaffName(req.user.tenantId, dto);
+    const reviewerName = await this.displayName(req.user.id, req.user.email || '');
+    const rows = await this.ds.query(
+      `INSERT INTO staff_appraisals
+         (tenant_id, staff_user_id, hr_staff_id, staff_name, period, rating, goals, strengths,
+          areas_for_improvement, comments, reviewed_by, reviewed_by_name, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()) RETURNING id`,
+      [
+        req.user.tenantId, dto.staffUserId || null, dto.hrStaffId || null, staffName, dto.period.trim(),
+        dto.rating ? Number(dto.rating) : null, dto.goals || null, dto.strengths || null,
+        dto.areasForImprovement || null, dto.comments || null, req.user.id, reviewerName,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save: ${e.message}`); });
+    return { id: rows[0].id };
+  }
+
+  @Patch('appraisals/:id')
+  async updateAppraisal(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    const map: Record<string, string> = {
+      period: 'period', rating: 'rating', goals: 'goals', strengths: 'strengths',
+      areasForImprovement: 'areas_for_improvement', comments: 'comments',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(k === 'rating' ? (dto[k] ? Number(dto[k]) : null) : (dto[k] || null)); }
+    }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()');
+    vals.push(id, req.user.tenantId);
+    await this.ds.query(
+      `UPDATE staff_appraisals SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(`Could not update: ${e.message}`); });
+    return { updated: true };
+  }
+
+  @Delete('appraisals/:id')
+  async deleteAppraisal(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(`DELETE FROM staff_appraisals WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // ── Staff disciplinary/incidents ──────────────────────────
+  // Admin-only, both to view and to act on — unlike leave, a staff member does
+  // not see their own disciplinary record here (kept between them and the HOI).
+  @Get('incidents')
+  async listStaffIncidents(@Request() req: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, staff_user_id AS "staffUserId", hr_staff_id AS "hrStaffId", staff_name AS "staffName",
+              category, severity, description, action_taken AS "actionTaken", status,
+              reported_by_name AS "reportedByName", reported_at AS "reportedAt", created_at AS "createdAt"
+         FROM staff_incidents WHERE tenant_id::text = $1 ORDER BY created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('incidents')
+  async createStaffIncident(@Request() req: any, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    if (!dto?.description?.trim()) throw new BadRequestException('Describe the incident.');
+    const staffName = await this.resolveStaffName(req.user.tenantId, dto);
+    const reporterName = await this.displayName(req.user.id, req.user.email || '');
+    const rows = await this.ds.query(
+      `INSERT INTO staff_incidents
+         (tenant_id, staff_user_id, hr_staff_id, staff_name, category, severity, description,
+          action_taken, status, reported_by, reported_by_name, reported_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,$10,$11) RETURNING id`,
+      [
+        req.user.tenantId, dto.staffUserId || null, dto.hrStaffId || null, staffName,
+        dto.category || 'General', dto.severity || 'minor', dto.description.trim(),
+        dto.actionTaken || null, req.user.id, reporterName, dto.reportedAt || new Date().toISOString().slice(0, 10),
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save: ${e.message}`); });
+    return { id: rows[0].id };
+  }
+
+  @Patch('incidents/:id')
+  async updateStaffIncident(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    const map: Record<string, string> = {
+      category: 'category', severity: 'severity', description: 'description',
+      actionTaken: 'action_taken', status: 'status',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (dto[k] !== undefined) { fields.push(`${col} = $${i++}`); vals.push(dto[k] || null); }
+    }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()');
+    vals.push(id, req.user.tenantId);
+    await this.ds.query(
+      `UPDATE staff_incidents SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(`Could not update: ${e.message}`); });
+    return { updated: true };
+  }
+
+  @Delete('incidents/:id')
+  async deleteStaffIncident(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
+    await this.ensureTables();
+    await this.ds.query(`DELETE FROM staff_incidents WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
   }
 }
