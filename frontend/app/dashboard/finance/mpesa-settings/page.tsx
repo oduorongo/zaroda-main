@@ -139,8 +139,8 @@ export default function MpesaSettingsPage() {
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Users size={16}/> Let class teachers collect fees</div>
               <button type="button" onClick={toggleClassTeacherOverride} disabled={savingOverride}
-                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${classTeacherOverride ? 'bg-[#1a2e5a]' : 'bg-surface-2'}`}>
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${classTeacherOverride ? 'translate-x-5' : ''}`}/>
+                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 border ${classTeacherOverride ? 'bg-[#1a2e5a] border-[#1a2e5a]' : 'bg-gray-300 border-gray-300'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${classTeacherOverride ? 'translate-x-5' : ''}`}/>
               </button>
             </div>
             <p className="text-xs text-theme-muted">
