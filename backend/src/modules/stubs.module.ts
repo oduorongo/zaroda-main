@@ -209,6 +209,21 @@ class FinanceController {
     if (!owns.length) throw new BadRequestException('You can only record payments for learners in your own class.');
   }
 
+  // The JWT only carries id/email/role — look up the actual name so payment
+  // records show "who" in a way a parent or auditor can recognise, not an email.
+  // Not private: MpesaPaybillController (below) also needs it when a bursar
+  // manually assigns an unmatched M-Pesa transaction to a learner.
+  async getUserDisplayName(userId: string, fallback: string): Promise<string> {
+    if (!userId) return fallback;
+    const rows = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 LIMIT 1`,
+      [userId],
+    ).catch(() => []);
+    const u = rows[0];
+    const name = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+    return name || fallback;
+  }
+
   // ── FEE STRUCTURES (set by HOI / bursar / admin) ──────────
   @Get('fee-structures')
   async getFeeStructures(@Request() req: any) {
@@ -772,12 +787,17 @@ class FinanceController {
       }
     }
     if (!fields.length) return { updated: false };
+    const editorName = await this.getUserDisplayName(req.user.id, req.user.email || '');
+    fields.push(`updated_by = $${i++}`); vals.push(req.user.id || null);
+    fields.push(`updated_by_name = $${i++}`); vals.push(editorName);
+    fields.push(`updated_at = NOW()`);
     vals.push(id, req.user.tenantId);
     try {
       const rows = await this.ds.query(
         `UPDATE payments SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id = $${i}
          RETURNING id, learner_id AS "learnerId", amount, method, term, academic_year AS "academicYear",
-                   receipt_number AS "receiptNumber", paid_on AS "paidOn"`,
+                   receipt_number AS "receiptNumber", paid_on AS "paidOn",
+                   updated_by_name AS "updatedByName", updated_at AS "updatedAt"`,
         vals,
       );
       if (!rows.length) throw new BadRequestException('Payment not found.');
@@ -874,6 +894,7 @@ class FinanceController {
       ['admission_number', 'text'], ['amount', 'numeric'], ['method', 'text'],
       ['reference', 'text'], ['note', 'text'], ['term', 'text'], ['academic_year', 'text'],
       ['receipt_number', 'text'], ['recorded_by', 'text'], ['recorded_by_name', 'text'], ['paid_on', 'date'],
+      ['updated_by', 'text'], ['updated_by_name', 'text'], ['updated_at', 'timestamptz'],
       ['created_at', 'timestamptz DEFAULT NOW()'],
     ];
     for (const [n, t] of cols) {
@@ -903,7 +924,8 @@ class FinanceController {
     if (!dto?.learnerId) throw new BadRequestException('Please select a learner.');
     const amount = Number(dto.amount);
     if (!amount || amount <= 0) throw new BadRequestException('Enter a valid amount.');
-    return this.createAndAllocatePayment(req.user.tenantId, req.user.schoolId || null, dto, req.user.id || null, req.user.email || '');
+    const recorderName = await this.getUserDisplayName(req.user.id, req.user.email || '');
+    return this.createAndAllocatePayment(req.user.tenantId, req.user.schoolId || null, dto, req.user.id || null, recorderName);
   }
 
   // Shared by the manual "record payment" form above and the M-Pesa
@@ -1005,7 +1027,8 @@ class FinanceController {
     const tenantId = req.user.tenantId;
     const payments = await this.ds.query(
       `SELECT id, amount, method, reference, note, term, academic_year AS "academicYear",
-              receipt_number AS "receiptNumber", paid_on AS "paidOn", created_at AS "createdAt"
+              receipt_number AS "receiptNumber", paid_on AS "paidOn", created_at AS "createdAt",
+              recorded_by_name AS "recordedByName", updated_by_name AS "updatedByName", updated_at AS "updatedAt"
          FROM payments WHERE tenant_id = $1 AND learner_id = $2
         ORDER BY COALESCE(paid_on, created_at::date) DESC`,
       [tenantId, learnerId],
@@ -1410,6 +1433,7 @@ class MpesaPaybillController {
     const learner = learnerRows[0];
     if (!learner) throw new BadRequestException('Learner not found.');
 
+    const recorderName = await this.financeController.getUserDisplayName(req.user.id, req.user.email || '');
     const payment = await this.financeController.createAndAllocatePayment(
       req.user.tenantId, learner.schoolId || null,
       {
@@ -1417,7 +1441,7 @@ class MpesaPaybillController {
         admissionNumber: learner.admissionNumber, amount: Number(txn.amount), method: 'mpesa',
         reference: txn.mpesa_receipt_number, note: `M-Pesa payment manually matched (was: "${txn.account_reference || ''}")`,
       },
-      req.user.id || null, req.user.email || '',
+      req.user.id || null, recorderName,
     );
     await this.ds.query(
       `UPDATE mpesa_transactions SET status = 'matched', matched_learner_id = $2, matched_payment_id = $3 WHERE id::text = $1`,

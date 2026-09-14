@@ -346,7 +346,8 @@ export default function RecordPaymentPage() {
                 <table className="w-full text-sm">
                   <thead><tr className="text-left text-theme-muted border-b border-theme">
                     <th className="px-2 py-2">Date</th><th className="px-2 py-2">Method</th>
-                    <th className="px-2 py-2 text-right">Amount</th><th className="px-2 py-2">Receipt</th><th></th>
+                    <th className="px-2 py-2 text-right">Amount</th><th className="px-2 py-2">Receipt</th>
+                    <th className="px-2 py-2">Recorded by</th><th></th>
                   </tr></thead>
                   <tbody>
                     {bal.payments.map((p: any) => (
@@ -355,6 +356,12 @@ export default function RecordPaymentPage() {
                         <td className="px-2 py-2 capitalize">{(p.method||'').replace('_',' ')}</td>
                         <td className="px-2 py-2 text-right font-semibold">{ksh(p.amount)}</td>
                         <td className="px-2 py-2 text-theme-muted text-xs">{p.receiptNumber}</td>
+                        <td className="px-2 py-2 text-xs">
+                          <div className="text-theme-heading">{p.recordedByName || '—'}</div>
+                          {p.updatedByName && (
+                            <div className="text-theme-muted">Edited by {p.updatedByName}{p.updatedAt ? ` · ${new Date(p.updatedAt).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : ''}</div>
+                          )}
+                        </td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
                           <button onClick={() => openReceipt(p.id)} className="btn-ghost text-xs"><Printer size={12}/> Print</button>
                           {staff && (
