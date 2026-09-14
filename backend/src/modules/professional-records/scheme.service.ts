@@ -295,6 +295,32 @@ export class SchemeService {
       ).catch(() => []);
       if (rows[0]) scheme.reviewerName = `${rows[0].firstName} ${rows[0].lastName}`;
     }
+
+    // Flag which lessons already have a generated Lesson Plan / Lesson Notes, so
+    // the UI can colour them differently instead of every "Generate" button
+    // looking the same whether the document already exists or not.
+    const plans = await this.dataSource.query(
+      `SELECT scheme_week_id AS "schemeWeekId", COALESCE(lesson_slot,1) AS "lessonSlot"
+         FROM lesson_plans WHERE scheme_id::text = $1`, [schemeId],
+    ).catch(() => []);
+    const notes = await this.dataSource.query(
+      `SELECT scheme_week_id AS "schemeWeekId", COALESCE(lesson_slot,1) AS "lessonSlot"
+         FROM lesson_notes WHERE scheme_id::text = $1`, [schemeId],
+    ).catch(() => []);
+    const planKeys = new Set((plans as any[]).map(p => `${p.schemeWeekId}:${p.lessonSlot}`));
+    const noteKeys = new Set((notes as any[]).map(n => `${n.schemeWeekId}:${n.lessonSlot}`));
+    for (const w of scheme.weeks || []) {
+      if (Array.isArray(w.lessons) && w.lessons.length) {
+        w.lessons = w.lessons.map((l: any) => ({
+          ...l,
+          hasLessonPlan: planKeys.has(`${w.id}:${l.lessonNumber}`),
+          hasLessonNotes: noteKeys.has(`${w.id}:${l.lessonNumber}`),
+        }));
+      } else {
+        w.hasLessonPlan = planKeys.has(`${w.id}:1`);
+        w.hasLessonNotes = noteKeys.has(`${w.id}:1`);
+      }
+    }
     return scheme;
   }
 

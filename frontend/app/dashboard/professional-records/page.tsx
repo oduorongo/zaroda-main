@@ -1402,11 +1402,13 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onRegenerate, on
                       {teacher && !isEditing && (
                         <div className="flex flex-col gap-1.5 flex-shrink-0">
                           {canEdit && <button onClick={() => startEditLesson(w.id, lesson.lessonNumber, lesson)} className="btn-ghost text-xs py-1.5 px-3">Edit</button>}
-                          <button onClick={() => handleGenPlan(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)} className="btn-ghost text-xs py-1.5 px-3">
-                            {busyAction === `${key}:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
+                          <button onClick={() => handleGenPlan(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)}
+                            className={`text-xs py-1.5 px-3 rounded-lg font-medium flex items-center gap-1.5 ${lesson.hasLessonPlan ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'btn-ghost'}`}>
+                            {busyAction === `${key}:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> {lesson.hasLessonPlan ? 'Lesson Plan ✓' : 'Lesson Plan'}</>}
                           </button>
-                          <button onClick={() => handleGenNotes(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)} className="btn-ghost text-xs py-1.5 px-3">
-                            {busyAction === `${key}:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
+                          <button onClick={() => handleGenNotes(w.id, lesson.lessonNumber)} disabled={busyAction?.startsWith(`${key}:`)}
+                            className={`text-xs py-1.5 px-3 rounded-lg font-medium flex items-center gap-1.5 ${lesson.hasLessonNotes ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'btn-ghost'}`}>
+                            {busyAction === `${key}:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> {lesson.hasLessonNotes ? 'Lesson Notes ✓' : 'Lesson Notes'}</>}
                           </button>
                         </div>
                       )}
@@ -1439,11 +1441,13 @@ function SchemeDetail({ scheme, teacher, hoi, onBack, onSubmit, onRegenerate, on
                 {teacher && editingKey !== `${w.id}:1` && (
                   <div className="flex flex-col gap-1.5 flex-shrink-0">
                     {canEdit && <button onClick={() => startEditLegacyWeek(w)} className="btn-ghost text-xs py-1.5 px-3">Edit</button>}
-                    <button onClick={() => handleGenPlan(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)} className="btn-ghost text-xs py-1.5 px-3">
-                      {busyAction === `${w.id}:1:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Plan</>}
+                    <button onClick={() => handleGenPlan(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)}
+                      className={`text-xs py-1.5 px-3 rounded-lg font-medium flex items-center gap-1.5 ${w.hasLessonPlan ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'btn-ghost'}`}>
+                      {busyAction === `${w.id}:1:plan` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> {w.hasLessonPlan ? 'Lesson Plan ✓' : 'Lesson Plan'}</>}
                     </button>
-                    <button onClick={() => handleGenNotes(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)} className="btn-ghost text-xs py-1.5 px-3">
-                      {busyAction === `${w.id}:1:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> Lesson Notes</>}
+                    <button onClick={() => handleGenNotes(w.id, 1)} disabled={busyAction?.startsWith(`${w.id}:1:`)}
+                      className={`text-xs py-1.5 px-3 rounded-lg font-medium flex items-center gap-1.5 ${w.hasLessonNotes ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'btn-ghost'}`}>
+                      {busyAction === `${w.id}:1:notes` ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Sparkles size={12}/> {w.hasLessonNotes ? 'Lesson Notes ✓' : 'Lesson Notes'}</>}
                     </button>
                   </div>
                 )}
