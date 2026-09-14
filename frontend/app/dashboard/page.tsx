@@ -6,7 +6,7 @@ import {
   Users, DollarSign, BookOpen, GraduationCap, TrendingUp, TrendingDown,
   Calendar, CheckCircle, FileText, Library, Trophy, Scale, ArrowRight,
   MessageSquare, UserPlus, ClipboardList, CheckSquare, BarChart3, Star, Heart,
-  X, Circle,
+  X, Circle, CalendarDays,
 } from 'lucide-react';
 import { useAuth, isHoi, isParent, isLearner, isIndividualAccount } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -55,6 +55,27 @@ export default function DashboardPage() {
     if (!user || isParent(user.role) || isLearner(user.role)) return;
     apiClient.get('/academic/dashboard').then(r => setStats(r.data)).catch(()=>setStats({})).finally(()=>setLoading(false));
   }, [user]);
+
+  // ── Duty roster + activities calendar snapshot ──────────────
+  const [dutyTerm, setDutyTerm]         = useState<any>(null);
+  const [dutyActivities, setDutyActivities] = useState<any[]>([]);
+  useEffect(() => {
+    if (!user || isParent(user.role) || isLearner(user.role) || isIndividualAccount(user.accountType)) return;
+    Promise.all([
+      apiClient.get('/duty-roster/term').catch(() => ({ data: null })),
+      apiClient.get('/duty-roster/activities').catch(() => ({ data: [] })),
+    ]).then(([t, a]) => { setDutyTerm(t.data || null); setDutyActivities(a.data || []); });
+  }, [user]);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const currentDutyWeek = (dutyTerm?.weeks || []).find((w: any) => {
+    const s = w.startDate ? new Date(w.startDate) : null, e = w.endDate ? new Date(w.endDate) : null;
+    return s && e && today >= s && today <= new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59);
+  });
+  const upcomingActivities = dutyActivities
+    .filter((a: any) => { const e = new Date(a.endDate || a.startDate); return e >= today; })
+    .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    .slice(0, 3);
+  const showDutyWidget = !loading && (currentDutyWeek || upcomingActivities.length > 0);
 
   useEffect(() => {
     if (user?.tenantId) setChecklistDismissed(localStorage.getItem(`setup-checklist-dismissed:${user.tenantId}`) === '1');
@@ -240,6 +261,60 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Duty roster + activities calendar snapshot ── */}
+      {showDutyWidget && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <CalendarDays size={16} className="text-[#d4af37]"/>
+              <h3 className="font-bold text-theme-heading">Duty Roster &amp; School Activities</h3>
+            </div>
+            <Link href="/dashboard/duty-roster" className="text-xs font-semibold text-[#1a2e5a] hover:underline flex items-center gap-1">
+              View all <ArrowRight size={12}/>
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <ClipboardList size={13}/> On duty this week
+              </div>
+              {currentDutyWeek ? (
+                currentDutyWeek.teachers.length === 0 ? (
+                  <p className="text-sm text-theme-muted">No teacher assigned for Week {currentDutyWeek.weekNumber}.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {currentDutyWeek.teachers.map((t: any) => (
+                      <span key={t.id} className="badge bg-[#1a2e5a]/10 text-[#1a2e5a]">{t.teacherName || 'Unnamed'}</span>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <p className="text-sm text-theme-muted">No duty roster published for this week.</p>
+              )}
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <Calendar size={13}/> Upcoming activities
+              </div>
+              {upcomingActivities.length === 0 ? (
+                <p className="text-sm text-theme-muted">No upcoming activities scheduled.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {upcomingActivities.map((a: any) => (
+                    <div key={a.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-theme-heading font-medium truncate">{a.title}</span>
+                      <span className="text-xs text-theme-muted flex-shrink-0">
+                        {new Date(a.startDate).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
