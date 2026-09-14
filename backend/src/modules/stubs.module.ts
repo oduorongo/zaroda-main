@@ -1100,8 +1100,8 @@ class FinanceController {
   // called Safaricom, and even if it had, this controller is JwtAuthGuard'd
   // at the class level, which would have 401'd Safaricom's own callback.
 
-  @Get('payroll')
-  getPayroll(@Request() req: any) { return []; }
+  // Real payroll lives in PayrollController below (finance/payroll/*) — this stub
+  // used to just return [] with nothing behind it.
 
   @Get('expenses')
   async getExpenses(@Request() req: any) {
@@ -1155,6 +1155,20 @@ class FinanceController {
        dto.description || null, Number(dto.amount), dto.spentOn || new Date().toISOString().slice(0, 10)],
     ).catch((e: any) => { throw new BadRequestException(e.message); });
     return rows[0];
+  }
+
+  // Not private: PayrollController (below) posts payroll costs into the cashbook
+  // through this same path when a run is finalized, so payroll shows up in the
+  // Cashbook/Income Statement/Trial Balance like any other expense.
+  async recordExpenseRow(tenantId: string, schoolId: string | null, category: string, description: string, amount: number, spentOn: string) {
+    if (!amount || amount <= 0) return null;
+    await this.ensureExpensesTable();
+    const rows = await this.ds.query(
+      `INSERT INTO expenses (tenant_id, school_id, category, description, amount, spent_on, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING id`,
+      [tenantId, schoolId, category, description, amount, spentOn],
+    ).catch(() => []);
+    return rows[0] || null;
   }
 
   @Get('dashboard')
@@ -1601,9 +1615,355 @@ class MpesaCallbackController {
   }
 }
 
+// ── PAYROLL ─────────────────────────────────────────────────
+// Kenyan statutory-deduction rates as legislated at the time this was written
+// (PAYE bands per the Finance Act 2023, NSSF Tier limits per the 2024
+// revision, SHA replacing NHIF from Oct 2024, Housing Levy at 1.5%/1.5%).
+// These change by government notice from time to time — review against the
+// current KRA/SHA/NSSF guidance before relying on a payslip for compliance,
+// and update the constants below (not scattered inline) if a rate changes.
+const PAYE_BANDS: { upTo: number; rate: number }[] = [
+  { upTo: 24_000, rate: 0.10 },
+  { upTo: 32_333, rate: 0.25 },
+  { upTo: 500_000, rate: 0.30 },
+  { upTo: 800_000, rate: 0.325 },
+  { upTo: Infinity, rate: 0.35 },
+];
+const PAYE_PERSONAL_RELIEF = 2_400; // monthly, KES
+const NSSF_TIER1_LIMIT = 8_000;     // monthly pensionable pay ceiling for Tier I
+const NSSF_TIER2_LIMIT = 72_000;    // monthly pensionable pay ceiling for Tier II
+const NSSF_RATE = 0.06;             // employee and employer each
+const SHA_RATE = 0.0275;            // of gross pay
+const SHA_MINIMUM = 300;            // KES/month
+const HOUSING_LEVY_RATE = 0.015;    // employee and employer each, of gross pay
+
+function calcNssf(pensionablePay: number): { employee: number; employer: number } {
+  const tier1 = Math.min(pensionablePay, NSSF_TIER1_LIMIT);
+  const tier2 = Math.max(0, Math.min(pensionablePay, NSSF_TIER2_LIMIT) - NSSF_TIER1_LIMIT);
+  const employee = Math.round((tier1 + tier2) * NSSF_RATE);
+  return { employee, employer: employee };
+}
+function calcSha(grossPay: number): number {
+  return Math.max(SHA_MINIMUM, Math.round(grossPay * SHA_RATE));
+}
+function calcHousingLevy(grossPay: number): { employee: number; employer: number } {
+  const levy = Math.round(grossPay * HOUSING_LEVY_RATE);
+  return { employee: levy, employer: levy };
+}
+function calcPaye(taxablePay: number): number {
+  let tax = 0, prev = 0;
+  for (const b of PAYE_BANDS) {
+    if (taxablePay <= prev) break;
+    tax += (Math.min(taxablePay, b.upTo) - prev) * b.rate;
+    prev = b.upTo;
+  }
+  return Math.max(0, Math.round(tax - PAYE_PERSONAL_RELIEF));
+}
+
+const PAYROLL_STAFF_ROLES = [
+  'hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar',
+  'class_teacher', 'subject_teacher', 'overall_class_teacher', 'games_dept',
+];
+
+@Controller('finance/payroll')
+@UseGuards(JwtAuthGuard)
+class PayrollController {
+  constructor(private readonly ds: DataSource, private readonly financeController: FinanceController) {}
+
+  private staffRoleOnly(role: string) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+      throw new BadRequestException('Only the HOI, bursar or administrator can manage payroll.');
+    }
+  }
+
+  private async ensureTables() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS staff_salaries (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, staff_id uuid,
+         created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['basic_pay', 'numeric DEFAULT 0'], ['house_allowance', 'numeric DEFAULT 0'],
+      ['transport_allowance', 'numeric DEFAULT 0'], ['other_allowance', 'numeric DEFAULT 0'],
+      ['other_allowance_label', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE staff_salaries ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE UNIQUE INDEX IF NOT EXISTS staff_salaries_tenant_staff_uq ON staff_salaries (tenant_id, staff_id)`).catch(() => null);
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS payroll_runs (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['month', 'text'], ['status', "text DEFAULT 'draft'"], ['finalized_at', 'timestamptz'],
+      ['finalized_by', 'uuid'], ['finalized_by_name', 'text'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_tenant_month_uq ON payroll_runs (tenant_id, month)`).catch(() => null);
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS payroll_entries (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, payroll_run_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['staff_id', 'uuid'], ['staff_name', 'text'], ['role', 'text'],
+      ['basic_pay', 'numeric DEFAULT 0'], ['allowances_total', 'numeric DEFAULT 0'], ['gross_pay', 'numeric DEFAULT 0'],
+      ['paye', 'numeric DEFAULT 0'], ['nssf_employee', 'numeric DEFAULT 0'], ['nssf_employer', 'numeric DEFAULT 0'],
+      ['sha', 'numeric DEFAULT 0'], ['housing_levy_employee', 'numeric DEFAULT 0'], ['housing_levy_employer', 'numeric DEFAULT 0'],
+      ['net_pay', 'numeric DEFAULT 0'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+  }
+
+  // Every active staff member, with their current salary record if one's been set.
+  @Get('staff')
+  async getStaff(@Request() req: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.role,
+              s.basic_pay AS "basicPay", s.house_allowance AS "houseAllowance",
+              s.transport_allowance AS "transportAllowance", s.other_allowance AS "otherAllowance",
+              s.other_allowance_label AS "otherAllowanceLabel"
+         FROM users u LEFT JOIN staff_salaries s ON s.staff_id::text = u.id::text AND s.tenant_id::text = u.tenant_id::text
+        WHERE u.tenant_id::text = $1 AND u.role = ANY($2) AND u.is_active = true
+        ORDER BY u.first_name`,
+      [req.user.tenantId, PAYROLL_STAFF_ROLES],
+    ).catch(() => []);
+  }
+
+  @Post('salaries')
+  async setSalary(@Request() req: any, @Body() dto: any) {
+    this.staffRoleOnly(req.user.role);
+    if (!dto?.staffId) throw new BadRequestException('Select a staff member.');
+    await this.ensureTables();
+    await this.ds.query(
+      `INSERT INTO staff_salaries
+         (tenant_id, staff_id, basic_pay, house_allowance, transport_allowance, other_allowance, other_allowance_label, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+       ON CONFLICT (tenant_id, staff_id) DO UPDATE SET
+         basic_pay = $3, house_allowance = $4, transport_allowance = $5,
+         other_allowance = $6, other_allowance_label = $7, updated_at = NOW()`,
+      [
+        req.user.tenantId, dto.staffId, Number(dto.basicPay) || 0, Number(dto.houseAllowance) || 0,
+        Number(dto.transportAllowance) || 0, Number(dto.otherAllowance) || 0, dto.otherAllowanceLabel || null,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save salary: ${e.message}`); });
+    return { saved: true };
+  }
+
+  @Get('runs')
+  async listRuns(@Request() req: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT r.id, r.month, r.status, r.finalized_at AS "finalizedAt", r.finalized_by_name AS "finalizedByName",
+              COUNT(e.id) AS "staffCount", COALESCE(SUM(e.net_pay),0) AS "totalNetPay"
+         FROM payroll_runs r LEFT JOIN payroll_entries e ON e.payroll_run_id::text = r.id::text
+        WHERE r.tenant_id::text = $1
+        GROUP BY r.id ORDER BY r.month DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Get('runs/:id')
+  async getRun(@Request() req: any, @Param('id') id: string) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const runRows = await this.ds.query(
+      `SELECT id, month, status, finalized_at AS "finalizedAt", finalized_by_name AS "finalizedByName"
+         FROM payroll_runs WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!runRows.length) throw new BadRequestException('Payroll run not found.');
+    const entries = await this.ds.query(
+      `SELECT id, staff_id AS "staffId", staff_name AS "staffName", role,
+              basic_pay AS "basicPay", allowances_total AS "allowancesTotal", gross_pay AS "grossPay",
+              paye, nssf_employee AS "nssfEmployee", nssf_employer AS "nssfEmployer",
+              sha, housing_levy_employee AS "housingLevyEmployee", housing_levy_employer AS "housingLevyEmployer",
+              net_pay AS "netPay"
+         FROM payroll_entries WHERE payroll_run_id::text = $1 ORDER BY staff_name`,
+      [id],
+    ).catch(() => []);
+    return { ...runRows[0], entries };
+  }
+
+  // Computes (or recomputes, if still a draft) every entry for the given month from
+  // each staff member's current salary record. Re-running a draft replaces its
+  // entries outright — nothing is ever half-updated.
+  @Post('runs')
+  async runPayroll(@Request() req: any, @Body() dto: any) {
+    this.staffRoleOnly(req.user.role);
+    const month = String(dto?.month || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('Provide a month as YYYY-MM.');
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+
+    let runRows = await this.ds.query(
+      `SELECT id, status FROM payroll_runs WHERE tenant_id::text = $1 AND month = $2`,
+      [tenantId, month],
+    ).catch(() => []);
+    if (runRows.length && runRows[0].status === 'finalized') {
+      throw new BadRequestException('This month is already finalized — it cannot be recomputed.');
+    }
+    let runId: string;
+    if (runRows.length) {
+      runId = runRows[0].id;
+      await this.ds.query(`DELETE FROM payroll_entries WHERE payroll_run_id::text = $1`, [runId]).catch(() => null);
+    } else {
+      const created = await this.ds.query(
+        `INSERT INTO payroll_runs (tenant_id, month, status, created_at) VALUES ($1,$2,'draft',NOW()) RETURNING id`,
+        [tenantId, month],
+      );
+      runId = created[0].id;
+    }
+
+    const staff = await this.ds.query(
+      `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.role,
+              s.basic_pay AS "basicPay", s.house_allowance AS "houseAllowance",
+              s.transport_allowance AS "transportAllowance", s.other_allowance AS "otherAllowance"
+         FROM users u JOIN staff_salaries s ON s.staff_id::text = u.id::text AND s.tenant_id::text = u.tenant_id::text
+        WHERE u.tenant_id::text = $1 AND u.role = ANY($2) AND u.is_active = true AND s.basic_pay > 0`,
+      [tenantId, PAYROLL_STAFF_ROLES],
+    ).catch(() => []);
+    if (!staff.length) throw new BadRequestException('No staff have a salary set yet — add salaries under Payroll → Staff Salaries first.');
+
+    for (const s of (staff as any[])) {
+      const basicPay = Number(s.basicPay) || 0;
+      const allowancesTotal = Number(s.houseAllowance || 0) + Number(s.transportAllowance || 0) + Number(s.otherAllowance || 0);
+      const grossPay = basicPay + allowancesTotal;
+      const nssf = calcNssf(grossPay);
+      const sha = calcSha(grossPay);
+      const housing = calcHousingLevy(grossPay);
+      const taxablePay = Math.max(0, grossPay - nssf.employee - sha - housing.employee);
+      const paye = calcPaye(taxablePay);
+      const netPay = grossPay - paye - nssf.employee - sha - housing.employee;
+      await this.ds.query(
+        `INSERT INTO payroll_entries
+           (tenant_id, payroll_run_id, staff_id, staff_name, role, basic_pay, allowances_total, gross_pay,
+            paye, nssf_employee, nssf_employer, sha, housing_levy_employee, housing_levy_employer, net_pay, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())`,
+        [
+          tenantId, runId, s.id, `${s.firstName} ${s.lastName}`, s.role, basicPay, allowancesTotal, grossPay,
+          paye, nssf.employee, nssf.employer, sha, housing.employee, housing.employer, netPay,
+        ],
+      ).catch(() => null);
+    }
+    return this.getRun(req, runId);
+  }
+
+  // Locks the run and posts its cost into Expenses (Cashbook/Income Statement/Trial
+  // Balance) as separate line items — net pay plus each statutory remittance —
+  // so a finalized payroll shows up in the rest of Finance automatically.
+  @Post('runs/:id/finalize')
+  async finalizeRun(@Request() req: any, @Param('id') id: string) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const tenantId = req.user.tenantId;
+    const run = await this.getRun(req, id);
+    if (run.status === 'finalized') throw new BadRequestException('Already finalized.');
+    if (!run.entries.length) throw new BadRequestException('This run has no staff in it — run payroll first.');
+
+    const sum = (k: string) => (run.entries as any[]).reduce((s, e) => s + Number(e[k] || 0), 0);
+    const spentOn = `${run.month}-28`; // last-ish day of the month, close enough for a cashbook date
+    const label = `Payroll ${run.month}`;
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Salaries — Net Pay', label, sum('netPay'), spentOn);
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — PAYE', label, sum('paye'), spentOn);
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — NSSF (employee)', label, sum('nssfEmployee'), spentOn);
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — NSSF (employer)', label, sum('nssfEmployer'), spentOn);
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — SHA', label, sum('sha'), spentOn);
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — Housing Levy (employee)', label, sum('housingLevyEmployee'), spentOn);
+    await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — Housing Levy (employer)', label, sum('housingLevyEmployer'), spentOn);
+
+    const name = await this.financeController.getUserDisplayName(req.user.id, req.user.email || '');
+    await this.ds.query(
+      `UPDATE payroll_runs SET status = 'finalized', finalized_at = NOW(), finalized_by = $1, finalized_by_name = $2
+        WHERE id::text = $3 AND tenant_id::text = $4`,
+      [req.user.id || null, name, id, tenantId],
+    );
+    return this.getRun(req, id);
+  }
+
+  @Delete('runs/:id')
+  async deleteRun(@Request() req: any, @Param('id') id: string) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `SELECT status FROM payroll_runs WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Payroll run not found.');
+    if (rows[0].status === 'finalized') throw new BadRequestException('A finalized run cannot be deleted.');
+    await this.ds.query(`DELETE FROM payroll_entries WHERE payroll_run_id::text = $1`, [id]).catch(() => null);
+    await this.ds.query(`DELETE FROM payroll_runs WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  @Get('payslip/:entryId/html')
+  async payslipHtml(@Request() req: any, @Param('entryId') entryId: string, @Res() res: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `SELECT e.*, r.month, r.status FROM payroll_entries e
+         JOIN payroll_runs r ON r.id::text = e.payroll_run_id::text
+        WHERE e.id::text = $1 AND e.tenant_id::text = $2`,
+      [entryId, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) { res.status(404).send('<p>Payslip not found.</p>'); return; }
+    const p = rows[0];
+    const school = await this.ds.query(`SELECT name FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [req.user.tenantId])
+      .then((r: any[]) => r[0]?.name || 'School').catch(() => 'School');
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const ksh = (n: any) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 });
+    const row = (label: string, amt: any) => `<tr><td>${esc(label)}</td><td class="n">${ksh(amt)}</td></tr>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Payslip ${esc(p.month)}</title><style>
+      body{font-family:Arial,sans-serif;margin:24px;color:#1a2e5a}
+      .head{text-align:center;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:16px}
+      .head h1{margin:0;font-size:20px}.head h2{margin:4px 0 0;font-size:14px;font-weight:400;color:#555}
+      table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+      th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}
+      th{background:#1a2e5a;color:#fff} td.n,th.n{text-align:right}
+      tfoot td{font-weight:bold;background:#f0f2f8}
+      .print{margin:16px 0;text-align:center}
+      button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
+      @media print{.print{display:none}}
+      </style></head><body>
+      <div class="head"><h1>${esc(school)}</h1><h2>Payslip · ${esc(p.month)}${p.status === 'draft' ? ' (DRAFT — not yet finalized)' : ''}</h2></div>
+      <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+      <p><b>${esc(p.staff_name)}</b> · ${esc(String(p.role || '').replace(/_/g,' '))}</p>
+      <table>
+        <thead><tr><th>Earnings</th><th class="n">Amount</th></tr></thead>
+        <tbody>
+          ${row('Basic Pay', p.basic_pay)}
+          ${row('Allowances', p.allowances_total)}
+        </tbody>
+        <tfoot>${row('Gross Pay', p.gross_pay)}</tfoot>
+      </table>
+      <table>
+        <thead><tr><th>Deductions</th><th class="n">Amount</th></tr></thead>
+        <tbody>
+          ${row('PAYE', p.paye)}
+          ${row('NSSF', p.nssf_employee)}
+          ${row('SHA', p.sha)}
+          ${row('Housing Levy', p.housing_levy_employee)}
+        </tbody>
+        <tfoot>${row('Total Deductions', Number(p.paye)+Number(p.nssf_employee)+Number(p.sha)+Number(p.housing_levy_employee))}</tfoot>
+      </table>
+      <table><tfoot>${row('NET PAY', p.net_pay)}</tfoot></table>
+      <p style="font-size:11px;color:#666;margin-top:16px">Employer also remits NSSF ${ksh(p.nssf_employer)} and Housing Levy ${ksh(p.housing_levy_employer)} on top of this payslip — not deducted from the employee.</p>
+      </body></html>`;
+    res.set('Content-Type', 'text/html').send(html);
+  }
+}
+
 @Module({
   imports: [TypeOrmModule.forFeature([Invoice])],
-  controllers: [FinanceController, MpesaPaybillController, MpesaCallbackController],
+  controllers: [FinanceController, MpesaPaybillController, MpesaCallbackController, PayrollController],
   providers: [FinanceController],
 })
 export class FinanceModule {}
