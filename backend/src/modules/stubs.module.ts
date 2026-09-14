@@ -1715,9 +1715,28 @@ class PayrollController {
       ['basic_pay', 'numeric DEFAULT 0'], ['allowances_total', 'numeric DEFAULT 0'], ['gross_pay', 'numeric DEFAULT 0'],
       ['paye', 'numeric DEFAULT 0'], ['nssf_employee', 'numeric DEFAULT 0'], ['nssf_employer', 'numeric DEFAULT 0'],
       ['sha', 'numeric DEFAULT 0'], ['housing_levy_employee', 'numeric DEFAULT 0'], ['housing_levy_employer', 'numeric DEFAULT 0'],
+      ['loan_id', 'uuid'], ['loan_deduction', 'numeric DEFAULT 0'],
       ['net_pay', 'numeric DEFAULT 0'],
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+
+    // Staff loans/advances — one active loan per staff member at a time, kept
+    // simple deliberately: a second loan just isn't offered until the first is
+    // cleared, so payroll never has to reason about splitting a deduction across
+    // more than one loan.
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS staff_loans (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, staff_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['staff_name', 'text'], ['principal_amount', 'numeric DEFAULT 0'], ['monthly_deduction', 'numeric DEFAULT 0'],
+      ['balance_remaining', 'numeric DEFAULT 0'], ['reason', 'text'],
+      ['status', "text DEFAULT 'active'"], // active | completed | cancelled
+      ['created_by', 'uuid'], ['created_by_name', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE staff_loans ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
     }
   }
 
@@ -1787,7 +1806,7 @@ class PayrollController {
               basic_pay AS "basicPay", allowances_total AS "allowancesTotal", gross_pay AS "grossPay",
               paye, nssf_employee AS "nssfEmployee", nssf_employer AS "nssfEmployer",
               sha, housing_levy_employee AS "housingLevyEmployee", housing_levy_employer AS "housingLevyEmployer",
-              net_pay AS "netPay"
+              loan_id AS "loanId", loan_deduction AS "loanDeduction", net_pay AS "netPay"
          FROM payroll_entries WHERE payroll_run_id::text = $1 ORDER BY staff_name`,
       [id],
     ).catch(() => []);
@@ -1834,6 +1853,16 @@ class PayrollController {
     ).catch(() => []);
     if (!staff.length) throw new BadRequestException('No staff have a salary set yet — add salaries under Payroll → Staff Salaries first.');
 
+    // Active loans, keyed by staff — enforced one-active-loan-at-a-time at
+    // creation time, so this is at most one row per staff member.
+    const loans = await this.ds.query(
+      `SELECT id, staff_id AS "staffId", monthly_deduction AS "monthlyDeduction", balance_remaining AS "balanceRemaining"
+         FROM staff_loans WHERE tenant_id::text = $1 AND status = 'active' AND balance_remaining > 0`,
+      [tenantId],
+    ).catch(() => []);
+    const loanByStaff: Record<string, any> = {};
+    for (const l of (loans as any[])) loanByStaff[l.staffId] = l;
+
     for (const s of (staff as any[])) {
       const basicPay = Number(s.basicPay) || 0;
       const allowancesTotal = Number(s.houseAllowance || 0) + Number(s.transportAllowance || 0) + Number(s.otherAllowance || 0);
@@ -1843,15 +1872,19 @@ class PayrollController {
       const housing = calcHousingLevy(grossPay);
       const taxablePay = Math.max(0, grossPay - nssf.employee - sha - housing.employee);
       const paye = calcPaye(taxablePay);
-      const netPay = grossPay - paye - nssf.employee - sha - housing.employee;
+      const loan = loanByStaff[s.id];
+      const loanDeduction = loan ? Math.min(Number(loan.monthlyDeduction), Number(loan.balanceRemaining)) : 0;
+      const netPay = grossPay - paye - nssf.employee - sha - housing.employee - loanDeduction;
       await this.ds.query(
         `INSERT INTO payroll_entries
            (tenant_id, payroll_run_id, staff_id, staff_name, role, basic_pay, allowances_total, gross_pay,
-            paye, nssf_employee, nssf_employer, sha, housing_levy_employee, housing_levy_employer, net_pay, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())`,
+            paye, nssf_employee, nssf_employer, sha, housing_levy_employee, housing_levy_employer,
+            loan_id, loan_deduction, net_pay, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())`,
         [
           tenantId, runId, s.id, `${s.firstName} ${s.lastName}`, s.role, basicPay, allowancesTotal, grossPay,
-          paye, nssf.employee, nssf.employer, sha, housing.employee, housing.employer, netPay,
+          paye, nssf.employee, nssf.employer, sha, housing.employee, housing.employer,
+          loan ? loan.id : null, loanDeduction, netPay,
         ],
       ).catch(() => null);
     }
@@ -1880,6 +1913,21 @@ class PayrollController {
     await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — SHA', label, sum('sha'), spentOn);
     await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — Housing Levy (employee)', label, sum('housingLevyEmployee'), spentOn);
     await this.financeController.recordExpenseRow(tenantId, req.user.schoolId || null, 'Statutory — Housing Levy (employer)', label, sum('housingLevyEmployer'), spentOn);
+
+    // Recover any loan deductions computed for this run — the disbursed principal
+    // was already expensed when the loan was created, so this just pays it down,
+    // no separate expense entry.
+    for (const e of (run.entries as any[])) {
+      if (!e.loanId || !Number(e.loanDeduction)) continue;
+      const rows = await this.ds.query(
+        `UPDATE staff_loans SET balance_remaining = GREATEST(0, balance_remaining - $1), updated_at = NOW()
+           WHERE id::text = $2 AND tenant_id::text = $3 RETURNING balance_remaining AS "balanceRemaining"`,
+        [Number(e.loanDeduction), e.loanId, tenantId],
+      ).catch(() => []);
+      if (rows[0] && Number(rows[0].balanceRemaining) <= 0) {
+        await this.ds.query(`UPDATE staff_loans SET status = 'completed' WHERE id::text = $1`, [e.loanId]).catch(() => null);
+      }
+    }
 
     const name = await this.financeController.getUserDisplayName(req.user.id, req.user.email || '');
     await this.ds.query(
@@ -1951,13 +1999,191 @@ class PayrollController {
           ${row('NSSF', p.nssf_employee)}
           ${row('SHA', p.sha)}
           ${row('Housing Levy', p.housing_levy_employee)}
+          ${Number(p.loan_deduction) > 0 ? row('Loan Repayment', p.loan_deduction) : ''}
         </tbody>
-        <tfoot>${row('Total Deductions', Number(p.paye)+Number(p.nssf_employee)+Number(p.sha)+Number(p.housing_levy_employee))}</tfoot>
+        <tfoot>${row('Total Deductions', Number(p.paye)+Number(p.nssf_employee)+Number(p.sha)+Number(p.housing_levy_employee)+Number(p.loan_deduction||0))}</tfoot>
       </table>
       <table><tfoot>${row('NET PAY', p.net_pay)}</tfoot></table>
       <p style="font-size:11px;color:#666;margin-top:16px">Employer also remits NSSF ${ksh(p.nssf_employer)} and Housing Levy ${ksh(p.housing_levy_employer)} on top of this payslip — not deducted from the employee.</p>
       </body></html>`;
     res.set('Content-Type', 'text/html').send(html);
+  }
+
+  // ── Staff loans/advances ───────────────────────────────────
+  @Get('loans')
+  async listLoans(@Request() req: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, staff_id AS "staffId", staff_name AS "staffName", principal_amount AS "principalAmount",
+              monthly_deduction AS "monthlyDeduction", balance_remaining AS "balanceRemaining",
+              reason, status, created_by_name AS "createdByName", created_at AS "createdAt"
+         FROM staff_loans WHERE tenant_id::text = $1 ORDER BY created_at DESC`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  // Creating a loan expenses the disbursed principal immediately (the cash left
+  // the school then) — the monthly payroll deductions afterwards just pay it
+  // down and are NOT posted as a second expense (see finalizeRun).
+  @Post('loans')
+  async createLoan(@Request() req: any, @Body() dto: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    if (!dto?.staffId) throw new BadRequestException('Select a staff member.');
+    const principal = Number(dto.principalAmount);
+    const monthly = Number(dto.monthlyDeduction);
+    if (!principal || principal <= 0) throw new BadRequestException('Enter a valid loan amount.');
+    if (!monthly || monthly <= 0) throw new BadRequestException('Enter a valid monthly deduction.');
+    const existing = await this.ds.query(
+      `SELECT id FROM staff_loans WHERE tenant_id::text = $1 AND staff_id::text = $2 AND status = 'active'`,
+      [req.user.tenantId, dto.staffId],
+    ).catch(() => []);
+    if (existing.length) throw new BadRequestException('This staff member already has an active loan — it must be cleared or cancelled first.');
+    const staffRow = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 AND tenant_id::text = $2`,
+      [dto.staffId, req.user.tenantId],
+    ).catch(() => []);
+    if (!staffRow.length) throw new BadRequestException('Staff member not found.');
+    const staffName = `${staffRow[0].firstName} ${staffRow[0].lastName}`;
+    const name = await this.financeController.getUserDisplayName(req.user.id, req.user.email || '');
+    const rows = await this.ds.query(
+      `INSERT INTO staff_loans
+         (tenant_id, staff_id, staff_name, principal_amount, monthly_deduction, balance_remaining, reason,
+          status, created_by, created_by_name, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$4,$6,'active',$7,$8,NOW()) RETURNING id`,
+      [req.user.tenantId, dto.staffId, staffName, principal, monthly, dto.reason || null, req.user.id, name],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save: ${e.message}`); });
+    await this.financeController.recordExpenseRow(
+      req.user.tenantId, req.user.schoolId || null, 'Staff Loans/Advances (Disbursed)',
+      `Loan to ${staffName}${dto.reason ? ` — ${dto.reason}` : ''}`, principal,
+      new Date().toISOString().slice(0, 10),
+    );
+    return { id: rows[0].id };
+  }
+
+  @Patch('loans/:id')
+  async updateLoan(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const fields: string[] = []; const vals: any[] = []; let i = 1;
+    if (dto.monthlyDeduction !== undefined) { fields.push(`monthly_deduction = $${i++}`); vals.push(Number(dto.monthlyDeduction) || 0); }
+    if (dto.status !== undefined) { fields.push(`status = $${i++}`); vals.push(dto.status); }
+    if (dto.reason !== undefined) { fields.push(`reason = $${i++}`); vals.push(dto.reason || null); }
+    if (!fields.length) return { updated: false };
+    fields.push('updated_at = NOW()');
+    vals.push(id, req.user.tenantId);
+    await this.ds.query(
+      `UPDATE staff_loans SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
+      vals,
+    ).catch((e: any) => { throw new BadRequestException(`Could not update: ${e.message}`); });
+    return { updated: true };
+  }
+
+  @Delete('loans/:id')
+  async deleteLoan(@Request() req: any, @Param('id') id: string) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `SELECT principal_amount AS "principalAmount", balance_remaining AS "balanceRemaining"
+         FROM staff_loans WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId],
+    ).catch(() => []);
+    if (!rows.length) throw new BadRequestException('Loan not found.');
+    if (Number(rows[0].balanceRemaining) < Number(rows[0].principalAmount)) {
+      throw new BadRequestException('Deductions have already been recovered against this loan — cancel it instead of deleting.');
+    }
+    await this.ds.query(`DELETE FROM staff_loans WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // ── Annual PAYE summary (P9-style) ────────────────────────
+  // A month-by-month breakdown for one staff member across a calendar year,
+  // from FINALIZED payroll runs only — draft runs aren't real pay yet. This
+  // mirrors the structure of KRA's P9A form closely enough to use as a
+  // reference when filing, but isn't a pixel-perfect copy of the official
+  // template — cross-check against the current P9A before submitting.
+  @Get('p9/:staffId/html')
+  async p9Html(@Request() req: any, @Param('staffId') staffId: string, @Query('year') year: string, @Res() res: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const y = year || String(new Date().getFullYear());
+    const rows = await this.ds.query(
+      `SELECT r.month, e.basic_pay AS "basicPay", e.allowances_total AS "allowancesTotal", e.gross_pay AS "grossPay",
+              e.nssf_employee AS "nssfEmployee", e.sha, e.housing_levy_employee AS "housingLevyEmployee",
+              (e.gross_pay - e.nssf_employee - e.sha - e.housing_levy_employee) AS "taxablePay", e.paye
+         FROM payroll_entries e JOIN payroll_runs r ON r.id::text = e.payroll_run_id::text
+        WHERE e.staff_id::text = $1 AND e.tenant_id::text = $2 AND r.status = 'finalized' AND r.month LIKE $3
+        ORDER BY r.month ASC`,
+      [staffId, req.user.tenantId, `${y}-%`],
+    ).catch(() => []);
+    const staffRow = await this.ds.query(
+      `SELECT first_name AS "firstName", last_name AS "lastName" FROM users WHERE id::text = $1 AND tenant_id::text = $2`,
+      [staffId, req.user.tenantId],
+    ).catch(() => []);
+    const staffName = staffRow[0] ? `${staffRow[0].firstName} ${staffRow[0].lastName}` : 'Staff';
+    const school = await this.ds.query(`SELECT name FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [req.user.tenantId])
+      .then((r: any[]) => r[0]?.name || 'School').catch(() => 'School');
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const ksh = (n: any) => Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 });
+    const sum = (k: string) => (rows as any[]).reduce((s, r) => s + Number(r[k] || 0), 0);
+    const body = (rows as any[]).map((r: any) => `<tr>
+        <td>${esc(r.month)}</td><td class="n">${ksh(r.basicPay)}</td><td class="n">${ksh(r.allowancesTotal)}</td>
+        <td class="n">${ksh(r.grossPay)}</td><td class="n">${ksh(r.nssfEmployee)}</td><td class="n">${ksh(r.sha)}</td>
+        <td class="n">${ksh(r.housingLevyEmployee)}</td><td class="n">${ksh(r.taxablePay)}</td><td class="n">${ksh(r.paye)}</td>
+      </tr>`).join('') || `<tr><td colspan="9" style="text-align:center">No finalized payroll for ${esc(y)} yet.</td></tr>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Annual PAYE Summary ${esc(y)}</title><style>
+      body{font-family:Arial,sans-serif;margin:24px;color:#1a2e5a}
+      .head{text-align:center;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:16px}
+      .head h1{margin:0;font-size:20px}.head h2{margin:4px 0 0;font-size:14px;font-weight:400;color:#555}
+      table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
+      th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
+      th{background:#1a2e5a;color:#fff} td.n,th.n{text-align:right}
+      tfoot td{font-weight:bold;background:#f0f2f8}
+      .print{margin:16px 0;text-align:center}
+      button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
+      @media print{.print{display:none}}
+      </style></head><body>
+      <div class="head"><h1>${esc(school)}</h1><h2>Annual PAYE Summary (P9-style) · ${esc(staffName)} · ${esc(y)}</h2></div>
+      <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+      <table>
+        <thead><tr><th>Month</th><th class="n">Basic Pay</th><th class="n">Allowances</th><th class="n">Gross Pay</th>
+          <th class="n">NSSF</th><th class="n">SHA</th><th class="n">Housing Levy</th><th class="n">Taxable Pay</th><th class="n">PAYE</th></tr></thead>
+        <tbody>${body}</tbody>
+        <tfoot><tr><td>Total</td><td class="n">${ksh(sum('basicPay'))}</td><td class="n">${ksh(sum('allowancesTotal'))}</td>
+          <td class="n">${ksh(sum('grossPay'))}</td><td class="n">${ksh(sum('nssfEmployee'))}</td><td class="n">${ksh(sum('sha'))}</td>
+          <td class="n">${ksh(sum('housingLevyEmployee'))}</td><td class="n">${ksh(sum('taxablePay'))}</td><td class="n">${ksh(sum('paye'))}</td></tr></tfoot>
+      </table>
+      <p style="font-size:11px;color:#666;margin-top:16px">Based on finalized payroll runs only. This is a reference summary in the shape of KRA's P9A form — verify against the current official P9A template before filing.</p>
+      </body></html>`;
+    res.set('Content-Type', 'text/html').send(html);
+  }
+
+  // ── Bulk disbursement export (bank/M-Pesa bulk-payment upload) ───────────
+  // Generic Name/Phone/Amount/Reference CSV — close to Safaricom's bulk B2C
+  // template and most banks' generic salary-upload format, but check the
+  // exact column order/headers your bank or M-Pesa bulk portal expects before
+  // uploading; this is a starting point, not guaranteed to match every bank.
+  @Get('runs/:id/disbursement.csv')
+  async disbursementCsv(@Request() req: any, @Param('id') id: string, @Res() res: any) {
+    this.staffRoleOnly(req.user.role);
+    await this.ensureTables();
+    const run = await this.getRun(req, id);
+    if (run.status !== 'finalized') throw new BadRequestException('Finalize this payroll run before exporting a disbursement file.');
+    const phones = await this.ds.query(
+      `SELECT id, phone FROM users WHERE tenant_id::text = $1 AND id = ANY($2)`,
+      [req.user.tenantId, (run.entries as any[]).map(e => e.staffId)],
+    ).catch(() => []);
+    const phoneById: Record<string, string> = {};
+    for (const p of (phones as any[])) phoneById[p.id] = p.phone || '';
+    const esc = (s: any) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const lines = ['Name,Phone,Amount,Reference'];
+    for (const e of (run.entries as any[])) {
+      lines.push([esc(e.staffName), esc(phoneById[e.staffId] || ''), Number(e.netPay).toFixed(2), esc(`Salary ${run.month}`)].join(','));
+    }
+    res.set('Content-Type', 'text/csv');
+    res.set('Content-Disposition', `attachment; filename="payroll-disbursement-${run.month}.csv"`);
+    res.send(lines.join('\n'));
   }
 }
 

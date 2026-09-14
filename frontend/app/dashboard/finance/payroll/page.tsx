@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Users, Play, Lock, Trash2, Printer, Save } from 'lucide-react';
+import { ArrowLeft, Loader2, Users, Play, Lock, Trash2, Printer, Save, Plus, X, Download, FileText } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -9,7 +9,7 @@ const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { min
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 export default function PayrollPage() {
-  const [tab, setTab] = useState<'salaries' | 'runs'>('runs');
+  const [tab, setTab] = useState<'salaries' | 'runs' | 'loans'>('runs');
 
   // ── Staff salaries ──
   const [staff, setStaff] = useState<any[]>([]);
@@ -42,6 +42,47 @@ export default function PayrollPage() {
       loadStaff();
     } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save salary'); }
     finally { setSavingSalary(false); }
+  };
+
+  // ── Staff loans/advances ──
+  const [loans, setLoans] = useState<any[]>([]);
+  const [loadingLoans, setLoadingLoans] = useState(true);
+  const [showNewLoan, setShowNewLoan] = useState(false);
+  const [loanForm, setLoanForm] = useState({ staffId: '', principalAmount: '', monthlyDeduction: '', reason: '' });
+  const [savingLoan, setSavingLoan] = useState(false);
+
+  const loadLoans = () => {
+    setLoadingLoans(true);
+    apiClient.get('/finance/payroll/loans').then(r => setLoans(r.data || [])).catch(() => setLoans([])).finally(() => setLoadingLoans(false));
+  };
+  useEffect(() => { loadLoans(); }, []);
+
+  const staffWithoutActiveLoan = staff.filter((s: any) => !loans.some((l: any) => l.staffId === s.id && l.status === 'active'));
+
+  const createLoan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loanForm.staffId) { toast.error('Select a staff member'); return; }
+    setSavingLoan(true);
+    try {
+      await apiClient.post('/finance/payroll/loans', loanForm);
+      toast.success('Loan recorded and disbursement posted to Expenses');
+      setShowNewLoan(false);
+      setLoanForm({ staffId: '', principalAmount: '', monthlyDeduction: '', reason: '' });
+      loadLoans();
+    } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save loan'); }
+    finally { setSavingLoan(false); }
+  };
+
+  const cancelLoan = async (id: string) => {
+    if (!confirm('Cancel this loan? No further payroll deductions will be made for it.')) return;
+    try { await apiClient.patch(`/finance/payroll/loans/${id}`, { status: 'cancelled' }); toast.success('Cancelled'); loadLoans(); }
+    catch { toast.error('Could not cancel'); }
+  };
+
+  const deleteLoan = async (id: string) => {
+    if (!confirm('Delete this loan record?')) return;
+    try { await apiClient.delete(`/finance/payroll/loans/${id}`); toast.success('Deleted'); loadLoans(); }
+    catch (err: any) { toast.error(err?.response?.data?.message || 'Could not delete'); }
   };
 
   // ── Payroll runs ──
@@ -120,6 +161,39 @@ export default function PayrollPage() {
     }
   };
 
+  const [p9StaffId, setP9StaffId] = useState('');
+  const [p9Year, setP9Year] = useState(String(new Date().getFullYear()));
+  const openP9 = async () => {
+    if (!p9StaffId) { toast.error('Select a staff member'); return; }
+    const tId = toast.loading('Opening annual summary…');
+    try {
+      const res = await apiClient.get(`/finance/payroll/p9/${p9StaffId}/html`, { params: { year: p9Year }, responseType: 'text' });
+      const html = typeof res.data === 'string' ? res.data : String(res.data);
+      const blob = new Blob([html], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      toast.dismiss(tId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not open annual summary', { id: tId });
+    }
+  };
+
+  const downloadDisbursement = async (run: any) => {
+    const tId = toast.loading('Preparing disbursement file…');
+    try {
+      const res = await apiClient.get(`/finance/payroll/runs/${run.id}/disbursement.csv`, { responseType: 'blob' });
+      const blobUrl = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = blobUrl; a.download = `payroll-disbursement-${run.month}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      toast.dismiss(tId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not export disbursement file', { id: tId });
+    }
+  };
+
   return (
     <div className="space-y-5 max-w-4xl">
       <div className="flex items-center gap-3">
@@ -135,7 +209,7 @@ export default function PayrollPage() {
       </p>
 
       <div className="flex border-b border-theme gap-1">
-        {[{ key: 'runs', label: 'Payroll Runs' }, { key: 'salaries', label: 'Staff Salaries' }].map(t => (
+        {[{ key: 'runs', label: 'Payroll Runs' }, { key: 'salaries', label: 'Staff Salaries' }, { key: 'loans', label: 'Loans & Advances' }].map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${tab===t.key ? 'border-[#1a2e5a] text-theme-heading' : 'border-transparent text-theme-muted hover:text-theme-heading'}`}>
             {t.label}
@@ -195,6 +269,60 @@ export default function PayrollPage() {
         </div>
       )}
 
+      {tab === 'loans' && (
+        <>
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Users size={16} className="text-[#1a2e5a]"/>
+                <h2 className="font-bold text-theme-heading">Staff Loans &amp; Advances</h2>
+              </div>
+              <button onClick={() => setShowNewLoan(true)} className="btn-primary text-sm"><Plus size={14}/> New Loan</button>
+            </div>
+            <p className="text-xs text-theme-muted">Disbursing a loan posts the full amount to Expenses immediately; the monthly deduction below just pays it down each payroll run — no double-counting.</p>
+          </div>
+
+          {loadingLoans ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+          ) : loans.length === 0 ? (
+            <div className="card p-8 text-center text-theme-muted">No loans recorded yet.</div>
+          ) : (
+            <div className="card p-5">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-theme-muted border-b border-theme">
+                    <th className="px-2 py-2">Staff</th><th className="px-2 py-2 text-right">Principal</th>
+                    <th className="px-2 py-2 text-right">Monthly Deduction</th><th className="px-2 py-2 text-right">Balance</th>
+                    <th className="px-2 py-2">Status</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    {loans.map((l: any) => (
+                      <tr key={l.id} className="border-b border-theme/40">
+                        <td className="px-2 py-2">{l.staffName}</td>
+                        <td className="px-2 py-2 text-right">{ksh(l.principalAmount)}</td>
+                        <td className="px-2 py-2 text-right">{ksh(l.monthlyDeduction)}</td>
+                        <td className="px-2 py-2 text-right font-semibold">{ksh(l.balanceRemaining)}</td>
+                        <td className="px-2 py-2">
+                          <span className={`badge text-[10px] ${l.status === 'active' ? 'bg-amber-100 text-amber-700' : l.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{l.status}</span>
+                        </td>
+                        <td className="px-2 py-2 text-right whitespace-nowrap">
+                          {l.status === 'active' && (
+                            <button onClick={() => cancelLoan(l.id)} className="btn-ghost text-xs">Cancel</button>
+                          )}
+                          {Number(l.balanceRemaining) === Number(l.principalAmount) && (
+                            <button onClick={() => deleteLoan(l.id)} className="btn-ghost text-xs text-red-600"><Trash2 size={12}/></button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {tab === 'runs' && (
         <>
           <div className="card p-5">
@@ -207,7 +335,29 @@ export default function PayrollPage() {
                 {running ? <Loader2 size={15} className="animate-spin"/> : <Play size={15}/>} Run Payroll
               </button>
             </div>
-            <p className="text-xs text-theme-muted mt-2">Computes gross pay, PAYE, NSSF, SHA and Housing Levy for every staff member with a salary set. Running the same month again while it's still a draft recomputes it — nothing is duplicated.</p>
+            <p className="text-xs text-theme-muted mt-2">Computes gross pay, PAYE, NSSF, SHA, Housing Levy and any active loan deduction for every staff member with a salary set. Running the same month again while it's still a draft recomputes it — nothing is duplicated.</p>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText size={15} className="text-[#1a2e5a]"/>
+              <h3 className="font-bold text-theme-heading text-sm">Annual PAYE Summary (P9-style)</h3>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[180px]">
+                <label className="label">Staff Member</label>
+                <select value={p9StaffId} onChange={e => setP9StaffId(e.target.value)} className="input">
+                  <option value="">Select…</option>
+                  {staff.map((s: any) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Year</label>
+                <input type="number" value={p9Year} onChange={e => setP9Year(e.target.value)} className="input w-24"/>
+              </div>
+              <button onClick={openP9} className="btn-ghost"><Printer size={14}/> View</button>
+            </div>
+            <p className="text-xs text-theme-muted mt-2">A month-by-month breakdown for one staff member from finalized payroll only — a reference shaped like KRA's P9A, not a pixel-perfect copy. Verify against the current official form before filing.</p>
           </div>
 
           {loadingRuns ? (
@@ -233,6 +383,9 @@ export default function PayrollPage() {
                         <td className="px-2 py-2 text-right font-semibold">{ksh(r.totalNetPay)}</td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
                           <button onClick={() => openRunDetail(r.id)} className="btn-ghost text-xs">View</button>
+                          {r.status === 'finalized' && (
+                            <button onClick={() => downloadDisbursement(r)} className="btn-ghost text-xs"><Download size={12}/></button>
+                          )}
                           {r.status === 'draft' && (
                             <button onClick={() => deleteRun(r.id)} disabled={deleting === r.id} className="btn-ghost text-xs text-red-600">
                               {deleting === r.id ? <Loader2 size={12} className="animate-spin"/> : <Trash2 size={12}/>}
@@ -266,6 +419,7 @@ export default function PayrollPage() {
                     <th className="px-2 py-2">Staff</th><th className="px-2 py-2 text-right">Gross</th>
                     <th className="px-2 py-2 text-right">PAYE</th><th className="px-2 py-2 text-right">NSSF</th>
                     <th className="px-2 py-2 text-right">SHA</th><th className="px-2 py-2 text-right">Housing</th>
+                    <th className="px-2 py-2 text-right">Loan</th>
                     <th className="px-2 py-2 text-right">Net Pay</th><th></th>
                   </tr></thead>
                   <tbody>
@@ -277,6 +431,7 @@ export default function PayrollPage() {
                         <td className="px-2 py-2 text-right">{ksh(e.nssfEmployee)}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.sha)}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.housingLevyEmployee)}</td>
+                        <td className="px-2 py-2 text-right">{Number(e.loanDeduction) > 0 ? ksh(e.loanDeduction) : '—'}</td>
                         <td className="px-2 py-2 text-right font-bold text-green-700">{ksh(e.netPay)}</td>
                         <td className="px-2 py-2 text-right"><button onClick={() => openPayslip(e.id)} className="btn-ghost text-xs"><Printer size={12}/></button></td>
                       </tr>
@@ -292,6 +447,38 @@ export default function PayrollPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showNewLoan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="text-lg font-bold text-theme-heading">New Loan / Advance</h3>
+              <button onClick={() => setShowNewLoan(false)}><X size={20} className="text-theme-muted"/></button>
+            </div>
+            <form onSubmit={createLoan} className="p-5 space-y-4">
+              <div>
+                <label className="label">Staff Member *</label>
+                <select required value={loanForm.staffId} onChange={e => setLoanForm(f => ({ ...f, staffId: e.target.value }))} className="input">
+                  <option value="">Select…</option>
+                  {staffWithoutActiveLoan.map((s: any) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+                </select>
+                <p className="text-xs text-theme-muted mt-1">Only staff without an active loan are listed — one at a time per person.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Loan Amount (KES) *</label><input required type="number" min={1} value={loanForm.principalAmount} onChange={e => setLoanForm(f => ({ ...f, principalAmount: e.target.value }))} className="input"/></div>
+                <div><label className="label">Monthly Deduction (KES) *</label><input required type="number" min={1} value={loanForm.monthlyDeduction} onChange={e => setLoanForm(f => ({ ...f, monthlyDeduction: e.target.value }))} className="input"/></div>
+              </div>
+              <div><label className="label">Reason</label><input value={loanForm.reason} onChange={e => setLoanForm(f => ({ ...f, reason: e.target.value }))} className="input" placeholder="Optional"/></div>
+              <div className="flex gap-3 pt-1 border-t border-theme">
+                <button type="button" onClick={() => setShowNewLoan(false)} className="btn-ghost flex-1">Cancel</button>
+                <button type="submit" disabled={savingLoan} className="btn-primary flex-1">
+                  {savingLoan ? <Loader2 size={14} className="animate-spin"/> : 'Save'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
