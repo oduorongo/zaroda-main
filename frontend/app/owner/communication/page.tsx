@@ -1,27 +1,16 @@
 // app/owner/communication/page.tsx
-// Owner broadcasts a message to all school admins or all users, via email or SMS
-// (sent for real through the platform's Resend/Africa's Talking setup) or WhatsApp
-// (still a wa.me link — there's no server-side WhatsApp sender in this app).
+// Owner broadcasts a message to all school admins or all users, via email
+// (sent for real through the platform's Resend setup) or WhatsApp (still a
+// wa.me link — there's no server-side WhatsApp sender in this app).
+// SMS is paused platform-wide while Africa's Talking Sender ID registration
+// is pending payment — the test-SMS panel, SMS broadcast button, delivery
+// reports and SMS retry-in-history were removed rather than deleted from the
+// backend, so this is a straightforward flip back on once that's resolved.
 'use client';
 import { useState, useEffect } from 'react';
 import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle, History, X, Trash2 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
-
-// Same GSM-7/UCS-2 segment estimate as the tenant Communication composer
-// (app/dashboard/communication/page.tsx) — a message over 160 chars (70 with
-// emoji/unusual punctuation) splits into multiple SMS units per recipient.
-// eslint-disable-next-line no-control-regex
-const GSM7_RE = /^[\x20-\x7E¡£¤¥§¿ÄÅÆÉÑÖØÜßàäåæèéìñòöøùüΓΔΘΛΞΠΣΦΨΩ€]*$/;
-function smsSegments(text: string): { count: number; charset: 'GSM-7' | 'UCS-2' } {
-  const gsm7 = GSM7_RE.test(text);
-  const singleCap = gsm7 ? 160 : 70;
-  const multiCap = gsm7 ? 153 : 67;
-  const len = text.length;
-  if (len === 0) return { count: 0, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
-  if (len <= singleCap) return { count: 1, charset: gsm7 ? 'GSM-7' : 'UCS-2' };
-  return { count: Math.ceil(len / multiCap), charset: gsm7 ? 'GSM-7' : 'UCS-2' };
-}
 
 export default function OwnerCommunicationPage() {
   const [audience, setAudience] = useState<'admins' | 'all' | 'school' | 'individual' | 'incomplete'>('admins');
@@ -31,50 +20,12 @@ export default function OwnerCommunicationPage() {
   const [title, setTitle]       = useState('');
   const [message, setMessage]   = useState('');
   const [copied, setCopied]     = useState('');
-  const [sending, setSending]   = useState<'email' | 'sms' | ''>('');
+  const [sending, setSending]   = useState<'email' | ''>('');
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory]   = useState<any[]>([]);
-  const [retrying, setRetrying] = useState<string | null>(null);
 
-  // Real delivery status from Africa's Talking's Delivery Report webhook — separate
-  // from the "sent" counts above, which only mean the telco accepted the message.
-  const [showDlr, setShowDlr]   = useState(false);
-  const [dlrRows, setDlrRows]   = useState<any[]>([]);
-  const [dlrLoading, setDlrLoading] = useState(false);
-  const openDlr = () => {
-    setShowDlr(true);
-    setDlrLoading(true);
-    apiClient.get('/admin/sms-delivery-reports')
-      .then(r => setDlrRows(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setDlrRows([]))
-      .finally(() => setDlrLoading(false));
-  };
-
-  // Diagnostic: send one SMS to one specific number, outside the audience/bulk
-  // flow — what AT support asks for when troubleshooting a Sender ID/blacklist
-  // issue on a particular number.
-  const [testPhone, setTestPhone] = useState('');
-  const [testMessage, setTestMessage] = useState('');
-  const [testResult, setTestResult] = useState<any>(null);
-  const [sendingTest, setSendingTest] = useState(false);
-  const sendTestSms = async () => {
-    if (!testPhone.trim()) { toast.error('Enter a phone number'); return; }
-    setSendingTest(true);
-    setTestResult(null);
-    try {
-      const { data } = await apiClient.post('/admin/test-sms', { phone: testPhone.trim(), message: testMessage.trim() || undefined });
-      setTestResult(data);
-      if (data.sent > 0) toast.success('Sent — check the phone.');
-      else toast.error(data.detail || 'Not sent — see details below.');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Could not send test SMS.');
-    } finally {
-      setSendingTest(false);
-    }
-  };
-
-  // Same diagnostic, for email — confirms RESEND_API_KEY is actually set and
-  // working (e.g. for password-reset emails) without needing Render log access.
+  // Diagnostic: confirms RESEND_API_KEY is actually set and working (e.g. for
+  // password-reset emails) without needing Render log access.
   const [testEmail, setTestEmail] = useState('');
   const [testEmailMessage, setTestEmailMessage] = useState('');
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
@@ -98,22 +49,6 @@ export default function OwnerCommunicationPage() {
   const openHistory = () => {
     setShowHistory(true);
     apiClient.get('/admin/broadcast-history').then(r => setHistory(Array.isArray(r.data) ? r.data : [])).catch(() => setHistory([]));
-  };
-
-  const retryBroadcastSms = async (id: string) => {
-    const ok = window.confirm('Retry SMS for only the recipients that failed last time?');
-    if (!ok) return;
-    setRetrying(id);
-    try {
-      const { data } = await apiClient.post(`/admin/broadcast-history/${id}/retry-sms`);
-      if (data.error) { toast.error(data.error); return; }
-      toast.success(data.message || 'Retry complete.');
-      openHistory();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Could not retry.');
-    } finally {
-      setRetrying(null);
-    }
   };
 
   const deleteBroadcast = async (id: string) => {
@@ -161,20 +96,17 @@ export default function OwnerCommunicationPage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  // Sends for real via POST /admin/broadcast (Resend for email, Africa's Talking for
-  // SMS) — no dependency on the viewer having a desktop mail app configured, unlike
-  // the mailto: link this replaced.
-  const sendReal = async (channel: 'email' | 'sms') => {
+  // Sends for real via POST /admin/broadcast (Resend for email) — no dependency
+  // on the viewer having a desktop mail app configured, unlike the mailto: link
+  // this replaced.
+  const sendReal = async (channel: 'email') => {
     if (audience !== 'incomplete') {
       if (!title.trim()) { toast.error('Write a subject/title first'); return; }
       if (!message.trim()) { toast.error('Write a message first'); return; }
     }
-    const recipientCount = channel === 'sms' ? phones.length : emails.length;
-    const smsNote = channel === 'sms' && message.trim()
-      ? ` (${smsSegments(message).count} SMS unit${smsSegments(message).count === 1 ? '' : 's'} each)`
-      : '';
+    const recipientCount = emails.length;
     const ok = window.confirm(
-      `Send this ${channel === 'sms' ? 'SMS' : 'email'} to ${recipientCount} recipient${recipientCount === 1 ? '' : 's'}${smsNote}?\n\nThis cannot be undone.`,
+      `Send this email to ${recipientCount} recipient${recipientCount === 1 ? '' : 's'}?\n\nThis cannot be undone.`,
     );
     if (!ok) return;
     setSending(channel);
@@ -185,8 +117,8 @@ export default function OwnerCommunicationPage() {
       if (result?.error) { toast.error(result.error); return; }
       const stats = result[channel];
       if (!stats) { toast.error('No response for this channel.'); return; }
-      toast.success(`Sent ${stats.sent}/${stats.attempted} via ${channel === 'email' ? 'email' : 'SMS'}.`);
-      if (stats.failed > 0 && stats.detail) toast.error(`${channel === 'email' ? 'Email' : 'SMS'}: ${stats.detail}`, { duration: 8000 });
+      toast.success(`Sent ${stats.sent}/${stats.attempted} via email.`);
+      if (stats.failed > 0 && stats.detail) toast.error(`Email: ${stats.detail}`, { duration: 8000 });
     } catch (err: any) {
       toast.error(err?.response?.data?.message || `Could not send ${channel}.`);
     } finally {
@@ -203,41 +135,15 @@ export default function OwnerCommunicationPage() {
             <h1 className="text-xl font-black text-theme-heading">Communication</h1>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={openDlr} className="btn-ghost text-xs px-2.5 py-1.5">
-              <Check size={13}/> Delivery Reports
-            </button>
+            <span className="text-xs font-semibold px-2.5 py-1.5 rounded-xl bg-surface-2 text-theme-muted">
+              SMS — Coming soon
+            </span>
             <button onClick={openHistory} className="btn-ghost text-xs px-2.5 py-1.5">
               <History size={13}/> History
             </button>
           </div>
         </div>
         <p className="text-sm text-theme-muted">Send a message to school admins, school users (non-admin), individual (no-school) teacher accounts, everyone at once, or nudge schools that haven't finished setup. Split by audience to stay under a daily email cap — admins, school users and individual accounts never overlap.</p>
-
-        {/* Test SMS — one number, outside the bulk/audience flow */}
-        <div className="card p-4 space-y-3 border border-blue-200/60 bg-blue-50/30">
-          <div className="flex items-center gap-2">
-            <Phone size={15} className="text-[#1a2e5a]"/>
-            <span className="text-sm font-semibold text-theme-heading">Send test SMS to one number</span>
-          </div>
-          <p className="text-xs text-theme-muted">
-            For troubleshooting with Africa's Talking support — e.g. confirming a specific number is no longer blacklisted after activating promo messages.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX"
-              className="input text-sm flex-1 min-w-[160px]"/>
-            <input value={testMessage} onChange={e => setTestMessage(e.target.value)} placeholder="Message (optional — a default test message is used)"
-              className="input text-sm flex-[2] min-w-[200px]"/>
-            <button onClick={sendTestSms} disabled={sendingTest} className="btn-primary text-sm">
-              {sendingTest ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>} Send
-            </button>
-          </div>
-          {testResult && (
-            <div className="text-xs bg-surface-2 rounded-lg p-3 space-y-1">
-              <div><b>Sent:</b> {testResult.sent} / <b>Failed:</b> {testResult.failed}</div>
-              {testResult.detail && <div><b>Detail:</b> {testResult.detail}</div>}
-            </div>
-          )}
-        </div>
 
         {/* Test email — one address, outside the bulk/audience flow. Confirms
             RESEND_API_KEY is actually configured on the server and shows the exact
@@ -289,18 +195,11 @@ export default function OwnerCommunicationPage() {
               </div>
             )
           ) : data && (
-            <>
-              <div className="text-xs text-theme-muted flex gap-4">
-                <span><b className="text-theme-heading">{data.count}</b> recipients</span>
-                <span><Phone size={11} className="inline"/> {data.withPhone} with phone</span>
-                <span><Mail size={11} className="inline"/> {data.withEmail} with email</span>
-              </div>
-              {data.blacklisted > 0 && (
-                <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg">
-                  ⚠️ {data.blacklisted} of {data.withPhone} phone numbers previously opted out of promotional SMS and will likely reject an SMS send again.
-                </p>
-              )}
-            </>
+            <div className="text-xs text-theme-muted flex gap-4">
+              <span><b className="text-theme-heading">{data.count}</b> recipients</span>
+              <span><Phone size={11} className="inline"/> {data.withPhone} with phone</span>
+              <span><Mail size={11} className="inline"/> {data.withEmail} with email</span>
+            </div>
           )}
         </div>
 
@@ -340,7 +239,7 @@ export default function OwnerCommunicationPage() {
             <>
               <label className="label">Subject</label>
               <input value={title} onChange={e => setTitle(e.target.value)} className="input w-full"
-                placeholder="Subject line (used for email; ignored for SMS)"/>
+                placeholder="Subject line"/>
             </>
           )}
           <label className="label">Message{audience === 'incomplete' ? ' (optional — a default reminder is used if left blank)' : ''}</label>
@@ -349,24 +248,11 @@ export default function OwnerCommunicationPage() {
             placeholder={audience === 'incomplete'
               ? "Leave blank to send the default reminder to finish setup, or write your own…"
               : "Write your announcement to schools…"}/>
-          {message.trim() && (() => {
-            const seg = smsSegments(message);
-            return (
-              <p className={`text-xs -mt-1 ${seg.count > 1 ? 'text-amber-600' : 'text-theme-muted'}`}>
-                {message.length} characters ({seg.charset}) — as SMS: {seg.count} unit{seg.count === 1 ? '' : 's'} per recipient
-                {seg.count > 1 ? ' (billed as multiple messages)' : ''}
-              </p>
-            );
-          })()}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button onClick={() => sendReal('email')} disabled={sending === 'email'}
               className="justify-center flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60">
               {sending === 'email' ? <Loader2 size={15} className="animate-spin"/> : <Mail size={15}/>} Send Email
-            </button>
-            <button onClick={() => sendReal('sms')} disabled={sending === 'sms'}
-              className="justify-center flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-60">
-              {sending === 'sms' ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>} Send SMS
             </button>
             {audience !== 'incomplete' && (
               <button onClick={whatsappFirst} className="btn-ghost justify-center">
@@ -376,8 +262,8 @@ export default function OwnerCommunicationPage() {
           </div>
           <p className="text-[11px] text-theme-muted">
             {audience === 'incomplete'
-              ? 'Email and SMS go only to admins of schools with incomplete setup — not the full recipient list.'
-              : 'Email and SMS send for real to every recipient in this audience. WhatsApp has no automated sender — it opens a chat with the message ready to forward manually.'}
+              ? 'Email goes only to admins of schools with incomplete setup — not the full recipient list. (SMS — coming soon.)'
+              : 'Email sends for real to every recipient in this audience. WhatsApp has no automated sender — it opens a chat with the message ready to forward manually. (SMS — coming soon.)'}
           </p>
         </div>
 
@@ -450,51 +336,8 @@ export default function OwnerCommunicationPage() {
                     {h.failed > 0 && h.detail && (
                       <p className="text-[11px] text-red-600 mt-1">{h.detail}</p>
                     )}
-                    {h.channel === 'sms' && h.failedNumbers?.length > 0 && (
-                      <button onClick={() => retryBroadcastSms(h.id)} disabled={retrying === h.id}
-                        className="text-[11px] font-semibold text-[#1a2e5a] hover:underline mt-1">
-                        {retrying === h.id ? 'Retrying…' : `Retry SMS for the ${h.failedNumbers.length} that failed →`}
-                      </button>
-                    )}
                   </div>
                 ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showDlr && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto">
-            <div className="bg-surface rounded-2xl shadow-modal w-full max-w-2xl my-8 mt-16">
-              <div className="flex items-center justify-between p-5 border-b border-theme">
-                <div>
-                  <h3 className="text-lg font-bold text-theme-heading">Delivery Reports</h3>
-                  <p className="text-xs text-theme-muted mt-0.5">What Africa&apos;s Talking confirms actually reached each phone — not just what we sent.</p>
-                </div>
-                <button onClick={() => setShowDlr(false)}><X size={20} className="text-theme-muted"/></button>
-              </div>
-              <div className="p-5 space-y-2 max-h-[70vh] overflow-y-auto">
-                {dlrLoading ? (
-                  <div className="flex justify-center py-6"><Loader2 className="animate-spin text-theme-muted" size={20}/></div>
-                ) : dlrRows.length === 0 ? (
-                  <p className="text-sm text-theme-muted text-center py-6">
-                    No delivery reports yet. Make sure the callback URL is registered on the Africa&apos;s Talking dashboard under SMS → Delivery Reports, then send an SMS — reports usually land within a couple of minutes.
-                  </p>
-                ) : dlrRows.map((d: any) => {
-                  const ok = /success|delivered/i.test(d.status || '');
-                  return (
-                    <div key={d.id} className="card p-3 flex items-center justify-between gap-3 flex-wrap">
-                      <div className="min-w-0">
-                        <span className="font-mono text-sm text-theme-heading">{d.phoneNumber || '—'}</span>
-                        {d.failureReason && <p className="text-[11px] text-red-600 mt-0.5">{d.failureReason}</p>}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className={`badge ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} text-[10px] uppercase`}>{d.status || 'unknown'}</span>
-                        <span className="text-theme-muted">{new Date(d.receivedAt).toLocaleString('en-KE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           </div>
