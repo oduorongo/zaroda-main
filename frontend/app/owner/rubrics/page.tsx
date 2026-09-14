@@ -14,6 +14,7 @@ const GRADES = [
   ['grade_7','Grade 7'],['grade_8','Grade 8'],['grade_9','Grade 9'],
   ['grade_10','Grade 10'],['grade_11','Grade 11'],['grade_12','Grade 12'],
 ] as const;
+const gradeLabel = (v: string) => GRADES.find(([gv]) => gv === v)?.[1] || v || '—';
 
 export default function OwnerRubricsPage() {
   const [grade, setGrade]   = useState('grade_7');
@@ -157,6 +158,7 @@ export default function OwnerRubricsPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead><tr className="text-left text-theme-muted border-b border-theme">
+                    <th className="px-2 py-2">Grade</th>
                     <th className="px-2 py-2">Sub-strand</th>
                     <th className="px-2 py-2">Strand / Learning Area</th>
                     <th className="px-2 py-2">Video</th>
@@ -168,6 +170,7 @@ export default function OwnerRubricsPage() {
                   <tbody>
                     {viewStats.map((v: any, i: number) => (
                       <tr key={i} className="border-b border-theme/40">
+                        <td className="px-2 py-2 text-theme-muted text-xs whitespace-nowrap">{gradeLabel(v.gradeLevel)}</td>
                         <td className="px-2 py-2 font-semibold text-theme-heading">{v.substrandName || '—'}</td>
                         <td className="px-2 py-2 text-theme-muted text-xs">{v.strandName}{v.learningArea ? ` · ${v.learningArea}` : ''}</td>
                         <td className="px-2 py-2"><a href={v.videoUrl} target="_blank" rel="noreferrer" className="text-[#1a2e5a] hover:underline inline-flex items-center gap-1"><Youtube size={13}/> Watch</a></td>

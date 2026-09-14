@@ -457,6 +457,7 @@ export class AssessmentService {
     return this.dataSource.query(
       `SELECT c.substrand_id AS "substrandId", c.video_url AS "videoUrl",
               ss.name AS "substrandName", st.name AS "strandName", t.learning_area AS "learningArea",
+              t.grade_level AS "gradeLevel",
               COUNT(*)::int AS clicks,
               COUNT(DISTINCT c.user_id)::int AS "uniqueUsers",
               COUNT(DISTINCT c.tenant_id)::int AS "schoolsReached",
@@ -465,7 +466,7 @@ export class AssessmentService {
          LEFT JOIN assessment_substrands ss ON ss.id = c.substrand_id
          LEFT JOIN assessment_strands st ON st.id = ss.strand_id
          LEFT JOIN assessment_templates t ON t.id = st.template_id
-        GROUP BY c.substrand_id, c.video_url, ss.name, st.name, t.learning_area
+        GROUP BY c.substrand_id, c.video_url, ss.name, st.name, t.learning_area, t.grade_level
         ORDER BY clicks DESC`,
     ).catch(() => []);
   }
