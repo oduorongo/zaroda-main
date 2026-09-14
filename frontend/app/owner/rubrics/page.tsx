@@ -47,6 +47,18 @@ export default function OwnerRubricsPage() {
     }
   };
 
+  // Drill-down: which schools have watched one specific video.
+  const [schoolsFor, setSchoolsFor] = useState<any>(null); // the clicked row, or null when closed
+  const [schoolsData, setSchoolsData] = useState<any[] | null>(null);
+  const [schoolsLoading, setSchoolsLoading] = useState(false);
+  const openSchools = (row: any) => {
+    setSchoolsFor(row); setSchoolsData(null); setSchoolsLoading(true);
+    apiClient.get('/assessment/resource/views/schools', { params: { substrandId: row.substrandId, videoUrl: row.videoUrl } })
+      .then(r => setSchoolsData(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setSchoolsData([]))
+      .finally(() => setSchoolsLoading(false));
+  };
+
   useEffect(() => {
     apiClient.get(`/assessment/learning-areas?gradeLevel=${grade}`)
       .then(r => {
@@ -176,7 +188,11 @@ export default function OwnerRubricsPage() {
                         <td className="px-2 py-2"><a href={v.videoUrl} target="_blank" rel="noreferrer" className="text-[#1a2e5a] hover:underline inline-flex items-center gap-1"><Youtube size={13}/> Watch</a></td>
                         <td className="px-2 py-2 text-right font-black text-theme-heading">{v.clicks}</td>
                         <td className="px-2 py-2 text-right">{v.uniqueUsers}</td>
-                        <td className="px-2 py-2 text-right">{v.schoolsReached}</td>
+                        <td className="px-2 py-2 text-right">
+                          <button onClick={() => openSchools(v)} className="text-[#1a2e5a] font-semibold hover:underline" title="See which schools">
+                            {v.schoolsReached}
+                          </button>
+                        </td>
                         <td className="px-2 py-2 text-theme-muted text-xs">{v.lastClickedAt ? new Date(v.lastClickedAt).toLocaleDateString('en-KE') : '—'}</td>
                       </tr>
                     ))}
@@ -297,6 +313,43 @@ export default function OwnerRubricsPage() {
               <button onClick={saveLink} disabled={saving} className="btn-primary w-full justify-center">
                 {saving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>} Save link(s)
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {schoolsFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setSchoolsFor(null)}>
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()} style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <h3 className="font-bold text-theme-heading">Schools that watched this video</h3>
+                <p className="text-xs text-theme-muted mt-0.5">{schoolsFor.substrandName}</p>
+              </div>
+              <button onClick={() => setSchoolsFor(null)} className="text-theme-muted"><X size={20}/></button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-2">
+              {schoolsLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+              ) : !schoolsData || schoolsData.length === 0 ? (
+                <p className="text-sm text-theme-muted text-center py-6">No schools recorded for this video.</p>
+              ) : (
+                schoolsData.map((s: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-3 bg-surface-2 rounded-xl p-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-theme-heading text-sm truncate">{s.schoolName || 'Unknown school'}</div>
+                      <div className="text-[11px] text-theme-muted">
+                        {s.accountType === 'individual' ? 'Individual teacher' : 'School'} · {s.uniqueUsers} user{s.uniqueUsers === 1 ? '' : 's'} ·
+                        last watched {s.lastClickedAt ? new Date(s.lastClickedAt).toLocaleDateString('en-KE') : '—'}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-black text-theme-heading">{s.clicks}</div>
+                      <div className="text-[10px] text-theme-muted">click{s.clicks === 1 ? '' : 's'}</div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

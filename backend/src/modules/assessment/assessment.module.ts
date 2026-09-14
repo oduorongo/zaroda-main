@@ -471,6 +471,24 @@ export class AssessmentService {
     ).catch(() => []);
   }
 
+  // Owner-only: which SCHOOLS have watched one specific video — the "Schools"
+  // drill-down from getResourceViewStats above.
+  async getResourceViewSchools(substrandId: string, videoUrl: string) {
+    await this.ensureResourceClicksTable();
+    return this.dataSource.query(
+      `SELECT c.tenant_id AS "tenantId", ten.name AS "schoolName", ten.account_type AS "accountType",
+              COUNT(*)::int AS clicks,
+              COUNT(DISTINCT c.user_id)::int AS "uniqueUsers",
+              MAX(c.created_at) AS "lastClickedAt"
+         FROM video_resource_clicks c
+         LEFT JOIN tenants ten ON ten.id = c.tenant_id
+        WHERE c.substrand_id::text = $1 AND c.video_url = $2
+        GROUP BY c.tenant_id, ten.name, ten.account_type
+        ORDER BY clicks DESC`,
+      [substrandId, videoUrl],
+    ).catch(() => []);
+  }
+
   // ── SUMMATIVE (CATs & End-Term, admin-created exam events) ──
   // List the exam events the admin has created for this tenant.
   async listExams(tenantId: string, gradeLevel?: string) {
@@ -662,6 +680,13 @@ export class AssessmentController {
   getResourceViews(@Request() req: any) {
     if (req.user.role !== 'super_admin') return { error: 'forbidden', data: [] };
     return this.svc.getResourceViewStats();
+  }
+
+  // Drill-down: which schools have watched this one video.
+  @Get('resource/views/schools')
+  getResourceViewSchools(@Request() req: any, @Query('substrandId') substrandId: string, @Query('videoUrl') videoUrl: string) {
+    if (req.user.role !== 'super_admin') return { error: 'forbidden', data: [] };
+    return this.svc.getResourceViewSchools(substrandId, videoUrl);
   }
 
   // ── Owner rubric editing ──
