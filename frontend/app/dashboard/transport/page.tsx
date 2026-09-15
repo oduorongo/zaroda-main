@@ -4,12 +4,14 @@ import Link from 'next/link';
 import { ArrowLeft, Loader2, Bus, Truck, Users, Plus, X, Trash2, Save, MapPin } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
+import { ProUpgradeNotice, isProPlanError } from '@/components/ProUpgradeNotice';
 import toast from 'react-hot-toast';
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 0 });
 
 export default function TransportPage() {
   const [tab, setTab] = useState<'routes' | 'vehicles' | 'assignments'>('routes');
+  const [proLocked, setProLocked] = useState(false);
 
   // ── Vehicles ──
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -20,7 +22,7 @@ export default function TransportPage() {
 
   const loadVehicles = () => {
     setLoadingVehicles(true);
-    apiClient.get('/transport/vehicles').then(r => setVehicles(r.data || [])).catch(() => setVehicles([])).finally(() => setLoadingVehicles(false));
+    apiClient.get('/transport/vehicles').then(r => setVehicles(r.data || [])).catch((err) => { if (isProPlanError(err)) setProLocked(true); setVehicles([]); }).finally(() => setLoadingVehicles(false));
   };
   useEffect(() => { loadVehicles(); }, []);
 
@@ -160,6 +162,18 @@ export default function TransportPage() {
     try { await apiClient.delete(`/transport/assignments/${learnerId}`); toast.success('Removed'); loadAssignments(); loadRoutes(); }
     catch (err: any) { toast.error(err?.response?.data?.message || 'Could not remove'); }
   };
+
+  if (proLocked) {
+    return (
+      <div className="space-y-5 max-w-4xl">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="btn-ghost p-2"><ArrowLeft size={16}/></Link>
+          <h1 className="text-2xl font-black text-theme-heading">Student Transport</h1>
+        </div>
+        <ProUpgradeNotice feature="Student Transport"/>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-4xl">

@@ -89,10 +89,21 @@ export default function SubscriptionPage() {
             <div><span className="text-theme-muted">Primary/JS streams</span><br/><b>{summary?.streamsPrimaryJs ?? 0}</b> × KES {summary?.pricePrimaryJs ?? 2400}</div>
             <div><span className="text-theme-muted">Senior streams</span><br/><b>{summary?.streamsSenior ?? 0}</b> × KES {summary?.priceSenior ?? 3360}</div>
           </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-theme-muted">Plan</span>
+            <span className={`font-semibold ${summary?.isPro ? 'text-[#d4af37]' : 'text-theme-heading'}`}>
+              {summary?.isPro ? `Pro (+ KES ${(summary?.proFee ?? 0).toLocaleString('en-KE')})` : 'Essential'}
+            </span>
+          </div>
           <div className="border-t border-theme pt-3 flex items-center justify-between">
             <span className="text-sm font-semibold text-theme-heading">Amount due (1 year)</span>
             <span className="text-xl font-black text-theme-heading">KES {(summary?.amountDue ?? 0).toLocaleString('en-KE')}</span>
           </div>
+          {!summary?.isPro && (
+            <p className="text-xs text-theme-muted bg-surface-2/60 rounded-lg px-3 py-2">
+              On the Essential plan — fee recording only. Want detailed reports, payroll, HR and student transport too? Upgrade to Pro for KES {summary?.pricePro ?? 4500}/year (flat, not per stream) — email <a href="mailto:support@zarodasolutions.app?subject=Upgrade%20to%20Zaroda%20Pro" className="underline">support@zarodasolutions.app</a>.
+            </p>
+          )}
         </div>
 
         <div className="card p-5 space-y-3">

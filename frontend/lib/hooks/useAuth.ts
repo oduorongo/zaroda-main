@@ -24,6 +24,9 @@ export interface AppUser {
   // 'school' | 'individual' — an individual account is a teacher using
   // Professional Records without their school being a ZARODA tenant.
   accountType?: string;
+  // 'essential' (fee recording only) | 'pro' (adds detailed reports, payroll,
+  // HR and student transport). Undefined/legacy is treated as 'essential'.
+  planTier?: string;
   // Whether this user's own phone is on record as having opted out of
   // promotional SMS with the telco — only meaningful to show to them.
   smsOptedOut?: boolean;
@@ -107,6 +110,7 @@ export const isAdmin    = (role: string) => ['school_admin','tenant_owner','supe
 export const isParent   = (role: string) => role === 'parent';
 export const isLearner  = (role: string) => role === 'learner';
 export const isIndividualAccount = (accountType?: string) => accountType === 'individual';
+export const isProPlan = (planTier?: string) => planTier === 'pro';
 
 // School-level helpers — a school with no schoolLevels set (legacy/unknown) is
 // treated as running both bands so nothing disappears unexpectedly.

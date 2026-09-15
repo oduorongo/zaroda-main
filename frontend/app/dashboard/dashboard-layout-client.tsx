@@ -9,7 +9,7 @@ import {
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
   CalendarDays, CalendarClock, Bus,
 } from 'lucide-react';
-import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 import { useTheme } from '@/lib/hooks/useTheme';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -33,9 +33,9 @@ const NAV_ITEMS = [
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
-  { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin' },
+  { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin', pro: true },
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
-  { href: '/dashboard/transport',              icon: Bus,          label: 'Transport',            roles: 'finance' },
+  { href: '/dashboard/transport',              icon: Bus,          label: 'Transport',            roles: 'finance', pro: true },
   // Subscription nav hidden for now — page still reachable directly, just not in the sidebar.
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/senior-selection',       icon: GraduationCap,label: 'Grade 10 Selection',   roles: 'parent_ok' },
@@ -44,7 +44,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
   { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'staff' },
   { href: '/dashboard/duty-roster',            icon: CalendarDays, label: 'Duty Roster & Calendar', roles: 'staff' },
-  { href: '/dashboard/hr/staff',                icon: Users,        label: 'Staff Records',        roles: 'admin' },
+  { href: '/dashboard/hr/staff',                icon: Users,        label: 'Staff Records',        roles: 'admin', pro: true },
   { href: '/dashboard/hr/leave',                icon: CalendarClock,label: 'Leave',                 roles: 'staff' },
 ];
 
@@ -183,6 +183,11 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
               {item.badge && (
                 <span className="text-[9px] font-black bg-[#d4af37] text-[#0f1c38] px-1.5 py-0.5 rounded">
                   {item.badge}
+                </span>
+              )}
+              {(item as any).pro && !isProPlan(user.planTier) && (
+                <span className="text-[9px] font-black border border-[#d4af37] text-[#d4af37] px-1.5 py-0.5 rounded">
+                  PRO
                 </span>
               )}
               {active && <div className="w-1 h-4 bg-[#d4af37] rounded-full"/>}

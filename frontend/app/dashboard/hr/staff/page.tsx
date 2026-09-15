@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowLeft, Loader2, Users, Plus, X, Save, Trash2, Star, ShieldAlert, Briefcase } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
+import { ProUpgradeNotice, isProPlanError } from '@/components/ProUpgradeNotice';
 
 const DEPARTMENTS = [
   { v: 'teaching', label: 'Teaching' },
@@ -30,10 +31,11 @@ export default function HrStaffPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deactivating, setDeactivating] = useState<string | null>(null);
+  const [proLocked, setProLocked] = useState(false);
 
   const load = () => {
     setLoading(true);
-    apiClient.get('/hr/staff').then(r => setStaff(r.data || [])).catch(() => setStaff([])).finally(() => setLoading(false));
+    apiClient.get('/hr/staff').then(r => setStaff(r.data || [])).catch((err) => { if (isProPlanError(err)) setProLocked(true); setStaff([]); }).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
 
@@ -87,6 +89,18 @@ export default function HrStaffPage() {
     } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not remove'); }
     finally { setDeactivating(null); }
   };
+
+  if (proLocked) {
+    return (
+      <div className="space-y-5 max-w-4xl">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="btn-ghost p-2"><ArrowLeft size={16}/></Link>
+          <h1 className="text-2xl font-black text-theme-heading">Staff Records</h1>
+        </div>
+        <ProUpgradeNotice feature="Staff Records (HR)"/>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-4xl">

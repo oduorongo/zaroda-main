@@ -53,9 +53,10 @@ export class AuthService {
     let schoolLevels: string[] = [];
     let ownership = 'public';
     let accountType = 'school';
+    let planTier = 'essential';
     if (user.role !== 'super_admin' && user.tenantId) {
       const t = await this.dataSource.query(
-        `SELECT status, school_levels AS "schoolLevels", ownership, account_type AS "accountType" FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
+        `SELECT status, school_levels AS "schoolLevels", ownership, account_type AS "accountType", plan_tier AS "planTier" FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
       ).catch(() => []);
       if (t.length && t[0].status === 'suspended') {
         throw new UnauthorizedException('This school account has been suspended. Please contact ZARODA support.');
@@ -63,6 +64,7 @@ export class AuthService {
       schoolLevels = (t.length && t[0].schoolLevels) || [];
       ownership = (t.length && t[0].ownership) || 'public';
       accountType = (t.length && t[0].accountType) || 'school';
+      planTier = (t.length && t[0].planTier) || 'essential';
     }
 
     await this.userRepo.update(user.id, { lastLoginAt: new Date() });
@@ -85,6 +87,7 @@ export class AuthService {
         schoolLevels,
         ownership,
         accountType,
+        planTier,
       },
     };
   }
@@ -307,13 +310,15 @@ export class AuthService {
     let schoolLevels: string[] = [];
     let ownership = 'public';
     let accountType = 'school';
+    let planTier = 'essential';
     if (user.role !== 'super_admin' && user.tenantId) {
       const t = await this.dataSource.query(
-        `SELECT school_levels AS "schoolLevels", ownership, account_type AS "accountType" FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
+        `SELECT school_levels AS "schoolLevels", ownership, account_type AS "accountType", plan_tier AS "planTier" FROM tenants WHERE id = $1 LIMIT 1`, [user.tenantId],
       ).catch(() => []);
       schoolLevels = (t.length && t[0].schoolLevels) || [];
       ownership = (t.length && t[0].ownership) || 'public';
       accountType = (t.length && t[0].accountType) || 'school';
+      planTier = (t.length && t[0].planTier) || 'essential';
     }
 
     // Whether this user's own phone is on record as having opted out of
@@ -328,7 +333,7 @@ export class AuthService {
       smsOptedOut = b.length > 0;
     }
 
-    return { ...user, schoolLevels, ownership, accountType, smsOptedOut };
+    return { ...user, schoolLevels, ownership, accountType, planTier, smsOptedOut };
   }
 
   async logout(_userId: string) {

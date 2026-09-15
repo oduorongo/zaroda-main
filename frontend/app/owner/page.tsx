@@ -71,6 +71,12 @@ export default function OwnerDashboard() {
     catch { alert('Could not change subscription'); }
     finally { setActing(false); }
   };
+  const setPlanTier = async (id: string, planTier: string) => {
+    setActing(true);
+    try { await apiClient.patch(`/admin/tenants/${id}/plan`, { planTier }); await refreshAfterAction(id); }
+    catch { alert('Could not change plan'); }
+    finally { setActing(false); }
+  };
   const setOwnership = async (id: string, ownership: string) => {
     setActing(true);
     try { await apiClient.patch(`/admin/tenants/${id}`, { ownership }); await refreshAfterAction(id); }
@@ -525,8 +531,22 @@ export default function OwnerDashboard() {
                       </select>
                     </div>
 
+                    {/* Essential vs Pro plan */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-theme-muted">Plan</span>
+                      <select
+                        value={detail.tenant.plan_tier || 'essential'}
+                        disabled={acting}
+                        onChange={e => setPlanTier(detail.tenant.id, e.target.value)}
+                        className="input py-1 text-sm w-36"
+                      >
+                        <option value="essential">Essential</option>
+                        <option value="pro">Pro</option>
+                      </select>
+                    </div>
+
                     <p className="text-[11px] text-theme-muted">
-                      Suspending blocks all of this school's users from logging in until reactivated. Changing the tier updates their plan immediately.
+                      Suspending blocks all of this school's users from logging in until reactivated. Changing the tier or plan updates their access immediately. Essential covers fee recording only — Pro adds detailed reports, payroll, HR and student transport.
                     </p>
 
                     {/* Danger zone: permanent delete */}

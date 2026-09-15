@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
 import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/messaging';
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
+import { requireProPlan } from '../common/plan';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -1670,10 +1671,11 @@ const PAYROLL_STAFF_ROLES = [
 class PayrollController {
   constructor(private readonly ds: DataSource, private readonly financeController: FinanceController) {}
 
-  private staffRoleOnly(role: string) {
-    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
+  private async staffRoleOnly(req: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('Only the HOI, bursar or administrator can manage payroll.');
     }
+    await requireProPlan(this.ds, req.user.tenantId, 'Payroll');
   }
 
   private async ensureTables() {
@@ -1749,7 +1751,7 @@ class PayrollController {
   // Every active staff member, with their current salary record if one's been set.
   @Get('staff')
   async getStaff(@Request() req: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.role,
@@ -1766,7 +1768,7 @@ class PayrollController {
 
   @Post('salaries')
   async setSalary(@Request() req: any, @Body() dto: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     if (!dto?.staffId) throw new BadRequestException('Select a staff member.');
     await this.ensureTables();
     const paymentSource = dto.paymentSource === 'tsc' ? 'tsc' : 'school';
@@ -1789,7 +1791,7 @@ class PayrollController {
 
   @Get('runs')
   async listRuns(@Request() req: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT r.id, r.month, r.status, r.finalized_at AS "finalizedAt", r.finalized_by_name AS "finalizedByName",
@@ -1803,7 +1805,7 @@ class PayrollController {
 
   @Get('runs/:id')
   async getRun(@Request() req: any, @Param('id') id: string) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const runRows = await this.ds.query(
       `SELECT id, month, status, finalized_at AS "finalizedAt", finalized_by_name AS "finalizedByName"
@@ -1830,7 +1832,7 @@ class PayrollController {
   // entries outright — nothing is ever half-updated.
   @Post('runs')
   async runPayroll(@Request() req: any, @Body() dto: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     const month = String(dto?.month || '').trim();
     if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('Provide a month as YYYY-MM.');
     await this.ensureTables();
@@ -1924,7 +1926,7 @@ class PayrollController {
   // so a finalized payroll shows up in the rest of Finance automatically.
   @Post('runs/:id/finalize')
   async finalizeRun(@Request() req: any, @Param('id') id: string) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const tenantId = req.user.tenantId;
     const run = await this.getRun(req, id);
@@ -1968,7 +1970,7 @@ class PayrollController {
 
   @Delete('runs/:id')
   async deleteRun(@Request() req: any, @Param('id') id: string) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const rows = await this.ds.query(
       `SELECT status FROM payroll_runs WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId],
@@ -1982,7 +1984,7 @@ class PayrollController {
 
   @Get('payslip/:entryId/html')
   async payslipHtml(@Request() req: any, @Param('entryId') entryId: string, @Res() res: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const rows = await this.ds.query(
       `SELECT e.*, r.month, r.status FROM payroll_entries e
@@ -2040,7 +2042,7 @@ class PayrollController {
   // ── Staff loans/advances ───────────────────────────────────
   @Get('loans')
   async listLoans(@Request() req: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT id, staff_id AS "staffId", staff_name AS "staffName", principal_amount AS "principalAmount",
@@ -2056,7 +2058,7 @@ class PayrollController {
   // down and are NOT posted as a second expense (see finalizeRun).
   @Post('loans')
   async createLoan(@Request() req: any, @Body() dto: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     if (!dto?.staffId) throw new BadRequestException('Select a staff member.');
     const principal = Number(dto.principalAmount);
@@ -2092,7 +2094,7 @@ class PayrollController {
 
   @Patch('loans/:id')
   async updateLoan(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     if (dto.monthlyDeduction !== undefined) { fields.push(`monthly_deduction = $${i++}`); vals.push(Number(dto.monthlyDeduction) || 0); }
@@ -2110,7 +2112,7 @@ class PayrollController {
 
   @Delete('loans/:id')
   async deleteLoan(@Request() req: any, @Param('id') id: string) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const rows = await this.ds.query(
       `SELECT principal_amount AS "principalAmount", balance_remaining AS "balanceRemaining"
@@ -2133,7 +2135,7 @@ class PayrollController {
   // template — cross-check against the current P9A before submitting.
   @Get('p9/:staffId/html')
   async p9Html(@Request() req: any, @Param('staffId') staffId: string, @Query('year') year: string, @Res() res: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const y = year || String(new Date().getFullYear());
     const rows = await this.ds.query(
@@ -2194,7 +2196,7 @@ class PayrollController {
   // uploading; this is a starting point, not guaranteed to match every bank.
   @Get('runs/:id/disbursement.csv')
   async disbursementCsv(@Request() req: any, @Param('id') id: string, @Res() res: any) {
-    this.staffRoleOnly(req.user.role);
+    await this.staffRoleOnly(req);
     await this.ensureTables();
     const run = await this.getRun(req, id);
     if (run.status !== 'finalized') throw new BadRequestException('Finalize this payroll run before exporting a disbursement file.');
@@ -2225,10 +2227,11 @@ const TRANSPORT_MANAGER_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin',
 class TransportController {
   constructor(private readonly ds: DataSource) {}
 
-  private managerOnly(role: string) {
-    if (!TRANSPORT_MANAGER_ROLES.includes(role)) {
+  private async managerOnly(req: any) {
+    if (!TRANSPORT_MANAGER_ROLES.includes(req.user.role)) {
       throw new BadRequestException('Only the HOI, bursar or administrator can manage transport.');
     }
+    await requireProPlan(this.ds, req.user.tenantId, 'Student Transport');
   }
 
   private async ensureTables() {
@@ -2291,7 +2294,7 @@ class TransportController {
   // ── Vehicles ──────────────────────────────────────────────
   @Get('vehicles')
   async listVehicles(@Request() req: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT id, registration_number AS "registrationNumber", make_model AS "makeModel", capacity,
@@ -2303,7 +2306,7 @@ class TransportController {
 
   @Post('vehicles')
   async createVehicle(@Request() req: any, @Body() dto: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     if (!dto?.registrationNumber) throw new BadRequestException('Registration number is required.');
     await this.ensureTables();
     const rows = await this.ds.query(
@@ -2316,7 +2319,7 @@ class TransportController {
 
   @Patch('vehicles/:id')
   async updateVehicle(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     await this.ds.query(
       `UPDATE transport_vehicles SET
@@ -2332,7 +2335,7 @@ class TransportController {
 
   @Delete('vehicles/:id')
   async deleteVehicle(@Request() req: any, @Param('id') id: string) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     const inUse = await this.ds.query(`SELECT id FROM transport_routes WHERE vehicle_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => []);
     if (inUse.length) throw new BadRequestException('This vehicle is assigned to a route — reassign or delete the route first.');
@@ -2343,7 +2346,7 @@ class TransportController {
   // ── Routes ────────────────────────────────────────────────
   @Get('routes')
   async listRoutes(@Request() req: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT r.id, r.name, r.description, r.fee_amount AS "feeAmount", r.status,
@@ -2358,7 +2361,7 @@ class TransportController {
 
   @Post('routes')
   async createRoute(@Request() req: any, @Body() dto: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     if (!dto?.name) throw new BadRequestException('Route name is required.');
     await this.ensureTables();
     const rows = await this.ds.query(
@@ -2371,7 +2374,7 @@ class TransportController {
 
   @Patch('routes/:id')
   async updateRoute(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     await this.ds.query(
       `UPDATE transport_routes SET
@@ -2386,7 +2389,7 @@ class TransportController {
 
   @Delete('routes/:id')
   async deleteRoute(@Request() req: any, @Param('id') id: string) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     await this.ds.query(`DELETE FROM transport_assignments WHERE route_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     await this.ds.query(`DELETE FROM transport_stops WHERE route_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
@@ -2397,7 +2400,7 @@ class TransportController {
   // ── Stops ─────────────────────────────────────────────────
   @Get('routes/:routeId/stops')
   async listStops(@Request() req: any, @Param('routeId') routeId: string) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT id, name, pickup_time AS "pickupTime", dropoff_time AS "dropoffTime", order_index AS "orderIndex"
@@ -2408,7 +2411,7 @@ class TransportController {
 
   @Post('stops')
   async createStop(@Request() req: any, @Body() dto: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     if (!dto?.routeId || !dto?.name) throw new BadRequestException('Route and stop name are required.');
     await this.ensureTables();
     const rows = await this.ds.query(
@@ -2421,7 +2424,7 @@ class TransportController {
 
   @Delete('stops/:id')
   async deleteStop(@Request() req: any, @Param('id') id: string) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     await this.ds.query(`UPDATE transport_assignments SET stop_id = NULL WHERE stop_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     await this.ds.query(`DELETE FROM transport_stops WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
@@ -2442,7 +2445,7 @@ class TransportController {
       ).catch(() => []);
       if (!ok.length) throw new BadRequestException('You can only view your own child’s transport details.');
     } else {
-      this.managerOnly(req.user.role);
+      await this.managerOnly(req);
     }
     await this.ensureTables();
     const rows = await this.ds.query(
@@ -2462,7 +2465,7 @@ class TransportController {
   // ── Learner assignments ───────────────────────────────────
   @Get('assignments')
   async listAssignments(@Request() req: any, @Query('routeId') routeId?: string) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     const params: any[] = [req.user.tenantId];
     let where = `a.tenant_id::text = $1 AND a.status = 'active'`;
@@ -2482,7 +2485,7 @@ class TransportController {
 
   @Post('assignments')
   async setAssignment(@Request() req: any, @Body() dto: any) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     if (!dto?.learnerId || !dto?.routeId) throw new BadRequestException('Select a learner and a route.');
     await this.ensureTables();
     await this.ds.query(
@@ -2497,7 +2500,7 @@ class TransportController {
 
   @Delete('assignments/:learnerId')
   async removeAssignment(@Request() req: any, @Param('learnerId') learnerId: string) {
-    this.managerOnly(req.user.role);
+    await this.managerOnly(req);
     await this.ensureTables();
     await this.ds.query(`DELETE FROM transport_assignments WHERE learner_id::text = $1 AND tenant_id::text = $2`, [learnerId, req.user.tenantId]).catch(() => null);
     return { deleted: true };
@@ -4391,10 +4394,11 @@ const HR_STAFF_LOGIN_ROLES = [
 class HrController {
   constructor(private readonly ds: DataSource) {}
 
-  private assertAdmin(req: any) {
+  private async assertAdmin(req: any) {
     if (!HR_ADMIN_ROLES.includes(req.user.role)) {
       throw new BadRequestException('Only the HOI or an administrator can manage staff HR records.');
     }
+    await requireProPlan(this.ds, req.user.tenantId, 'HR');
   }
 
   private async ensureTables() {
@@ -4513,7 +4517,7 @@ class HrController {
   // details without re-typing a name that already exists in the system).
   @Get('staff')
   async listStaff(@Request() req: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const tenantId = req.user.tenantId;
     const hrRows = await this.ds.query(
@@ -4544,7 +4548,7 @@ class HrController {
 
   @Post('staff')
   async createStaff(@Request() req: any, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     if (!dto?.firstName?.trim() || !dto?.lastName?.trim()) throw new BadRequestException('First and last name are required.');
     const rows = await this.ds.query(
@@ -4566,7 +4570,7 @@ class HrController {
 
   @Patch('staff/:id')
   async updateStaff(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     const map: Record<string, string> = {
@@ -4590,7 +4594,7 @@ class HrController {
 
   @Delete('staff/:id')
   async deactivateStaff(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     await this.ds.query(
       `UPDATE hr_staff SET is_active = false, updated_at = NOW() WHERE id::text = $1 AND tenant_id::text = $2`,
@@ -4661,7 +4665,7 @@ class HrController {
 
   @Patch('leave/:id/review')
   async reviewLeave(@Request() req: any, @Param('id') id: string, @Body() dto: { action: 'approved' | 'rejected'; comment?: string }) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     if (!['approved', 'rejected'].includes(dto?.action)) throw new BadRequestException('action must be approved or rejected.');
     const name = await this.displayName(req.user.id, req.user.email || '');
@@ -4714,7 +4718,7 @@ class HrController {
   // ── Appraisals ───────────────────────────────────────────
   @Get('appraisals')
   async listAppraisals(@Request() req: any, @Query() q: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const params: any[] = [req.user.tenantId];
     let where = 'tenant_id::text = $1';
@@ -4731,7 +4735,7 @@ class HrController {
 
   @Post('appraisals')
   async createAppraisal(@Request() req: any, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     if (!dto?.period?.trim()) throw new BadRequestException('Enter the review period (e.g. "Term 1 2026").');
     const staffName = await this.resolveStaffName(req.user.tenantId, dto);
@@ -4752,7 +4756,7 @@ class HrController {
 
   @Patch('appraisals/:id')
   async updateAppraisal(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     const map: Record<string, string> = {
@@ -4774,7 +4778,7 @@ class HrController {
 
   @Delete('appraisals/:id')
   async deleteAppraisal(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     await this.ds.query(`DELETE FROM staff_appraisals WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
@@ -4785,7 +4789,7 @@ class HrController {
   // not see their own disciplinary record here (kept between them and the HOI).
   @Get('incidents')
   async listStaffIncidents(@Request() req: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT id, staff_user_id AS "staffUserId", hr_staff_id AS "hrStaffId", staff_name AS "staffName",
@@ -4798,7 +4802,7 @@ class HrController {
 
   @Post('incidents')
   async createStaffIncident(@Request() req: any, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     if (!dto?.description?.trim()) throw new BadRequestException('Describe the incident.');
     const staffName = await this.resolveStaffName(req.user.tenantId, dto);
@@ -4819,7 +4823,7 @@ class HrController {
 
   @Patch('incidents/:id')
   async updateStaffIncident(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     const map: Record<string, string> = {
@@ -4841,7 +4845,7 @@ class HrController {
 
   @Delete('incidents/:id')
   async deleteStaffIncident(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     await this.ds.query(`DELETE FROM staff_incidents WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
@@ -4850,7 +4854,7 @@ class HrController {
   // ── Recruitment: job postings ─────────────────────────────
   @Get('jobs')
   async listJobs(@Request() req: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT j.id, j.title, j.department, j.employment_type AS "employmentType", j.location,
@@ -4866,7 +4870,7 @@ class HrController {
 
   @Post('jobs')
   async createJob(@Request() req: any, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     if (!dto?.title?.trim()) throw new BadRequestException('Enter a job title.');
     const name = await this.displayName(req.user.id, req.user.email || '');
@@ -4886,7 +4890,7 @@ class HrController {
 
   @Patch('jobs/:id')
   async updateJob(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     const map: Record<string, string> = {
@@ -4908,7 +4912,7 @@ class HrController {
 
   @Delete('jobs/:id')
   async deleteJob(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     await this.ds.query(`DELETE FROM job_applications WHERE job_posting_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     await this.ds.query(`DELETE FROM job_postings WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
@@ -4917,7 +4921,7 @@ class HrController {
 
   @Get('jobs/:id/applications')
   async listApplications(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     return this.ds.query(
       `SELECT id, applicant_name AS "applicantName", applicant_email AS "applicantEmail",
@@ -4931,7 +4935,7 @@ class HrController {
 
   @Patch('applications/:id')
   async updateApplication(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     if (dto.status !== undefined) { fields.push(`status = $${i++}`); vals.push(dto.status); }
@@ -4948,7 +4952,7 @@ class HrController {
 
   @Delete('applications/:id')
   async deleteApplication(@Request() req: any, @Param('id') id: string) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     await this.ensureTables();
     await this.ds.query(`DELETE FROM job_applications WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
     return { deleted: true };
@@ -6229,7 +6233,7 @@ class AdminController {
     // Records without a school account (see migration 043).
     const accountType = ['school', 'individual'].includes(q.accountType) ? q.accountType : null;
     const rows = await this.ds.query(
-      `SELECT t.id, t.name, t.status, t.subscription_tier AS "subscriptionTier",
+      `SELECT t.id, t.name, t.status, t.subscription_tier AS "subscriptionTier", t.plan_tier AS "planTier",
               t.county, t.sub_county AS "subCounty", t.zone, t.phone, t.email,
               t.knec_code AS "knecCode", t.trial_ends_at AS "trialEndsAt", t.created_at AS "createdAt",
               t.school_levels AS "schoolLevels", t.ownership, t.account_type AS "accountType",
@@ -6924,6 +6928,17 @@ class AdminController {
     await this.ds.query(`UPDATE tenants SET ${sets.join(', ')} WHERE id = $1`, vals)
       .catch((e: any) => { throw e; });
     return { id, tier: dto.tier };
+  }
+
+  // Essential (fee recording only) vs Pro (adds detailed reports, payroll, HR,
+  // transport) — separate from the grade-band/trial `subscription_tier` above.
+  @Patch('tenants/:id/plan')
+  async setTenantPlan(@Request() req: any, @Param('id') id: string, @Body() dto: { planTier: string }) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    if (!['essential', 'pro'].includes(dto?.planTier)) return { error: 'planTier must be "essential" or "pro".' };
+    await this.ds.query(`UPDATE tenants SET plan_tier = $2, updated_at = NOW() WHERE id = $1`, [id, dto.planTier])
+      .catch((e: any) => { throw e; });
+    return { id, planTier: dto.planTier };
   }
 
   // Edit a school's core details.

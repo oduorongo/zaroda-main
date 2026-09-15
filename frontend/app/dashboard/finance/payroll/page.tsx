@@ -4,12 +4,14 @@ import Link from 'next/link';
 import { ArrowLeft, Loader2, Users, Play, Lock, Trash2, Printer, Save, Plus, X, Download, FileText } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
+import { ProUpgradeNotice, isProPlanError } from '@/components/ProUpgradeNotice';
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 });
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 export default function PayrollPage() {
   const [tab, setTab] = useState<'salaries' | 'runs' | 'loans'>('runs');
+  const [proLocked, setProLocked] = useState(false);
 
   // ── Staff salaries ──
   const [staff, setStaff] = useState<any[]>([]);
@@ -20,7 +22,7 @@ export default function PayrollPage() {
 
   const loadStaff = () => {
     setLoadingStaff(true);
-    apiClient.get('/finance/payroll/staff').then(r => setStaff(r.data || [])).catch(() => setStaff([])).finally(() => setLoadingStaff(false));
+    apiClient.get('/finance/payroll/staff').then(r => setStaff(r.data || [])).catch((err) => { if (isProPlanError(err)) setProLocked(true); setStaff([]); }).finally(() => setLoadingStaff(false));
   };
   useEffect(() => { loadStaff(); }, []);
 
@@ -198,6 +200,18 @@ export default function PayrollPage() {
       toast.error(e?.response?.data?.message || 'Could not export disbursement file', { id: tId });
     }
   };
+
+  if (proLocked) {
+    return (
+      <div className="space-y-5 max-w-4xl">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard/finance" className="btn-ghost p-2"><ArrowLeft size={16}/></Link>
+          <h1 className="text-2xl font-black text-theme-heading">Payroll</h1>
+        </div>
+        <ProUpgradeNotice feature="Payroll"/>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-4xl">

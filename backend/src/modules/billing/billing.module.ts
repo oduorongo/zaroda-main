@@ -20,6 +20,9 @@ const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
 const SENIOR_GRADES = ['grade_10', 'grade_11', 'grade_12'];
 const PRICE_PRIMARY_JS = 2400;
 const PRICE_SENIOR = 3360;
+// Pro plan (detailed reports, payroll, HR, transport) — one flat fee per school
+// per year, not per stream. See migration 064_plan_tier.sql / requireProPlan().
+const PRICE_PRO_PLAN = 4500;
 
 function callbackUrl(): string {
   const base = (process.env.RENDER_EXTERNAL_URL || process.env.BACKEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
@@ -79,8 +82,13 @@ export class SubscriptionController {
     for (const r of rows) {
       if (SENIOR_GRADES.includes(r.gradeLevel)) senior++; else primaryJs++;
     }
-    const amount = primaryJs * PRICE_PRIMARY_JS + senior * PRICE_SENIOR;
-    return { primaryJs, senior, amount };
+    const planRows = await this.ds.query(
+      `SELECT plan_tier AS "planTier" FROM tenants WHERE id::text = $1`, [tenantId],
+    ).catch(() => []);
+    const isPro = planRows[0]?.planTier === 'pro';
+    const proFee = isPro ? PRICE_PRO_PLAN : 0;
+    const amount = primaryJs * PRICE_PRIMARY_JS + senior * PRICE_SENIOR + proFee;
+    return { primaryJs, senior, isPro, proFee, amount };
   }
 
   @Get('summary')
@@ -98,6 +106,7 @@ export class SubscriptionController {
       schoolName: t[0]?.name,
       streamsPrimaryJs: due.primaryJs, streamsSenior: due.senior,
       pricePrimaryJs: PRICE_PRIMARY_JS, priceSenior: PRICE_SENIOR,
+      isPro: due.isPro, proFee: due.proFee, pricePro: PRICE_PRO_PLAN,
       amountDue: due.amount,
       paidUntil, covered,
     };
@@ -118,10 +127,11 @@ export class SubscriptionController {
     const school = await this.ds.query(`SELECT name FROM tenants WHERE id::text = $1 LIMIT 1`, [tenantId]).catch(() => []);
     const schoolName = school[0]?.name || 'your school';
 
+    const description = `ZARODA subscription — ${schoolName} (${due.primaryJs + due.senior} streams${due.isPro ? ' + Pro plan' : ''})`;
     const result = await initiateStkPush({
       amount: due.amount,
       phone,
-      description: `ZARODA subscription — ${schoolName} (${due.primaryJs + due.senior} streams)`,
+      description,
       callbackUrl: callbackUrl(),
     });
     if (!result.ok) throw new BadRequestException(result.detail || 'Could not start the M-Pesa payment. Try again.');
@@ -133,7 +143,7 @@ export class SubscriptionController {
        VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,$8,$9)
        RETURNING id`,
       [tenantId, due.amount, phone, result.merchantRequestId || null,
-       `ZARODA subscription — ${due.primaryJs + due.senior} streams`,
+       description,
        due.primaryJs, due.senior, JSON.stringify(result.raw || {}), req.user.id],
     ).catch(() => []);
 

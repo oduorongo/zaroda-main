@@ -27,6 +27,23 @@ const PRICING = [
   { tier: 'Senior School',    grades: 'Grade 10–12', price: '3,360', per: 'per stream / year', highlight: true },
 ];
 
+// Every school starts on Essential — full fee recording plus the rest of the
+// core modules. Pro is one flat add-on per school (not per stream) that unlocks
+// the deeper, admin-facing modules.
+const PLAN_FEATURES = {
+  essential: [
+    'Fee structures, invoices & M-Pesa collection',
+    'Academic: marks, report cards & mark lists',
+    'Communication, Library, Sports & Discipline',
+  ],
+  proOnly: [
+    'Detailed school-wide analytics & reports',
+    'Payroll — PAYE, NSSF, SHA, Housing Levy & payslips',
+    'HR — staff records, appraisals & recruitment',
+    'Student Transport — routes, vehicles & fee billing',
+  ],
+};
+
 const TRUST = [
   { icon: MapPin,      label: 'Built for Kenya', sub: 'All 47 counties' },
   { icon: BookOpen,    label: 'CBC / CBE aligned', sub: 'KICD curriculum' },
@@ -241,6 +258,52 @@ export default function HomePage() {
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Free all of 2026</span>
           <span className="mx-3">·</span>
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> ZARODA Sports always free</span>
+        </div>
+
+        {/* Essential vs Pro — a second, separate choice from the per-stream price
+            above: every school gets Essential by default; Pro is one flat add-on
+            per school that unlocks the deeper admin-facing modules. */}
+        <div className="text-center mt-20 mb-10">
+          <p className="text-[#f5820a] font-bold text-sm uppercase tracking-widest mb-2">Choose your depth</p>
+          <h2 className="text-3xl md:text-4xl font-black text-[#1a2e5a]">Essential or Pro</h2>
+          <p className="text-[#7a82a8] mt-3">Same per-stream price above either way. Pro adds one flat fee per school, per year — not per stream.</p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
+          <div className="card bg-white p-7">
+            <h3 className="font-bold text-[#1a2e5a]">Essential</h3>
+            <p className="text-xs text-[#7a82a8] mb-4">Included in every school's subscription — no add-on needed</p>
+            <div className="flex items-end gap-1 mb-5">
+              <span className="text-2xl font-black text-[#1a2e5a]">Included</span>
+            </div>
+            <ul className="space-y-2 mb-6">
+              {PLAN_FEATURES.essential.map(f => (
+                <li key={f} className="flex items-start gap-2 text-sm text-[#1a2e5a]">
+                  <Check size={15} className="text-green-600 mt-0.5 flex-shrink-0"/> {f}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-[#7a82a8]">Fee recording covers structures, invoices and M-Pesa collection — detailed school-wide reports, payroll, HR and transport are Pro-only.</p>
+          </div>
+
+          <div className="card bg-white p-7 relative ring-2 ring-[#d4af37]">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#d4af37] text-[#0f1c38] text-[10px] font-black px-3 py-1 rounded-full">MOST COMPLETE</span>
+            <h3 className="font-bold text-[#1a2e5a]">Pro</h3>
+            <p className="text-xs text-[#7a82a8] mb-4">Everything in Essential, plus the admin-facing modules</p>
+            <div className="flex items-end gap-1 mb-1">
+              <span className="text-sm font-semibold text-[#7a82a8]">+ KES</span>
+              <span className="text-4xl font-black text-[#1a2e5a]">4,500</span>
+            </div>
+            <p className="text-xs text-[#7a82a8] mb-5">per school / year · flat fee, not per stream</p>
+            <ul className="space-y-2 mb-6">
+              {PLAN_FEATURES.proOnly.map(f => (
+                <li key={f} className="flex items-start gap-2 text-sm text-[#1a2e5a]">
+                  <Check size={15} className="text-green-600 mt-0.5 flex-shrink-0"/> {f}
+                </li>
+              ))}
+            </ul>
+            <Link href="/auth/signup" className="btn-primary w-full justify-center">Get started free</Link>
+          </div>
         </div>
       </section>
 

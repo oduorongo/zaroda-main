@@ -35,6 +35,11 @@ export class Tenant {
   @Column({ name: 'subscription_tier', default: 'trial' })
   subscriptionTier: string;
 
+  // 'essential' (fee recording only) | 'pro' (adds detailed reports/analytics,
+  // payroll, HR, and student transport) — see migration 064_plan_tier.sql.
+  @Column({ name: 'plan_tier', default: 'essential' })
+  planTier: string;
+
   @Column({ name: 'trial_ends_at', nullable: true })
   trialEndsAt: Date;
 
