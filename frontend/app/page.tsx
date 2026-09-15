@@ -256,8 +256,6 @@ export default function HomePage() {
 
         <div className="text-center mt-8 text-sm text-[#7a82a8]">
           <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Free all of 2026</span>
-          <span className="mx-3">·</span>
-          <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> ZARODA Sports always free</span>
         </div>
 
         {/* Essential vs Pro — a second, separate choice from the per-stream price
