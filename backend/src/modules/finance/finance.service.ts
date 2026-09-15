@@ -108,7 +108,7 @@ import {
   Injectable, NotFoundException, BadRequestException, ConflictException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 
 // ZARODA SMS subscription pricing — per stream per year
 // ALL modules included at no extra charge:
@@ -190,7 +190,16 @@ export class FeeService {
           );
         }
 
-        const totalBilled = termItems.reduce((s, i) => s + Number(i.amount), 0);
+        // A learner actively assigned to a transport route gets its fee added as its
+        // own line item — everyone else's invoice is unaffected. See TransportController
+        // (backend/src/modules/stubs.module.ts) for how the assignment/fee are managed.
+        const transportFee = await this.getActiveTransportFee(manager, tenantId, learner.id);
+        const lineItemsForLearner = transportFee
+          ? [...termItems.map(i => ({ name: i.name, type: i.feeType, amount: Number(i.amount), term: i.term })),
+             { name: `Transport — ${transportFee.routeName}`, type: 'transport', amount: transportFee.amount, term: dto.term }]
+          : termItems.map(i => ({ name: i.name, type: i.feeType, amount: Number(i.amount), term: i.term }));
+
+        const totalBilled = lineItemsForLearner.reduce((s, i) => s + Number(i.amount), 0);
         const netPayable  = Math.max(totalBilled - scholarshipCredit, 0);
 
         // Upsert fee account
@@ -229,9 +238,7 @@ export class FeeService {
           status:       'unpaid',
           dueDate:      account.dueDate,
           issuedBy:     userId,
-          lineItems:    termItems.map(i => ({
-            name: i.name, type: i.feeType, amount: i.amount, term: i.term,
-          })),
+          lineItems:    lineItemsForLearner,
         });
         await manager.save(SchoolInvoice, invoice);
 
@@ -358,6 +365,23 @@ export class FeeService {
       }
     }
     return parseFloat(credit.toFixed(2));
+  }
+
+  // Transport lives in its own raw-SQL controller (TransportController), not a TypeORM
+  // entity here — read directly so an invoice can carry the fee without a hard module
+  // dependency. Swallows a missing table (transport never set up for this tenant) as "none".
+  private async getActiveTransportFee(
+    manager: EntityManager, tenantId: string, learnerId: string
+  ): Promise<{ amount: number; routeName: string } | null> {
+    const rows = await manager.query(
+      `SELECT r.fee_amount AS "feeAmount", r.name AS "routeName"
+         FROM transport_assignments a
+         JOIN transport_routes r ON r.id::text = a.route_id::text
+        WHERE a.tenant_id::text = $1 AND a.learner_id::text = $2 AND a.status = 'active' AND r.status = 'active'`,
+      [tenantId, learnerId],
+    ).catch(() => []);
+    if (!rows.length || !Number(rows[0].feeAmount)) return null;
+    return { amount: Number(rows[0].feeAmount), routeName: rows[0].routeName };
   }
 }
 

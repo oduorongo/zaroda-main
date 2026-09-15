@@ -2215,9 +2215,298 @@ class PayrollController {
   }
 }
 
+const TRANSPORT_MANAGER_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'];
+
+// Student transport: vehicles/drivers, routes with stops, and which learner rides
+// which route+stop. A route's fee is picked up by FeeService.generateStreamInvoices
+// as an extra per-learner line item — see getActiveTransportFee() there.
+@Controller('transport')
+@UseGuards(JwtAuthGuard)
+class TransportController {
+  constructor(private readonly ds: DataSource) {}
+
+  private managerOnly(role: string) {
+    if (!TRANSPORT_MANAGER_ROLES.includes(role)) {
+      throw new BadRequestException('Only the HOI, bursar or administrator can manage transport.');
+    }
+  }
+
+  private async ensureTables() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS transport_vehicles (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['registration_number', 'text'], ['make_model', 'text'], ['capacity', 'integer DEFAULT 0'],
+      ['driver_name', 'text'], ['driver_phone', 'text'],
+      ['status', "text DEFAULT 'active'"], // active | inactive
+      ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE transport_vehicles ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS transport_routes (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['name', 'text'], ['description', 'text'], ['vehicle_id', 'uuid'],
+      ['fee_amount', 'numeric DEFAULT 0'], // charged every term a learner is actively assigned
+      ['status', "text DEFAULT 'active'"], // active | inactive
+      ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE transport_routes ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS transport_stops (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, route_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['name', 'text'], ['pickup_time', 'text'], ['dropoff_time', 'text'], ['order_index', 'integer DEFAULT 0'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE transport_stops ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+
+    // One active route+stop per learner at a time — reassigning just overwrites it,
+    // the same "at most one live record" idiom as staff_salaries / staff_loans.
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS transport_assignments (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid, learner_id uuid, created_at timestamptz DEFAULT NOW()
+       )`,
+    ).catch(() => null);
+    for (const [n, t] of [
+      ['route_id', 'uuid'], ['stop_id', 'uuid'],
+      ['status', "text DEFAULT 'active'"], // active | inactive
+      ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ] as [string, string][]) {
+      await this.ds.query(`ALTER TABLE transport_assignments ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+    await this.ds.query(`CREATE UNIQUE INDEX IF NOT EXISTS transport_assignments_tenant_learner_uq ON transport_assignments (tenant_id, learner_id)`).catch(() => null);
+  }
+
+  // ── Vehicles ──────────────────────────────────────────────
+  @Get('vehicles')
+  async listVehicles(@Request() req: any) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, registration_number AS "registrationNumber", make_model AS "makeModel", capacity,
+              driver_name AS "driverName", driver_phone AS "driverPhone", status
+         FROM transport_vehicles WHERE tenant_id::text = $1 ORDER BY registration_number`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('vehicles')
+  async createVehicle(@Request() req: any, @Body() dto: any) {
+    this.managerOnly(req.user.role);
+    if (!dto?.registrationNumber) throw new BadRequestException('Registration number is required.');
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `INSERT INTO transport_vehicles (tenant_id, registration_number, make_model, capacity, driver_name, driver_phone, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING id`,
+      [req.user.tenantId, dto.registrationNumber, dto.makeModel || null, Number(dto.capacity) || 0, dto.driverName || null, dto.driverPhone || null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save vehicle: ${e.message}`); });
+    return { id: rows[0].id, saved: true };
+  }
+
+  @Patch('vehicles/:id')
+  async updateVehicle(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    await this.ds.query(
+      `UPDATE transport_vehicles SET
+         registration_number = COALESCE($3, registration_number), make_model = COALESCE($4, make_model),
+         capacity = COALESCE($5, capacity), driver_name = COALESCE($6, driver_name),
+         driver_phone = COALESCE($7, driver_phone), status = COALESCE($8, status), updated_at = NOW()
+       WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId, dto.registrationNumber ?? null, dto.makeModel ?? null, dto.capacity != null ? Number(dto.capacity) : null,
+       dto.driverName ?? null, dto.driverPhone ?? null, dto.status ?? null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not update vehicle: ${e.message}`); });
+    return { saved: true };
+  }
+
+  @Delete('vehicles/:id')
+  async deleteVehicle(@Request() req: any, @Param('id') id: string) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    const inUse = await this.ds.query(`SELECT id FROM transport_routes WHERE vehicle_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => []);
+    if (inUse.length) throw new BadRequestException('This vehicle is assigned to a route — reassign or delete the route first.');
+    await this.ds.query(`DELETE FROM transport_vehicles WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // ── Routes ────────────────────────────────────────────────
+  @Get('routes')
+  async listRoutes(@Request() req: any) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT r.id, r.name, r.description, r.fee_amount AS "feeAmount", r.status,
+              r.vehicle_id AS "vehicleId", v.registration_number AS "vehicleReg", v.driver_name AS "driverName",
+              (SELECT COUNT(*) FROM transport_stops st WHERE st.route_id::text = r.id::text) AS "stopCount",
+              (SELECT COUNT(*) FROM transport_assignments a WHERE a.route_id::text = r.id::text AND a.status = 'active') AS "learnerCount"
+         FROM transport_routes r LEFT JOIN transport_vehicles v ON v.id::text = r.vehicle_id::text
+        WHERE r.tenant_id::text = $1 ORDER BY r.name`,
+      [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('routes')
+  async createRoute(@Request() req: any, @Body() dto: any) {
+    this.managerOnly(req.user.role);
+    if (!dto?.name) throw new BadRequestException('Route name is required.');
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `INSERT INTO transport_routes (tenant_id, name, description, vehicle_id, fee_amount, updated_at)
+       VALUES ($1,$2,$3,$4,$5,NOW()) RETURNING id`,
+      [req.user.tenantId, dto.name, dto.description || null, dto.vehicleId || null, Number(dto.feeAmount) || 0],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save route: ${e.message}`); });
+    return { id: rows[0].id, saved: true };
+  }
+
+  @Patch('routes/:id')
+  async updateRoute(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    await this.ds.query(
+      `UPDATE transport_routes SET
+         name = COALESCE($3, name), description = COALESCE($4, description), vehicle_id = $5,
+         fee_amount = COALESCE($6, fee_amount), status = COALESCE($7, status), updated_at = NOW()
+       WHERE id::text = $1 AND tenant_id::text = $2`,
+      [id, req.user.tenantId, dto.name ?? null, dto.description ?? null, dto.vehicleId || null,
+       dto.feeAmount != null ? Number(dto.feeAmount) : null, dto.status ?? null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not update route: ${e.message}`); });
+    return { saved: true };
+  }
+
+  @Delete('routes/:id')
+  async deleteRoute(@Request() req: any, @Param('id') id: string) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    await this.ds.query(`DELETE FROM transport_assignments WHERE route_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    await this.ds.query(`DELETE FROM transport_stops WHERE route_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    await this.ds.query(`DELETE FROM transport_routes WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // ── Stops ─────────────────────────────────────────────────
+  @Get('routes/:routeId/stops')
+  async listStops(@Request() req: any, @Param('routeId') routeId: string) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    return this.ds.query(
+      `SELECT id, name, pickup_time AS "pickupTime", dropoff_time AS "dropoffTime", order_index AS "orderIndex"
+         FROM transport_stops WHERE route_id::text = $1 AND tenant_id::text = $2 ORDER BY order_index, name`,
+      [routeId, req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('stops')
+  async createStop(@Request() req: any, @Body() dto: any) {
+    this.managerOnly(req.user.role);
+    if (!dto?.routeId || !dto?.name) throw new BadRequestException('Route and stop name are required.');
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `INSERT INTO transport_stops (tenant_id, route_id, name, pickup_time, dropoff_time, order_index)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [req.user.tenantId, dto.routeId, dto.name, dto.pickupTime || null, dto.dropoffTime || null, Number(dto.orderIndex) || 0],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save stop: ${e.message}`); });
+    return { id: rows[0].id, saved: true };
+  }
+
+  @Delete('stops/:id')
+  async deleteStop(@Request() req: any, @Param('id') id: string) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    await this.ds.query(`UPDATE transport_assignments SET stop_id = NULL WHERE stop_id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    await this.ds.query(`DELETE FROM transport_stops WHERE id::text = $1 AND tenant_id::text = $2`, [id, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+
+  // A parent may check their own child's route/stop/vehicle — read-only, no
+  // ability to change it. Same guardian_email ownership check used by the
+  // parent fees/library endpoints elsewhere in this file.
+  @Get('my-child/:learnerId')
+  async myChildTransport(@Request() req: any, @Param('learnerId') learnerId: string) {
+    const tenantId = req.user.tenantId;
+    if (req.user.role === 'parent') {
+      const ok = await this.ds.query(
+        `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id = $2
+            AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
+        [learnerId, tenantId, String(req.user.email || '')],
+      ).catch(() => []);
+      if (!ok.length) throw new BadRequestException('You can only view your own child’s transport details.');
+    } else {
+      this.managerOnly(req.user.role);
+    }
+    await this.ensureTables();
+    const rows = await this.ds.query(
+      `SELECT a.route_id AS "routeId", r.name AS "routeName", r.fee_amount AS "feeAmount",
+              a.stop_id AS "stopId", s.name AS "stopName", s.pickup_time AS "pickupTime", s.dropoff_time AS "dropoffTime",
+              v.registration_number AS "vehicleReg", v.driver_name AS "driverName", v.driver_phone AS "driverPhone"
+         FROM transport_assignments a
+         JOIN transport_routes r ON r.id::text = a.route_id::text
+         LEFT JOIN transport_stops s ON s.id::text = a.stop_id::text
+         LEFT JOIN transport_vehicles v ON v.id::text = r.vehicle_id::text
+        WHERE a.tenant_id::text = $1 AND a.learner_id::text = $2 AND a.status = 'active'`,
+      [tenantId, learnerId],
+    ).catch(() => []);
+    return rows[0] || null;
+  }
+
+  // ── Learner assignments ───────────────────────────────────
+  @Get('assignments')
+  async listAssignments(@Request() req: any, @Query('routeId') routeId?: string) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    const params: any[] = [req.user.tenantId];
+    let where = `a.tenant_id::text = $1 AND a.status = 'active'`;
+    if (routeId) { params.push(routeId); where += ` AND a.route_id::text = $${params.length}`; }
+    return this.ds.query(
+      `SELECT a.id, a.learner_id AS "learnerId", l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber", a.route_id AS "routeId", r.name AS "routeName",
+              a.stop_id AS "stopId", s.name AS "stopName"
+         FROM transport_assignments a
+         JOIN learners l ON l.id::text = a.learner_id::text
+         LEFT JOIN transport_routes r ON r.id::text = a.route_id::text
+         LEFT JOIN transport_stops s ON s.id::text = a.stop_id::text
+        WHERE ${where} ORDER BY l.first_name`,
+      params,
+    ).catch(() => []);
+  }
+
+  @Post('assignments')
+  async setAssignment(@Request() req: any, @Body() dto: any) {
+    this.managerOnly(req.user.role);
+    if (!dto?.learnerId || !dto?.routeId) throw new BadRequestException('Select a learner and a route.');
+    await this.ensureTables();
+    await this.ds.query(
+      `INSERT INTO transport_assignments (tenant_id, learner_id, route_id, stop_id, status, updated_at)
+       VALUES ($1,$2,$3,$4,'active',NOW())
+       ON CONFLICT (tenant_id, learner_id) DO UPDATE SET
+         route_id = $3, stop_id = $4, status = 'active', updated_at = NOW()`,
+      [req.user.tenantId, dto.learnerId, dto.routeId, dto.stopId || null],
+    ).catch((e: any) => { throw new BadRequestException(`Could not save assignment: ${e.message}`); });
+    return { saved: true };
+  }
+
+  @Delete('assignments/:learnerId')
+  async removeAssignment(@Request() req: any, @Param('learnerId') learnerId: string) {
+    this.managerOnly(req.user.role);
+    await this.ensureTables();
+    await this.ds.query(`DELETE FROM transport_assignments WHERE learner_id::text = $1 AND tenant_id::text = $2`, [learnerId, req.user.tenantId]).catch(() => null);
+    return { deleted: true };
+  }
+}
+
 @Module({
   imports: [TypeOrmModule.forFeature([Invoice])],
-  controllers: [FinanceController, MpesaPaybillController, MpesaCallbackController, PayrollController],
+  controllers: [FinanceController, MpesaPaybillController, MpesaCallbackController, PayrollController, TransportController],
   providers: [FinanceController],
 })
 export class FinanceModule {}

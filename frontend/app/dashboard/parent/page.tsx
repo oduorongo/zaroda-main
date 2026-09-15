@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   User, DollarSign, FileText, MessageSquare, CheckCircle,
-  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play, Star, X,
+  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play, Star, X, Bus,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -122,6 +122,17 @@ export default function ParentPortalPage() {
   const [rubData, setRubData]   = useState<any>(null);
   const [rubLoading, setRubLoading] = useState(false);
   const [rubTerm, setRubTerm]   = useState('term_1');
+
+  const [transportChild, setTransportChild] = useState<any>(null);
+  const [transportData, setTransportData]   = useState<any>(null);
+  const [transportLoading, setTransportLoading] = useState(false);
+
+  const openTransport = async (c: any) => {
+    setTransportChild(c); setTransportData(null); setTransportLoading(true);
+    try { const r = await apiClient.get(`/transport/my-child/${c.id}`); setTransportData(r.data); }
+    catch { setTransportData(null); }
+    finally { setTransportLoading(false); }
+  };
 
   const openRubric = async (c: any, term = rubTerm) => {
     setRubChild(c); setRubData(null); setRubLoading(true); setRubTerm(term);
@@ -414,6 +425,7 @@ export default function ParentPortalPage() {
                   <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><FileText size={13}/> Report Card</button>
                   <button onClick={() => openFees(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><CreditCard size={13}/> Fees</button>
                   <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><BookOpen size={13}/> Library</button>
+                  <button onClick={() => openTransport(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><Bus size={13}/> Transport</button>
                   <button onClick={() => openRubric(c)} className="flex-1 min-w-[45%] justify-center text-xs flex items-center gap-1.5 font-bold px-3 py-2 rounded-lg bg-[#d4af37] text-[#1a2e5a] hover:brightness-95"><Sparkles size={13}/> Assessment Book</button>
                 </div>
               </div>
@@ -578,6 +590,52 @@ export default function ParentPortalPage() {
                   )}
                   <p className="text-[11px] text-theme-muted mt-4">For library questions, please contact the school library.</p>
                 </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transport modal */}
+      {transportChild && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md" style={{ border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="font-bold text-theme-heading">{transportChild.firstName} {transportChild.lastName} · Transport</h3>
+              <button onClick={() => setTransportChild(null)}>✕</button>
+            </div>
+            <div className="p-5">
+              {transportLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="animate-spin text-theme-muted" size={22}/></div>
+              ) : !transportData ? (
+                <p className="text-sm text-theme-muted text-center py-6">Not assigned to a transport route yet. Contact the school office to sign up.</p>
+              ) : (
+                <div className="space-y-3 text-sm">
+                  <div className="bg-surface-2 rounded-xl p-3">
+                    <div className="text-[10px] text-theme-muted uppercase">Route</div>
+                    <div className="font-bold text-theme-heading">{transportData.routeName}</div>
+                    {transportData.feeAmount > 0 && <div className="text-xs text-theme-muted">KES {Number(transportData.feeAmount).toLocaleString('en-KE')}/term</div>}
+                  </div>
+                  {transportData.stopName && (
+                    <div className="bg-surface-2 rounded-xl p-3">
+                      <div className="text-[10px] text-theme-muted uppercase">Stop</div>
+                      <div className="font-bold text-theme-heading">{transportData.stopName}</div>
+                      <div className="text-xs text-theme-muted">
+                        {transportData.pickupTime ? `Pickup ${transportData.pickupTime}` : ''}
+                        {transportData.pickupTime && transportData.dropoffTime ? ' · ' : ''}
+                        {transportData.dropoffTime ? `Drop-off ${transportData.dropoffTime}` : ''}
+                      </div>
+                    </div>
+                  )}
+                  {transportData.vehicleReg && (
+                    <div className="bg-surface-2 rounded-xl p-3">
+                      <div className="text-[10px] text-theme-muted uppercase">Vehicle</div>
+                      <div className="font-bold text-theme-heading">{transportData.vehicleReg}</div>
+                      {transportData.driverName && <div className="text-xs text-theme-muted">Driver: {transportData.driverName}{transportData.driverPhone ? ` · ${transportData.driverPhone}` : ''}</div>}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-theme-muted">For transport questions, please contact the school office.</p>
+                </div>
               )}
             </div>
           </div>
