@@ -376,12 +376,7 @@ export default function OwnerDashboard() {
                       {accountType === 'school' && <th className="py-2 pr-3 font-medium">Category</th>}
                       <th className="py-2 pr-3 font-medium">Status</th>
                       {accountType === 'school' && <th className="py-2 pr-3 font-medium">Tier</th>}
-                      {accountType === 'school' ? (
-                        <>
-                          <th className="py-2 pr-3 font-medium">Learners</th>
-                          <th className="py-2 pr-3 font-medium">Users</th>
-                        </>
-                      ) : (
+                      {accountType !== 'school' && (
                         <th className="py-2 pr-3 font-medium">Documents Generated</th>
                       )}
                       <th className="py-2 pr-3 font-medium">{accountType === 'school' ? 'County' : 'Email'}</th>
@@ -390,7 +385,7 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {schools.length === 0 ? (
-                      <tr><td colSpan={accountType === 'school' ? 9 : 5} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
+                      <tr><td colSpan={accountType === 'school' ? 7 : 5} className="py-8 text-center text-theme-muted">No {accountType === 'school' ? 'schools' : 'individual accounts'} found</td></tr>
                     ) : schools.map((s: any) => (
                       <tr key={s.id} className="border-b border-theme/50 hover:bg-surface-2 cursor-pointer" onClick={() => openSchool(s.id)}>
                         <td className="py-2.5 pr-3 font-semibold text-theme-heading">{s.name}</td>
@@ -398,12 +393,7 @@ export default function OwnerDashboard() {
                         {accountType === 'school' && <td className="py-2.5 pr-3">{s.category || 'Public'}</td>}
                         <td className="py-2.5 pr-3"><span className={`badge ${statusBadge(s.status)}`}>{s.status}</span></td>
                         {accountType === 'school' && <td className="py-2.5 pr-3 capitalize">{s.subscriptionTier || '—'}</td>}
-                        {accountType === 'school' ? (
-                          <>
-                            <td className="py-2.5 pr-3">{s.learnerCount ?? 0}</td>
-                            <td className="py-2.5 pr-3">{s.userCount ?? 0}</td>
-                          </>
-                        ) : (
+                        {accountType !== 'school' && (
                           <td className="py-2.5 pr-3">{s.documentsGenerated ?? 0}</td>
                         )}
                         <td className="py-2.5 pr-3 text-theme-muted">{accountType === 'school' ? (s.county || '—') : (s.email || s.adminEmail || '—')}</td>
