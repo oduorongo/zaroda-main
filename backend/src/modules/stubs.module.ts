@@ -1687,6 +1687,11 @@ class PayrollController {
       ['basic_pay', 'numeric DEFAULT 0'], ['house_allowance', 'numeric DEFAULT 0'],
       ['transport_allowance', 'numeric DEFAULT 0'], ['other_allowance', 'numeric DEFAULT 0'],
       ['other_allowance_label', 'text'], ['updated_at', 'timestamptz DEFAULT NOW()'],
+      // Most public-school teachers are paid by TSC, not the school — the school's payroll
+      // must not assume everyone on it. 'tsc' staff are skipped by a normal run unless they
+      // also have remedial (per-lesson) pay entered for that month.
+      ['payment_source', "text DEFAULT 'school'"], // school | tsc
+      ['remedial_rate', 'numeric DEFAULT 0'],       // KES paid per remedial lesson taught
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE staff_salaries ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
     }
@@ -1716,6 +1721,7 @@ class PayrollController {
       ['paye', 'numeric DEFAULT 0'], ['nssf_employee', 'numeric DEFAULT 0'], ['nssf_employer', 'numeric DEFAULT 0'],
       ['sha', 'numeric DEFAULT 0'], ['housing_levy_employee', 'numeric DEFAULT 0'], ['housing_levy_employer', 'numeric DEFAULT 0'],
       ['loan_id', 'uuid'], ['loan_deduction', 'numeric DEFAULT 0'],
+      ['payment_source', "text DEFAULT 'school'"], ['remedial_lessons', 'numeric DEFAULT 0'], ['remedial_pay', 'numeric DEFAULT 0'],
       ['net_pay', 'numeric DEFAULT 0'],
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE payroll_entries ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
@@ -1749,7 +1755,8 @@ class PayrollController {
       `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.role,
               s.basic_pay AS "basicPay", s.house_allowance AS "houseAllowance",
               s.transport_allowance AS "transportAllowance", s.other_allowance AS "otherAllowance",
-              s.other_allowance_label AS "otherAllowanceLabel"
+              s.other_allowance_label AS "otherAllowanceLabel",
+              COALESCE(s.payment_source, 'school') AS "paymentSource", s.remedial_rate AS "remedialRate"
          FROM users u LEFT JOIN staff_salaries s ON s.staff_id::text = u.id::text AND s.tenant_id::text = u.tenant_id::text
         WHERE u.tenant_id::text = $1 AND u.role = ANY($2) AND u.is_active = true
         ORDER BY u.first_name`,
@@ -1762,16 +1769,19 @@ class PayrollController {
     this.staffRoleOnly(req.user.role);
     if (!dto?.staffId) throw new BadRequestException('Select a staff member.');
     await this.ensureTables();
+    const paymentSource = dto.paymentSource === 'tsc' ? 'tsc' : 'school';
     await this.ds.query(
       `INSERT INTO staff_salaries
-         (tenant_id, staff_id, basic_pay, house_allowance, transport_allowance, other_allowance, other_allowance_label, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+         (tenant_id, staff_id, basic_pay, house_allowance, transport_allowance, other_allowance, other_allowance_label,
+          payment_source, remedial_rate, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
        ON CONFLICT (tenant_id, staff_id) DO UPDATE SET
          basic_pay = $3, house_allowance = $4, transport_allowance = $5,
-         other_allowance = $6, other_allowance_label = $7, updated_at = NOW()`,
+         other_allowance = $6, other_allowance_label = $7, payment_source = $8, remedial_rate = $9, updated_at = NOW()`,
       [
         req.user.tenantId, dto.staffId, Number(dto.basicPay) || 0, Number(dto.houseAllowance) || 0,
         Number(dto.transportAllowance) || 0, Number(dto.otherAllowance) || 0, dto.otherAllowanceLabel || null,
+        paymentSource, Number(dto.remedialRate) || 0,
       ],
     ).catch((e: any) => { throw new BadRequestException(`Could not save salary: ${e.message}`); });
     return { saved: true };
@@ -1806,7 +1816,9 @@ class PayrollController {
               basic_pay AS "basicPay", allowances_total AS "allowancesTotal", gross_pay AS "grossPay",
               paye, nssf_employee AS "nssfEmployee", nssf_employer AS "nssfEmployer",
               sha, housing_levy_employee AS "housingLevyEmployee", housing_levy_employer AS "housingLevyEmployer",
-              loan_id AS "loanId", loan_deduction AS "loanDeduction", net_pay AS "netPay"
+              loan_id AS "loanId", loan_deduction AS "loanDeduction",
+              payment_source AS "paymentSource", remedial_lessons AS "remedialLessons", remedial_pay AS "remedialPay",
+              net_pay AS "netPay"
          FROM payroll_entries WHERE payroll_run_id::text = $1 ORDER BY staff_name`,
       [id],
     ).catch(() => []);
@@ -1843,15 +1855,29 @@ class PayrollController {
       runId = created[0].id;
     }
 
-    const staff = await this.ds.query(
+    // Lessons taught this run, per staff — how TSC-paid staff (paid by government, not the
+    // school) can still get a remedial payment without being pulled into the normal payroll.
+    const remedialLessons: Record<string, number> = {};
+    for (const [k, v] of Object.entries(dto?.remedialLessons || {})) {
+      const n = Number(v);
+      if (n > 0) remedialLessons[k] = n;
+    }
+
+    const candidates = await this.ds.query(
       `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.role,
               s.basic_pay AS "basicPay", s.house_allowance AS "houseAllowance",
-              s.transport_allowance AS "transportAllowance", s.other_allowance AS "otherAllowance"
+              s.transport_allowance AS "transportAllowance", s.other_allowance AS "otherAllowance",
+              COALESCE(s.payment_source, 'school') AS "paymentSource", s.remedial_rate AS "remedialRate"
          FROM users u JOIN staff_salaries s ON s.staff_id::text = u.id::text AND s.tenant_id::text = u.tenant_id::text
-        WHERE u.tenant_id::text = $1 AND u.role = ANY($2) AND u.is_active = true AND s.basic_pay > 0`,
+        WHERE u.tenant_id::text = $1 AND u.role = ANY($2) AND u.is_active = true`,
       [tenantId, PAYROLL_STAFF_ROLES],
     ).catch(() => []);
-    if (!staff.length) throw new BadRequestException('No staff have a salary set yet — add salaries under Payroll → Staff Salaries first.');
+    // TSC-paid staff (public-school teachers paid by the government) are excluded from the
+    // school's own payroll by default — they only appear in a run if remedial lessons were
+    // entered for them this month. School-paid staff still need a basic pay set to appear.
+    const staff = (candidates as any[]).filter(s =>
+      s.paymentSource === 'tsc' ? remedialLessons[s.id] > 0 : Number(s.basicPay) > 0);
+    if (!staff.length) throw new BadRequestException('No staff to pay this month — set a school-paid salary, or enter remedial lessons for TSC-paid staff, under Payroll → Staff Salaries first.');
 
     // Active loans, keyed by staff — enforced one-active-loan-at-a-time at
     // creation time, so this is at most one row per staff member.
@@ -1865,7 +1891,9 @@ class PayrollController {
 
     for (const s of (staff as any[])) {
       const basicPay = Number(s.basicPay) || 0;
-      const allowancesTotal = Number(s.houseAllowance || 0) + Number(s.transportAllowance || 0) + Number(s.otherAllowance || 0);
+      const lessons = remedialLessons[s.id] || 0;
+      const remedialPay = lessons * (Number(s.remedialRate) || 0);
+      const allowancesTotal = Number(s.houseAllowance || 0) + Number(s.transportAllowance || 0) + Number(s.otherAllowance || 0) + remedialPay;
       const grossPay = basicPay + allowancesTotal;
       const nssf = calcNssf(grossPay);
       const sha = calcSha(grossPay);
@@ -1879,12 +1907,12 @@ class PayrollController {
         `INSERT INTO payroll_entries
            (tenant_id, payroll_run_id, staff_id, staff_name, role, basic_pay, allowances_total, gross_pay,
             paye, nssf_employee, nssf_employer, sha, housing_levy_employee, housing_levy_employer,
-            loan_id, loan_deduction, net_pay, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())`,
+            loan_id, loan_deduction, payment_source, remedial_lessons, remedial_pay, net_pay, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())`,
         [
           tenantId, runId, s.id, `${s.firstName} ${s.lastName}`, s.role, basicPay, allowancesTotal, grossPay,
           paye, nssf.employee, nssf.employer, sha, housing.employee, housing.employer,
-          loan ? loan.id : null, loanDeduction, netPay,
+          loan ? loan.id : null, loanDeduction, s.paymentSource, lessons, remedialPay, netPay,
         ],
       ).catch(() => null);
     }
@@ -4776,6 +4804,7 @@ class PdfController {
     for (const [n, t] of [
       ['show_performance_levels', 'boolean DEFAULT true'], // EE/ME/AE/BE letter bands vs percentage-only
       ['show_points_total', 'boolean DEFAULT true'],        // "Performance-level total: X/Y" vs a plain average %
+      ['show_marklist_levels', 'boolean DEFAULT true'],     // same EE/ME/AE/BE bands, but on the mark-list views
       ['updated_at', 'timestamptz DEFAULT NOW()'],
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE tenant_report_card_settings ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
@@ -4799,25 +4828,26 @@ class PdfController {
   async getReportCardSettings(@Request() req: any) {
     await this.ensureReportCardSettingsTable();
     const rows = await this.ds.query(
-      `SELECT show_performance_levels AS "showPerformanceLevels", show_points_total AS "showPointsTotal"
+      `SELECT show_performance_levels AS "showPerformanceLevels", show_points_total AS "showPointsTotal",
+              show_marklist_levels AS "showMarklistLevels"
          FROM tenant_report_card_settings WHERE tenant_id::text = $1`,
       [req.user.tenantId],
     ).catch(() => []);
-    return rows[0] || { showPerformanceLevels: true, showPointsTotal: true };
+    return rows[0] || { showPerformanceLevels: true, showPointsTotal: true, showMarklistLevels: true };
   }
 
   @Post('report-card-settings')
-  async setReportCardSettings(@Request() req: any, @Body() dto: { showPerformanceLevels?: boolean; showPointsTotal?: boolean }) {
+  async setReportCardSettings(@Request() req: any, @Body() dto: { showPerformanceLevels?: boolean; showPointsTotal?: boolean; showMarklistLevels?: boolean }) {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
       throw new BadRequestException('Only the HOI or an administrator can change report card settings.');
     }
     await this.ensureReportCardSettingsTable();
     await this.ds.query(
-      `INSERT INTO tenant_report_card_settings (tenant_id, show_performance_levels, show_points_total, updated_at)
-       VALUES ($1,$2,$3,NOW())
+      `INSERT INTO tenant_report_card_settings (tenant_id, show_performance_levels, show_points_total, show_marklist_levels, updated_at)
+       VALUES ($1,$2,$3,$4,NOW())
        ON CONFLICT (tenant_id) DO UPDATE SET
-         show_performance_levels = $2, show_points_total = $3, updated_at = NOW()`,
-      [req.user.tenantId, dto.showPerformanceLevels !== false, dto.showPointsTotal !== false],
+         show_performance_levels = $2, show_points_total = $3, show_marklist_levels = $4, updated_at = NOW()`,
+      [req.user.tenantId, dto.showPerformanceLevels !== false, dto.showPointsTotal !== false, dto.showMarklistLevels !== false],
     );
     return { saved: true };
   }

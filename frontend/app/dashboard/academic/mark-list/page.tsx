@@ -30,6 +30,7 @@ export default function MarkListPage() {
   const [loading,   setLoading]   = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [search,    setSearch]    = useState('');
+  const [showLevels, setShowLevels] = useState(true);
 
   useEffect(() => {
     apiClient.get('/academic/streams').then(r => {
@@ -40,6 +41,9 @@ export default function MarkListPage() {
     apiClient.get('/academic/exams').then(r => {
       setExams(r.data || []);
       if (r.data?.[0]) setExamId(r.data[0].id);
+    }).catch(() => {});
+    apiClient.get('/pdf/report-card-settings').then(r => {
+      setShowLevels(r.data?.showMarklistLevels !== false);
     }).catch(() => {});
   }, [user]);
 
@@ -329,7 +333,7 @@ export default function MarkListPage() {
                     out of {(subjects.length || 0) * (isSenior ? 8 : 4)}
                   </div>
                 </th>
-                <th className="px-3 py-3 text-center">Level</th>
+                {showLevels && <th className="px-3 py-3 text-center">Level</th>}
               </tr>
             </thead>
             <tbody>
@@ -354,7 +358,7 @@ export default function MarkListPage() {
                       const cl = p != null ? percentToLevel(p, stream?.gradeLevel || 'grade_4') : null;
                       return (
                         <td key={subj} className="px-2 py-1.5 text-center">
-                          {cl ? <span className="font-bold" style={{ color: cl.color }}>{p}% <span className="text-[10px]">{cl.code}</span></span>
+                          {cl ? <span className="font-bold" style={{ color: showLevels ? cl.color : undefined }}>{p}%{showLevels && <span className="text-[10px]"> {cl.code}</span>}</span>
                               : <span className="text-theme-muted">—</span>}
                         </td>
                       );
@@ -362,13 +366,15 @@ export default function MarkListPage() {
                     <td className="px-3 py-2 text-center font-black text-theme-heading">
                       {row.hasScores ? `${row.totalPoints}/${(subjects.length || 0) * (isSenior ? 8 : 4)}` : '—'}
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      {lvl && (
-                        <span className="badge text-white text-[10px] font-bold" style={{ backgroundColor: lvl.color }}>
-                          {lvl.code}
-                        </span>
-                      )}
-                    </td>
+                    {showLevels && (
+                      <td className="px-3 py-2 text-center">
+                        {lvl && (
+                          <span className="badge text-white text-[10px] font-bold" style={{ backgroundColor: lvl.color }}>
+                            {lvl.code}
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -378,7 +384,7 @@ export default function MarkListPage() {
       )}
 
       {/* Level key */}
-      {stream && (
+      {stream && showLevels && (
         <div className="card p-4">
           <p className="text-xs font-bold text-theme-muted uppercase tracking-wide mb-3">CBC Performance Levels — {scaleLabel}</p>
           <div className="flex flex-wrap gap-2">

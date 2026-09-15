@@ -15,7 +15,7 @@ export default function PayrollPage() {
   const [staff, setStaff] = useState<any[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ basicPay: '', houseAllowance: '', transportAllowance: '', otherAllowance: '', otherAllowanceLabel: '' });
+  const [form, setForm] = useState({ basicPay: '', houseAllowance: '', transportAllowance: '', otherAllowance: '', otherAllowanceLabel: '', paymentSource: 'school', remedialRate: '' });
   const [savingSalary, setSavingSalary] = useState(false);
 
   const loadStaff = () => {
@@ -30,6 +30,7 @@ export default function PayrollPage() {
       basicPay: s.basicPay || '', houseAllowance: s.houseAllowance || '',
       transportAllowance: s.transportAllowance || '', otherAllowance: s.otherAllowance || '',
       otherAllowanceLabel: s.otherAllowanceLabel || '',
+      paymentSource: s.paymentSource || 'school', remedialRate: s.remedialRate || '',
     });
   };
   const saveSalary = async () => {
@@ -90,6 +91,8 @@ export default function PayrollPage() {
   const [loadingRuns, setLoadingRuns] = useState(true);
   const [month, setMonth] = useState(thisMonth());
   const [running, setRunning] = useState(false);
+  const [remedialLessons, setRemedialLessons] = useState<Record<string, string>>({});
+  const remedialEligible = staff.filter((s: any) => s.paymentSource === 'tsc' || Number(s.remedialRate) > 0);
   const [openRun, setOpenRun] = useState<any>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -103,7 +106,9 @@ export default function PayrollPage() {
   const runPayroll = async () => {
     setRunning(true);
     try {
-      const { data } = await apiClient.post('/finance/payroll/runs', { month });
+      const lessons: Record<string, number> = {};
+      for (const [id, v] of Object.entries(remedialLessons)) if (Number(v) > 0) lessons[id] = Number(v);
+      const { data } = await apiClient.post('/finance/payroll/runs', { month, remedialLessons: lessons });
       toast.success(`Payroll computed for ${data.entries.length} staff member(s) — review before finalizing.`);
       setOpenRun(data);
       loadRuns();
@@ -236,15 +241,30 @@ export default function PayrollPage() {
                     {editingId === s.id ? (
                       <div className="space-y-2">
                         <div className="font-semibold text-theme-heading text-sm">{s.firstName} {s.lastName} <span className="text-theme-muted font-normal capitalize">· {(s.role || '').replace('_',' ')}</span></div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          <div><label className="label">Basic Pay</label><input type="number" min={0} value={form.basicPay} onChange={e => setForm(f => ({...f, basicPay: e.target.value}))} className="input"/></div>
-                          <div><label className="label">House Allowance</label><input type="number" min={0} value={form.houseAllowance} onChange={e => setForm(f => ({...f, houseAllowance: e.target.value}))} className="input"/></div>
-                          <div><label className="label">Transport Allowance</label><input type="number" min={0} value={form.transportAllowance} onChange={e => setForm(f => ({...f, transportAllowance: e.target.value}))} className="input"/></div>
-                          <div><label className="label">Other Allowance</label><input type="number" min={0} value={form.otherAllowance} onChange={e => setForm(f => ({...f, otherAllowance: e.target.value}))} className="input"/></div>
+                        <div>
+                          <label className="label">Payment Source</label>
+                          <select value={form.paymentSource} onChange={e => setForm(f => ({...f, paymentSource: e.target.value}))} className="input">
+                            <option value="school">School-paid</option>
+                            <option value="tsc">TSC-paid (government) — not on this payroll</option>
+                          </select>
+                          <p className="text-xs text-theme-muted mt-1">Most public-school teachers are paid by TSC, not the school. TSC-paid staff are left out of a normal payroll run and are only paid here for remedial lessons.</p>
                         </div>
-                        {Number(form.otherAllowance) > 0 && (
+                        {form.paymentSource === 'school' && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div><label className="label">Basic Pay</label><input type="number" min={0} value={form.basicPay} onChange={e => setForm(f => ({...f, basicPay: e.target.value}))} className="input"/></div>
+                            <div><label className="label">House Allowance</label><input type="number" min={0} value={form.houseAllowance} onChange={e => setForm(f => ({...f, houseAllowance: e.target.value}))} className="input"/></div>
+                            <div><label className="label">Transport Allowance</label><input type="number" min={0} value={form.transportAllowance} onChange={e => setForm(f => ({...f, transportAllowance: e.target.value}))} className="input"/></div>
+                            <div><label className="label">Other Allowance</label><input type="number" min={0} value={form.otherAllowance} onChange={e => setForm(f => ({...f, otherAllowance: e.target.value}))} className="input"/></div>
+                          </div>
+                        )}
+                        {form.paymentSource === 'school' && Number(form.otherAllowance) > 0 && (
                           <input value={form.otherAllowanceLabel} onChange={e => setForm(f => ({...f, otherAllowanceLabel: e.target.value}))} className="input" placeholder="What is this other allowance for?"/>
                         )}
+                        <div>
+                          <label className="label">Remedial Rate (KES per lesson)</label>
+                          <input type="number" min={0} value={form.remedialRate} onChange={e => setForm(f => ({...f, remedialRate: e.target.value}))} className="input max-w-[200px]"/>
+                          <p className="text-xs text-theme-muted mt-1">Paid per lesson actually taught, entered each time payroll is run — for remedial/tuition lessons the school pays for directly.</p>
+                        </div>
                         <div className="flex gap-2 pt-1">
                           <button onClick={saveSalary} disabled={savingSalary} className="btn-primary text-xs py-1.5 px-3">
                             {savingSalary ? <Loader2 size={12} className="animate-spin"/> : <Save size={12}/>} Save
@@ -256,9 +276,12 @@ export default function PayrollPage() {
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div>
                           <div className="font-semibold text-theme-heading text-sm">{s.firstName} {s.lastName}</div>
-                          <div className="text-xs text-theme-muted capitalize">{(s.role || '').replace('_',' ')} {gross > 0 ? `· Gross ${ksh(gross)}/mo` : '· No salary set'}</div>
+                          <div className="text-xs text-theme-muted capitalize">
+                            {(s.role || '').replace('_',' ')} {s.paymentSource === 'tsc' ? '· TSC-paid' : (gross > 0 ? `· Gross ${ksh(gross)}/mo` : '· No salary set')}
+                            {Number(s.remedialRate) > 0 ? ` · Remedial ${ksh(s.remedialRate)}/lesson` : ''}
+                          </div>
                         </div>
-                        <button onClick={() => startEdit(s)} className="btn-ghost text-xs py-1.5 px-3">{gross > 0 ? 'Edit' : 'Set salary'}</button>
+                        <button onClick={() => startEdit(s)} className="btn-ghost text-xs py-1.5 px-3">{gross > 0 || s.paymentSource === 'tsc' ? 'Edit' : 'Set salary'}</button>
                       </div>
                     )}
                   </div>
@@ -335,8 +358,28 @@ export default function PayrollPage() {
                 {running ? <Loader2 size={15} className="animate-spin"/> : <Play size={15}/>} Run Payroll
               </button>
             </div>
-            <p className="text-xs text-theme-muted mt-2">Computes gross pay, PAYE, NSSF, SHA, Housing Levy and any active loan deduction for every staff member with a salary set. Running the same month again while it's still a draft recomputes it — nothing is duplicated.</p>
+            <p className="text-xs text-theme-muted mt-2">Computes gross pay, PAYE, NSSF, SHA, Housing Levy and any active loan deduction for every school-paid staff member with a salary set. TSC-paid staff are left off this payroll unless remedial lessons are entered for them below. Running the same month again while it's still a draft recomputes it — nothing is duplicated.</p>
           </div>
+
+          {remedialEligible.length > 0 && (
+            <div className="card p-5">
+              <h3 className="font-bold text-theme-heading text-sm mb-1">Remedial Lessons This Month</h3>
+              <p className="text-xs text-theme-muted mb-3">Enter lessons actually taught for {month} — paid at each staff member's remedial rate and added to this run. Leave blank for staff not paid for remedial this month.</p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {remedialEligible.map((s: any) => (
+                  <div key={s.id} className="flex items-center justify-between gap-2 bg-surface-2/60 rounded-lg px-3 py-2">
+                    <div className="text-xs">
+                      <div className="font-semibold text-theme-heading">{s.firstName} {s.lastName}</div>
+                      <div className="text-theme-muted">{ksh(s.remedialRate || 0)}/lesson{s.paymentSource === 'tsc' ? ' · TSC-paid' : ''}</div>
+                    </div>
+                    <input type="number" min={0} className="input w-20 text-right" placeholder="0"
+                      value={remedialLessons[s.id] || ''}
+                      onChange={e => setRemedialLessons(m => ({ ...m, [s.id]: e.target.value }))}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="card p-5">
             <div className="flex items-center gap-2 mb-2">
@@ -420,18 +463,20 @@ export default function PayrollPage() {
                     <th className="px-2 py-2 text-right">PAYE</th><th className="px-2 py-2 text-right">NSSF</th>
                     <th className="px-2 py-2 text-right">SHA</th><th className="px-2 py-2 text-right">Housing</th>
                     <th className="px-2 py-2 text-right">Loan</th>
+                    <th className="px-2 py-2 text-right">Remedial</th>
                     <th className="px-2 py-2 text-right">Net Pay</th><th></th>
                   </tr></thead>
                   <tbody>
                     {openRun.entries.map((e: any) => (
                       <tr key={e.id} className="border-b border-theme/40">
-                        <td className="px-2 py-2">{e.staffName}</td>
+                        <td className="px-2 py-2">{e.staffName}{e.paymentSource === 'tsc' ? <span className="text-[10px] text-theme-muted"> · TSC-paid</span> : ''}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.grossPay)}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.paye)}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.nssfEmployee)}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.sha)}</td>
                         <td className="px-2 py-2 text-right">{ksh(e.housingLevyEmployee)}</td>
                         <td className="px-2 py-2 text-right">{Number(e.loanDeduction) > 0 ? ksh(e.loanDeduction) : '—'}</td>
+                        <td className="px-2 py-2 text-right">{Number(e.remedialPay) > 0 ? `${ksh(e.remedialPay)} (${e.remedialLessons})` : '—'}</td>
                         <td className="px-2 py-2 text-right font-bold text-green-700">{ksh(e.netPay)}</td>
                         <td className="px-2 py-2 text-right"><button onClick={() => openPayslip(e.id)} className="btn-ghost text-xs"><Printer size={12}/></button></td>
                       </tr>

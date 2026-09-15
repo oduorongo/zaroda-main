@@ -19,18 +19,20 @@ export default function ReportCardSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [showPerformanceLevels, setShowPerformanceLevels] = useState(true);
   const [showPointsTotal, setShowPointsTotal] = useState(true);
+  const [showMarklistLevels, setShowMarklistLevels] = useState(true);
 
   useEffect(() => {
     apiClient.get('/pdf/report-card-settings')
       .then(r => {
         setShowPerformanceLevels(r.data?.showPerformanceLevels !== false);
         setShowPointsTotal(r.data?.showPointsTotal !== false);
+        setShowMarklistLevels(r.data?.showMarklistLevels !== false);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const save = async (next: { showPerformanceLevels: boolean; showPointsTotal: boolean }) => {
+  const save = async (next: { showPerformanceLevels: boolean; showPointsTotal: boolean; showMarklistLevels: boolean }) => {
     setSaving(true);
     try {
       await apiClient.post('/pdf/report-card-settings', next);
@@ -59,7 +61,7 @@ export default function ReportCardSettingsPage() {
               <p className="text-xs text-theme-muted mt-1">EE/ME/AE/BE (or EE1–BE2 for Grade 7–12) next to each percentage. Turn off to show percentages only.</p>
             </div>
             <Toggle checked={showPerformanceLevels} disabled={saving}
-              onChange={() => { const next = !showPerformanceLevels; setShowPerformanceLevels(next); save({ showPerformanceLevels: next, showPointsTotal }); }}/>
+              onChange={() => { const next = !showPerformanceLevels; setShowPerformanceLevels(next); save({ showPerformanceLevels: next, showPointsTotal, showMarklistLevels }); }}/>
           </div>
           <div className="card p-5 flex items-center justify-between gap-3">
             <div>
@@ -67,7 +69,15 @@ export default function ReportCardSettingsPage() {
               <p className="text-xs text-theme-muted mt-1">"Performance-level total: X / Y" at the bottom of the report card. Turn off to show a plain "Term Average: Z%" instead.</p>
             </div>
             <Toggle checked={showPointsTotal} disabled={saving}
-              onChange={() => { const next = !showPointsTotal; setShowPointsTotal(next); save({ showPerformanceLevels, showPointsTotal: next }); }}/>
+              onChange={() => { const next = !showPointsTotal; setShowPointsTotal(next); save({ showPerformanceLevels, showPointsTotal: next, showMarklistLevels }); }}/>
+          </div>
+          <div className="card p-5 flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-theme-heading text-sm">Show performance levels on the mark list</div>
+              <p className="text-xs text-theme-muted mt-1">EE/ME/AE/BE bands next to scores on the mark-list views. Turn off to show percentage scores only.</p>
+            </div>
+            <Toggle checked={showMarklistLevels} disabled={saving}
+              onChange={() => { const next = !showMarklistLevels; setShowMarklistLevels(next); save({ showPerformanceLevels, showPointsTotal, showMarklistLevels: next }); }}/>
           </div>
           <p className="text-xs text-theme-muted bg-surface-2/60 rounded-lg px-3 py-2">
             To write your own class teacher / HOI remark instead of the auto-generated one, open a learner's report card from Report Card (teacher view) and use "Edit Remarks" there — it's per learner, per term.

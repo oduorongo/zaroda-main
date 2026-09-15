@@ -37,6 +37,7 @@ export default function TeacherMarkListPage() {
   const [loading,  setLoading]  = useState(false);
   const [saving,   setSaving]   = useState(false);
   const [search,   setSearch]   = useState('');
+  const [showLevels, setShowLevels] = useState(true);
   const printRef = useRef<HTMLDivElement>(null);
 
   const cellKey = (l: string, s: string) => `${l}|${s}`;
@@ -58,6 +59,9 @@ export default function TeacherMarkListPage() {
       if (s) { setStreamId(s.id); setStream(s); }
     });
     apiClient.get('/academic/exams').then(r => setExams(r.data || [])).catch(() => {});
+    apiClient.get('/pdf/report-card-settings').then(r => {
+      setShowLevels(r.data?.showMarklistLevels !== false);
+    }).catch(() => {});
   }, [user]);
 
   // Default the selected exam to the first one in the chosen term.
@@ -351,7 +355,7 @@ export default function TeacherMarkListPage() {
                 <th className="px-4 py-3 text-left">Learner</th>
                 {subjects.map(s => <th key={s} className="px-2 py-3 text-center">{s}</th>)}
                 <th className="px-3 py-3 text-center">Avg %</th>
-                <th className="px-3 py-3 text-center">Points Avg<br/><span className="text-[9px] font-normal opacity-70">(level)</span></th>
+                <th className="px-3 py-3 text-center">Points Avg{showLevels && <><br/><span className="text-[9px] font-normal opacity-70">(level)</span></>}</th>
               </tr>
             </thead>
             <tbody>
@@ -373,8 +377,8 @@ export default function TeacherMarkListPage() {
                     return (
                       <td key={subj} className="px-2 py-2 text-center">
                         {cellLvl ? (
-                          <div className="font-bold" style={{ color: cellLvl.color }}>
-                            {cellPct}% <span className="text-[10px]">{cellLvl.code}</span>
+                          <div className="font-bold" style={{ color: showLevels ? cellLvl.color : undefined }}>
+                            {cellPct}%{showLevels && <span className="text-[10px]"> {cellLvl.code}</span>}
                           </div>
                         ) : <span className="text-theme-muted">—</span>}
                       </td>
@@ -385,8 +389,8 @@ export default function TeacherMarkListPage() {
                   </td>
                   <td className="px-3 py-2 text-center">
                     {row.hasScores
-                      ? <span className="font-bold" style={{ color: percentToLevel(row.percent, stream?.gradeLevel || 'grade_4').color }}>
-                          {row.avgPoints.toFixed(1)} <span className="text-[10px]">{row.avgLevel}</span>
+                      ? <span className="font-bold" style={{ color: showLevels ? percentToLevel(row.percent, stream?.gradeLevel || 'grade_4').color : undefined }}>
+                          {row.avgPoints.toFixed(1)}{showLevels && <span className="text-[10px]"> {row.avgLevel}</span>}
                         </span>
                       : '—'}
                   </td>
@@ -397,7 +401,7 @@ export default function TeacherMarkListPage() {
         </div>
       )}
 
-      {stream && (
+      {stream && showLevels && (
         <div className="card p-4">
           <p className="text-xs font-bold text-theme-muted uppercase tracking-wide mb-2">CBC Levels — {scaleLabel}</p>
           <div className="flex flex-wrap gap-2">
