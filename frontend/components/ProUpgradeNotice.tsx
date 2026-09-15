@@ -16,7 +16,7 @@ export function ProUpgradeNotice({ feature }: { feature: string }) {
       </div>
       <h2 className="font-bold text-theme-heading mb-1">{feature} is a Pro plan feature</h2>
       <p className="text-sm text-theme-muted mb-4">
-        Your school is currently on the Essential plan, which covers fee recording only. Upgrade to Pro to unlock {feature.toLowerCase()}, detailed reports, payroll, HR and student transport.
+        Your school is currently on the Essential plan. Upgrade to Pro to unlock {feature.toLowerCase()}, along with payroll, HR and student transport.
       </p>
       <a href="mailto:support@zarodasolutions.app?subject=Upgrade%20to%20Zaroda%20Pro" className="btn-primary inline-flex">Upgrade to Pro</a>
     </div>

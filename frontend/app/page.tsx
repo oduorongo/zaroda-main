@@ -34,10 +34,10 @@ const PLAN_FEATURES = {
   essential: [
     'Fee structures, invoices & M-Pesa collection',
     'Academic: marks, report cards & mark lists',
+    'Detailed school-wide analytics & reports',
     'Communication, Library, Sports & Discipline',
   ],
   proOnly: [
-    'Detailed school-wide analytics & reports',
     'Payroll — PAYE, NSSF, SHA, Housing Levy & payslips',
     'HR — staff records, appraisals & recruitment',
     'Student Transport — routes, vehicles & fee billing',
@@ -283,7 +283,7 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-[#7a82a8]">Fee recording covers structures, invoices and M-Pesa collection — detailed school-wide reports, payroll, HR and transport are Pro-only.</p>
+            <p className="text-xs text-[#7a82a8]">Payroll, HR and student transport are Pro-only — everything else, including detailed school-wide analytics, is included here.</p>
           </div>
 
           <div className="card bg-white p-7 relative ring-2 ring-[#d4af37]">

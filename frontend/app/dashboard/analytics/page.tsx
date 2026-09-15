@@ -9,7 +9,6 @@ import {
   LineChart, Line, Cell,
 } from 'recharts';
 import toast from 'react-hot-toast';
-import { ProUpgradeNotice, isProPlanError } from '@/components/ProUpgradeNotice';
 
 const NAVY = '#1a2e5a';
 const GOLD = '#d4af37';
@@ -28,17 +27,12 @@ export default function SchoolAnalyticsPage() {
   const [term,    setTerm]    = useState('');
   const [data,    setData]    = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [proLocked, setProLocked] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     apiClient.get('/academic/analytics/school', { params: { gradeLevel: grade || undefined, term: term || undefined } })
       .then(r => setData(r.data))
-      .catch(e => {
-        setData(null);
-        if (isProPlanError(e)) setProLocked(true);
-        else toast.error(e?.response?.data?.message || 'Could not load analytics');
-      })
+      .catch(e => { setData(null); toast.error(e?.response?.data?.message || 'Could not load analytics'); })
       .finally(() => setLoading(false));
   }, [grade, term]);
 
@@ -65,15 +59,6 @@ export default function SchoolAnalyticsPage() {
       setDownloading(false);
     }
   };
-
-  if (proLocked) {
-    return (
-      <div className="space-y-5">
-        <div className="page-header"><h1 className="text-2xl font-black text-theme-heading">School Analytics</h1></div>
-        <ProUpgradeNotice feature="Detailed School Analytics"/>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-5">

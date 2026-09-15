@@ -101,7 +101,7 @@ export default function SubscriptionPage() {
           </div>
           {!summary?.isPro && (
             <p className="text-xs text-theme-muted bg-surface-2/60 rounded-lg px-3 py-2">
-              On the Essential plan — fee recording only. Want detailed reports, payroll, HR and student transport too? Upgrade to Pro for KES {summary?.pricePro ?? 4500}/year (flat, not per stream) — email <a href="mailto:support@zarodasolutions.app?subject=Upgrade%20to%20Zaroda%20Pro" className="underline">support@zarodasolutions.app</a>.
+              On the Essential plan. Want payroll, HR and student transport too? Upgrade to Pro for KES {summary?.pricePro ?? 4500}/year (flat, not per stream) — email <a href="mailto:support@zarodasolutions.app?subject=Upgrade%20to%20Zaroda%20Pro" className="underline">support@zarodasolutions.app</a>.
             </p>
           )}
         </div>

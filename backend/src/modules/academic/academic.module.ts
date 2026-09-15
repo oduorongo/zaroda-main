@@ -8,7 +8,6 @@ import {
   UseGuards, Request, Delete, BadRequestException, NotFoundException, Res,
 } from '@nestjs/common';
 import { PdfExportService } from '../../common/pdf-export.service';
-import { requireProPlan } from '../../common/plan';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -827,7 +826,6 @@ export class AcademicService {
     if (!this.isHoiRole(user.role)) {
       throw new BadRequestException('School analytics are available to administrators only.');
     }
-    await requireProPlan(this.dataSource, user.tenantId, 'Detailed School Analytics');
     const tenantId = user.tenantId;
 
     const rows = await this.dataSource.query(

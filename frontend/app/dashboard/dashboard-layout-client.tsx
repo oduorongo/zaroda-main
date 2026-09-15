@@ -33,7 +33,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/parent',                 icon: Heart,        label: 'My Children',          roles: 'parent_only' },
   { href: '/dashboard/learner',                icon: Backpack,     label: 'My Portal',            roles: 'learner_only' },
   { href: '/dashboard/academic',               icon: BookOpen,     label: 'Academic',             roles: 'all' },
-  { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin', pro: true },
+  { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin' },
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
   { href: '/dashboard/transport',              icon: Bus,          label: 'Transport',            roles: 'finance', pro: true },
   // Subscription nav hidden for now — page still reachable directly, just not in the sidebar.
