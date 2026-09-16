@@ -472,10 +472,12 @@ export class AssessmentService {
   }
 
   // Owner-only: which SCHOOLS have watched one specific video — the "Schools"
-  // drill-down from getResourceViewStats above.
+  // drill-down from getResourceViewStats above. Each school also carries the
+  // individual users (name + role) who watched it, since a click is really
+  // one person watching, not just an anonymous tenant count.
   async getResourceViewSchools(substrandId: string, videoUrl: string) {
     await this.ensureResourceClicksTable();
-    return this.dataSource.query(
+    const schools = await this.dataSource.query(
       `SELECT c.tenant_id AS "tenantId", ten.name AS "schoolName", ten.account_type AS "accountType",
               COUNT(*)::int AS clicks,
               COUNT(DISTINCT c.user_id)::int AS "uniqueUsers",
@@ -487,6 +489,24 @@ export class AssessmentService {
         ORDER BY clicks DESC`,
       [substrandId, videoUrl],
     ).catch(() => []);
+
+    const users = await this.dataSource.query(
+      `SELECT c.tenant_id AS "tenantId", c.user_id AS "userId",
+              TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS "userName", u.role AS "userRole",
+              COUNT(*)::int AS clicks,
+              MAX(c.created_at) AS "lastClickedAt"
+         FROM video_resource_clicks c
+         LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.substrand_id::text = $1 AND c.video_url = $2
+        GROUP BY c.tenant_id, c.user_id, u.first_name, u.last_name, u.role
+        ORDER BY clicks DESC`,
+      [substrandId, videoUrl],
+    ).catch(() => []);
+
+    return schools.map((s: any) => ({
+      ...s,
+      users: users.filter((u: any) => u.tenantId === s.tenantId),
+    }));
   }
 
   // ── SUMMATIVE (CATs & End-Term, admin-created exam events) ──

@@ -335,18 +335,32 @@ export default function OwnerRubricsPage() {
                 <p className="text-sm text-theme-muted text-center py-6">No schools recorded for this video.</p>
               ) : (
                 schoolsData.map((s: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between gap-3 bg-surface-2 rounded-xl p-3">
-                    <div className="min-w-0">
-                      <div className="font-semibold text-theme-heading text-sm truncate">{s.schoolName || 'Unknown school'}</div>
-                      <div className="text-[11px] text-theme-muted">
-                        {s.accountType === 'individual' ? 'Individual teacher' : 'School'} · {s.uniqueUsers} user{s.uniqueUsers === 1 ? '' : 's'} ·
-                        last watched {s.lastClickedAt ? new Date(s.lastClickedAt).toLocaleDateString('en-KE') : '—'}
+                  <div key={i} className="bg-surface-2 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-theme-heading text-sm truncate">{s.schoolName || 'Unknown school'}</div>
+                        <div className="text-[11px] text-theme-muted">
+                          {s.accountType === 'individual' ? 'Individual teacher' : 'School'} · {s.uniqueUsers} user{s.uniqueUsers === 1 ? '' : 's'} ·
+                          last watched {s.lastClickedAt ? new Date(s.lastClickedAt).toLocaleDateString('en-KE') : '—'}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="font-black text-theme-heading">{s.clicks}</div>
+                        <div className="text-[10px] text-theme-muted">click{s.clicks === 1 ? '' : 's'}</div>
                       </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="font-black text-theme-heading">{s.clicks}</div>
-                      <div className="text-[10px] text-theme-muted">click{s.clicks === 1 ? '' : 's'}</div>
-                    </div>
+                    {Array.isArray(s.users) && s.users.length > 0 && (
+                      <div className="border-t pt-2 space-y-1" style={{ borderColor: 'var(--border)' }}>
+                        {s.users.map((u: any, j: number) => (
+                          <div key={j} className="flex items-center justify-between text-[11px]">
+                            <span className="text-theme-heading truncate">
+                              {u.userName || 'Unknown user'} <span className="text-theme-muted">· {u.userRole || 'unknown'}</span>
+                            </span>
+                            <span className="text-theme-muted flex-shrink-0 ml-2">{u.clicks} click{u.clicks === 1 ? '' : 's'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
