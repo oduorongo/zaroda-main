@@ -1,5 +1,5 @@
 import {
-  Injectable, UnauthorizedException, ConflictException,
+  Injectable, UnauthorizedException, ConflictException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -10,7 +10,7 @@ import * as bcrypt       from 'bcryptjs';
 import { User }     from './entities/user.entity';
 import { Tenant }   from './entities/tenant.entity';
 import { School }   from './entities/school.entity';
-import { SignupDto, SignupIndividualDto } from './dto';
+import { SignupDto, SignupIndividualDto, UpgradeToSchoolDto } from './dto';
 import { normalisePhone } from '../../common/messaging';
 import { sendEmail } from '../../common/messaging';
 
@@ -33,12 +33,26 @@ export class AuthService {
     private dataSource:    DataSource,
   ) {}
 
+  /** Find a user by email, case- and whitespace-insensitively.
+   *  users.email is a plain (case-sensitive) unique column, and some rows were historically
+   *  written un-normalised — a mixed-case or space-padded address then never matched an exact
+   *  lowercase lookup, locking the account out permanently no matter how often its password was
+   *  reset. Matching on lower(btrim(email)) makes login work however the row was stored.
+   *  Migration 065 normalises the existing rows; this keeps any stragglers usable. */
+  private async findUserByEmail(email: string, columns?: string[]) {
+    const cleaned = (email || '').toLowerCase().trim();
+    if (!cleaned) return null;
+    const qb = this.userRepo.createQueryBuilder('u')
+      .where('lower(btrim(u.email)) = :email', { email: cleaned })
+      .limit(1);
+    if (columns) qb.select(columns.map(c => `u.${c}`));
+    return qb.getOne();
+  }
+
   // ── Login ───────────────────────────────────────────────
   async login(email: string, password: string) {
-    const user = await this.userRepo.findOne({
-      where:  { email: email.toLowerCase().trim() },
-      select: ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive'],
-    });
+    const user = await this.findUserByEmail(email,
+      ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive']);
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid email or password');
@@ -94,8 +108,22 @@ export class AuthService {
 
   // ── Signup ──────────────────────────────────────────────
   async signup(dto: SignupDto) {
-    const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
-    if (existing) throw new ConflictException('An account with this email already exists');
+    const existing = await this.findUserByEmail(dto.email);
+    if (existing) {
+      // A Professional Records teacher already owns a one-person tenant on this
+      // address, so a plain conflict here is a dead end — they have no way to
+      // reach the school product except by abandoning the account they have.
+      // Point them at the in-place upgrade instead (see upgradeToSchool).
+      const owned = existing.tenantId
+        ? await this.tenantRepo.findOne({ where: { id: existing.tenantId } })
+        : null;
+      if (owned && owned.accountType === 'individual') {
+        throw new ConflictException(
+          'This email already has a ZARODA teacher account. Log in with it and choose "Set up a school account" to add your school — you will keep your existing records.',
+        );
+      }
+      throw new ConflictException('An account with this email already exists');
+    }
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -205,7 +233,7 @@ export class AuthService {
   // existing tenant-scoped table/query/RLS policy keeps working unchanged —
   // the teacher never sees "tenant" or "school" language for this account.
   async signupIndividual(dto: SignupIndividualDto) {
-    const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
+    const existing = await this.findUserByEmail(dto.email);
     if (existing) throw new ConflictException('An account with this email already exists');
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -236,7 +264,7 @@ export class AuthService {
       let referredBy: string | undefined;
       if (dto.ref) {
         const referrer = await queryRunner.manager.findOne(User, { where: { id: dto.ref } });
-        if (referrer && referrer.email.toLowerCase() !== dto.email.toLowerCase()) referredBy = referrer.id;
+        if (referrer && referrer.email.toLowerCase().trim() !== dto.email.toLowerCase().trim()) referredBy = referrer.id;
       }
 
       const passwordHash = await bcrypt.hash(dto.password, 12);
@@ -279,6 +307,132 @@ export class AuthService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  // ── Upgrade an individual account to a school account ───
+  // A teacher who signed up for Professional Records already owns a one-person
+  // tenant keyed to their email, so the school signup form can only ever answer
+  // "an account with this email already exists". Rather than forcing a second
+  // login on a second address (which would strand their existing records), this
+  // converts the tenant they already have into a real school tenant in place:
+  // same user id, same email, same password, same Professional Records data.
+  async upgradeToSchool(userId: string, dto: UpgradeToSchoolDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || !user.isActive) throw new UnauthorizedException('Account not found');
+    if (!user.tenantId || !user.schoolId) {
+      throw new BadRequestException('This account has no workspace to upgrade.');
+    }
+
+    const tenant = await this.tenantRepo.findOne({ where: { id: user.tenantId } });
+    if (!tenant) throw new BadRequestException('This account has no workspace to upgrade.');
+    if (tenant.accountType !== 'individual') {
+      throw new ConflictException('This is already a school account.');
+    }
+
+    // An individual tenant is provisioned for exactly one person. If anything has
+    // since attached other users to it, converting would silently hand them a
+    // school they never joined — refuse and let support look at it instead.
+    const others = await this.userRepo.count({ where: { tenantId: tenant.id } });
+    if (others > 1) {
+      throw new ConflictException('This workspace has more than one user and cannot be upgraded automatically. Please contact ZARODA support.');
+    }
+
+    const knecCode = dto.knecCode ? dto.knecCode.trim() : undefined;
+    if (knecCode) {
+      const dup = await this.tenantRepo.findOne({ where: { knecCode } });
+      if (dup && dup.id !== tenant.id) {
+        throw new ConflictException('A school with this KNEC code is already registered on ZARODA');
+      }
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // The tenant and school were both named after the teacher at individual
+      // signup; every school field below is being set for the first time.
+      await queryRunner.manager.update(Tenant, tenant.id, {
+        name:          dto.schoolName,
+        knecCode:      knecCode,
+        county:        dto.county,
+        subCounty:     dto.subCounty,
+        zone:          dto.zone,
+        keCountyId:    toIntOrNull(dto.countyId),
+        keSubCountyId: toIntOrNull(dto.subCountyId),
+        keZoneId:      toIntOrNull(dto.zoneId),
+        accountType:   'school',
+        // Same 14-day trial a fresh school signup gets — an individual account
+        // has never been through the school subscription gate.
+        status:           'trial',
+        subscriptionTier: 'trial',
+        trialEndsAt:      new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        schoolLevels:  Array.isArray(dto.schoolLevels) ? dto.schoolLevels.filter(l => ['primary_js','senior'].includes(l)) : [],
+        ownership:     dto.ownership === 'private' ? 'private' : 'public',
+      });
+
+      await queryRunner.manager.update(School, user.schoolId, {
+        name:          dto.schoolName,
+        knecCode:      knecCode,
+        phone:         dto.phone || user.phone || '',
+        county:        dto.county,
+        subCounty:     dto.subCounty,
+        zone:          dto.zone,
+        keCountyId:    toIntOrNull(dto.countyId),
+        keSubCountyId: toIntOrNull(dto.subCountyId),
+        keZoneId:      toIntOrNull(dto.zoneId),
+      });
+
+      // They registered the school, so they run it — same role a school signup grants.
+      await queryRunner.manager.update(User, user.id, {
+        role:  'hoi',
+        phone: dto.phone || user.phone,
+      });
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    const appUrl = process.env.APP_URL || 'https://app.zarodasolutions.app';
+    sendEmail(
+      user.email,
+      `Welcome to ZARODA, ${dto.schoolName}!`,
+      `<p>Hi ${user.firstName},</p>
+       <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and your 14-day free trial has started.</p>
+       <p>You keep the same login you have been using, and all of your Professional Records work is still there.</p>
+       <p>A few things to do next to get your school fully set up:</p>
+       <ol>
+         <li>Create your first class / stream</li>
+         <li>Add your teachers</li>
+         <li>Admit your students</li>
+       </ol>
+       <p>Log in any time at <a href="${appUrl}">${appUrl.replace(/^https?:\/\//, '')}</a> to continue — your dashboard will show you what's left.</p>
+       <p>— The ZARODA team</p>`,
+    );
+
+    // The role is baked into the JWT, so the old tokens still say the previous
+    // role — re-issue here or the school UI stays locked until they log out.
+    const refreshed = await this.userRepo.findOne({ where: { id: user.id } });
+    const tokens = await this.generateTokens(refreshed);
+    return {
+      message:      'School account created successfully. Your 14-day free trial starts now.',
+      accessToken:  tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: {
+        id:        refreshed.id,
+        email:     refreshed.email,
+        firstName: refreshed.firstName,
+        lastName:  refreshed.lastName,
+        role:      refreshed.role,
+        tenantId:  refreshed.tenantId,
+        schoolId:  refreshed.schoolId,
+        accountType: 'school',
+      },
+    };
   }
 
   // ── Refresh Token ───────────────────────────────────────
@@ -375,7 +529,7 @@ export class AuthService {
     const cleaned = (email || '').toLowerCase().trim();
     if (!cleaned) return generic;
     await this.ensureResetTable();
-    const user = await this.userRepo.findOne({ where: { email: cleaned } });
+    const user = await this.findUserByEmail(cleaned);
     if (!user || !user.isActive) return generic;
 
     const crypto = eval('require')('crypto');

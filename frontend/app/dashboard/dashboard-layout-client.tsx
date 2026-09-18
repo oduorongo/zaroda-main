@@ -23,7 +23,7 @@ import toast from 'react-hot-toast';
 // nothing school-specific to be missing. Every other nav item exists (so the
 // sidebar looks the same for everyone) but reminds them to sign up a school
 // instead of opening a page with nothing in it.
-const INDIVIDUAL_ALLOWED_HREFS = ['/dashboard/professional-records', '/dashboard/retooling'];
+const INDIVIDUAL_ALLOWED_HREFS = ['/dashboard/professional-records', '/dashboard/retooling', '/dashboard/upgrade-to-school'];
 
 // ── Navigation definition ──────────────────────────────────
 const NAV_ITEMS = [
@@ -110,7 +110,10 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   // during a full-reload navigation doesn't bounce a logged-in user to login.
   // Dashboard pages teachers ARE allowed to open (shared modules), despite otherwise being
   // routed to their own /teacher workspace.
-  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records', '/dashboard/duty-roster', '/dashboard/hr/leave'];
+  const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records', '/dashboard/duty-roster', '/dashboard/hr/leave',
+    // Individual (Professional Records) accounts carry the class_teacher role, so
+    // without this the "set up a school account" page would bounce to /teacher.
+    '/dashboard/upgrade-to-school'];
   // Fee collection is a class-teacher-only override (see settings/class-teacher-override) —
   // subject teachers with no class of their own have no reason to be here.
   const isClassTeacher = ['class_teacher', 'overall_class_teacher'].includes(user?.role || '');
@@ -166,9 +169,11 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
                   toast((t) => (
                     <div className="text-sm">
                       <div className="font-semibold text-theme-heading">This needs a school account</div>
-                      <div className="text-xs text-theme-muted mt-0.5 mb-2">Your individual account only includes Professional Records. Sign up your school to unlock the rest — or sign in if you already have a Zaroda school account.</div>
+                      <div className="text-xs text-theme-muted mt-0.5 mb-2">Your individual account only includes Professional Records. Add your school to this same account to unlock the rest — you keep this login and everything you have already generated.</div>
                       <div className="flex gap-3">
-                        <button onClick={() => { router.push('/auth/signup'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign up your school →</button>
+                        {/* Must NOT point at /auth/signup: this email already owns a tenant,
+                            so that form can only answer "account already exists". */}
+                        <button onClick={() => { router.push('/dashboard/upgrade-to-school'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Set up a school account →</button>
                         <button onClick={() => { router.push('/auth/login'); toast.dismiss(t.id); }} className="text-xs font-bold text-[#1a2e5a] underline">Sign in →</button>
                       </div>
                     </div>

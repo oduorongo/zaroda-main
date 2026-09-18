@@ -41,3 +41,23 @@ export class LoginDto {
   @IsEmail()  email:    string;
   @IsString() password: string;
 }
+
+// Converting an existing individual (Professional Records) account into a real
+// school account. Identity fields — email, password, name — come from the
+// authenticated user, so this carries only the school details that signup asks
+// for and an individual signup never collected.
+export class UpgradeToSchoolDto {
+  @IsString()  schoolName: string;
+
+  @IsOptional() @IsString() phone?:       string;
+  @IsOptional() @IsString() knecCode?:    string;
+  @IsOptional() @IsString() countyId?:    string;
+  @IsOptional() @IsString() subCountyId?: string;
+  @IsOptional() @IsString() zoneId?:      string;
+  @IsOptional() @IsString() county?:      string;
+  @IsOptional() @IsString() subCounty?:   string;
+  @IsOptional() @IsString() zone?:        string;
+
+  @IsOptional() @IsArray()  schoolLevels?: string[];
+  @IsOptional() @IsString() ownership?:    string;
+}

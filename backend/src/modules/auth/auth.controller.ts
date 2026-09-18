@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { SignupDto, SignupIndividualDto, LoginDto } from './dto';
+import { SignupDto, SignupIndividualDto, LoginDto, UpgradeToSchoolDto } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @ApiTags('Auth')
@@ -24,6 +24,17 @@ export class AuthController {
   @Post('signup-individual')
   signupIndividual(@Body() dto: SignupIndividualDto) {
     return this.authService.signupIndividual(dto);
+  }
+
+  // Turn the signed-in teacher's individual (Professional Records) account into a
+  // school account, keeping their login and their existing records. Authenticated
+  // rather than public: the account being upgraded is whoever holds the token.
+  @Post('upgrade-to-school')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  upgradeToSchool(@Request() req: any, @Body() dto: UpgradeToSchoolDto) {
+    return this.authService.upgradeToSchool(req.user.id, dto);
   }
 
   @Post('forgot-password')
