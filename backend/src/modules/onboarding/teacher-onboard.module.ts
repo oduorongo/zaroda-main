@@ -8,7 +8,7 @@
 //   GET   /api/v1/teacher-onboard/mine         (admin, authed) → current link + stats
 import {
   Module, Controller, Injectable, Get, Post, Body, Param, Request,
-  UseGuards, BadRequestException, NotFoundException,
+  UseGuards, BadRequestException, NotFoundException, UnauthorizedException,
 } from '@nestjs/common';
 import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
 import {
@@ -140,9 +140,39 @@ export class TeacherOnboardService {
     if (fullName.split(/\s+/).length < 2) throw new BadRequestException('Enter your first and last name.');
     if (!/^\S+@\S+\.\S+$/.test(email)) throw new BadRequestException('Enter a valid email address.');
 
-    // Email must be unique
-    const dup = await this.dataSource.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]);
-    if (dup.length) throw new BadRequestException('An account with this email already exists. Please log in instead.');
+    // An address already in use is not automatically a refusal. A teacher who signed
+    // up for Professional Records owns a one-person 'individual' tenant keyed to this
+    // email, and telling them to "log in instead" only returns them to that tenant —
+    // never to the school whose link they just opened. Absorb that account into this
+    // school instead, keeping their login and the work they have already paid for.
+    // Anything else on the address (a real school account) is still refused.
+    const dup = await this.dataSource.query(
+      `SELECT u.id, u.password_hash AS "passwordHash", u.tenant_id AS "tenantId",
+              u.school_id AS "schoolId", t.account_type AS "accountType"
+         FROM users u LEFT JOIN tenants t ON t.id = u.tenant_id
+        WHERE lower(btrim(u.email)) = $1 LIMIT 1`, [email]);
+    if (dup.length) {
+      const found = dup[0];
+      if (found.accountType !== 'individual') {
+        throw new BadRequestException('An account with this email already exists. Please log in instead.');
+      }
+      // An individual tenant is provisioned for exactly one person; if others have
+      // since been attached to it, moving the owner out would strand them.
+      const siblings = await this.dataSource.query(
+        `SELECT count(*)::int AS n FROM users WHERE tenant_id = $1`, [found.tenantId]);
+      if ((siblings[0]?.n || 0) > 1) {
+        throw new BadRequestException('This email belongs to an account that cannot be moved automatically. Please contact ZARODA support.');
+      }
+      // The invite link is shareable (up to 200 uses), so possession of it proves
+      // nothing about who owns this address — require the account's own password
+      // before moving it, or anyone holding the link could pull someone else's
+      // account (and their wallet balance) into their school.
+      const supplied = (body.password || '').trim();
+      if (!supplied || !(await bcrypt.compare(supplied, found.passwordHash))) {
+        throw new UnauthorizedException("This email already has a ZARODA teacher account. Enter that account's existing password to move it to this school.");
+      }
+      return this.absorbIndividual(found, link, { fullName, email, phone: body.phone, role: body.role, streamId: body.streamId, subjects: body.subjects });
+    }
 
     const allowedRoles = ['subject_teacher', 'class_teacher', 'overall_class_teacher'];
     const role = allowedRoles.includes(body.role || '') ? body.role : 'subject_teacher';
@@ -201,6 +231,117 @@ export class TeacherOnboardService {
       message: teacherSetOwnPassword
         ? 'Account created. Log in with your email and the password you chose.'
         : 'Account created. Use these credentials to log in. You will be asked to set a new password.',
+    };
+  }
+
+  // Tenant-scoped tables an individual (Professional Records) account can fill.
+  // Ordered as a checklist rather than a query plan: everything here has to land
+  // in the new tenant, or the teacher loses work they paid real money for.
+  private static readonly PR_TABLES = [
+    'schemes_of_work', 'scheme_weeks', 'lesson_plans', 'lesson_notes',
+    'records_of_work', 'learner_progress_entries', 'teacher_documents',
+    'pr_wallets', 'pr_wallet_transactions', 'professional_records_audit',
+    'teacher_stream_subjects',
+  ];
+
+  /** Column names present on a table, or [] if the table does not exist here.
+   *  Schemas drift between environments, so each move is built from what is
+   *  actually there instead of assuming every table carries a school_id. */
+  private async columnsOf(table: string): Promise<string[]> {
+    const rows = await this.dataSource.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = $1`, [table],
+    ).catch(() => []);
+    return rows.map((r: any) => r.column_name);
+  }
+
+  /** Move an existing one-person individual account into the tenant behind an
+   *  onboarding link: the user row, and everything they generated under the old
+   *  tenant. The old tenant row itself is deliberately left in place — tenants
+   *  cascade-delete their dependents, so removing it is how this operation would
+   *  destroy the very data it exists to preserve. It is simply left empty. */
+  private async absorbIndividual(
+    found: { id: string; tenantId: string; schoolId: string },
+    link: TeacherOnboardLink,
+    body: { fullName: string; email: string; phone?: string; role?: string; streamId?: string; subjects?: string[] },
+  ) {
+    const allowedRoles = ['subject_teacher', 'class_teacher', 'overall_class_teacher'];
+    const role = allowedRoles.includes(body.role || '') ? body.role : 'subject_teacher';
+    const parts = body.fullName.split(/s+/);
+    const firstName = parts.shift() as string;
+    const lastName = parts.join(' ');
+    const subjects = Array.isArray(body.subjects) ? body.subjects.join(',') : '';
+
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    try {
+      for (const table of TeacherOnboardService.PR_TABLES) {
+        const cols = await this.columnsOf(table);
+        if (!cols.includes('tenant_id')) continue;   // table absent in this schema
+        const sets = ['tenant_id = $1'];
+        if (cols.includes('school_id')) sets.push('school_id = $2');
+        await runner.query(
+          `UPDATE ${table} SET ${sets.join(', ')} WHERE tenant_id = $3`,
+          [link.tenantId, link.schoolId, found.tenantId],
+        );
+      }
+
+      // The streams and subjects an individual account generates are synthetic —
+      // "Grade 5 (self)" placeholders invented per scheme, not real classes. They
+      // have to come along so the moved schemes still resolve their foreign keys,
+      // but they are retired on arrival so they never show up in the school's own
+      // class and subject lists as classes nobody created.
+      for (const table of ['streams', 'subject_catalogue']) {
+        const cols = await this.columnsOf(table);
+        if (!cols.includes('tenant_id')) continue;
+        const sets = ['tenant_id = $1'];
+        if (cols.includes('school_id'))  sets.push('school_id = $2');
+        if (cols.includes('is_active'))  sets.push('is_active = false');
+        if (cols.includes('deleted_at')) sets.push('deleted_at = COALESCE(deleted_at, NOW())');
+        await runner.query(
+          `UPDATE ${table} SET ${sets.join(', ')} WHERE tenant_id = $3`,
+          [link.tenantId, link.schoolId, found.tenantId],
+        );
+      }
+
+      // They keep their own password, so must_change_password stays off.
+      await runner.query(
+        `UPDATE users
+            SET tenant_id = $1, school_id = $2, role = $3, stream_id = $4,
+                subjects = $5, first_name = $6, last_name = $7,
+                phone = COALESCE($8, phone), updated_at = NOW()
+          WHERE id = $9`,
+        [
+          link.tenantId, link.schoolId, role,
+          body.streamId && body.streamId.length ? body.streamId : null,
+          subjects, firstName, lastName, body.phone || null, found.id,
+        ],
+      );
+
+      await runner.query(
+        `UPDATE teacher_onboard_links SET uses_count = uses_count + 1 WHERE id = $1`, [link.id]);
+      await runner.query(
+        `INSERT INTO teacher_onboard_signups (link_id, tenant_id, user_id, teacher_name, email)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [link.id, link.tenantId, found.id, `${firstName} ${lastName}`, body.email],
+      ).catch(() => null);
+
+      await runner.commitTransaction();
+    } catch (err) {
+      await runner.rollbackTransaction();
+      throw err;
+    } finally {
+      await runner.release();
+    }
+
+    return {
+      success: true,
+      schoolName: link.schoolName,
+      teacherSetOwnPassword: true,
+      absorbed: true,
+      credentials: { username: body.email, password: '(your existing password)' },
+      message: `Your existing ZARODA account has joined ${link.schoolName}. Log in with the same email and password you already use — your Professional Records and wallet balance came with you.`,
     };
   }
 

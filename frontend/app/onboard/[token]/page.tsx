@@ -75,13 +75,23 @@ export default function OnboardPage({ params }: { params: { token: string } }) {
       <div className="card p-8 max-w-md w-full text-center">
         <CheckCircle className="mx-auto text-green-500 mb-3" size={40}/>
         <h1 className="text-xl font-black text-theme-heading mb-1">You're in!</h1>
-        <p className="text-sm text-theme-muted mb-4">Your account at {done.schoolName} is ready. Save these login details — you'll set a new password on first login.</p>
-        <div className="bg-surface-2 rounded-xl p-4 text-sm text-left space-y-2 mb-4">
-          <div className="flex justify-between gap-3"><span className="text-theme-muted">Username</span><span className="font-mono font-semibold break-all">{done.credentials.username}</span></div>
-          <div className="flex justify-between gap-3"><span className="text-theme-muted">Password</span><span className="font-mono font-semibold">{done.credentials.password}</span></div>
-        </div>
+        {done.absorbed ? (
+          // An existing account that moved into this school keeps the password it
+          // already had — there are no new credentials to hand over or copy.
+          <p className="text-sm text-theme-muted mb-4">{done.message}</p>
+        ) : (
+          <>
+            <p className="text-sm text-theme-muted mb-4">Your account at {done.schoolName} is ready. Save these login details — you'll set a new password on first login.</p>
+            <div className="bg-surface-2 rounded-xl p-4 text-sm text-left space-y-2 mb-4">
+              <div className="flex justify-between gap-3"><span className="text-theme-muted">Username</span><span className="font-mono font-semibold break-all">{done.credentials.username}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-theme-muted">Password</span><span className="font-mono font-semibold">{done.credentials.password}</span></div>
+            </div>
+          </>
+        )}
         <div className="flex gap-2">
-          <button onClick={copyCreds} className="btn-ghost flex-1">{copied ? <><Check size={16}/> Copied</> : <><Copy size={16}/> Copy</>}</button>
+          {!done.absorbed && (
+            <button onClick={copyCreds} className="btn-ghost flex-1">{copied ? <><Check size={16}/> Copied</> : <><Copy size={16}/> Copy</>}</button>
+          )}
           <button onClick={()=>router.push('/auth/login')} className="btn-primary flex-1">Log in</button>
         </div>
       </div>
@@ -131,6 +141,10 @@ export default function OnboardPage({ params }: { params: { token: string } }) {
             <div>
               <label className="label">Choose a Password *</label>
               <input type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} className={inp} placeholder="At least 6 characters"/>
+              <p className="text-xs text-theme-muted mt-1">
+                Already use this email for ZARODA Professional Records? Enter that account's
+                existing password instead and it will move to this school with your records.
+              </p>
             </div>
             <div>
               <label className="label">Confirm Password *</label>
