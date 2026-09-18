@@ -6902,7 +6902,12 @@ class AdminController {
     if (!this.isOwner(req)) return { error: 'forbidden' };
     const t = (await this.ds.query(`SELECT name FROM tenants WHERE id = $1 LIMIT 1`, [id]).catch(() => []))[0];
     if (!t) return { error: 'School not found.' };
-    if ((q.confirm || '') !== t.name) {
+    // Compare on meaning rather than bytes. This is an accident guard — the caller
+    // is already super_admin — and an individual account's name is assembled as
+    // `firstName + " " + lastName`, so a trailing space in either field leaves a
+    // double space nobody can reproduce by typing, making the tenant undeletable.
+    const norm = (v: string) => (v || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (norm(q.confirm) !== norm(t.name)) {
       return { error: 'confirm-mismatch', message: `Type the exact school name to confirm: ${t.name}` };
     }
     // Remove dependent rows across tenant-scoped tables, then the tenant itself.

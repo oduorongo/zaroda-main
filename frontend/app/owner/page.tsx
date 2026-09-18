@@ -32,10 +32,19 @@ export default function OwnerDashboard() {
     try { const r = await apiClient.get(`/admin/tenants/${id}`); setDetail(r.data); } catch {}
     load();
   };
+  // Typing the name is an accident guard, not a security boundary — the caller is
+  // already super_admin. So compare on meaning rather than bytes. An individual
+  // account's tenant name is assembled as `firstName + " " + lastName`, and trim()
+  // does not collapse the middle, so a trailing space in either signup field leaves
+  // a double space that renders identically and cannot be reproduced by typing —
+  // which made those tenants permanently undeletable from this screen.
+  const sameName = (a: string, b: string) =>
+    a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase();
+
   const deleteSchool = async (id: string, name: string) => {
     const typed = prompt(`This permanently deletes "${name}" and ALL its data (learners, marks, users, fees). This cannot be undone.\n\nType the school name exactly to confirm:`);
     if (typed == null) return;
-    if (typed !== name) { alert('Name did not match. Deletion cancelled.'); return; }
+    if (!sameName(typed, name)) { alert('Name did not match. Deletion cancelled.'); return; }
     setActing(true);
     try {
       const r = await apiClient.delete(`/admin/tenants/${id}`, { params: { confirm: name } });
