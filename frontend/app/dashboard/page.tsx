@@ -67,9 +67,10 @@ export default function DashboardPage() {
     ]).then(([t, a]) => { setDutyTerm(t.data || null); setDutyActivities(a.data || []); });
   }, [user]);
   const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const currentDutyWeek = (dutyTerm?.weeks || []).find((w: any) => {
-    const s = w.startDate ? new Date(w.startDate) : null, e = w.endDate ? new Date(w.endDate) : null;
-    return s && e && today >= s && today <= new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59);
+    const s = w.startDate ? String(w.startDate).slice(0, 10) : null, e = w.endDate ? String(w.endDate).slice(0, 10) : null;
+    return s && e && todayStr >= s && todayStr <= e;
   });
   const upcomingActivities = dutyActivities
     .filter((a: any) => { const e = new Date(a.endDate || a.startDate); return e >= today; })

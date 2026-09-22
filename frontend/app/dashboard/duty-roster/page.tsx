@@ -16,6 +16,11 @@ const categoryConf = (v: string) => CATEGORIES.find(c => c.value === v) || CATEG
 
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
+const todayDateStr = () => {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+};
+
 export default function DutyRosterPage() {
   const { user } = useAuth();
   const admin = isHoi(user?.role || '');
@@ -170,13 +175,28 @@ export default function DutyRosterPage() {
                   {term.createdByName ? ` · Published by ${term.createdByName}` : ''}
                 </p>
               </div>
+              {(() => {
+                const todayStr = todayDateStr();
+                const weeks = term.weeks || [];
+                const lastWeek = weeks[weeks.length - 1];
+                const termEnded = lastWeek?.endDate && todayStr > String(lastWeek.endDate).slice(0, 10);
+                return termEnded && admin ? (
+                  <div className="card p-3 bg-amber-50 text-amber-800 text-sm">
+                    This term roster ended on {fmtDate(lastWeek.endDate)} — publish a new term roster to keep the weekly assignment current.
+                  </div>
+                ) : null;
+              })()}
               <div className="space-y-2">
-                {(term.weeks || []).map((w: any) => (
-                  <div key={w.id} className="card p-4 flex items-start justify-between gap-3">
+                {(term.weeks || []).map((w: any) => {
+                  const todayStr = todayDateStr();
+                  const isCurrent = w.startDate && w.endDate && todayStr >= String(w.startDate).slice(0, 10) && todayStr <= String(w.endDate).slice(0, 10);
+                  return (
+                  <div key={w.id} className={`card p-4 flex items-start justify-between gap-3 ${isCurrent ? 'ring-2 ring-[#1a2e5a]' : ''}`}>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-theme-heading">Week {w.weekNumber}</span>
                         <span className="text-xs text-theme-muted">{fmtDate(w.startDate)} – {fmtDate(w.endDate)}</span>
+                        {isCurrent && <span className="badge bg-[#1a2e5a] text-white">Current week</span>}
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap mt-2">
                         {w.teachers.length === 0 && <span className="text-sm text-theme-muted">No teacher assigned.</span>}
@@ -205,7 +225,8 @@ export default function DutyRosterPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
