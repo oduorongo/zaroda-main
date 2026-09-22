@@ -5,11 +5,12 @@ import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
 const REPORTS = [
-  { key: 'cashbook',      icon: BookOpen,         label: 'Cashbook',         desc: 'All cash receipts and payments' },
-  { key: 'ledger',        icon: FileSpreadsheet,  label: 'General Ledger',   desc: 'Account-by-account transactions' },
-  { key: 'trial_balance', icon: Scale,            label: 'Trial Balance',    desc: 'Debits and credits balanced' },
-  { key: 'income',        icon: FileText,         label: 'Income Statement', desc: 'Revenue minus expenses' },
-  { key: 'fee_statement', icon: FileText,         label: 'Fee Statements',   desc: 'Per-learner fee account' },
+  { key: 'cashbook',      icon: BookOpen,         label: 'Analysed Cash Book', desc: 'Receipts and payments, split cash/bank and analysed by vote head' },
+  { key: 'ledger',        icon: FileSpreadsheet,  label: 'Vote Head Ledger',   desc: 'Voted, spent and balance for each vote head' },
+  { key: 'trial_balance', icon: Scale,            label: 'Trial Balance',      desc: 'Vote heads with opening and closing cash and bank' },
+  { key: 'cash_flow',     icon: Landmark,         label: 'Cash Flow Statement',desc: 'Opening balance, movements, closing balance' },
+  { key: 'income',        icon: FileText,         label: 'Income & Expenditure', desc: 'Receipts by vote head less expenditure' },
+  { key: 'fee_statement', icon: FileText,         label: 'Fee Statements',     desc: 'Per-learner fee account' },
 ];
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE');

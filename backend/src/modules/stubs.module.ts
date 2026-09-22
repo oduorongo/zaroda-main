@@ -638,20 +638,90 @@ class FinanceController {
     const tenantId = req.user.tenantId;
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
     const ksh = (n: any) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 0 });
+    // A DATE column comes back from pg as a JS Date, whose default toString is
+    // "Tue Sep 01 2026 00:00:00 GMT+0300 (East Africa Time)" — unreadable in a
+    // cash book column. Render the calendar date only.
+    const dmy = (v: any) => {
+      if (!v) return '';
+      const d = v instanceof Date ? v : new Date(String(v));
+      return isNaN(d.getTime()) ? String(v) : d.toISOString().slice(0, 10);
+    };
     const school = await this.ds.query(`SELECT name FROM schools WHERE tenant_id = $1 LIMIT 1`, [tenantId]).then((r: any[]) => r[0]?.name || 'School').catch(() => 'School');
     const today = new Date().toISOString().slice(0, 10);
 
     const payments = await this.ds.query(
-      `SELECT receipt_number, learner_name, admission_number, amount, method, reference,
+      `SELECT id, receipt_number, learner_name, admission_number, amount, method, reference,
               COALESCE(paid_on, created_at::date) AS d
          FROM payments WHERE tenant_id = $1 ORDER BY d ASC`, [tenantId],
     ).catch(() => []);
     const expenses = await this.ds.query(
-      `SELECT description, category, amount, COALESCE(spent_on, created_at::date) AS d
+      `SELECT id, description, category, amount, payment_method, voucher_number, cheque_number,
+              COALESCE(spent_on, created_at::date) AS d
          FROM expenses WHERE tenant_id = $1 ORDER BY d ASC`, [tenantId],
     ).catch(() => []);
     const totalIn = (payments as any[]).reduce((s, p) => s + Number(p.amount || 0), 0);
     const totalOut = (expenses as any[]).reduce((s, e) => s + Number(e.amount || 0), 0);
+
+    // ── Final books: shared groundwork ──────────────────────────
+    // Modelled on the Zaroda Books workbooks. House convention: a receipt
+    // allocated to a vote head CREDITS it (funds voted), a payment allocated to
+    // one DEBITS it (funds spent), so an unspent vote carries a credit balance.
+    const allocRows = await this.ds.query(
+      `SELECT payment_id, COALESCE(vote_head,'Unallocated') AS head, COALESCE(SUM(amount),0) AS amount
+         FROM payment_allocations WHERE tenant_id = $1
+        GROUP BY payment_id, vote_head`, [tenantId],
+    ).catch(() => []);
+
+    // payment id -> { head: amount }, so each cash-book row can be analysed.
+    const allocByPayment = new Map<string, Record<string, number>>();
+    for (const r of allocRows as any[]) {
+      const key = String(r.payment_id);
+      const bucket = allocByPayment.get(key) || {};
+      bucket[r.head] = (bucket[r.head] || 0) + Number(r.amount || 0);
+      allocByPayment.set(key, bucket);
+    }
+
+    // The chart is the school's own: fee vote heads on the receipts side,
+    // expense categories on the payments side. Unlike a capitation book there is
+    // no Ministry circular fixing these — they are whatever the school bills and
+    // spends on, so they are read from the data rather than hard-coded.
+    const receiptHeads = [...new Set((allocRows as any[]).map(r => String(r.head)))].sort();
+    const paymentHeads = [...new Set((expenses as any[]).map(e => String(e.category || 'Uncategorised')))].sort();
+
+    // A school's own money is cash unless it moved through a bank or M-Pesa.
+    const isCashMethod = (m: any) => String(m || '').toLowerCase().trim() === 'cash';
+
+    const allocatedTotal = (allocRows as any[]).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const unallocated = totalIn - allocatedTotal;
+
+    let receiptsCash = 0, receiptsBank = 0;
+    for (const p of payments as any[]) {
+      if (isCashMethod(p.method)) receiptsCash += Number(p.amount || 0);
+      else receiptsBank += Number(p.amount || 0);
+    }
+    let paymentsCash = 0, paymentsBank = 0;
+    for (const e of expenses as any[]) {
+      // Expenses default to bank: a school pays suppliers by cheque or transfer
+      // far more often than in cash, and an unrecorded method is not evidence of
+      // a cash payment.
+      if (isCashMethod(e.payment_method)) paymentsCash += Number(e.amount || 0);
+      else paymentsBank += Number(e.amount || 0);
+    }
+    // Opening balances are not yet captured anywhere in the system, so the books
+    // run from nil. Stated on the face of each report rather than assumed.
+    const openingCash = 0, openingBank = 0;
+    const closingCash = openingCash + receiptsCash - paymentsCash;
+    const closingBank = openingBank + receiptsBank - paymentsBank;
+
+    const spendByHead: Record<string, number> = {};
+    for (const e of expenses as any[]) {
+      const h = String(e.category || 'Uncategorised');
+      spendByHead[h] = (spendByHead[h] || 0) + Number(e.amount || 0);
+    }
+    const votedByHead: Record<string, number> = {};
+    for (const r of allocRows as any[]) {
+      votedByHead[String(r.head)] = (votedByHead[String(r.head)] || 0) + Number(r.amount || 0);
+    }
 
     const wrap = (title: string, inner: string) => `<!doctype html><html><head><meta charset="utf-8">
       <title>${esc(title)}</title><style>
@@ -673,12 +743,77 @@ class FinanceController {
 
     let inner = '';
     if (key === 'cashbook') {
-      const rowsIn = (payments as any[]).map(p => `<tr><td>${esc(p.d)}</td><td>${esc(p.receipt_number)}</td><td>${esc(p.learner_name || '')}</td><td>${esc(p.method || '')}</td><td class="n">${ksh(p.amount)}</td><td class="n"></td></tr>`).join('');
-      const rowsOut = (expenses as any[]).map(e => `<tr><td>${esc(e.d)}</td><td></td><td>${esc(e.description || '')}</td><td>${esc(e.category || '')}</td><td class="n"></td><td class="n">${ksh(e.amount)}</td></tr>`).join('');
-      inner = `<table><thead><tr><th>Date</th><th>Ref</th><th>Details</th><th>Type</th><th class="n">Receipts (In)</th><th class="n">Payments (Out)</th></tr></thead>
-        <tbody>${rowsIn}${rowsOut || ''}</tbody>
-        <tfoot><tr><td colspan="4">Totals</td><td class="n">${ksh(totalIn)}</td><td class="n">${ksh(totalOut)}</td></tr>
-        <tr><td colspan="4">Balance (Cash in hand)</td><td class="n" colspan="2">${ksh(totalIn - totalOut)}</td></tr></tfoot></table>`;
+      // Analysed cash book: receipts above, payments below, each row split into
+      // cash and bank and then analysed across the school's vote heads — the
+      // layout the Zaroda Books workbooks use.
+      const inCols = receiptHeads.length ? receiptHeads : ['Unallocated'];
+      const outCols = paymentHeads.length ? paymentHeads : ['Uncategorised'];
+
+      const inTotals: Record<string, number> = {};
+      const rowsIn = (payments as any[]).map(p => {
+        const cash = isCashMethod(p.method) ? Number(p.amount || 0) : 0;
+        const bank = isCashMethod(p.method) ? 0 : Number(p.amount || 0);
+        const a = allocByPayment.get(String(p.id)) || {};
+        const cells = inCols.map(h => {
+          const v = Number(a[h] || 0);
+          inTotals[h] = (inTotals[h] || 0) + v;
+          return `<td class="n">${v ? ksh(v) : ''}</td>`;
+        }).join('');
+        return `<tr><td>${esc(dmy(p.d))}</td><td>${esc(p.receipt_number || '')}</td>`
+          + `<td>${esc(p.learner_name || '')}</td>`
+          + `<td class="n">${cash ? ksh(cash) : ''}</td><td class="n">${bank ? ksh(bank) : ''}</td>`
+          + `<td class="n">${ksh(p.amount)}</td>${cells}</tr>`;
+      }).join('') || `<tr><td colspan="${6 + inCols.length}">No receipts recorded</td></tr>`;
+
+      const outTotals: Record<string, number> = {};
+      const rowsOut = (expenses as any[]).map(e => {
+        const amt = Number(e.amount || 0);
+        const cash = isCashMethod(e.payment_method) ? amt : 0;
+        const bank = isCashMethod(e.payment_method) ? 0 : amt;
+        const head = String(e.category || 'Uncategorised');
+        const cells = outCols.map(h => {
+          const v = h === head ? amt : 0;
+          if (v) outTotals[h] = (outTotals[h] || 0) + v;
+          return `<td class="n">${v ? ksh(v) : ''}</td>`;
+        }).join('');
+        return `<tr><td>${esc(dmy(e.d))}</td><td>${esc(e.voucher_number || e.cheque_number || '')}</td>`
+          + `<td>${esc(e.description || '')}</td>`
+          + `<td class="n">${cash ? ksh(cash) : ''}</td><td class="n">${bank ? ksh(bank) : ''}</td>`
+          + `<td class="n">${ksh(amt)}</td>${cells}</tr>`;
+      }).join('') || `<tr><td colspan="${6 + outCols.length}">No payments recorded</td></tr>`;
+
+      const head = (cols: string[]) =>
+        `<tr><th>Date</th><th>Ref</th><th>Particulars</th><th class="n">Cash</th><th class="n">Bank</th>`
+        + `<th class="n">Total</th>${cols.map(c => `<th class="n">${esc(c)}</th>`).join('')}</tr>`;
+
+      inner = `
+        <h3>Receipts</h3>
+        <table><thead>${head(inCols)}</thead><tbody>
+          <tr><td colspan="3"><em>Balance brought forward</em></td><td class="n">${ksh(openingCash)}</td><td class="n">${ksh(openingBank)}</td><td class="n"></td>${inCols.map(() => '<td></td>').join('')}</tr>
+          ${rowsIn}
+        </tbody><tfoot><tr><td colspan="3">Totals</td><td class="n">${ksh(receiptsCash)}</td><td class="n">${ksh(receiptsBank)}</td><td class="n">${ksh(totalIn)}</td>${inCols.map(h => `<td class="n">${ksh(inTotals[h] || 0)}</td>`).join('')}</tr></tfoot></table>
+
+        <h3>Payments</h3>
+        <table><thead>${head(outCols)}</thead><tbody>${rowsOut}</tbody>
+        <tfoot>
+          <tr><td colspan="3">Totals</td><td class="n">${ksh(paymentsCash)}</td><td class="n">${ksh(paymentsBank)}</td><td class="n">${ksh(totalOut)}</td>${outCols.map(h => `<td class="n">${ksh(outTotals[h] || 0)}</td>`).join('')}</tr>
+          <tr><td colspan="3">Balance carried down</td><td class="n">${ksh(closingCash)}</td><td class="n">${ksh(closingBank)}</td><td class="n">${ksh(closingCash + closingBank)}</td>${outCols.map(() => '<td></td>').join('')}</tr>
+        </tfoot></table>
+        <p style="font-size:11px;color:#666">Receipts are analysed by fee vote head; payments by expense category. A receipt taken by M-Pesa or bank transfer is shown in the bank column, one taken in cash in the cash column; an expense with no recorded method is treated as bank. Opening balances are not yet captured, so the book runs from nil.</p>
+        ${unallocated ? `<p style="font-size:11px;color:#a00">${ksh(unallocated)} of receipts is not analysed to any vote head. Use <strong>Reconcile balances</strong> on the Accounting page to attribute it.</p>` : ''}`;
+    } else if (key === 'cash_flow') {
+      inner = `<table><tbody>
+          <tr><td>Opening cash in hand</td><td class="n">${ksh(openingCash)}</td></tr>
+          <tr><td>Opening cash at bank</td><td class="n">${ksh(openingBank)}</td></tr>
+          <tr><td><strong>Opening balance</strong></td><td class="n"><strong>${ksh(openingCash + openingBank)}</strong></td></tr>
+          <tr><td>Add: receipts — cash</td><td class="n">${ksh(receiptsCash)}</td></tr>
+          <tr><td>Add: receipts — bank</td><td class="n">${ksh(receiptsBank)}</td></tr>
+          <tr><td>Less: payments — cash</td><td class="n">(${ksh(paymentsCash)})</td></tr>
+          <tr><td>Less: payments — bank</td><td class="n">(${ksh(paymentsBank)})</td></tr>
+          <tr><td>Closing cash in hand</td><td class="n">${ksh(closingCash)}</td></tr>
+          <tr><td>Closing cash at bank</td><td class="n">${ksh(closingBank)}</td></tr>
+        </tbody>
+        <tfoot><tr><td>Closing balance</td><td class="n">${ksh(closingCash + closingBank)}</td></tr></tfoot></table>`;
     } else if (key === 'income') {
       // Income statement: revenue by vote head − expenses by category.
       const rev = await this.ds.query(
@@ -698,23 +833,49 @@ class FinanceController {
         <h3>Surplus / (Deficit)</h3>
         <table><tfoot><tr><td>Net</td><td class="n">${ksh(totalIn - totalOut)}</td></tr></tfoot></table>`;
     } else if (key === 'trial_balance') {
-      inner = `<table><thead><tr><th>Account</th><th class="n">Debit</th><th class="n">Credit</th></tr></thead>
+      // Year-to-date trial balance in the workbook layout: vote head balances,
+      // with opening cash and bank on the credit side and closing cash and bank
+      // on the debit side. It is expected to balance, and says so when it does not.
+      const heads = [...new Set([...receiptHeads, ...paymentHeads])].sort();
+      const rows = heads.map(h => {
+        const dr = spendByHead[h] || 0;   // spent
+        const cr = votedByHead[h] || 0;   // voted
+        return `<tr><td>${esc(h)}</td><td class="n">${dr ? ksh(dr) : ''}</td><td class="n">${cr ? ksh(cr) : ''}</td></tr>`;
+      }).join('') || '<tr><td colspan="3">No vote head activity</td></tr>';
+
+      const totalDr = totalOut + closingCash + closingBank;
+      const totalCr = allocatedTotal + openingCash + openingBank;
+      const diff = totalDr - totalCr;
+
+      inner = `<table><thead><tr><th>Vote head</th><th class="n">Debit (spent)</th><th class="n">Credit (voted)</th></tr></thead>
         <tbody>
-          <tr><td>Cash / Bank</td><td class="n">${ksh(totalIn - totalOut)}</td><td class="n"></td></tr>
-          <tr><td>Fee Income</td><td class="n"></td><td class="n">${ksh(totalIn)}</td></tr>
-          <tr><td>Expenses</td><td class="n">${ksh(totalOut)}</td><td class="n"></td></tr>
+          ${rows}
+          <tr><td>Opening cash in hand</td><td class="n"></td><td class="n">${ksh(openingCash)}</td></tr>
+          <tr><td>Opening cash at bank</td><td class="n"></td><td class="n">${ksh(openingBank)}</td></tr>
+          <tr><td>Closing cash in hand</td><td class="n">${ksh(closingCash)}</td><td class="n"></td></tr>
+          <tr><td>Closing cash at bank</td><td class="n">${ksh(closingBank)}</td><td class="n"></td></tr>
         </tbody>
-        <tfoot><tr><td>Totals</td><td class="n">${ksh((totalIn - totalOut) + totalOut)}</td><td class="n">${ksh(totalIn)}</td></tr></tfoot></table>
-        <p style="font-size:11px;color:#666">A simplified trial balance from cash movements. For full double-entry ledgers, record opening balances and asset accounts.</p>`;
+        <tfoot><tr><td>Totals</td><td class="n">${ksh(totalDr)}</td><td class="n">${ksh(totalCr)}</td></tr></tfoot></table>
+        ${diff === 0
+          ? '<p style="font-size:12px;color:#0a7">The books balance.</p>'
+          : `<p style="font-size:12px;color:#a00"><strong>Out of balance by ${ksh(Math.abs(diff))}.</strong> `
+            + `${unallocated ? `${ksh(unallocated)} of receipts has not been analysed to a vote head — run <strong>Reconcile balances</strong> on the Accounting page.` : 'Check that every receipt and expense carries a vote head.'}</p>`}`;
     } else if (key === 'ledger') {
-      const alloc = await this.ds.query(
-        `SELECT COALESCE(a.vote_head,'Unallocated') AS head, a.learner_id, a.amount, p.learner_name AS learner
-           FROM payment_allocations a LEFT JOIN payments p ON p.id::text = a.payment_id::text
-          WHERE a.tenant_id = $1 ORDER BY a.vote_head, a.created_at`, [tenantId],
-      ).catch(() => []);
-      const rows = (alloc as any[]).map(r => `<tr><td>${esc(r.head)}</td><td>${esc(r.learner || '')}</td><td class="n">${ksh(r.amount)}</td></tr>`).join('') || '<tr><td colspan="3">No transactions</td></tr>';
-      inner = `<table><thead><tr><th>Vote Head</th><th>Learner</th><th class="n">Amount</th></tr></thead><tbody>${rows}</tbody>
-        <tfoot><tr><td colspan="2">Total</td><td class="n">${ksh(totalIn)}</td></tr></tfoot></table>`;
+      // One account per vote head, in the workbook convention: receipts credit a
+      // head (funds voted), payments debit it (funds spent), so an unspent vote
+      // carries a credit balance.
+      const heads = [...new Set([...receiptHeads, ...paymentHeads])].sort();
+      const rows = heads.map(h => {
+        const cr = votedByHead[h] || 0;
+        const dr = spendByHead[h] || 0;
+        const bal = cr - dr;
+        return `<tr><td>${esc(h)}</td><td class="n">${cr ? ksh(cr) : ''}</td><td class="n">${dr ? ksh(dr) : ''}</td>`
+          + `<td class="n">${ksh(Math.abs(bal))} ${bal < 0 ? 'Dr' : 'Cr'}</td></tr>`;
+      }).join('') || '<tr><td colspan="4">No transactions</td></tr>';
+      inner = `<table><thead><tr><th>Vote head</th><th class="n">Voted (Cr)</th><th class="n">Spent (Dr)</th><th class="n">Balance</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td>Totals</td><td class="n">${ksh(allocatedTotal)}</td><td class="n">${ksh(totalOut)}</td><td class="n">${ksh(allocatedTotal - totalOut)} Cr</td></tr></tfoot></table>
+        <p style="font-size:11px;color:#666">A credit balance is a vote with funds still unspent; a debit balance means more has been spent on that head than was voted to it.</p>`;
     } else if (key === 'fee_statement') {
       const invoices = await this.getInvoices(req, q);
       const rows = (invoices as any[]).map(i => `<tr><td>${esc(i.learner?.admissionNumber || '')}</td><td>${esc(`${i.learner?.firstName || ''} ${i.learner?.lastName || ''}`.trim())}</td><td>${esc(i.learner?.stream?.name || '')}</td><td class="n">${ksh(i.totalAmount)}</td><td class="n">${ksh(i.amountPaid)}</td><td class="n">${ksh(i.totalAmount - i.amountPaid)}</td></tr>`).join('') || '<tr><td colspan="6">No learners</td></tr>';
@@ -727,7 +888,8 @@ class FinanceController {
       res.status(400).send('<p>Unknown report.</p>'); return;
     }
     res.set('Content-Type', 'text/html').send(wrap(
-      ({ cashbook:'Cashbook', income:'Income Statement', trial_balance:'Trial Balance', ledger:'General Ledger', fee_statement:'Fee Statements' } as any)[key] || 'Report',
+      ({ cashbook:'Analysed Cash Book', income:'Income & Expenditure', trial_balance:'Trial Balance',
+         ledger:'Vote Head Ledger', cash_flow:'Cash Flow Statement', fee_statement:'Fee Statements' } as any)[key] || 'Report',
       inner));
   }
 
@@ -1125,6 +1287,8 @@ class FinanceController {
     const cols: [string, string][] = [
       ['school_id', 'uuid'], ['category', 'text'], ['description', 'text'],
       ['amount', 'numeric'], ['spent_on', 'date'], ['created_at', 'timestamptz DEFAULT NOW()'],
+      // Needed to split the analysed cash book into its cash and bank columns.
+      ['payment_method', 'text'], ['voucher_number', 'text'], ['cheque_number', 'text'],
     ];
     for (const [name, type] of cols) {
       await this.ds.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);
