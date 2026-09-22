@@ -77,6 +77,18 @@ export default function AccountingPage() {
     }
   };
 
+  // ── Fee statement scope ──
+  const [streams, setStreams] = useState<any[]>([]);
+  const [feeFilter, setFeeFilter] = useState({ gradeLevel: '', streamId: '' });
+
+  useEffect(() => {
+    apiClient.get('/academic/streams')
+      .then(r => setStreams(Array.isArray(r.data) ? r.data : (r.data?.data || [])))
+      .catch(() => {/* filters just stay empty */});
+  }, []);
+
+  const grades = [...new Set(streams.map((s: any) => s.gradeLevel).filter(Boolean))].sort();
+
   const carryForward = async () => {
     if (!yearId) return;
     if (!confirm('Carry this year’s closing cash and bank into the next financial year as its opening balance? This replaces whatever opening figures that year currently holds.')) return;
@@ -119,7 +131,13 @@ export default function AccountingPage() {
     setGenerating(key);
     try {
       const res = await apiClient.get(`/finance/reports/${key}`, {
-        responseType: 'text', params: yearId ? { yearId } : {},
+        responseType: 'text',
+        params: {
+          ...(yearId ? { yearId } : {}),
+          // Only the fee statement is per-learner, so only it takes a class filter.
+          ...(key === 'fee_statement' && feeFilter.gradeLevel ? { gradeLevel: feeFilter.gradeLevel } : {}),
+          ...(key === 'fee_statement' && feeFilter.streamId ? { streamId: feeFilter.streamId } : {}),
+        },
       });
       const html = typeof res.data === 'string' ? res.data : String(res.data);
       const blob = new Blob([html], { type: 'text/html' });
@@ -304,6 +322,24 @@ export default function AccountingPage() {
               </div>
               <div className="font-bold text-theme-heading">{r.label}</div>
               <div className="text-xs text-theme-muted mt-0.5 mb-4">{r.desc}</div>
+              {r.key === 'fee_statement' && (
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <select className="input py-1 text-xs" value={feeFilter.gradeLevel}
+                    onChange={e => setFeeFilter({ gradeLevel: e.target.value, streamId: '' })}>
+                    <option value="">All grades</option>
+                    {grades.map(g => (
+                      <option key={g} value={g}>{String(g).replace(/_/g, ' ')}</option>
+                    ))}
+                  </select>
+                  <select className="input py-1 text-xs" value={feeFilter.streamId}
+                    onChange={e => setFeeFilter(f => ({ ...f, streamId: e.target.value }))}>
+                    <option value="">All streams</option>
+                    {streams
+                      .filter((s: any) => !feeFilter.gradeLevel || s.gradeLevel === feeFilter.gradeLevel)
+                      .map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
               <button onClick={() => generate(r.key, r.label)} disabled={generating === r.key}
                 className="btn-ghost w-full justify-center text-xs">
                 <Printer size={13}/> {generating === r.key ? 'Opening…' : 'View / Print'}

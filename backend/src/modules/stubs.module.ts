@@ -697,8 +697,9 @@ class FinanceController {
         WHERE l.tenant_id::text = $1 AND l.is_active = true
           AND ($2::text IS NULL OR l.grade_level = $2)
           AND ($3::text IS NULL OR (l.first_name || ' ' || COALESCE(l.last_name,'')) ILIKE '%' || $3 || '%')
-        ORDER BY l.first_name`,
-      [tenantId, q.gradeLevel || null, q.search || null],
+          AND ($4::text IS NULL OR l.stream_id::text = $4)
+        ORDER BY l.grade_level, s.name, l.first_name`,
+      [tenantId, q.gradeLevel || null, q.search || null, q.streamId || null],
     ).catch(() => []);
     // Billed per grade (sum of fee items for the selected term/year), and paid per learner
     // (sum of allocations for the same term/year) — so switching term/year updates the totals.
@@ -900,8 +901,13 @@ class FinanceController {
       votedByHead[String(r.head)] = (votedByHead[String(r.head)] || 0) + Number(r.amount || 0);
     }
 
+    // The analysed cash book grows a column per vote head, so it only fits
+    // across the page. Every other book is a few narrow columns and stays upright.
+    const landscape = key === 'cashbook';
+
     const wrap = (title: string, inner: string) => `<!doctype html><html><head><meta charset="utf-8">
       <title>${esc(title)}</title><style>
+      @page{size:${landscape ? 'A4 landscape' : 'A4 portrait'};margin:12mm}
       body{font-family:Arial,sans-serif;margin:24px;color:#1a2e5a}
       .head{text-align:center;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:16px}
       .head h1{margin:0;font-size:20px}.head h2{margin:4px 0 0;font-size:14px;font-weight:400;color:#555}
@@ -912,7 +918,7 @@ class FinanceController {
       tfoot td{font-weight:bold;background:#f0f2f8}
       .print{margin:16px 0;text-align:center}
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
-      @media print{.print{display:none}}
+      @media print{.print{display:none}${landscape ? 'table{font-size:10px}th,td{padding:4px 5px}' : ''}}
       </style></head><body>
       <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)}${
         year ? ` · ${esc(year.year_label)} (${esc(dmy(year.start_date))} to ${esc(dmy(year.end_date))})` : ''
@@ -928,21 +934,40 @@ class FinanceController {
       const inCols = receiptHeads.length ? receiptHeads : ['Unallocated'];
       const outCols = paymentHeads.length ? paymentHeads : ['Uncategorised'];
 
+      // Fee collections are summarised to one line per day. Naming every learner
+      // here would run to thousands of rows and duplicates the fee statement,
+      // which is where a per-learner account belongs. The day's total is still
+      // analysed across the vote heads, so nothing is lost from the book.
+      const byDay = new Map<string, {
+        cash: number; bank: number; total: number; count: number; analysis: Record<string, number>;
+      }>();
+      for (const p of payments as any[]) {
+        const day = dmy(p.d);
+        const row = byDay.get(day) || { cash: 0, bank: 0, total: 0, count: 0, analysis: {} };
+        const amt = Number(p.amount || 0);
+        if (isCashMethod(p.method)) row.cash += amt; else row.bank += amt;
+        row.total += amt;
+        row.count += 1;
+        for (const [h, v] of Object.entries(allocByPayment.get(String(p.id)) || {})) {
+          row.analysis[h] = (row.analysis[h] || 0) + Number(v || 0);
+        }
+        byDay.set(day, row);
+      }
+
       const inTotals: Record<string, number> = {};
-      const rowsIn = (payments as any[]).map(p => {
-        const cash = isCashMethod(p.method) ? Number(p.amount || 0) : 0;
-        const bank = isCashMethod(p.method) ? 0 : Number(p.amount || 0);
-        const a = allocByPayment.get(String(p.id)) || {};
-        const cells = inCols.map(h => {
-          const v = Number(a[h] || 0);
-          inTotals[h] = (inTotals[h] || 0) + v;
-          return `<td class="n">${v ? ksh(v) : ''}</td>`;
-        }).join('');
-        return `<tr><td>${esc(dmy(p.d))}</td><td>${esc(p.receipt_number || '')}</td>`
-          + `<td>${esc(p.learner_name || '')}</td>`
-          + `<td class="n">${cash ? ksh(cash) : ''}</td><td class="n">${bank ? ksh(bank) : ''}</td>`
-          + `<td class="n">${ksh(p.amount)}</td>${cells}</tr>`;
-      }).join('') || `<tr><td colspan="${6 + inCols.length}">No receipts recorded</td></tr>`;
+      const rowsIn = [...byDay.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([day, r]) => {
+          const cells = inCols.map(h => {
+            const v = Number(r.analysis[h] || 0);
+            inTotals[h] = (inTotals[h] || 0) + v;
+            return `<td class="n">${v ? ksh(v) : ''}</td>`;
+          }).join('');
+          return `<tr><td>${esc(day)}</td><td class="n">${r.count}</td>`
+            + `<td>Received from learners</td>`
+            + `<td class="n">${r.cash ? ksh(r.cash) : ''}</td><td class="n">${r.bank ? ksh(r.bank) : ''}</td>`
+            + `<td class="n">${ksh(r.total)}</td>${cells}</tr>`;
+        }).join('') || `<tr><td colspan="${6 + inCols.length}">No receipts recorded</td></tr>`;
 
       const outTotals: Record<string, number> = {};
       const rowsOut = (expenses as any[]).map(e => {
@@ -961,24 +986,24 @@ class FinanceController {
           + `<td class="n">${ksh(amt)}</td>${cells}</tr>`;
       }).join('') || `<tr><td colspan="${6 + outCols.length}">No payments recorded</td></tr>`;
 
-      const head = (cols: string[]) =>
-        `<tr><th>Date</th><th>Ref</th><th>Particulars</th><th class="n">Cash</th><th class="n">Bank</th>`
+      const head = (cols: string[], second: string) =>
+        `<tr><th>Date</th><th class="n">${second}</th><th>Particulars</th><th class="n">Cash</th><th class="n">Bank</th>`
         + `<th class="n">Total</th>${cols.map(c => `<th class="n">${esc(c)}</th>`).join('')}</tr>`;
 
       inner = `
         <h3>Receipts</h3>
-        <table><thead>${head(inCols)}</thead><tbody>
+        <table><thead>${head(inCols, 'Receipts')}</thead><tbody>
           <tr><td colspan="3"><em>Balance brought forward</em></td><td class="n">${ksh(openingCash)}</td><td class="n">${ksh(openingBank)}</td><td class="n"></td>${inCols.map(() => '<td></td>').join('')}</tr>
           ${rowsIn}
         </tbody><tfoot><tr><td colspan="3">Totals</td><td class="n">${ksh(receiptsCash)}</td><td class="n">${ksh(receiptsBank)}</td><td class="n">${ksh(totalIn)}</td>${inCols.map(h => `<td class="n">${ksh(inTotals[h] || 0)}</td>`).join('')}</tr></tfoot></table>
 
         <h3>Payments</h3>
-        <table><thead>${head(outCols)}</thead><tbody>${rowsOut}</tbody>
+        <table><thead>${head(outCols, 'Voucher')}</thead><tbody>${rowsOut}</tbody>
         <tfoot>
           <tr><td colspan="3">Totals</td><td class="n">${ksh(paymentsCash)}</td><td class="n">${ksh(paymentsBank)}</td><td class="n">${ksh(totalOut)}</td>${outCols.map(h => `<td class="n">${ksh(outTotals[h] || 0)}</td>`).join('')}</tr>
           <tr><td colspan="3">Balance carried down</td><td class="n">${ksh(closingCash)}</td><td class="n">${ksh(closingBank)}</td><td class="n">${ksh(closingCash + closingBank)}</td>${outCols.map(() => '<td></td>').join('')}</tr>
         </tfoot></table>
-        <p style="font-size:11px;color:#666">Receipts are analysed by fee vote head; payments by expense category. A receipt taken by M-Pesa or bank transfer is shown in the bank column, one taken in cash in the cash column; an expense with no recorded method is treated as bank.${
+        <p style="font-size:11px;color:#666">Fee collections are summarised to one line a day, with the number of receipts behind it; the individual learner accounts are in the Fee Statements report. Receipts are analysed by fee vote head; payments by expense category. A receipt taken by M-Pesa or bank transfer is shown in the bank column, one taken in cash in the cash column; an expense with no recorded method is treated as bank.${
           year ? (Number(year.opening_cash || 0) || Number(year.opening_bank || 0)
             ? ` Opening balances ${esc(year.opening_source || 'as recorded')}.`
             : ' No opening balance has been set for this year — the book runs from nil.')
@@ -1032,9 +1057,9 @@ class FinanceController {
 
       inner = `<table><thead><tr><th>Vote head</th><th class="n">Debit (spent)</th><th class="n">Credit (voted)</th></tr></thead>
         <tbody>
+          <tr><td><em>Opening cash in hand</em></td><td class="n"></td><td class="n">${ksh(openingCash)}</td></tr>
+          <tr><td><em>Opening cash at bank</em></td><td class="n"></td><td class="n">${ksh(openingBank)}</td></tr>
           ${rows}
-          <tr><td>Opening cash in hand</td><td class="n"></td><td class="n">${ksh(openingCash)}</td></tr>
-          <tr><td>Opening cash at bank</td><td class="n"></td><td class="n">${ksh(openingBank)}</td></tr>
           <tr><td>Closing cash in hand</td><td class="n">${ksh(closingCash)}</td><td class="n"></td></tr>
           <tr><td>Closing cash at bank</td><td class="n">${ksh(closingBank)}</td><td class="n"></td></tr>
         </tbody>
@@ -1064,7 +1089,19 @@ class FinanceController {
       const rows = (invoices as any[]).map(i => `<tr><td>${esc(i.learner?.admissionNumber || '')}</td><td>${esc(`${i.learner?.firstName || ''} ${i.learner?.lastName || ''}`.trim())}</td><td>${esc(i.learner?.stream?.name || '')}</td><td class="n">${ksh(i.totalAmount)}</td><td class="n">${ksh(i.amountPaid)}</td><td class="n">${ksh(i.totalAmount - i.amountPaid)}</td></tr>`).join('') || '<tr><td colspan="6">No learners</td></tr>';
       const tb = (invoices as any[]).reduce((s, i) => s + i.totalAmount, 0);
       const tp = (invoices as any[]).reduce((s, i) => s + i.amountPaid, 0);
-      inner = `<table><thead><tr><th>Adm No</th><th>Learner</th><th>Class</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Balance</th></tr></thead>
+      // A printed statement must say who it covers, or a stack of them is
+      // indistinguishable once the filter is forgotten.
+      const streamName = q.streamId
+        ? await this.ds.query(`SELECT name FROM streams WHERE id::text = $1 LIMIT 1`, [q.streamId])
+            .then((r: any[]) => r[0]?.name || '').catch(() => '')
+        : '';
+      const scope = [
+        q.gradeLevel ? String(q.gradeLevel).replace(/_/g, ' ') : '',
+        streamName,
+        q.search ? `matching “${q.search}”` : '',
+      ].filter(Boolean).join(' · ');
+      inner = `<p style="font-size:12px;margin:0 0 6px"><strong>${esc(scope || 'All classes')}</strong> — ${(invoices as any[]).length} learner(s)</p>
+        <table><thead><tr><th>Adm No</th><th>Learner</th><th>Class</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Balance</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr><td colspan="3">Totals</td><td class="n">${ksh(tb)}</td><td class="n">${ksh(tp)}</td><td class="n">${ksh(tb - tp)}</td></tr></tfoot></table>`;
     } else {
