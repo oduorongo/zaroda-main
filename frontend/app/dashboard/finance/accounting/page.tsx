@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { BookOpen, FileSpreadsheet, Scale, FileText, Printer, Landmark, Wrench, Loader2 } from 'lucide-react';
+import { BookOpen, FileSpreadsheet, Scale, FileText, Printer, Landmark, Wrench, Loader2,
+  CalendarRange, Plus, ArrowRightLeft } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -21,6 +22,72 @@ export default function AccountingPage() {
   const [totalReceived, setTotalReceived] = useState(0);
   const [loadingVoteHeads, setLoadingVoteHeads] = useState(true);
   const [reconciling, setReconciling] = useState(false);
+
+  // ── Financial years & opening balances ──
+  const [years, setYears] = useState<any[]>([]);
+  const [yearId, setYearId] = useState('');
+  const [opening, setOpening] = useState({ openingCash: '', openingBank: '' });
+  const [savingOpening, setSavingOpening] = useState(false);
+  const [showNewYear, setShowNewYear] = useState(false);
+  const [newYear, setNewYear] = useState({ yearLabel: '', startDate: '', endDate: '' });
+
+  const selectedYear = years.find(y => y.id === yearId);
+
+  const loadYears = (keep?: string) => {
+    apiClient.get('/finance/financial-years')
+      .then(r => {
+        const list = Array.isArray(r.data) ? r.data : [];
+        setYears(list);
+        const pick = keep || list.find((y: any) => y.isCurrent)?.id || list[0]?.id || '';
+        setYearId(pick);
+        const y = list.find((x: any) => x.id === pick);
+        setOpening({
+          openingCash: y ? String(Number(y.openingCash || 0)) : '',
+          openingBank: y ? String(Number(y.openingBank || 0)) : '',
+        });
+      })
+      .catch(() => {/* a school with no years yet still gets the reports */});
+  };
+  useEffect(() => loadYears(), []);
+
+  const saveOpening = async () => {
+    if (!yearId) return;
+    setSavingOpening(true);
+    try {
+      await apiClient.patch(`/finance/financial-years/${yearId}/opening`, {
+        openingCash: Number(opening.openingCash || 0),
+        openingBank: Number(opening.openingBank || 0),
+      });
+      toast.success('Opening balance saved');
+      loadYears(yearId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not save the opening balance');
+    } finally { setSavingOpening(false); }
+  };
+
+  const createYear = async () => {
+    try {
+      const { data } = await apiClient.post('/finance/financial-years', newYear);
+      toast.success(`${newYear.yearLabel} created`);
+      setShowNewYear(false);
+      setNewYear({ yearLabel: '', startDate: '', endDate: '' });
+      loadYears(data?.id);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not create that financial year');
+    }
+  };
+
+  const carryForward = async () => {
+    if (!yearId) return;
+    if (!confirm('Carry this year’s closing cash and bank into the next financial year as its opening balance? This replaces whatever opening figures that year currently holds.')) return;
+    try {
+      const { data } = await apiClient.post(`/finance/financial-years/${yearId}/carry-forward`);
+      toast.success(`Carried forward into ${data.into}`);
+      loadYears(yearId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not carry the balances forward');
+    }
+  };
 
   const loadVoteHeads = () => {
     setLoadingVoteHeads(true);
@@ -51,7 +118,9 @@ export default function AccountingPage() {
   const generate = async (key: string, label: string) => {
     setGenerating(key);
     try {
-      const res = await apiClient.get(`/finance/reports/${key}`, { responseType: 'text' });
+      const res = await apiClient.get(`/finance/reports/${key}`, {
+        responseType: 'text', params: yearId ? { yearId } : {},
+      });
       const html = typeof res.data === 'string' ? res.data : String(res.data);
       const blob = new Blob([html], { type: 'text/html' });
       const blobUrl = URL.createObjectURL(blob);
@@ -84,6 +153,100 @@ export default function AccountingPage() {
           <h1 className="text-2xl font-black text-theme-heading">Accounting & Reports</h1>
           <p className="text-sm text-theme-muted">Kenyan accounting workflows — cashbook, ledger, trial balance, statements</p>
         </div>
+      </div>
+
+      {/* Financial year — the period every book below runs over, and the
+          opening position it starts from. */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <CalendarRange size={18} className="text-[#d4af37]"/>
+            <div className="font-bold text-theme-heading">Financial Year</div>
+          </div>
+          <button onClick={() => setShowNewYear(v => !v)} className="btn-ghost text-xs">
+            <Plus size={13}/> New year
+          </button>
+        </div>
+
+        {years.length === 0 ? (
+          <p className="text-sm text-theme-muted">
+            No financial year set up yet — the books below cover every transaction recorded.
+            Create one to run them over a period and carry balances forward.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="label">Year</label>
+              <select value={yearId} className="input"
+                onChange={e => {
+                  const id = e.target.value; setYearId(id);
+                  const y = years.find(x => x.id === id);
+                  setOpening({
+                    openingCash: y ? String(Number(y.openingCash || 0)) : '',
+                    openingBank: y ? String(Number(y.openingBank || 0)) : '',
+                  });
+                }}>
+                {years.map(y => (
+                  <option key={y.id} value={y.id}>
+                    {y.yearLabel}{y.isCurrent ? ' (current)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Opening cash in hand</label>
+              <input type="number" min={0} step="0.01" className="input" value={opening.openingCash}
+                onChange={e => setOpening(o => ({ ...o, openingCash: e.target.value }))}/>
+            </div>
+            <div>
+              <label className="label">Opening cash at bank</label>
+              <input type="number" min={0} step="0.01" className="input" value={opening.openingBank}
+                onChange={e => setOpening(o => ({ ...o, openingBank: e.target.value }))}/>
+            </div>
+            <div className="flex items-end gap-2">
+              <button onClick={saveOpening} disabled={savingOpening} className="btn-primary flex-1 justify-center text-xs">
+                {savingOpening ? <Loader2 size={13} className="animate-spin"/> : null} Save opening
+              </button>
+            </div>
+          </div>
+        )}
+
+        {selectedYear && (
+          <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs text-theme-muted">
+              {selectedYear.openingSource
+                ? `Opening balances ${selectedYear.openingSource}.`
+                : 'No opening balance recorded for this year yet.'}
+            </p>
+            <button onClick={carryForward} className="btn-ghost text-xs"
+              title="Compute this year's closing cash and bank and set them as the next year's opening balance">
+              <ArrowRightLeft size={13}/> Carry closing balances into next year
+            </button>
+          </div>
+        )}
+
+        {showNewYear && (
+          <div className="mt-4 pt-4 border-t border-theme grid gap-3 sm:grid-cols-4">
+            <div>
+              <label className="label">Label</label>
+              <input className="input" placeholder="2027" value={newYear.yearLabel}
+                onChange={e => setNewYear(f => ({ ...f, yearLabel: e.target.value }))}/>
+            </div>
+            <div>
+              <label className="label">Starts</label>
+              <input type="date" className="input" value={newYear.startDate}
+                onChange={e => setNewYear(f => ({ ...f, startDate: e.target.value }))}/>
+            </div>
+            <div>
+              <label className="label">Ends</label>
+              <input type="date" className="input" value={newYear.endDate}
+                onChange={e => setNewYear(f => ({ ...f, endDate: e.target.value }))}/>
+            </div>
+            <div className="flex items-end">
+              <button onClick={createYear} className="btn-primary w-full justify-center text-xs">Create</button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card p-5">

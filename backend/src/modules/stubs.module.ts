@@ -460,6 +460,161 @@ class FinanceController {
     return { reconciled, stillCredited, total: (shortfalls as any[]).length };
   }
 
+  // ── Financial years & opening balances ──────────────────────
+  // A set of books runs over a period and opens from the previous period's
+  // close. Without this the reports could only ever show a school its first
+  // year, because everything before was folded into the same running total.
+
+  private async ensureFinancialYears() {
+    await this.ds.query(
+      `CREATE TABLE IF NOT EXISTS financial_years (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         tenant_id uuid, year_label text, start_date date, end_date date,
+         is_current boolean DEFAULT false, created_at timestamptz DEFAULT NOW())`,
+    ).catch(() => null);
+    for (const [n, t] of [['opening_cash','numeric(14,2) DEFAULT 0'], ['opening_bank','numeric(14,2) DEFAULT 0'],
+      ['opening_source','text'], ['opening_set_at','timestamptz'], ['opening_set_by','uuid']] as [string,string][]) {
+      await this.ds.query(`ALTER TABLE financial_years ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
+    }
+  }
+
+  /** The year a report should run over: the one asked for, else the current one. */
+  private async resolveYear(tenantId: string, yearId?: string) {
+    await this.ensureFinancialYears();
+    const rows = await this.ds.query(
+      yearId
+        ? `SELECT * FROM financial_years WHERE tenant_id::text = $1 AND id::text = $2 LIMIT 1`
+        : `SELECT * FROM financial_years WHERE tenant_id::text = $1
+            ORDER BY is_current DESC, start_date DESC LIMIT 1`,
+      yearId ? [tenantId, yearId] : [tenantId],
+    ).catch(() => []);
+    return (rows as any[])[0] || null;
+  }
+
+  @Get('financial-years')
+  async listFinancialYears(@Request() req: any) {
+    await this.ensureFinancialYears();
+    return this.ds.query(
+      `SELECT id, year_label AS "yearLabel", start_date AS "startDate", end_date AS "endDate",
+              is_current AS "isCurrent", opening_cash AS "openingCash", opening_bank AS "openingBank",
+              opening_source AS "openingSource", opening_set_at AS "openingSetAt"
+         FROM financial_years WHERE tenant_id::text = $1
+        ORDER BY start_date DESC`, [req.user.tenantId],
+    ).catch(() => []);
+  }
+
+  @Post('financial-years')
+  async createFinancialYear(@Request() req: any, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('You do not have permission to manage financial years.');
+    }
+    await this.ensureFinancialYears();
+    const { yearLabel, startDate, endDate } = dto || {};
+    if (!yearLabel || !startDate || !endDate) {
+      throw new BadRequestException('A year needs a label, a start date and an end date.');
+    }
+    if (String(startDate) >= String(endDate)) {
+      throw new BadRequestException('The year must end after it starts.');
+    }
+    const tenantId = req.user.tenantId;
+    const clash = await this.ds.query(
+      `SELECT year_label FROM financial_years
+        WHERE tenant_id::text = $1 AND start_date <= $3::date AND end_date >= $2::date LIMIT 1`,
+      [tenantId, startDate, endDate],
+    ).catch(() => []);
+    if ((clash as any[]).length) {
+      throw new BadRequestException(`These dates overlap ${(clash as any[])[0].year_label}. Books cannot run over two years at once.`);
+    }
+    // A new year becomes the one being posted into; the partial unique index
+    // permits only one current year, so the old one is stood down first.
+    await this.ds.query(`UPDATE financial_years SET is_current = FALSE WHERE tenant_id::text = $1`, [tenantId]).catch(() => null);
+    const rows = await this.ds.query(
+      `INSERT INTO financial_years (tenant_id, year_label, start_date, end_date, is_current)
+       VALUES ($1,$2,$3,$4,TRUE) RETURNING id`, [tenantId, yearLabel, startDate, endDate],
+    );
+    return { id: (rows as any[])[0]?.id, ok: true };
+  }
+
+  @Patch('financial-years/:id/opening')
+  async setOpeningBalance(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('You do not have permission to set opening balances.');
+    }
+    await this.ensureFinancialYears();
+    const cash = Number(dto?.openingCash ?? 0);
+    const bank = Number(dto?.openingBank ?? 0);
+    if (!isFinite(cash) || !isFinite(bank) || cash < 0 || bank < 0) {
+      throw new BadRequestException('Opening balances must be zero or a positive amount.');
+    }
+    await this.ds.query(
+      `UPDATE financial_years
+          SET opening_cash = $1, opening_bank = $2, opening_source = $3,
+              opening_set_at = NOW(), opening_set_by = $4
+        WHERE id::text = $5 AND tenant_id::text = $6`,
+      [cash, bank, dto?.source || 'entered by hand', req.user.id, id, req.user.tenantId],
+    );
+    return { ok: true };
+  }
+
+  /**
+   * Carry a year's closing cash and bank into the following year as its opening
+   * balance. Computed from the books rather than typed, which is the whole point
+   * of carrying forward: the two years then cannot disagree.
+   */
+  @Post('financial-years/:id/carry-forward')
+  async carryForward(@Request() req: any, @Param('id') id: string) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('You do not have permission to close a financial year.');
+    }
+    const tenantId = req.user.tenantId;
+    const from = await this.resolveYear(tenantId, id);
+    if (!from) throw new BadRequestException('That financial year was not found.');
+
+    const next = await this.ds.query(
+      `SELECT id, year_label FROM financial_years
+        WHERE tenant_id::text = $1 AND start_date > $2::date
+        ORDER BY start_date ASC LIMIT 1`, [tenantId, from.end_date],
+    ).catch(() => []);
+    if (!(next as any[]).length) {
+      throw new BadRequestException('There is no later financial year to carry these balances into. Create one first.');
+    }
+
+    const { closingCash, closingBank } = await this.closingBalancesFor(tenantId, from);
+    const target = (next as any[])[0];
+    await this.ds.query(
+      `UPDATE financial_years
+          SET opening_cash = $1, opening_bank = $2,
+              opening_source = $3, opening_set_at = NOW(), opening_set_by = $4
+        WHERE id::text = $5 AND tenant_id::text = $6`,
+      [closingCash, closingBank, `carried forward from ${from.year_label}`, req.user.id, target.id, tenantId],
+    );
+    return { ok: true, into: target.year_label, openingCash: closingCash, openingBank: closingBank };
+  }
+
+  /** Closing cash and bank for one year, from its opening plus that year's movements. */
+  private async closingBalancesFor(tenantId: string, year: any) {
+    await this.ensurePaymentsTable();
+    await this.ensureExpensesTable().catch(() => null);
+    const [inRow] = await this.ds.query(
+      `SELECT COALESCE(SUM(CASE WHEN lower(COALESCE(method,'')) = 'cash' THEN amount ELSE 0 END),0) AS cash,
+              COALESCE(SUM(CASE WHEN lower(COALESCE(method,'')) <> 'cash' THEN amount ELSE 0 END),0) AS bank
+         FROM payments WHERE tenant_id::text = $1
+          AND COALESCE(paid_on, created_at::date) BETWEEN $2::date AND $3::date`,
+      [tenantId, year.start_date, year.end_date],
+    ).catch(() => [{ cash: 0, bank: 0 }]);
+    const [outRow] = await this.ds.query(
+      `SELECT COALESCE(SUM(CASE WHEN lower(COALESCE(payment_method,'')) = 'cash' THEN amount ELSE 0 END),0) AS cash,
+              COALESCE(SUM(CASE WHEN lower(COALESCE(payment_method,'')) <> 'cash' THEN amount ELSE 0 END),0) AS bank
+         FROM expenses WHERE tenant_id::text = $1
+          AND COALESCE(spent_on, created_at::date) BETWEEN $2::date AND $3::date`,
+      [tenantId, year.start_date, year.end_date],
+    ).catch(() => [{ cash: 0, bank: 0 }]);
+    return {
+      closingCash: Number(year.opening_cash || 0) + Number(inRow?.cash || 0) - Number(outRow?.cash || 0),
+      closingBank: Number(year.opening_bank || 0) + Number(inRow?.bank || 0) - Number(outRow?.bank || 0),
+    };
+  }
+
   // School-wide total received per vote head (all learners), optionally filtered by
   // term/academic year. Declared before the ':learnerId' route below so "summary" isn't
   // captured as a learner id.
@@ -641,23 +796,41 @@ class FinanceController {
     // A DATE column comes back from pg as a JS Date, whose default toString is
     // "Tue Sep 01 2026 00:00:00 GMT+0300 (East Africa Time)" — unreadable in a
     // cash book column. Render the calendar date only.
+    // Built from the local date parts, never toISOString(): pg hands back a DATE
+    // as midnight local time, and in Nairobi (UTC+3) converting that to UTC
+    // rolls it onto the previous day — a year starting 2027-01-01 printed as
+    // 2026-12-31.
     const dmy = (v: any) => {
       if (!v) return '';
+      if (typeof v === 'string') return v.slice(0, 10);
       const d = v instanceof Date ? v : new Date(String(v));
-      return isNaN(d.getTime()) ? String(v) : d.toISOString().slice(0, 10);
+      if (isNaN(d.getTime())) return String(v);
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     };
     const school = await this.ds.query(`SELECT name FROM schools WHERE tenant_id = $1 LIMIT 1`, [tenantId]).then((r: any[]) => r[0]?.name || 'School').catch(() => 'School');
     const today = new Date().toISOString().slice(0, 10);
 
+    // Books run over a financial year. Where a school has not set one up, fall
+    // back to every transaction it has — the reports then behave as they did
+    // before, rather than showing an empty book.
+    const year = await this.resolveYear(tenantId, q.yearId);
+    const from = year?.start_date || '1900-01-01';
+    const to   = year?.end_date   || '2999-12-31';
+
     const payments = await this.ds.query(
       `SELECT id, receipt_number, learner_name, admission_number, amount, method, reference,
               COALESCE(paid_on, created_at::date) AS d
-         FROM payments WHERE tenant_id = $1 ORDER BY d ASC`, [tenantId],
+         FROM payments WHERE tenant_id = $1
+          AND COALESCE(paid_on, created_at::date) BETWEEN $2::date AND $3::date
+        ORDER BY d ASC`, [tenantId, from, to],
     ).catch(() => []);
     const expenses = await this.ds.query(
       `SELECT id, description, category, amount, payment_method, voucher_number, cheque_number,
               COALESCE(spent_on, created_at::date) AS d
-         FROM expenses WHERE tenant_id = $1 ORDER BY d ASC`, [tenantId],
+         FROM expenses WHERE tenant_id = $1
+          AND COALESCE(spent_on, created_at::date) BETWEEN $2::date AND $3::date
+        ORDER BY d ASC`, [tenantId, from, to],
     ).catch(() => []);
     const totalIn = (payments as any[]).reduce((s, p) => s + Number(p.amount || 0), 0);
     const totalOut = (expenses as any[]).reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -666,10 +839,15 @@ class FinanceController {
     // Modelled on the Zaroda Books workbooks. House convention: a receipt
     // allocated to a vote head CREDITS it (funds voted), a payment allocated to
     // one DEBITS it (funds spent), so an unspent vote carries a credit balance.
+    // Scoped through the payment, so an allocation follows the receipt it came
+    // from into whichever year that receipt falls in.
     const allocRows = await this.ds.query(
-      `SELECT payment_id, COALESCE(vote_head,'Unallocated') AS head, COALESCE(SUM(amount),0) AS amount
-         FROM payment_allocations WHERE tenant_id = $1
-        GROUP BY payment_id, vote_head`, [tenantId],
+      `SELECT a.payment_id, COALESCE(a.vote_head,'Unallocated') AS head, COALESCE(SUM(a.amount),0) AS amount
+         FROM payment_allocations a
+         JOIN payments p ON p.id::text = a.payment_id::text
+        WHERE a.tenant_id = $1
+          AND COALESCE(p.paid_on, p.created_at::date) BETWEEN $2::date AND $3::date
+        GROUP BY a.payment_id, a.vote_head`, [tenantId, from, to],
     ).catch(() => []);
 
     // payment id -> { head: amount }, so each cash-book row can be analysed.
@@ -707,9 +885,8 @@ class FinanceController {
       if (isCashMethod(e.payment_method)) paymentsCash += Number(e.amount || 0);
       else paymentsBank += Number(e.amount || 0);
     }
-    // Opening balances are not yet captured anywhere in the system, so the books
-    // run from nil. Stated on the face of each report rather than assumed.
-    const openingCash = 0, openingBank = 0;
+    const openingCash = Number(year?.opening_cash || 0);
+    const openingBank = Number(year?.opening_bank || 0);
     const closingCash = openingCash + receiptsCash - paymentsCash;
     const closingBank = openingBank + receiptsBank - paymentsBank;
 
@@ -737,7 +914,9 @@ class FinanceController {
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
       @media print{.print{display:none}}
       </style></head><body>
-      <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)} · as at ${esc(today)}</h2></div>
+      <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)}${
+        year ? ` · ${esc(year.year_label)} (${esc(dmy(year.start_date))} to ${esc(dmy(year.end_date))})` : ''
+      } · printed ${esc(today)}</h2></div>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
       ${inner}</body></html>`;
 
@@ -799,7 +978,11 @@ class FinanceController {
           <tr><td colspan="3">Totals</td><td class="n">${ksh(paymentsCash)}</td><td class="n">${ksh(paymentsBank)}</td><td class="n">${ksh(totalOut)}</td>${outCols.map(h => `<td class="n">${ksh(outTotals[h] || 0)}</td>`).join('')}</tr>
           <tr><td colspan="3">Balance carried down</td><td class="n">${ksh(closingCash)}</td><td class="n">${ksh(closingBank)}</td><td class="n">${ksh(closingCash + closingBank)}</td>${outCols.map(() => '<td></td>').join('')}</tr>
         </tfoot></table>
-        <p style="font-size:11px;color:#666">Receipts are analysed by fee vote head; payments by expense category. A receipt taken by M-Pesa or bank transfer is shown in the bank column, one taken in cash in the cash column; an expense with no recorded method is treated as bank. Opening balances are not yet captured, so the book runs from nil.</p>
+        <p style="font-size:11px;color:#666">Receipts are analysed by fee vote head; payments by expense category. A receipt taken by M-Pesa or bank transfer is shown in the bank column, one taken in cash in the cash column; an expense with no recorded method is treated as bank.${
+          year ? (Number(year.opening_cash || 0) || Number(year.opening_bank || 0)
+            ? ` Opening balances ${esc(year.opening_source || 'as recorded')}.`
+            : ' No opening balance has been set for this year — the book runs from nil.')
+          : ' No financial year has been set up, so this covers every transaction recorded.'}</p>
         ${unallocated ? `<p style="font-size:11px;color:#a00">${ksh(unallocated)} of receipts is not analysed to any vote head. Use <strong>Reconcile balances</strong> on the Accounting page to attribute it.</p>` : ''}`;
     } else if (key === 'cash_flow') {
       inner = `<table><tbody>
