@@ -1,10 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { DollarSign, Search, CreditCard, Loader2, FileText, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { DollarSign, Search, CreditCard, Loader2, FileText, CheckCircle, AlertCircle, Clock, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
-import { InvoiceButton, ReceiptButton } from '@/components/pdf/pdf-buttons';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
 
 export default function FinancePage() {
@@ -30,6 +29,30 @@ export default function FinancePage() {
   };
 
   useEffect(() => { load(); }, [search, term, year, gradeLevel]);
+
+  // Opens the printable invoice(s) in a new tab. An "invoice" is derived from a
+  // learner's fee items rather than stored as a row, so this goes through the
+  // finance module and not the PDF service, whose route expects a stored id.
+  const [printing, setPrinting] = useState(false);
+  const openInvoices = async (params: Record<string, string>) => {
+    setPrinting(true);
+    try {
+      const res = await apiClient.get('/finance/invoices/print', {
+        responseType: 'text',
+        params: { term, academicYear: year, ...params },
+      });
+      const blob = new Blob([typeof res.data === 'string' ? res.data : String(res.data)], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      if (!window.open(url, '_blank')) {
+        const a = document.createElement('a');
+        a.href = url; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error('Could not open the invoice');
+    } finally { setPrinting(false); }
+  };
 
   const fmt = (n: number) => `KES ${(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 })}`;
 
@@ -111,6 +134,12 @@ export default function FinancePage() {
               <option value="">All classes</option>
               {GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
             </select>
+            {/* Prints every invoice matching the filters above, one per page. */}
+            <button onClick={() => openInvoices(gradeLevel ? { gradeLevel } : {})} disabled={printing || !invoices.length}
+              className="btn-primary text-xs disabled:opacity-40"
+              title={gradeLevel ? 'Print an invoice for every learner in this class' : 'Print an invoice for every learner shown'}>
+              <Printer size={14}/> {printing ? 'Opening…' : `Print ${invoices.length || ''} invoice${invoices.length === 1 ? '' : 's'}`}
+            </button>
           </div>
 
           {/* Summary cards */}
@@ -176,7 +205,10 @@ export default function FinancePage() {
                         <td className="px-4 py-3 text-center">{statusBadge(inv.status)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-2 flex-wrap">
-                            <InvoiceButton invoiceId={inv.id} invoiceNumber={inv.invoiceNumber} compact/>
+                            <button onClick={() => openInvoices({ learnerId: inv.id })} disabled={printing}
+                              className="text-xs border border-theme px-2 py-1 rounded-lg hover:bg-surface-2 font-medium">
+                              Invoice
+                            </button>
                             {balance > 0 && (
                               <button onClick={() => setMpeza({ learnerId: inv.id, phone: inv.learner?.guardianPhone || '', amount: String(balance) })}
                                 className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700 font-medium">

@@ -303,28 +303,29 @@ export function BulkReportCardsButton({
   const { printHtml, downloadHtmlAsPdf, downloading, error } = usePdfDownload();
   const key = `bulk-rc-${streamId}`;
   const fname = `report-cards-${streamName?.replace(/\s+/g,'-') || streamId}-${term}.pdf`;
+  // Off by default: most schools send the fee structure home with the end-of-year
+  // card only, not with every term's.
+  const [withFees, setWithFees] = useState(false);
+  const url = `/pdf/report-cards/bulk/html?streamId=${streamId}&term=${term}`
+    + `&academicYear=${encodeURIComponent(academicYear)}${withFees ? '&withFeeStructure=true' : ''}`;
 
   return (
     <div className="flex flex-col gap-1">
+      <label className="flex items-center gap-1.5 text-xs text-theme-muted cursor-pointer">
+        <input type="checkbox" checked={withFees} onChange={e => setWithFees(e.target.checked)}/>
+        Attach fee structure as a second page
+      </label>
       <div className="flex items-center gap-2">
       <PdfButton
         loading={downloading === key}
         label="🖨 Print All"
         variant="ghost"
-        onClick={() => printHtml(
-          `/pdf/report-cards/bulk/html?streamId=${streamId}&term=${term}&academicYear=${encodeURIComponent(academicYear)}`,
-          key,
-        )}
+        onClick={() => printHtml(url, key)}
       />
       <PdfButton
         loading={downloading === `${key}-dl`}
         label="↓ Save All PDF"
-        onClick={() => downloadHtmlAsPdf(
-          `/pdf/report-cards/bulk/html?streamId=${streamId}&term=${term}&academicYear=${encodeURIComponent(academicYear)}`,
-          fname,
-          `${key}-dl`,
-          'portrait',
-        )}
+        onClick={() => downloadHtmlAsPdf(url, fname, `${key}-dl`, 'portrait')}
       />
       </div>
       {error && <div className="text-xs text-red-600">{error}</div>}

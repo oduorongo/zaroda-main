@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2 } from 'lucide-react';
+import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isBursar } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
@@ -18,6 +18,22 @@ export default function FeeStructuresPage() {
   const { user } = useAuth();
   const [structures, setStructures] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Opens the printable structure in a new tab — the same table a report card
+  // carries as its second page, so parents see one consistent document.
+  const printStructure = async () => {
+    try {
+      const res = await apiClient.get('/finance/fee-structures/print', { responseType: 'text' });
+      const blob = new Blob([typeof res.data === 'string' ? res.data : String(res.data)], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      if (!window.open(url, '_blank')) {
+        const a = document.createElement('a');
+        a.href = url; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch { toast.error('Could not open the fee structure'); }
+  };
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving]   = useState(false);
   const [form, setForm] = useState<any>({
@@ -81,9 +97,12 @@ export default function FeeStructuresPage() {
           <h1 className="text-2xl font-black text-theme-heading">Fee Structures</h1>
           <p className="text-sm text-theme-muted">Tuition, transport, boarding, meals — designed by the bursar</p>
         </div>
-        {isBursar(user?.role || '') && (
-          <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Structure</button>
-        )}
+        <div className="flex gap-2">
+          <button onClick={printStructure} className="btn-ghost"><Printer size={16}/> Print</button>
+          {isBursar(user?.role || '') && (
+            <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Structure</button>
+          )}
+        </div>
       </div>
 
       {loading ? <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-14 shimmer rounded-xl"/>)}</div>

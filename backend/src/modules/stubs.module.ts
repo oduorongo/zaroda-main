@@ -13,6 +13,7 @@ import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.
 import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/messaging';
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 import { requireProPlan } from '../common/plan';
+import { feeStructureTableHtml } from '../common/fee-structure-table';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -226,6 +227,50 @@ class FinanceController {
   }
 
   // ── FEE STRUCTURES (set by HOI / bursar / admin) ──────────
+  /**
+   * The fee structure as a table, for printing on its own or as a page of
+   * something else. Returns markup rather than a whole document so the report
+   * card can carry the same table as its second page without either copy
+   * drifting from the other.
+   */
+  @Get('fee-structures/print')
+  async printFeeStructure(@Request() req: any, @Query() q: any, @Res() res: any) {
+    const tenantId = req.user.tenantId;
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const school = await this.ds.query(
+      `SELECT name, address, phone FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId],
+    ).then((r: any[]) => r[0] || {}).catch(() => ({} as any));
+    await this.ensureFeeItemsTable();
+    const table = await feeStructureTableHtml(this.ds, tenantId, {
+      gradeLevel: q.gradeLevel, term: q.term, academicYear: q.academicYear,
+    });
+    const scope = [
+      q.gradeLevel ? String(q.gradeLevel).replace(/_/g, ' ') : 'All classes',
+      q.term ? String(q.term).replace('term_', 'Term ') : '',
+      q.academicYear || '',
+    ].filter(Boolean).join(' · ');
+
+    res.set('Content-Type', 'text/html').send(`<!doctype html><html><head><meta charset="utf-8">
+      <title>Fee Structure</title><style>
+      @page{size:A4 portrait;margin:14mm}
+      body{font-family:Arial,sans-serif;color:#1a2e5a;margin:22px}
+      .head{text-align:center;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:8px}
+      .head h1{margin:0;font-size:20px}.head h2{margin:4px 0 0;font-size:13px;font-weight:400;color:#555}
+      table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+      th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+      th{background:#1a2e5a;color:#fff}
+      td.n,th.n{text-align:right}
+      tfoot td{font-weight:bold;background:#f0f2f8}
+      .print{margin:14px 0;text-align:center}
+      button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
+      @media print{.print{display:none}}
+      </style></head><body>
+      <div class="head"><h1>${esc(school.name || 'School')}</h1>
+        <h2>Fee Structure · ${esc(scope)}</h2></div>
+      <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+      ${table || '<p>No fee items have been set up for this selection.</p>'}</body></html>`);
+  }
+
   @Get('fee-structures')
   async getFeeStructures(@Request() req: any) {
     await this.ensureFeeItemsTable();
@@ -676,6 +721,103 @@ class FinanceController {
     const totalBilled = result.reduce((s, h) => s + h.billed, 0);
     const totalPaid = result.reduce((s, h) => s + h.paid, 0);
     return { voteHeads: result, totalBilled, totalPaid, totalBalance: Math.max(0, totalBilled - totalPaid) };
+  }
+
+  /**
+   * Printable fee invoices — one learner or a whole class.
+   *
+   * The PDF route at /pdf/invoice/:id cannot serve these: it looks the id up in
+   * the invoices table, but this system never writes one. An "invoice" here is
+   * derived from the learner's fee items and what they have paid, so the id the
+   * Fee Invoices screen holds is a LEARNER id and that lookup always 404s.
+   * Built from the same source as the list instead, so the two always agree.
+   */
+  @Get('invoices/print')
+  async printInvoices(@Request() req: any, @Query() q: any, @Res() res: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      res.status(403).send('<p>Not authorised.</p>'); return;
+    }
+    const tenantId = req.user.tenantId;
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const ksh = (n: any) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
+
+    const school = await this.ds.query(
+      `SELECT name, address, phone FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId],
+    ).then((r: any[]) => r[0] || {}).catch(() => ({} as any));
+
+    // One learner, or every learner matching the class filter.
+    const learners = await this.ds.query(
+      `SELECT l.id, l.first_name AS "firstName", l.last_name AS "lastName",
+              l.admission_number AS "admissionNumber", l.grade_level AS "gradeLevel",
+              l.guardian_name AS "guardianName", l.guardian_phone AS "guardianPhone",
+              s.name AS "streamName"
+         FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.tenant_id::text = $1 AND l.is_active = true
+          AND ($2::text IS NULL OR l.id::text = $2)
+          AND ($3::text IS NULL OR l.grade_level = $3)
+          AND ($4::text IS NULL OR l.stream_id::text = $4)
+        ORDER BY l.grade_level, s.name, l.first_name`,
+      [tenantId, q.learnerId || null, q.gradeLevel || null, q.streamId || null],
+    ).catch(() => []);
+
+    if (!(learners as any[]).length) {
+      res.set('Content-Type', 'text/html').send('<p>No learners matched. Check the class filter.</p>'); return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const pages: string[] = [];
+    for (const l of learners as any[]) {
+      const v = await this.learnerVoteHeads(req, l.id, q);
+      const rows = (v.voteHeads || []).map((h: any) =>
+        `<tr><td>${esc(h.name)}</td><td class="n">${ksh(h.billed)}</td>`
+        + `<td class="n">${ksh(h.paid)}</td><td class="n">${ksh(h.balance)}</td></tr>`).join('')
+        || '<tr><td colspan="4">No fee items billed for this class</td></tr>';
+      pages.push(`<section class="inv">
+        <div class="ih">
+          <div><div class="sn">${esc(school.name || 'School')}</div>
+            <div class="sm">${esc(school.address || '')}${school.phone ? ` · ${esc(school.phone)}` : ''}</div></div>
+          <div class="ttl">FEE INVOICE</div>
+        </div>
+        <table class="meta"><tbody>
+          <tr><td><strong>Learner</strong></td><td>${esc(`${l.firstName || ''} ${l.lastName || ''}`.trim())}</td>
+              <td><strong>Adm No</strong></td><td>${esc(l.admissionNumber || '')}</td></tr>
+          <tr><td><strong>Class</strong></td><td>${esc(l.streamName || String(l.gradeLevel || '').replace(/_/g, ' '))}</td>
+              <td><strong>Date</strong></td><td>${esc(today)}</td></tr>
+          <tr><td><strong>Guardian</strong></td><td>${esc(l.guardianName || '')}</td>
+              <td><strong>Phone</strong></td><td>${esc(l.guardianPhone || '')}</td></tr>
+        </tbody></table>
+        <table><thead><tr><th>Vote head</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Balance</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td>Total</td><td class="n">${ksh(v.totalBilled)}</td>
+            <td class="n">${ksh(v.totalPaid)}</td><td class="n">${ksh(v.totalBalance)}</td></tr></tfoot></table>
+        <p class="note">Balance due: <strong>${ksh(v.totalBalance)}</strong>. Please quote the admission number on payment.</p>
+      </section>`);
+    }
+
+    res.set('Content-Type', 'text/html').send(`<!doctype html><html><head><meta charset="utf-8">
+      <title>Fee Invoice${(learners as any[]).length > 1 ? 's' : ''}</title><style>
+      @page{size:A4 portrait;margin:14mm}
+      body{font-family:Arial,sans-serif;color:#1a2e5a;margin:20px}
+      .inv{padding-bottom:10px}
+      .inv + .inv{border-top:2px dashed #bbb;margin-top:22px;padding-top:22px}
+      .ih{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a2e5a;padding-bottom:8px}
+      .sn{font-size:18px;font-weight:bold}.sm{font-size:11px;color:#555}
+      .ttl{font-size:15px;font-weight:bold;letter-spacing:.08em}
+      table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+      th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+      th{background:#1a2e5a;color:#fff}
+      td.n,th.n{text-align:right}
+      tfoot td{font-weight:bold;background:#f0f2f8}
+      .meta td{border:none;padding:3px 6px;font-size:12px}
+      .note{font-size:12px;margin-top:8px}
+      .print{margin:16px 0;text-align:center}
+      button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
+      @media print{.print{display:none}.inv{page-break-after:always}.inv:last-child{page-break-after:auto}
+        .inv + .inv{border-top:none;margin-top:0;padding-top:0}}
+      </style></head><body>
+      <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button>
+        &nbsp;<span style="font-size:12px;color:#555">${(learners as any[]).length} invoice(s)</span></div>
+      ${pages.join('')}</body></html>`);
   }
 
   @Get('invoices')
@@ -6210,7 +6352,14 @@ class PdfController {
         ).catch(() => []);
         if (!ok.length) { res.status(403).send('<p style="font-family:sans-serif">You can only view your own child\'s report card.</p>'); return; }
       }
-      const html = await this.buildReportCardHtml(req.user.tenantId, learnerId, q.term, q.academicYear || '2025/2026', true);
+      let html = await this.buildReportCardHtml(req.user.tenantId, learnerId, q.term, q.academicYear || '2025/2026', true);
+      if (String(q.withFeeStructure) === 'true') {
+        const grade = await this.ds.query(
+          `SELECT grade_level AS g FROM learners WHERE id::text = $1 LIMIT 1`, [learnerId],
+        ).then((r: any[]) => r[0]?.g).catch(() => undefined);
+        const fee = await this.feePageHtml(req.user.tenantId, grade, q.term, q.academicYear || '2025/2026');
+        if (fee) html = html.replace(/<\/body>/i, `${fee}</body>`);
+      }
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
@@ -6232,10 +6381,18 @@ class PdfController {
         `SELECT id FROM learners WHERE tenant_id::text = $1 AND stream_id::text = $2 AND COALESCE(is_active, true) = true ORDER BY first_name`,
         [tenantId, streamId],
       ).catch(() => []);
+      // Built once: every learner in a stream is billed the same structure.
+      const grade = await this.ds.query(
+        `SELECT grade_level AS g FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
+      ).then((r: any[]) => r[0]?.g).catch(() => undefined);
+      const feePage = String(q.withFeeStructure) === 'true'
+        ? await this.feePageHtml(tenantId, grade, term, academicYear || '2025/2026')
+        : '';
+
       const pages: string[] = [];
       for (const l of learners) {
         const card = await this.buildReportCardHtml(tenantId, l.id, term, academicYear || '2025/2026', false).catch(() => '');
-        if (card) pages.push(card);
+        if (card) { pages.push(card); if (feePage) pages.push(feePage); }
       }
       const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Report Cards</title>
         ${this.reportCardStyles()}
@@ -6248,6 +6405,25 @@ class PdfController {
     } catch (e: any) {
       res.status(500).send(`<p style="font-family:sans-serif">Could not build report cards: ${e?.message || 'error'}</p>`);
     }
+  }
+
+  /**
+   * The fee structure as an extra page on a report card, when an admin asks for
+   * it — end-of-year cards go home with the next year's fees on the back, which
+   * is how most schools already send them. Shares the table with the Finance
+   * print so a parent cannot be handed two versions that disagree.
+   */
+  private async feePageHtml(tenantId: string, gradeLevel?: string, term?: string, academicYear?: string) {
+    const table = await feeStructureTableHtml(this.ds, tenantId, { gradeLevel, term, academicYear });
+    if (!table) return '';
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    return `<div class="rc" style="page-break-before:always">
+      <h2 style="text-align:center;margin:0 0 4px;font-size:17px">Fee Structure</h2>
+      <p style="text-align:center;margin:0 0 12px;font-size:12px;color:#555">
+        ${esc(gradeLevel ? String(gradeLevel).replace(/_/g, ' ') : 'All classes')}${academicYear ? ` · ${esc(academicYear)}` : ''}
+      </p>
+      ${table}
+    </div>`;
   }
 
   private reportCardStyles(): string {
