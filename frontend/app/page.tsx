@@ -406,6 +406,8 @@ export default function HomePage() {
               <li><Link href="/retooling" className="hover:text-white">Retooling</Link></li>
               <li><Link href="/auth/signup" className="hover:text-white">Free in 2026</Link></li>
               <li><Link href="/auth/login" className="hover:text-white">Sign In</Link></li>
+              <li><Link href="/legal/privacy" className="hover:text-white">Privacy Policy</Link></li>
+              <li><Link href="/legal/terms" className="hover:text-white">Terms of Service</Link></li>
             </ul>
           </div>
           <div>

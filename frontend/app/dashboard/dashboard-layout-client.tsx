@@ -220,6 +220,12 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         <button onClick={logout} className="nav-item w-full text-red-400/80 hover:text-red-400 hover:bg-red-500/10">
           <LogOut size={18}/> <span>Sign Out</span>
         </button>
+        {/* Parents and staff must be able to reach these from inside the app, not
+            only from the public landing page they may never see again. */}
+        <div className="flex gap-3 px-3 pt-2 text-[10px] text-white/35">
+          <Link href="/legal/privacy" onClick={() => setSidebarOpen(false)} className="hover:text-white/70">Privacy</Link>
+          <Link href="/legal/terms" onClick={() => setSidebarOpen(false)} className="hover:text-white/70">Terms</Link>
+        </div>
       </div>
 
       {/* User */}
