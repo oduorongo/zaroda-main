@@ -7,7 +7,7 @@ import {
   Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
   Menu, X, ChevronRight, Users, BarChart2,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
-  CalendarDays, CalendarClock, Bus, BookMarked, ExternalLink,
+  CalendarDays, CalendarClock, Bus, BookMarked, ExternalLink, ShieldCheck,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -46,6 +46,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/duty-roster',            icon: CalendarDays, label: 'Duty Roster & Calendar', roles: 'staff' },
   { href: '/dashboard/hr/staff',                icon: Users,        label: 'Staff Records',        roles: 'admin', pro: true },
   { href: '/dashboard/hr/leave',                icon: CalendarClock,label: 'Leave',                 roles: 'staff' },
+  { href: '/dashboard/compliance',              icon: ShieldCheck,  label: 'Data Protection',      roles: 'admin' },
 ];
 
 function canSee(roleKey: string, userRole: string): boolean {

@@ -2,6 +2,7 @@
 import { Module }        from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AuditPii } from '../../common/pii-audit';
 import * as bcrypt from 'bcryptjs';
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
@@ -2853,12 +2854,16 @@ export class AcademicController {
   }
 
   // Learners
+  // These return date of birth, birth certificate number and guardian contact
+  // details, so every read is logged for the Data Protection Act access trail.
   @Get('learners')
+  @AuditPii('learner.viewed', 'learners')
   getLearners(@Request() req: any, @Query() q: any) {
     return this.academicService.getLearners(req.user.tenantId, q);
   }
 
   @Get('streams/:id/learners')
+  @AuditPii('learner.viewed', 'learners')
   getLearnersByStream(@Request() req: any, @Param('id') id: string) {
     return this.academicService.getLearnersByStream(req.user.tenantId, id);
   }
@@ -2884,6 +2889,7 @@ export class AcademicController {
   }
 
   @Get('learners/:id/parent-access')
+  @AuditPii('learner.viewed', 'learners')
   getParentAccess(@Request() req: any, @Param('id') id: string) {
     return this.academicService.getParentAccess(req.user.tenantId, id);
   }
@@ -2906,6 +2912,7 @@ export class AcademicController {
 
   // Attendance history + trend for one learner
   @Get('attendance/learner/:learnerId')
+  @AuditPii('learner.viewed', 'learners')
   getLearnerHistory(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
     return this.academicService.getLearnerHistory(req.user.tenantId, learnerId, q.from, q.to);
   }

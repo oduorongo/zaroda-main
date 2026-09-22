@@ -1,4 +1,5 @@
 import { Module }         from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule }  from '@nestjs/typeorm';
 import { ThrottlerModule }from '@nestjs/throttler';
@@ -19,6 +20,8 @@ import { TeacherOnboardModule }     from './modules/onboarding/teacher-onboard.m
 import { ProfessionalRecordsModule } from './modules/professional-records/professional-records.module';
 import { SeniorSelectionModule }    from './modules/senior-selection/senior-selection.module';
 import { BillingModule }            from './modules/billing/billing.module';
+import { ComplianceModule }         from './modules/compliance/compliance.module';
+import { PiiAuditInterceptor }      from './common/pii-audit';
 
 @Module({
   imports: [
@@ -87,6 +90,12 @@ import { BillingModule }            from './modules/billing/billing.module';
     TeacherOnboardModule,
     SeniorSelectionModule,
     BillingModule,
+    ComplianceModule,
+  ],
+  // Global so any controller can opt a route into the PII access trail with
+  // @AuditPii() alone. It is inert on routes that carry no such decorator.
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: PiiAuditInterceptor },
   ],
 })
 export class AppModule {}
