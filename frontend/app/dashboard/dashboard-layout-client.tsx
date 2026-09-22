@@ -209,12 +209,10 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         <Link href="/dashboard/settings" onClick={() => setSidebarOpen(false)} className="nav-item">
           <Settings size={18}/> <span>Settings</span>
         </Link>
-        {isHoi(user.role) && (
-          <a href="https://zarodabooks.com" target="_blank" rel="noopener noreferrer" className="nav-item">
-            <BookMarked size={18}/> <span className="flex-1">Zaroda Books</span>
-            <ExternalLink size={13} className="text-white/40"/>
-          </a>
-        )}
+        <a href="https://zarodabooks.com" target="_blank" rel="noopener noreferrer" className="nav-item">
+          <BookMarked size={18}/> <span className="flex-1">Zaroda Books</span>
+          <ExternalLink size={13} className="text-white/40"/>
+        </a>
         <button onClick={() => { setShowShare(true); setSidebarOpen(false); }} className="nav-item w-full text-[#d4af37] hover:bg-white/10">
           <Share2 size={18}/> <span>Refer a School</span>
         </button>
