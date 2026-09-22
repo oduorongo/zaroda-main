@@ -4,10 +4,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, BookOpen, DollarSign, MessageSquare, FileText,
-  Library, Trophy, Scale, Settings, HelpCircle, LogOut, Share2,
-  Menu, X, ChevronRight, Users, BarChart2,
+  Library, Settings, HelpCircle, LogOut, Share2,
+  Menu, X, ChevronRight, Users,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
-  CalendarDays, CalendarClock, Bus, BookMarked, ExternalLink, ShieldCheck,
+  Bus, BookMarked, ExternalLink, ShieldCheck,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -39,14 +39,15 @@ const NAV_ITEMS = [
   // Subscription nav hidden for now — page still reachable directly, just not in the sidebar.
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/senior-selection',       icon: GraduationCap,label: 'Grade 10 Selection',   roles: 'parent_ok' },
-  { href: '/dashboard/retooling',              icon: GraduationCap,label: 'Retooling',      roles: 'staff' },
-  { href: '/dashboard/library',                icon: Library,      label: 'Library',              roles: 'all' },
-  { href: '/dashboard/sports',                 icon: Trophy,       label: 'Sports',               roles: 'staff' },
-  { href: '/dashboard/discipline',             icon: Scale,        label: 'Discipline',           roles: 'staff' },
-  { href: '/dashboard/duty-roster',            icon: CalendarDays, label: 'Duty Roster & Calendar', roles: 'staff' },
-  { href: '/dashboard/hr/staff',                icon: Users,        label: 'Staff Records',        roles: 'admin', pro: true },
-  { href: '/dashboard/hr/leave',                icon: CalendarClock,label: 'Leave',                 roles: 'staff' },
-  { href: '/dashboard/compliance',              icon: ShieldCheck,  label: 'Data Protection',      roles: 'admin' },
+  // Grouped the way Academic is: one entry opening a page of tiles, rather than
+  // seven separate lines nobody scans to the bottom of. `match` keeps the parent
+  // highlighted while you are inside one of its children, which still live at
+  // their original paths so no existing link breaks.
+  { href: '/dashboard/school-life',            icon: Library,      label: 'School Life',          roles: 'all',
+    match: ['/dashboard/library', '/dashboard/sports', '/dashboard/discipline', '/dashboard/duty-roster'] },
+  { href: '/dashboard/staff',                  icon: Users,        label: 'Staff',                roles: 'staff',
+    match: ['/dashboard/hr', '/dashboard/retooling'] },
+  { href: '/dashboard/compliance',             icon: ShieldCheck,  label: 'Data Protection',      roles: 'admin' },
 ];
 
 function canSee(roleKey: string, userRole: string): boolean {
@@ -112,6 +113,9 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   // Dashboard pages teachers ARE allowed to open (shared modules), despite otherwise being
   // routed to their own /teacher workspace.
   const TEACHER_ALLOWED = ['/dashboard/library', '/dashboard/retooling', '/dashboard/professional-records', '/dashboard/duty-roster', '/dashboard/hr/leave',
+    // The two hub pages themselves — without these a teacher clicking School Life
+    // or Staff in the sidebar is bounced straight back to their own workspace.
+    '/dashboard/school-life', '/dashboard/staff',
     // Individual (Professional Records) accounts carry the class_teacher role, so
     // without this the "set up a school account" page would bounce to /teacher.
     '/dashboard/upgrade-to-school'];
@@ -134,8 +138,10 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   const navItems = NAV_ITEMS.filter(n => canSee(n.roles, user.role));
   const initials = `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
 
-  const isActive = (href: string) =>
-    href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href);
+  const isActive = (href: string, match?: string[]) =>
+    href === '/dashboard'
+      ? pathname === '/dashboard'
+      : pathname.startsWith(href) || (match || []).some(m => pathname.startsWith(m));
 
   const SidebarContent = () => (
     <>
@@ -160,7 +166,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
         {navItems.map(item => {
           const Icon   = item.icon;
-          const active = isActive(item.href);
+          const active = isActive(item.href, (item as any).match);
           const blocked = isIndividualAccount(user.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(item.href);
           return (
             <Link key={item.href} href={blocked ? '#' : item.href}
@@ -186,9 +192,9 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
               className={clsx('nav-item group', active && 'nav-item-active', (item as any).highlight && 'text-[#d4af37]')}>
               <Icon size={18} className="flex-shrink-0"/>
               <span className="flex-1">{item.label}</span>
-              {item.badge && (
+              {(item as any).badge && (
                 <span className="text-[9px] font-black bg-[#d4af37] text-[#0f1c38] px-1.5 py-0.5 rounded">
-                  {item.badge}
+                  {(item as any).badge}
                 </span>
               )}
               {(item as any).pro && !isProPlan(user.planTier) && (
@@ -284,7 +290,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
             {/* Breadcrumb */}
             <div className="hidden sm:flex items-center gap-1.5 text-sm text-theme-muted">
               <span className="font-medium text-theme-heading">
-                {NAV_ITEMS.find(n => isActive(n.href))?.label || 'Dashboard'}
+                {NAV_ITEMS.find(n => isActive(n.href, (n as any).match))?.label || 'Dashboard'}
               </span>
             </div>
           </div>
