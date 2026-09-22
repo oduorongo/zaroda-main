@@ -38,7 +38,9 @@ export class SignupIndividualDto {
 }
 
 export class LoginDto {
-  @IsEmail()  email:    string;
+  // Not always an email — parents without one log in by phone number instead, so this
+  // isn't validated as @IsEmail(). AuthService decides which lookup to use.
+  @IsString() email:    string;
   @IsString() password: string;
 }
 

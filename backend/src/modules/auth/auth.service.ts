@@ -49,13 +49,30 @@ export class AuthService {
     return qb.getOne();
   }
 
+  /** Find a user by phone (normalised to +254… before comparing), for parents who log in
+   *  without an email — see findUserByEmail's normalisation note; phone gets the same
+   *  as-typed tolerance (spaces, a leading 0 instead of +254, etc). */
+  private async findUserByPhone(phone: string, columns?: string[]) {
+    const cleaned = normalisePhone(phone || '');
+    if (!cleaned) return null;
+    const qb = this.userRepo.createQueryBuilder('u')
+      .where('u.phone = :phone', { phone: cleaned })
+      .limit(1);
+    if (columns) qb.select(columns.map(c => `u.${c}`));
+    return qb.getOne();
+  }
+
   // ── Login ───────────────────────────────────────────────
-  async login(email: string, password: string) {
-    const user = await this.findUserByEmail(email,
-      ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive']);
+  // `identifier` is an email for every role except parents, who may only have a phone
+  // number on file — try email first (the common case), then fall back to phone so a
+  // number typed into the same field still finds the right account.
+  async login(identifier: string, password: string) {
+    const columns = ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive'];
+    let user = await this.findUserByEmail(identifier, columns);
+    if (!user) user = await this.findUserByPhone(identifier, columns);
 
     if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid email/phone or password');
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);

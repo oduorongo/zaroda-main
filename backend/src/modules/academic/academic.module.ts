@@ -8,6 +8,7 @@ import {
   UseGuards, Request, Delete, BadRequestException, NotFoundException, Res,
 } from '@nestjs/common';
 import { PdfExportService } from '../../common/pdf-export.service';
+import { normalisePhone } from '../../common/messaging';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -454,9 +455,13 @@ export class AcademicService {
 
   /** Default parent password derived from the email's first part + the year, e.g.
    *  "john.doe@gmail.com" → "johndoe2026". Easy to communicate; the parent is forced to
-   *  change it on first login (must_change_password=true). Padded to a safe minimum length. */
-  private parentDefaultPassword(email: string): string {
+   *  change it on first login (must_change_password=true). Padded to a safe minimum length.
+   *  When there's no email (phone-only parent), falls back to the last 6 digits of the
+   *  phone instead — still easy to read out over a call, and never collapses to the same
+   *  "parent2026" for every phone-only account the way an empty email prefix would. */
+  private parentDefaultPassword(email?: string, phone?: string): string {
     let prefix = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!prefix && phone) prefix = String(phone).replace(/\D/g, '').slice(-6);
     if (!prefix) prefix = 'parent';
     if (prefix.length < 3) prefix = (prefix + 'parent').slice(0, 6);
     return `${prefix}2026`;
@@ -1593,17 +1598,21 @@ export class AcademicService {
     }
     const saved = await this.learnerRepo.save(learner);
 
-    // If a guardian email was supplied, create a parent login (optional) and
-    // return one-time credentials so the admin can share them with the parent.
+    // If a guardian email or phone was supplied, create a parent login (optional) and
+    // return one-time credentials so the admin can share them with the parent. Email is
+    // preferred as the login when present; phone alone is enough when it isn't (email is
+    // not always available).
     let parentCredentials: { username: string; password: string } | undefined;
-    const guardianEmail = (dto.guardianEmail || '').toLowerCase().trim();
-    if (guardianEmail) {
+    const guardianEmail = (dto.guardianEmail || '').toLowerCase().trim() || null;
+    const guardianPhone = normalisePhone(dto.guardianPhone || '');
+    if (guardianEmail || guardianPhone) {
       try {
         const existing = await this.dataSource.query(
-          `SELECT id FROM users WHERE email = $1 LIMIT 1`, [guardianEmail],
+          `SELECT id FROM users WHERE (email IS NOT NULL AND email = $1) OR (phone IS NOT NULL AND phone = $2) LIMIT 1`,
+          [guardianEmail, guardianPhone],
         );
         if (!existing.length) {
-          const plain = this.parentDefaultPassword(guardianEmail);
+          const plain = this.parentDefaultPassword(guardianEmail || undefined, guardianPhone || undefined);
           const hash  = await bcrypt.hash(plain, 12);
           const gName = (dto.guardianName || 'Parent').trim().split(/\s+/);
           await this.dataSource.query(
@@ -1614,10 +1623,10 @@ export class AcademicService {
             [
               guardianEmail, hash,
               gName.shift() || 'Parent', gName.join(' ') || (dto.lastName || ''),
-              dto.guardianPhone || null, tenantId, schoolId || actor?.schoolId,
+              guardianPhone, tenantId, schoolId || actor?.schoolId,
             ],
           );
-          parentCredentials = { username: guardianEmail, password: plain };
+          parentCredentials = { username: guardianEmail || guardianPhone!, password: plain };
         }
       } catch {
         // Never fail the admission because of parent-account creation
@@ -1848,11 +1857,15 @@ export class AcademicService {
     ).catch(() => []))[0];
     if (!lr) throw new BadRequestException('Learner not found.');
     let parent: any = null;
-    if (lr.guardianEmail) {
+    const guardianPhoneNorm = normalisePhone(lr.guardianPhone || '');
+    if (lr.guardianEmail || guardianPhoneNorm) {
       const u = (await this.dataSource.query(
-        `SELECT id, email, first_name AS "firstName", last_name AS "lastName", is_active AS "isActive"
-           FROM users WHERE email = $1 AND role = 'parent' LIMIT 1`,
-        [String(lr.guardianEmail).toLowerCase().trim()],
+        `SELECT id, email, phone, first_name AS "firstName", last_name AS "lastName", is_active AS "isActive"
+           FROM users
+          WHERE role = 'parent'
+            AND ((email IS NOT NULL AND email = $1) OR (phone IS NOT NULL AND phone = $2))
+          LIMIT 1`,
+        [lr.guardianEmail ? String(lr.guardianEmail).toLowerCase().trim() : null, guardianPhoneNorm],
       ).catch(() => []))[0];
       if (u) parent = u;
     }
@@ -1861,6 +1874,7 @@ export class AcademicService {
       guardianName: lr.guardianName, guardianPhone: lr.guardianPhone, guardianEmail: lr.guardianEmail,
       hasAccount: !!parent,
       parentEmail: parent?.email || null,
+      parentPhone: parent?.phone || null,
     };
   }
 
@@ -1880,11 +1894,12 @@ export class AcademicService {
     ).catch(() => []))[0];
     if (!lr) throw new BadRequestException('Learner not found.');
 
-    // Allow setting/updating the guardian email + details in the same action.
-    const email = String(dto?.guardianEmail || lr.guardianEmail || '').toLowerCase().trim();
-    if (!email) throw new BadRequestException('A parent email is required to create their login.');
+    // Allow setting/updating the guardian email/phone + details in the same action.
+    // Email is not always available — phone alone is enough to create a login.
+    const email = String(dto?.guardianEmail || lr.guardianEmail || '').toLowerCase().trim() || null;
+    const phone = normalisePhone(dto?.guardianPhone || lr.guardianPhone || '');
+    if (!email && !phone) throw new BadRequestException('A parent email or phone number is required to create their login.');
     const gName = String(dto?.guardianName || lr.guardianName || 'Parent').trim().split(/\s+/);
-    const phone = dto?.guardianPhone || lr.guardianPhone || null;
 
     // Persist guardian details on the learner if newly provided.
     if (dto?.guardianEmail || dto?.guardianName || dto?.guardianPhone) {
@@ -1897,11 +1912,13 @@ export class AcademicService {
       ).catch(() => null);
     }
 
-    const plain = this.parentDefaultPassword(email);
+    const plain = this.parentDefaultPassword(email || undefined, phone || undefined);
     const hash = await bcrypt.hash(plain, 12);
+    const username = email || phone!;
 
     const existing = (await this.dataSource.query(
-      `SELECT id FROM users WHERE email = $1 LIMIT 1`, [email],
+      `SELECT id FROM users WHERE (email IS NOT NULL AND email = $1) OR (phone IS NOT NULL AND phone = $2) LIMIT 1`,
+      [email, phone],
     ).catch(() => []))[0];
 
     if (existing) {
@@ -1923,7 +1940,7 @@ export class AcademicService {
     return {
       message: existing ? 'Parent password reset' : 'Parent account created',
       learnerName: `${lr.firstName || ''} ${lr.lastName || ''}`.trim(),
-      credentials: { email, password: plain },
+      credentials: { email: username, password: plain },
     };
   }
   async setLearnerActive(tenantId: string, learnerId: string, actor: any, active: boolean) {

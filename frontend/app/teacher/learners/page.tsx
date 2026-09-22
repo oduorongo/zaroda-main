@@ -70,7 +70,7 @@ export default function TeacherLearners() {
   };
 
   const submitParent = async () => {
-    if (!parentEmail.trim()) { toast.error('Enter a parent email'); return; }
+    if (!parentEmail.trim() && !parentPhone.trim()) { toast.error('Enter a parent email or phone number'); return; }
     setParentBusy(true);
     try {
       const r = await apiClient.post(`/academic/learners/${parentFor.id}/parent-access`, {
@@ -338,7 +338,7 @@ export default function TeacherLearners() {
               {parentCreds2 ? (
                 <div className="rounded-xl bg-green-50 border border-green-200 p-4 space-y-2">
                   <p className="text-sm font-semibold text-green-800">Share these with the parent:</p>
-                  <div className="text-sm"><b>Login email:</b> {parentCreds2.email}</div>
+                  <div className="text-sm"><b>Login:</b> {parentCreds2.email}</div>
                   <div className="text-sm"><b>Password:</b> <span className="font-mono">{parentCreds2.password}</span></div>
                   <p className="text-[11px] text-green-700">They'll be asked to change the password on first login. This password is shown only once.</p>
                   <a
@@ -347,14 +347,15 @@ export default function TeacherLearners() {
                     className="flex items-center justify-center gap-1.5 w-full text-sm font-semibold text-white bg-[#25D366] hover:bg-[#1fb855] rounded-xl py-2">
                     <MessageCircle size={14}/> Share via WhatsApp
                   </a>
-                  <button onClick={() => { navigator.clipboard?.writeText(`Email: ${parentCreds2.email}\nPassword: ${parentCreds2.password}`); toast.success('Copied'); }}
+                  <button onClick={() => { navigator.clipboard?.writeText(`Login: ${parentCreds2.email}\nPassword: ${parentCreds2.password}`); toast.success('Copied'); }}
                     className="btn-ghost text-xs w-full justify-center">Copy credentials</button>
                 </div>
               ) : (
                 <>
+                  <p className="text-[11px] text-theme-muted -mt-1">Email or phone works as the login — at least one is required.</p>
                   <div>
-                    <label className="label">Parent email <span className="text-red-500">*</span></label>
-                    <input value={parentEmail} onChange={e => setParentEmail(e.target.value)} className="input w-full" placeholder="parent@example.com"/>
+                    <label className="label">Parent email</label>
+                    <input value={parentEmail} onChange={e => setParentEmail(e.target.value)} className="input w-full" placeholder="parent@example.com (optional)"/>
                   </div>
                   <div>
                     <label className="label">Parent name</label>

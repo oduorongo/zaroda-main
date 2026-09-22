@@ -168,7 +168,7 @@ export default function LearnersPage() {
   };
 
   const submitParent = async () => {
-    if (!parentEmail.trim()) { toast.error('Enter a parent email'); return; }
+    if (!parentEmail.trim() && !parentPhone.trim()) { toast.error('Enter a parent email or phone number'); return; }
     setParentBusy(true);
     try {
       const r = await apiClient.post(`/academic/learners/${parentFor.id}/parent-access`, {
@@ -633,17 +633,18 @@ export default function LearnersPage() {
               {parentCreds ? (
                 <div className="rounded-xl bg-green-50 border border-green-200 p-4 space-y-2">
                   <p className="text-sm font-semibold text-green-800">Share these with the parent:</p>
-                  <div className="text-sm"><b>Login email:</b> {parentCreds.email}</div>
+                  <div className="text-sm"><b>Login:</b> {parentCreds.email}</div>
                   <div className="text-sm"><b>Password:</b> <span className="font-mono">{parentCreds.password}</span></div>
                   <p className="text-[11px] text-green-700">They'll be asked to change the password on first login. This password is shown only once.</p>
-                  <button onClick={() => { navigator.clipboard?.writeText(`Email: ${parentCreds.email}\nPassword: ${parentCreds.password}`); toast.success('Copied'); }}
+                  <button onClick={() => { navigator.clipboard?.writeText(`Login: ${parentCreds.email}\nPassword: ${parentCreds.password}`); toast.success('Copied'); }}
                     className="btn-ghost text-xs">Copy credentials</button>
                 </div>
               ) : (
                 <>
+                  <p className="text-[11px] text-theme-muted -mt-1">Email or phone works as the login — at least one is required.</p>
                   <div>
-                    <label className="label">Parent email <span className="text-red-500">*</span></label>
-                    <input value={parentEmail} onChange={e => setParentEmail(e.target.value)} className="input w-full" placeholder="parent@example.com"/>
+                    <label className="label">Parent email</label>
+                    <input value={parentEmail} onChange={e => setParentEmail(e.target.value)} className="input w-full" placeholder="parent@example.com (optional)"/>
                   </div>
                   <div>
                     <label className="label">Parent name</label>
