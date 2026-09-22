@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { UserPlus, X, Loader2, GraduationCap, Search, BookOpen, Phone, Mail, KeyRound, Copy, Trash2, Pencil, Crown, UserX, UserCheck, Share2, MessageCircle, Check, RefreshCw } from 'lucide-react';
 import apiClient from '@/lib/api/client';
-import { useAuth, isHoi } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, runsSenior } from '@/lib/hooks/useAuth';
 import { learningAreasFor, GRADE_LEVELS, EDUCATION_BANDS, bandsForSchoolLevels } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
@@ -217,6 +217,7 @@ export default function TeachersPage() {
   const roleLabel: Record<string,string> = {
     class_teacher:'Class Teacher', subject_teacher:'Subject Teacher',
     overall_class_teacher:'Overall Class Teacher', hoi:'HOI', dhois:'Deputy HOI',
+    dos:'DOS', games_dept:'Games Department', bursar:'Bursar',
   };
 
   return (
@@ -319,6 +320,9 @@ export default function TeachersPage() {
                     <option value="class_teacher">Class Teacher</option>
                     <option value="overall_class_teacher">Overall Class Teacher</option>
                     <option value="dhois">Deputy HOI</option>
+                    {runsSenior(user?.schoolLevels) && (
+                      <option value="dos">DOS (Director of Studies)</option>
+                    )}
                     <option value="games_dept">Games Department</option>
                     <option value="bursar">Bursar</option>
                     {/* Private schools may have a non-teaching proprietor account;
@@ -493,6 +497,9 @@ export default function TeachersPage() {
                     <option value="class_teacher">Class Teacher</option>
                     <option value="overall_class_teacher">Overall Class Teacher</option>
                     <option value="dhois">Deputy HOI</option>
+                    {runsSenior(user?.schoolLevels) && (
+                      <option value="dos">DOS (Director of Studies)</option>
+                    )}
                     <option value="games_dept">Games Department</option>
                     <option value="bursar">Bursar</option>
                   </select>

@@ -7008,6 +7008,27 @@ class AdminController {
     if (!rows.length) return { error: 'User not found.' };
     return { email: rows[0].email, tempPassword: temp };
   }
+
+  // Recovery tool: correct a school user's login email. Until now nothing anywhere could
+  // change an email once set except the school's own HOI — so a school whose HOI account
+  // carried a typo'd address was deadlocked: the one person who could fix it was the one
+  // person who couldn't log in. Resetting the password never helped, because the failure
+  // was the username, not the password.
+  @Patch('users/:id/email')
+  async updateUserEmail(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const email = String(dto?.email || '').toLowerCase().trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return { error: 'Enter a valid email address.' };
+    const clash = await this.ds.query(
+      `SELECT id FROM users WHERE lower(btrim(email)) = $1 AND id::text <> $2 LIMIT 1`, [email, id],
+    ).catch(() => []);
+    if (clash.length) return { error: 'Another user already uses this email address.' };
+    const rows = await this.ds.query(
+      `UPDATE users SET email = $2, updated_at = NOW() WHERE id::text = $1 RETURNING email`, [id, email],
+    ).catch((e: any) => { throw e; });
+    if (!rows.length) return { error: 'User not found.' };
+    return { email: rows[0].email, updated: true };
+  }
 }
 
 @Module({ controllers: [AdminController] })

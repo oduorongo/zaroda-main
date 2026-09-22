@@ -103,6 +103,23 @@ export default function OwnerDashboard() {
     } catch { alert('Could not reset password'); }
     finally { setActing(false); }
   };
+  // Recovery action for a wrong login email. The email IS the username, so a typo'd address
+  // locks the account out permanently and no password reset can help — this is the only way
+  // to fix it when the affected user is the school's own HOI.
+  const changeEmail = async (userId: string, name: string, current: string) => {
+    const next = prompt(`Login email for ${name}:`, current || '');
+    if (next === null) return;
+    const email = next.trim().toLowerCase();
+    if (!email || email === (current || '').toLowerCase()) return;
+    if (!confirm(`Change ${name}'s login email to:\n\n${email}\n\nThey must use this address to log in from now on.`)) return;
+    setActing(true);
+    try {
+      const r = await apiClient.patch(`/admin/users/${userId}/email`, { email });
+      if (r.data?.updated) { await refreshAfterAction(detail.tenant.id); }
+      else alert(r.data?.error || 'Could not change email');
+    } catch { alert('Could not change email'); }
+    finally { setActing(false); }
+  };
   // Recovery action for a school left with no administrator (e.g. its HOI account was
   // removed) — promotes an existing staff member to HOI, demoting any other current HOI.
   const promoteToHoi = async (userId: string, name: string) => {
@@ -487,7 +504,8 @@ export default function OwnerDashboard() {
                     )}
                     <div className="space-y-1 max-h-52 overflow-y-auto">
                       {(detail.users || []).map((u: any) => (
-                        <div key={u.id} className="flex items-center justify-between text-sm py-1 gap-2">
+                        <div key={u.id} className="text-sm py-1">
+                        <div className="flex items-center justify-between gap-2">
                           <span className="truncate">{u.firstName} {u.lastName}</span>
                           <span className="text-theme-muted text-xs capitalize ml-auto">{u.role?.replace('_',' ')}</span>
                           {u.role !== 'hoi' && (
@@ -504,6 +522,19 @@ export default function OwnerDashboard() {
                             className="text-[11px] text-[#1a2e5a] hover:underline whitespace-nowrap"
                             title="Reset this user's password"
                           >Reset password</button>
+                        </div>
+                        {/* The login username. Shown because a wrong address here — not a
+                            forgotten password — is the usual reason a user "can't log in". */}
+                        <div className="flex items-center gap-2 text-xs text-theme-muted">
+                          <span className="truncate" title={u.email || ''}>{u.email || <span className="text-red-600">no email — cannot log in</span>}</span>
+                          <button
+                            disabled={acting}
+                            onClick={() => changeEmail(u.id, `${u.firstName} ${u.lastName}`, u.email)}
+                            className="text-[11px] text-[#1a2e5a] hover:underline whitespace-nowrap ml-auto"
+                            title="Correct this user's login email"
+                          >Change email</button>
+                          {!u.isActive && <span className="text-[11px] text-red-600 whitespace-nowrap">inactive</span>}
+                        </div>
                         </div>
                       ))}
                     </div>

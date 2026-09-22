@@ -19,8 +19,7 @@ export default function AcademicPage() {
   }, []);
 
   const cards = [
-    { icon: UserPlus,   label: 'Admissions',    sub: 'Full learner intake', href: '/dashboard/academic/admissions',   color: 'bg-teal-600'  },
-    { icon: Users,      label: 'Learners',      sub: 'Register & manage',  href: '/dashboard/academic/learners',     color: 'bg-[#1a2e5a]' },
+    { icon: Users,      label: 'Manage Learners', sub: 'Register & manage', href: '/dashboard/academic/learners',     color: 'bg-[#1a2e5a]' },
     { icon: Grid,       label: 'Streams',       sub: 'Streams & teachers', href: '/dashboard/academic/streams',      color: 'bg-blue-600'  },
     { icon: CheckSquare,label: 'Attendance',    sub: 'Daily roll call',    href: '/dashboard/academic/attendance',   color: 'bg-green-600' },
     { icon: Calendar,   label: 'Timetable',     sub: 'KICD CBC schedule',  href: '/dashboard/academic/timetable',    color: 'bg-purple-600'},

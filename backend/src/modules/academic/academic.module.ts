@@ -1698,8 +1698,17 @@ export class AcademicService {
   }
 
   async deleteTeacher(tenantId: string, actorRole: string, teacherId: string, actorId: string) {
-    // Only school admins / HOI may delete teachers
-    if (!this.isHoiRole(actorRole)) {
+    // Only school admins / HOI may delete teachers.
+    // The role is read back from the database rather than taken from the caller's JWT: the
+    // token is issued at login and never refreshed, so someone promoted to HOI while already
+    // signed in still carries their old role and would be refused here until they logged out
+    // and back in. Re-reading also means a demoted HOI can't keep using an old token.
+    const actorRow = await this.dataSource.query(
+      `SELECT role FROM users WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+      [actorId, tenantId],
+    ).catch(() => []);
+    const effectiveRole = actorRow[0]?.role || actorRole;
+    if (!this.isHoiRole(effectiveRole)) {
       throw new BadRequestException('Only a school administrator can remove a teacher.');
     }
     if (teacherId === actorId) {
@@ -1714,18 +1723,48 @@ export class AcademicService {
       `SELECT role FROM users WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
       [teacherId, tenantId],
     ).catch(() => []);
+    if (!target.length) throw new BadRequestException('Teacher not found');
     if (target[0]?.role === 'hoi') {
       throw new BadRequestException('You cannot delete the Head of Institution directly. Transfer the HOI role to another teacher first.');
     }
-    const rows = await this.dataSource.query(
-      `DELETE FROM users WHERE id = $1 AND tenant_id = $2
-         AND role IN ('class_teacher','subject_teacher','overall_class_teacher','dhois')
-       RETURNING id`,
+    const deletableRoles = ['class_teacher', 'subject_teacher', 'overall_class_teacher', 'dhois'];
+    if (!deletableRoles.includes(target[0]?.role)) {
+      throw new BadRequestException(`A ${String(target[0]?.role || '').replace(/_/g, ' ')} account cannot be removed from here. Change their role to a teacher role first.`);
+    }
+    // Clear the references that are safe to drop: the stream class-teacher pointer is a plain
+    // column (no FK), so leaving it behind would dangle, and per-stream subject assignments are
+    // meaningless without the teacher. Audit columns (registered_by, recorded_by, entered_by …)
+    // are deliberately NOT touched — they're the record of who did what.
+    await this.dataSource.query(
+      `UPDATE streams SET class_teacher_id = NULL, class_teacher_name = NULL
+        WHERE tenant_id::text = $1 AND class_teacher_id::text = $2`,
+      [tenantId, teacherId],
+    ).catch(() => null);
+    await this.dataSource.query(
+      `DELETE FROM teacher_stream_subjects WHERE teacher_id::text = $1 AND tenant_id::text = $2`,
       [teacherId, tenantId],
-    ).catch(() => []);
+    ).catch(() => null);
+    await this.dataSource.query(
+      `DELETE FROM teacher_allocations WHERE teacher_id::text = $1 AND tenant_id::text = $2`,
+      [teacherId, tenantId],
+    ).catch(() => null);
+
+    // Do NOT swallow the delete error. Dozens of tables reference users(id) with no ON DELETE
+    // clause (i.e. RESTRICT), so any teacher who has actually used the system — registered a
+    // learner, entered marks, generated a scheme — cannot be hard-deleted. This used to be
+    // caught and reported as "Teacher not found", which is both wrong and unactionable.
+    const rows = await this.dataSource.query(
+      `DELETE FROM users WHERE id::text = $1 AND tenant_id::text = $2 RETURNING id`,
+      [teacherId, tenantId],
+    ).catch((e: any) => {
+      if (e?.code === '23503') {
+        throw new BadRequestException(
+          'This account has records in the system (learners registered, marks entered, or documents generated) and cannot be deleted without destroying them. Deactivate the account instead — they will no longer be able to log in, and their records stay intact.',
+        );
+      }
+      throw new BadRequestException(e?.message || 'Could not remove this teacher.');
+    });
     if (!rows.length) throw new BadRequestException('Teacher not found');
-    // Clean up their teacher allocations
-    await this.dataSource.query(`DELETE FROM teacher_allocations WHERE teacher_id = $1 AND tenant_id = $2`, [teacherId, tenantId]).catch(()=>null);
     return { message: 'Teacher removed', id: teacherId };
   }
 
@@ -1934,8 +1973,22 @@ export class AcademicService {
       fields.push(`first_name = $${i++}`); vals.push(firstName);
       fields.push(`last_name = $${i++}`);  vals.push(lastName);
     }
+    // Email is the login username, and login matches it lowercased and trimmed. Storing it
+    // as typed (e.g. "J.Kabasa@Gmail.com", or with a trailing space pasted in) used to leave
+    // an account that no password could ever open. Normalise and validate it here, the same
+    // way every account-creation path already does.
+    if (dto.email !== undefined) {
+      const email = String(dto.email || '').toLowerCase().trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) throw new BadRequestException('Enter a valid email address.');
+      const clash = await this.dataSource.query(
+        `SELECT id FROM users WHERE lower(btrim(email)) = $1 AND id::text <> $2 LIMIT 1`,
+        [email, teacherId],
+      ).catch(() => []);
+      if (clash.length) throw new BadRequestException('Another user already uses this email address.');
+      fields.push(`email = $${i++}`); vals.push(email);
+    }
     const map: Record<string, string> = {
-      email: 'email', phone: 'phone', subjects: 'subjects', role: 'role',
+      phone: 'phone', subjects: 'subjects', role: 'role',
       streamId: 'stream_id',
     };
     for (const [k, col] of Object.entries(map)) {

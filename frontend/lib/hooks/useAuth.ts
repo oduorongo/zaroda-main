@@ -104,9 +104,10 @@ export const useAuth = create<AuthState>()(
 
 // Role helper shortcuts
 export const isTeacher  = (role: string) => ['class_teacher','subject_teacher','overall_class_teacher'].includes(role);
-export const isHoi      = (role: string) => ['hoi','dhois','school_admin','tenant_owner'].includes(role);
+export const isHoi      = (role: string) => ['hoi','dhois','school_admin','tenant_owner','dos'].includes(role);
 export const isBursar   = (role: string) => ['bursar','hoi','tenant_owner'].includes(role);
-export const isAdmin    = (role: string) => ['school_admin','tenant_owner','super_admin'].includes(role);
+export const isAdmin    = (role: string) => ['school_admin','tenant_owner','super_admin','dos'].includes(role);
+export const isDos      = (role: string) => role === 'dos';
 export const isParent   = (role: string) => role === 'parent';
 export const isLearner  = (role: string) => role === 'learner';
 export const isIndividualAccount = (accountType?: string) => accountType === 'individual';

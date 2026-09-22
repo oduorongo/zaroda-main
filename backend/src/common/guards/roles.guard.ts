@@ -15,6 +15,18 @@ export class RolesGuard implements CanActivate {
 
     const req = context.switchToHttp().getRequest();
     const role = req.user?.role;
-    return requiredRoles.includes(role);
+    if (requiredRoles.includes(role)) return true;
+
+    // DOS (Director of Studies) mirrors school_admin/hoi access everywhere
+    // except Finance — the whole FinanceController, and any endpoint on
+    // another controller that also admits 'bursar' (payslip/invoice/receipt
+    // PDFs etc.), stays off-limits to DOS.
+    if (role === 'dos') {
+      const grantsAdmin = requiredRoles.includes('school_admin') || requiredRoles.includes('hoi');
+      const isFinance = context.getClass().name === 'FinanceController' || requiredRoles.includes('bursar');
+      return grantsAdmin && !isFinance;
+    }
+
+    return false;
   }
 }
