@@ -71,14 +71,38 @@ export default function TermsPage() {
 
       <h2>4. Subscriptions and payment</h2>
       <p>
-        <strong>Zaroda SMS is free for the whole of 2026.</strong> Nothing is payable until
-        15 January 2027. After that, a subscription is charged per stream, per year:
+        <strong>Zaroda SMS is free for the whole of 2026, with every module unlocked.</strong>{' '}
+        Nothing is payable until 15 January 2027. Module access is not restricted during this
+        period — it begins to follow your plan once you subscribe, which is what the next two
+        paragraphs describe.
+      </p>
+      <p>
+        <strong>Essential</strong> is the base subscription and is charged per stream, per year:
       </p>
       <ul>
         <li>Primary and Junior School (Grade 1&ndash;9) — KES 2,400 per stream, per year</li>
         <li>Senior School (Grade 10&ndash;12) — KES 3,360 per stream, per year</li>
-        <li>The Pro modules — KES 4,500 per school, per year, a flat fee and not per stream</li>
       </ul>
+      <p>
+        It covers fee structures, invoicing and M-Pesa collection; academic marks, report cards
+        and mark lists; school-wide analytics; and the Communication, Library, Sports and
+        Discipline modules.
+      </p>
+      <p>
+        <strong>Pro</strong> is an addition to Essential, not a replacement for it. It costs a
+        flat <strong>KES 4,500 per school, per year on top of</strong> the per-stream Essential
+        fee, and unlocks three further modules:
+      </p>
+      <ul>
+        <li><strong>Payroll</strong> — PAYE, NSSF, SHA, Housing Levy and payslips</li>
+        <li><strong>HR</strong> — staff records, appraisals and recruitment</li>
+        <li><strong>Student Transport</strong> — routes, vehicles and transport fee billing</li>
+      </ul>
+      <p>
+        A school on Essential keeps everything listed above it; only those three modules are
+        closed. Nothing entered in them during the free period is deleted — it becomes reachable
+        again if you later add Pro.
+      </p>
       <p>
         Payment is by M-Pesa. Prices may change, but not during a period you have already paid
         for, and we will give notice before a change takes effect.
