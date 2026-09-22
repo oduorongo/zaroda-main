@@ -53,7 +53,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 DO $$ BEGIN
-  CREATE POLICY tenant_isolation ON pr_wallets USING (tenant_id = current_setting('app.tenant_id')::UUID);
+  CREATE POLICY tenant_isolation ON pr_wallets USING (tenant_id::text = current_setting('app.tenant_id'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -62,7 +62,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 DO $$ BEGIN
-  CREATE POLICY tenant_isolation ON pr_wallet_transactions USING (tenant_id = current_setting('app.tenant_id')::UUID);
+  CREATE POLICY tenant_isolation ON pr_wallet_transactions USING (tenant_id::text = current_setting('app.tenant_id'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

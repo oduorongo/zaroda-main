@@ -19,5 +19,6 @@ FROM (
   ) x
   GROUP BY tenant_id
 ) agg
-WHERE t.id = agg.tenant_id
+-- Compared as text: see the note in migration 035.
+WHERE t.id::text = agg.tenant_id::text
   AND t.school_levels = '{}';

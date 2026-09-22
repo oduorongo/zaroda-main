@@ -7,6 +7,11 @@
 
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS school_levels TEXT[] NOT NULL DEFAULT '{}';
 
+-- streams.deleted_at is declared in migration 001 but is absent wherever the
+-- table was built from the TypeORM entity instead, which has no such field.
+-- Without it the backfill below cannot run at all.
+ALTER TABLE streams ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
 -- Backfill already-onboarded schools from their existing streams, so nobody
 -- has to re-select anything. A stream in grade_10/11/12 implies 'senior';
 -- anything else (ecde/pp1/pp2/grade_1..9) implies 'primary_js'. Tenants with
@@ -25,4 +30,6 @@ FROM (
   ) x
   GROUP BY tenant_id
 ) agg
-WHERE t.id = agg.tenant_id;
+-- Compared as text because streams.tenant_id is uuid where this table came
+-- from the migrations and varchar where it came from the entity.
+WHERE t.id::text = agg.tenant_id::text;

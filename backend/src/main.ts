@@ -171,17 +171,24 @@ async function runMigrations(app: any) {
     // So rather than trusting the tracker, check what is actually there and
     // re-run whichever files own the gaps.
     try {
+      // Walked in migration order, honouring drops as well as creates: a table
+      // created by one migration and dropped by a later one (041 creates
+      // pr_purchases, 045 drops it) is NOT expected to exist, and treating it
+      // as missing would make the repair below re-create it on every boot.
       const declaredIn = new Map<string, string[]>();   // file -> tables it creates
       const declared = new Set<string>();
       for (const file of files) {
         const sql = fs.readFileSync(path.join(dir, file), 'utf8');
         // Scan the split statements, not the raw file: splitting strips comments,
         // so prose like "a CREATE TABLE here would no-op" is not read as a table.
-        const tables = [...splitSqlStatements(sql).join(';\n')
-          .matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi)]
+        const body = splitSqlStatements(sql).join(';\n');
+        const tables = [...body.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi)]
           .map(m => m[1].toLowerCase());
         declaredIn.set(file, tables);
         tables.forEach(t => declared.add(t));
+        for (const m of body.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi)) {
+          declared.delete(m[1].toLowerCase());
+        }
       }
 
       const tablesNow = async () => {
