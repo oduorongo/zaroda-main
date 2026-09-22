@@ -10,6 +10,70 @@ import helmet             from 'helmet';
 import { AppModule }      from './app.module';
 import { AuthService }    from './modules/auth/auth.service';
 
+/**
+ * Split a migration file into individual statements.
+ *
+ * Needed because a migration must be applied statement by statement: sending a
+ * whole file as one batch means a single "already exists" aborts every later
+ * statement in it, which is how tables declared at the bottom of a file end up
+ * missing while the file is recorded as applied.
+ *
+ * Respects the things a naive split on ';' would break: dollar-quoted function
+ * bodies ($fn$ ... $fn$), quoted literals, and comments.
+ */
+function splitSqlStatements(sql: string): string[] {
+  const out: string[] = [];
+  let buf = '', i = 0;
+
+  while (i < sql.length) {
+    const rest = sql.slice(i);
+
+    // Line comment
+    if (rest.startsWith('--')) {
+      const nl = sql.indexOf('\n', i);
+      i = nl === -1 ? sql.length : nl + 1;
+      continue;
+    }
+    // Block comment
+    if (rest.startsWith('/*')) {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    // Dollar-quoted block: copy through verbatim, tag and all.
+    const dollar = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(rest);
+    if (dollar) {
+      const tag = dollar[0];
+      const end = sql.indexOf(tag, i + tag.length);
+      const stop = end === -1 ? sql.length : end + tag.length;
+      buf += sql.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    // Quoted literal / identifier: copy through, honouring doubled quotes.
+    if (rest[0] === "'" || rest[0] === '"') {
+      const q = rest[0];
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === q) {
+          if (sql[j + 1] === q) { j += 2; continue; }  // escaped quote
+          j++; break;
+        }
+        j++;
+      }
+      buf += sql.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (rest[0] === ';') { out.push(buf); buf = ''; i++; continue; }
+
+    buf += sql[i];
+    i++;
+  }
+  out.push(buf);
+  return out.map(s => s.trim()).filter(Boolean);
+}
+
 // Run every .sql file in database/migrations on startup.
 // All migrations use IF NOT EXISTS, so this is safe to run on every boot.
 async function runMigrations(app: any) {
@@ -71,26 +135,89 @@ async function runMigrations(app: any) {
     for (const file of files) {
       if (applied.has(file)) { skipped++; continue; }   // already applied — skip silently
       const sql = fs.readFileSync(path.join(dir, file), 'utf8');
-      try {
-        await ds.query(sql);
-        await ds.query(`INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, [file]).catch(() => null);
-        console.log(`✅ migration applied: ${file}`);
-        ran++;
-      } catch (e: any) {
-        const msg = String(e.message || '');
-        // "already exists" means the schema is already in place (e.g. created by
-        // a prior run or by synchronize). Mark as applied so it won't retry/spam.
-        if (/already exists/i.test(msg)) {
-          await ds.query(`INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, [file]).catch(() => null);
-          console.log(`↪️  migration already in place: ${file}`);
-          skipped++;
-        } else {
-          console.error(`❌ migration FAILED: ${file} — ${msg}`);
-          failed++;
+
+      // Applied one statement at a time so that a part of the file which is
+      // already in place cannot stop the parts which are not.
+      let did = 0, already = 0;
+      const errors: string[] = [];
+      for (const stmt of splitSqlStatements(sql)) {
+        try { await ds.query(stmt); did++; }
+        catch (e: any) {
+          const msg = String(e.message || '');
+          if (/already exists|duplicate key/i.test(msg)) already++;
+          else errors.push(msg);
         }
       }
+
+      if (errors.length) {
+        // Left out of _migrations on purpose: an unresolved error means the file
+        // is genuinely incomplete, so the next boot should try it again.
+        console.error(`❌ migration FAILED: ${file} — ${errors.length} statement(s) errored`);
+        errors.slice(0, 3).forEach(m => console.error(`     ↳ ${m}`));
+        failed++;
+        continue;
+      }
+
+      await ds.query(`INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, [file]).catch(() => null);
+      if (did > 0) { console.log(`✅ migration applied: ${file} (${did} statement(s)${already ? `, ${already} already in place` : ''})`); ran++; }
+      else { console.log(`↪️  migration already in place: ${file}`); skipped++; }
     }
     console.log(`ℹ️  migrations: ${ran} applied, ${skipped} already up-to-date, ${failed} failed`);
+
+    // Verify, then repair. Before statements were applied individually, one
+    // "already exists" would abort the rest of its file while the file was still
+    // recorded as applied — leaving tables declared at the bottom of that file
+    // missing forever, because the tracker then skipped it on every later boot.
+    // So rather than trusting the tracker, check what is actually there and
+    // re-run whichever files own the gaps.
+    try {
+      const declaredIn = new Map<string, string[]>();   // file -> tables it creates
+      const declared = new Set<string>();
+      for (const file of files) {
+        const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+        // Scan the split statements, not the raw file: splitting strips comments,
+        // so prose like "a CREATE TABLE here would no-op" is not read as a table.
+        const tables = [...splitSqlStatements(sql).join(';\n')
+          .matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map(m => m[1].toLowerCase());
+        declaredIn.set(file, tables);
+        tables.forEach(t => declared.add(t));
+      }
+
+      const tablesNow = async () => {
+        const rows = await ds.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`);
+        return new Set((rows || []).map((r: any) => r.tablename.toLowerCase()));
+      };
+
+      let have = await tablesNow();
+      const missing = [...declared].filter(t => !have.has(t)).sort();
+
+      if (!missing.length) {
+        console.log(`✅ schema check: all ${declared.size} declared tables present`);
+      } else {
+        console.warn(`⚠️  schema check: ${missing.length} declared table(s) missing — repairing: ${missing.join(', ')}`);
+        const gaps = new Set(missing);
+        const culprits = files.filter(f => (declaredIn.get(f) || []).some(t => gaps.has(t)));
+
+        for (const file of culprits) {
+          const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+          let fixed = 0;
+          for (const stmt of splitSqlStatements(sql)) {
+            try { await ds.query(stmt); fixed++; }
+            catch { /* already in place, or depends on something this pass has not reached */ }
+          }
+          console.log(`🔧 repaired from ${file}: ${fixed} statement(s) applied`);
+        }
+
+        have = await tablesNow();
+        const stillMissing = [...declared].filter(t => !have.has(t)).sort();
+        console.log(stillMissing.length
+          ? `⚠️  schema check: ${stillMissing.length} table(s) STILL missing after repair — ${stillMissing.join(', ')}`
+          : `✅ schema check: repair complete, all ${declared.size} declared tables present`);
+      }
+    } catch (e: any) {
+      console.warn(`⚠️  schema check could not run: ${e.message}`);
+    }
 
     // Diagnostic: how many KNEC codes are loaded for signup lookup?
     const knecCount = await ds.query(`SELECT COUNT(*)::int AS n FROM knec_school_registry`).catch(() => [{ n: 'table missing' }]);
