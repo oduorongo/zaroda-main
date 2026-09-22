@@ -236,11 +236,17 @@ export default function DutyRosterPage() {
           {admin && (
             <button onClick={openNewActivity} className="btn-primary text-sm"><Plus size={15}/> Add Activity</button>
           )}
-          {activities.length === 0 ? (
-            <div className="card p-10 text-center text-theme-muted">No activities scheduled yet{admin ? ' — tap "Add Activity" to add one.' : '.'}</div>
-          ) : (
+          {(() => {
+            const todayStr = todayDateStr();
+            const upcoming = activities
+              .filter((a: any) => String(a.endDate || a.startDate).slice(0, 10) >= todayStr)
+              .sort((a: any, b: any) => String(a.startDate).localeCompare(String(b.startDate)));
+            if (upcoming.length === 0) {
+              return <div className="card p-10 text-center text-theme-muted">No upcoming activities{admin ? ' — tap "Add Activity" to add one.' : '.'}</div>;
+            }
+            return (
             <div className="space-y-2">
-              {activities.map((a: any) => (
+              {upcoming.map((a: any) => (
                 <div key={a.id} className="card p-4 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -263,7 +269,8 @@ export default function DutyRosterPage() {
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
