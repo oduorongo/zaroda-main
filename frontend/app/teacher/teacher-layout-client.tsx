@@ -4,8 +4,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
-  Sparkles, Menu, X, LogOut, GraduationCap, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
-  CalendarDays, DollarSign, CalendarClock,
+  Sparkles, Menu, X, LogOut, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
+  DollarSign,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -26,11 +26,12 @@ const TEACHER_NAV = [
   { href: '/teacher/analytics',  icon: TrendingUp,  label: 'Performance Analytics' },
   { href: '/teacher/assessment', icon: ClipboardCheck, label: 'Assessment Rubric' },
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },
-  { href: '/dashboard/retooling', icon: GraduationCap, label: 'Retooling' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },
-  { href: '/dashboard/duty-roster', icon: CalendarDays, label: 'Duty Roster & Calendar' },
-  { href: '/dashboard/hr/leave', icon: CalendarClock, label: 'My Leave' },
-  { href: '/dashboard/library',  icon: BookOpen,    label: 'Library' },
+  // The teaching workflow above stays flat — it is the daily job and burying it
+  // behind a tile page would cost a click every time. These four are school-wide
+  // modules borrowed from the admin side, so they group the way they do there.
+  { href: '/teacher/school',     icon: BookOpen,    label: 'School',
+    match: ['/dashboard/library', '/dashboard/duty-roster', '/dashboard/hr/leave', '/dashboard/retooling'] },
 ];
 // Shown only to class teachers, and only once their school's HOI/admin has turned
 // on the "class teachers collect fees" override (Finance → M-Pesa Settings) — most
@@ -43,7 +44,10 @@ const FEE_COLLECTION_NAV_ITEM = { href: '/dashboard/finance/payments', icon: Dol
 // content, nothing school-specific to be missing) have anything real behind
 // them. Everything else here is school data an individual account never has,
 // so clicking it advises signing up a school instead of opening an empty page.
-const INDIVIDUAL_ALLOWED_HREFS = ['/teacher/records', '/dashboard/retooling'];
+// '/teacher/school' is here because Retooling now sits inside it — without it an
+// individual account could no longer reach the one school-wide module it is
+// entitled to. The hub itself hides the tiles such an account cannot use.
+const INDIVIDUAL_ALLOWED_HREFS = ['/teacher/records', '/dashboard/retooling', '/teacher/school'];
 
 export default function TeacherLayoutClient({ children }: { children: React.ReactNode }) {
   const { user, logout, refreshUser } = useAuth();
@@ -93,7 +97,10 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
   }
 
   const initials = `${user?.firstName?.[0] || ''}${user?.lastName?.[0] || ''}`.toUpperCase();
-  const isActive = (href: string) => href === '/teacher' ? pathname === '/teacher' : pathname.startsWith(href);
+  const isActive = (href: string, match?: string[]) =>
+    href === '/teacher'
+      ? pathname === '/teacher'
+      : pathname.startsWith(href) || (match || []).some(m => pathname.startsWith(m));
 
   const Sidebar = () => (
     <>
@@ -128,7 +135,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
                 setSidebarOpen(false);
               }}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all
-                ${isActive(n.href) ? 'bg-[#2563eb] text-white' : (n as any).highlight ? 'text-[#d4af37] hover:bg-white/10' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
+                ${isActive(n.href, (n as any).match) ? 'bg-[#2563eb] text-white' : (n as any).highlight ? 'text-[#d4af37] hover:bg-white/10' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
               <Icon size={18}/> {n.label}
             </Link>
           );
@@ -182,7 +189,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
               </button>
             )}
             <span className="text-sm font-medium text-theme-heading">
-              {navItems.find(n => isActive(n.href))?.label || 'My Dashboard'}
+              {navItems.find(n => isActive(n.href, (n as any).match))?.label || 'My Dashboard'}
             </span>
           </div>
           <div className="flex items-center gap-2">
