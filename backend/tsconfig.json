@@ -25,22 +25,5 @@
     "paths": { "@/*": ["src/*"] }
   },
   "include": ["src/**/*.ts"],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "test",
-    "src/modules/academic/academic-core.service.ts",
-    "src/modules/academic/kicd-timetable.service.ts",
-    "src/modules/academic/kicd-timetable.constants.ts",
-    "src/modules/finance/finance.service.ts",
-    "src/modules/communication/communication.service.ts",
-    "src/modules/professional-records/professional-records.service.ts",
-    "src/modules/library/library.service.ts",
-    "src/modules/sports/sports.service.ts",
-    "src/modules/discipline/discipline.service.ts",
-    "src/modules/referral/invite.service.ts",
-    "src/modules/pdf/pdf.service.ts",
-    "src/modules/pdf/pdf-data.service.ts",
-    "src/modules/location/location.service.ts"
-  ]
+  "exclude": ["node_modules", "dist", "test"]
 }
