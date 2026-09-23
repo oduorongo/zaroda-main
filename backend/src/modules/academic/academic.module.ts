@@ -70,6 +70,13 @@ export class Learner {
   @Column({ name: 'admission_date',  nullable: true, type: 'date' }) admissionDate: string;
   @Column({ default: 'enrolled' }) status:         string;
   @Column({ name: 'is_active', default: true }) isActive: boolean;
+  // Declared here, not only in migration 068, because TypeORM's synchronize
+  // drops any column the entity does not know about. It removed these on the
+  // next boot after the migration added them, leaving the trigger that sets
+  // exited_at referencing a column that no longer existed — which made every
+  // learner INSERT fail with "record new has no field exited_at".
+  @Column({ name: 'exited_at',     type: 'timestamptz', nullable: true }) exitedAt:     Date;
+  @Column({ name: 'anonymised_at', type: 'timestamptz', nullable: true }) anonymisedAt: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 

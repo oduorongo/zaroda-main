@@ -20,7 +20,10 @@ export const PRINT_FOOTER_HTML =
  */
 export const PRINT_PAGE_CSS = `
   thead{display:table-header-group}
-  tfoot{display:table-footer-group}
+  /* table-row-group, NOT table-footer-group: a tfoot repeats on every page in
+     paged media, which printed the totals at the foot of each sheet as though
+     each were a page total. A set of books has one grand total, at the end. */
+  tfoot{display:table-row-group}
   tr{page-break-inside:avoid;break-inside:avoid}
   h3{page-break-after:avoid;break-after:avoid}
   table{page-break-inside:auto}

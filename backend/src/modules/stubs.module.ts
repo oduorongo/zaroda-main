@@ -809,10 +809,55 @@ class FinanceController {
       res.set('Content-Type', 'text/html').send('<p>No learners matched. Check the class filter.</p>'); return;
     }
 
+    // Fee items and allocations are fetched for the WHOLE set in two queries
+    // rather than three per learner. Called per learner it was ~80ms each, so a
+    // school of a few hundred spent half a minute on queries alone and the
+    // request timed out before a single page was rendered.
+    await this.ensureFeeItemsTable();
+    await this.ensureAllocationsTable();
+    const grades = [...new Set((learners as any[]).map(l => l.gradeLevel).filter(Boolean))];
+    const learnerIds = (learners as any[]).map(l => String(l.id));
+
+    const allHeads = await this.ds.query(
+      `SELECT id, name, category, amount, grade_level AS "gradeLevel", COALESCE(priority,100) AS priority
+         FROM fee_items
+        WHERE tenant_id = $1
+          AND (grade_level IS NULL OR grade_level = ANY($2::text[]))
+          AND ($3::text IS NULL OR term = $3 OR term IS NULL)
+        ORDER BY COALESCE(priority,100) ASC, created_at ASC`,
+      [tenantId, grades.length ? grades : [''], q.term || null],
+    ).catch(() => []);
+
+    const allPaid = await this.ds.query(
+      `SELECT learner_id, fee_item_id, COALESCE(SUM(amount),0) AS paid
+         FROM payment_allocations
+        WHERE tenant_id = $1 AND learner_id::text = ANY($2::text[])
+        GROUP BY learner_id, fee_item_id`,
+      [tenantId, learnerIds.length ? learnerIds : ['']],
+    ).catch(() => []);
+
+    const paidByLearnerItem = new Map<string, number>();
+    for (const r of allPaid as any[]) {
+      paidByLearnerItem.set(`${r.learner_id}|${r.fee_item_id}`, Number(r.paid || 0));
+    }
+    // A fee item with no grade is billed school-wide, so it belongs to everyone.
+    const headsForGrade = (g: string) =>
+      (allHeads as any[]).filter(h => !h.gradeLevel || h.gradeLevel === g);
+
     const today = new Date().toISOString().slice(0, 10);
     const pages: string[] = [];
     for (const l of learners as any[]) {
-      const v = await this.learnerVoteHeads(req, l.id, q);
+      const heads = headsForGrade(l.gradeLevel).map(h => {
+        const billed = Number(h.amount || 0);
+        const paid = paidByLearnerItem.get(`${l.id}|${h.id}`) || 0;
+        return { name: h.name, billed, paid, balance: Math.max(0, billed - paid) };
+      });
+      const v = {
+        voteHeads: heads,
+        totalBilled: heads.reduce((s, h) => s + h.billed, 0),
+        totalPaid:   heads.reduce((s, h) => s + h.paid, 0),
+        totalBalance: Math.max(0, heads.reduce((s, h) => s + h.balance, 0)),
+      };
       const rows = (v.voteHeads || []).map((h: any) =>
         `<tr><td>${esc(h.name)}</td><td class="n">${ksh(h.billed)}</td>`
         + `<td class="n">${ksh(h.paid)}</td><td class="n">${ksh(h.balance)}</td></tr>`).join('')
