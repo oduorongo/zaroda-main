@@ -13,6 +13,7 @@ import { School }   from './entities/school.entity';
 import { SignupDto, SignupIndividualDto, UpgradeToSchoolDto } from './dto';
 import { normalisePhone } from '../../common/messaging';
 import { sendEmail } from '../../common/messaging';
+import { freePeriodEndForSignup, freePeriodEndTimestamp, longDay } from '../../common/subscription';
 
 /** Parse a value to an integer, returning null for missing/blank/non-numeric input
  *  (so a stray "NaN" or undefined never reaches a smallint/integer DB column). */
@@ -168,7 +169,7 @@ export class AuthService {
         keSubCountyId: toIntOrNull(dto.subCountyId),
         keZoneId:      toIntOrNull(dto.zoneId),
         status:        'trial',
-        trialEndsAt:   new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        trialEndsAt:   freePeriodEndTimestamp(freePeriodEndForSignup()),
         subscriptionTier: 'trial',
         schoolLevels:  Array.isArray(dto.schoolLevels) ? dto.schoolLevels.filter(l => ['primary_js','senior'].includes(l)) : [],
         ownership:     dto.ownership === 'private' ? 'private' : 'public',
@@ -209,7 +210,7 @@ export class AuthService {
         savedUser.email,
         `Welcome to ZARODA, ${dto.schoolName}!`,
         `<p>Hi ${dto.adminFirstName},</p>
-         <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and your 14-day free trial has started.</p>
+         <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and it is free to use until ${longDay(freePeriodEndForSignup())}.</p>
          <p>A few things to do next to get your school fully set up:</p>
          <ol>
            <li>Create your first class / stream</li>
@@ -222,7 +223,7 @@ export class AuthService {
 
       const tokens = await this.generateTokens(savedUser);
       return {
-        message:      'School account created successfully. Your 14-day free trial starts now.',
+        message:      `School account created successfully. ZARODA is free for your school until ${longDay(freePeriodEndForSignup())}.`,
         accessToken:  tokens.accessToken,
         refreshToken: tokens.refreshToken,
         user: {
@@ -379,11 +380,11 @@ export class AuthService {
         keSubCountyId: toIntOrNull(dto.subCountyId),
         keZoneId:      toIntOrNull(dto.zoneId),
         accountType:   'school',
-        // Same 14-day trial a fresh school signup gets — an individual account
+        // Same free period a fresh school signup gets — an individual account
         // has never been through the school subscription gate.
         status:           'trial',
         subscriptionTier: 'trial',
-        trialEndsAt:      new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        trialEndsAt:      freePeriodEndTimestamp(freePeriodEndForSignup()),
         schoolLevels:  Array.isArray(dto.schoolLevels) ? dto.schoolLevels.filter(l => ['primary_js','senior'].includes(l)) : [],
         ownership:     dto.ownership === 'private' ? 'private' : 'public',
       });
@@ -419,7 +420,7 @@ export class AuthService {
       user.email,
       `Welcome to ZARODA, ${dto.schoolName}!`,
       `<p>Hi ${user.firstName},</p>
-       <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and your 14-day free trial has started.</p>
+       <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and it is free to use until ${longDay(freePeriodEndForSignup())}.</p>
        <p>You keep the same login you have been using, and all of your Professional Records work is still there.</p>
        <p>A few things to do next to get your school fully set up:</p>
        <ol>
@@ -436,7 +437,7 @@ export class AuthService {
     const refreshed = await this.userRepo.findOne({ where: { id: user.id } });
     const tokens = await this.generateTokens(refreshed);
     return {
-      message:      'School account created successfully. Your 14-day free trial starts now.',
+      message:      `School account created successfully. ZARODA is free for your school until ${longDay(freePeriodEndForSignup())}.`,
       accessToken:  tokens.accessToken,
       refreshToken: tokens.refreshToken,
       user: {

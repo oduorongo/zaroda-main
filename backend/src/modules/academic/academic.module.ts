@@ -9,6 +9,7 @@ import {
   UseGuards, Request, Delete, BadRequestException, NotFoundException, Res,
 } from '@nestjs/common';
 import { PdfExportService } from '../../common/pdf-export.service';
+import { assertStreamsWritable } from '../../common/subscription';
 import { normalisePhone } from '../../common/messaging';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -280,6 +281,9 @@ export class AcademicService {
     const tenantId = user.tenantId;
     const records = dto.records || [];
     if (!records.length) return { message: 'No records', saved: 0 };
+    await assertStreamsWritable(this.dataSource, tenantId, {
+      streamIds: records.map((r: any) => r.streamId), learnerIds: records.map((r: any) => r.learnerId),
+    });
 
     // Restriction: only admin/HOI, or a teacher who teaches the learning area.
     // Exception: a class teacher (or overall class teacher) may manage the FULL
@@ -2183,6 +2187,7 @@ export class AcademicService {
   }
 
   async bulkSaveAttendance(tenantId: string, dto: any, userId: string) {
+    await assertStreamsWritable(this.dataSource, tenantId, { streamIds: [dto.streamId] });
     const records = dto.records.map((r: any) => ({
       tenantId,
       learnerId:  r.learnerId,
@@ -2220,6 +2225,7 @@ export class AcademicService {
   // for it here and hand back a warning rather than blocking the save outright —
   // an HOI fixing a one-off clash on purpose is a legitimate use case too.
   async assignLesson(tenantId: string, dto: any) {
+    await assertStreamsWritable(this.dataSource, tenantId, { streamIds: [dto.streamId] });
     let conflict: string | null = null;
     if (dto.teacherId) {
       const clashes = await this.dataSource.query(
@@ -2253,6 +2259,7 @@ export class AcademicService {
   }
 
   async clearLesson(tenantId: string, dto: any) {
+    await assertStreamsWritable(this.dataSource, tenantId, { streamIds: [dto.streamId] });
     await this.dataSource.query(
       `DELETE FROM timetable_periods
        WHERE tenant_id = $1 AND stream_id = $2 AND day = $3 AND period_label = $4`,
@@ -2263,6 +2270,10 @@ export class AcademicService {
 
   // Auto-generate KICD-compliant timetables for one/all streams (deterministic solver).
   async autoGenerateTimetable(tenantId: string, streamIds: string[] | null) {
+    // "All streams" (null) is checked against every stream the school has.
+    const targets = streamIds && streamIds.length ? streamIds
+      : (await this.dataSource.query(`SELECT id::text AS id FROM streams WHERE tenant_id::text = $1`, [tenantId]).catch(() => [])).map((r: any) => r.id);
+    await assertStreamsWritable(this.dataSource, tenantId, { streamIds: targets });
     const solver = new AutoTimetabler(this.dataSource);
     return solver.generate(tenantId, streamIds && streamIds.length ? streamIds : null);
   }

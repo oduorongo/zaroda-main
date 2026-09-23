@@ -196,8 +196,8 @@ export default function UpgradeToSchoolPage() {
       <div className="flex items-start gap-2 p-3 bg-[#f4f6fb] rounded-xl mb-5">
         <ShieldCheck size={16} className="text-[#1a2e5a] flex-shrink-0 mt-0.5"/>
         <p className="text-xs text-[#1a2e5a]">
-          Signed in as <b>{user.email}</b> — this address stays your login. Your 14-day school
-          trial starts once the school is set up.
+          Signed in as <b>{user.email}</b> — this address stays your login. The school’s free
+          period starts once the school is set up.
         </p>
       </div>
 

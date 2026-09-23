@@ -53,7 +53,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
           className="btn-primary w-full justify-center text-sm">
           Create Your School Account →
         </Link>
-        <p className="text-xs text-[#7a82a8] mt-3">Start with your class · Free 2-week trial · No card needed</p>
+        <p className="text-xs text-[#7a82a8] mt-3">Start with your class · Free to start · No card needed</p>
       </div>
     </div>
   );

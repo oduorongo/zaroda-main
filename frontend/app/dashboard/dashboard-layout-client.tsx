@@ -7,13 +7,14 @@ import {
   Library, Settings, HelpCircle, LogOut, Share2,
   Menu, X, ChevronRight, Users,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
-  Bus, BookMarked, ExternalLink, ShieldCheck,
+  Bus, BookMarked, ExternalLink, ShieldCheck, Receipt,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 import { useTheme } from '@/lib/hooks/useTheme';
 import { ShareZaroda } from '@/components/ShareZaroda';
 import { NotificationBell } from '@/components/NotificationBell';
+import { SubscriptionNotice, BILLING_ROLES } from '@/components/SubscriptionNotice';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 
@@ -36,7 +37,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/analytics',              icon: TrendingUp,   label: 'Analytics',            roles: 'admin' },
   { href: '/dashboard/finance',                icon: DollarSign,   label: 'Finance',              roles: 'finance' },
   { href: '/dashboard/transport',              icon: Bus,          label: 'Transport',            roles: 'finance', pro: true },
-  // Subscription nav hidden for now — page still reachable directly, just not in the sidebar.
+  { href: '/dashboard/subscription',           icon: Receipt,      label: 'Subscription',         roles: 'billing' },
   { href: '/dashboard/communication',          icon: MessageSquare,label: 'Communication',        roles: 'parent_ok' },
   { href: '/dashboard/senior-selection',       icon: GraduationCap,label: 'Grade 10 Selection',   roles: 'parent_ok' },
   // Grouped the way Academic is: one entry opening a page of tiles, rather than
@@ -65,6 +66,8 @@ function canSee(roleKey: string, userRole: string): boolean {
   if (roleKey === 'finance')      return isBursar(userRole);
   if (roleKey === 'teacher')      return isTeacher(userRole) || isHoi(userRole);
   if (roleKey === 'admin')        return isHoi(userRole);
+  // Must match ADMIN_ROLES in backend billing.module.ts (narrower than isHoi — no dos).
+  if (roleKey === 'billing')      return BILLING_ROLES.includes(userRole);
   if (roleKey === 'teacher_only') return isTeacher(userRole);
   if (roleKey === 'parent_only')  return isParent(userRole);
   if (roleKey === 'learner_only') return isLearner(userRole);
@@ -313,6 +316,8 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+            {/* The subscription page carries its own status, so no banner there. */}
+            {!pathname.startsWith('/dashboard/subscription') && <SubscriptionNotice role={user.role}/>}
             {children}
           </div>
         </main>

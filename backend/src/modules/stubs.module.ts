@@ -16,6 +16,7 @@ import { requireProPlan } from '../common/plan';
 import { feeStructureTableHtml } from '../common/fee-structure-table';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
 import { PdfExportService } from '../common/pdf-export.service';
+import { assertStreamsWritable } from '../common/subscription';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -2376,7 +2377,7 @@ class PayrollController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('Only the HOI, bursar or administrator can manage payroll.');
     }
-    await requireProPlan(this.ds, req.user.tenantId, 'Payroll');
+    await requireProPlan(this.ds, req.user.tenantId, 'Payroll', req.method);
   }
 
   private async ensureTables() {
@@ -2932,7 +2933,7 @@ class TransportController {
     if (!TRANSPORT_MANAGER_ROLES.includes(req.user.role)) {
       throw new BadRequestException('Only the HOI, bursar or administrator can manage transport.');
     }
-    await requireProPlan(this.ds, req.user.tenantId, 'Student Transport');
+    await requireProPlan(this.ds, req.user.tenantId, 'Student Transport', req.method);
   }
 
   private async ensureTables() {
@@ -5099,7 +5100,7 @@ class HrController {
     if (!HR_ADMIN_ROLES.includes(req.user.role)) {
       throw new BadRequestException('Only the HOI or an administrator can manage staff HR records.');
     }
-    await requireProPlan(this.ds, req.user.tenantId, 'HR');
+    await requireProPlan(this.ds, req.user.tenantId, 'HR', req.method);
   }
 
   private async ensureTables() {
@@ -5866,6 +5867,7 @@ class PdfController {
       throw new BadRequestException('Only teaching staff or an administrator can set report card remarks.');
     }
     if (!dto?.learnerId || !dto?.term || !dto?.academicYear) throw new BadRequestException('learnerId, term and academicYear are required.');
+    await assertStreamsWritable(this.ds, req.user.tenantId, { learnerIds: [dto.learnerId] });
     await this.ensureReportCardSettingsTable();
     const name = await this.displayNameForUser(req.user.id, req.user.email || '');
     await this.ds.query(

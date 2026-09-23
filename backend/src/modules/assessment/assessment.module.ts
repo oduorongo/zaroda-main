@@ -3,6 +3,7 @@ import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { assertStreamsWritable } from '../../common/subscription';
 
 // ── Entities ───────────────────────────────────────────────
 @Entity('assessment_templates')
@@ -354,6 +355,7 @@ export class AssessmentService {
     if (!learnerId || !learningArea || !dto.term) {
       throw new BadRequestException('Missing learner, learning area, or term.');
     }
+    await assertStreamsWritable(this.dataSource, user.tenantId, { streamIds: [streamId], learnerIds: [learnerId] });
     // Normalise defensively — the parent-facing rubric view (getChildRubric) always
     // queries by canonical term_1/2/3, so a raw label like "Term One" saved here
     // verbatim would silently never match and the parent would see nothing.

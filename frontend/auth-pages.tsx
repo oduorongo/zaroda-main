@@ -439,7 +439,7 @@ export default function RegisterPage() {
             <ZarodaIcon />
           </div>
           <h1 className="text-xl font-semibold text-[#1a2e5a]">Register Your School</h1>
-          <p className="text-sm text-gray-500">Start your 14-day free trial — no payment required</p>
+          <p className="text-sm text-gray-500">Free to start — no payment required</p>
         </div>
 
         {/* Progress */}
