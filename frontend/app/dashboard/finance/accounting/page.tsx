@@ -1,9 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { BookOpen, FileSpreadsheet, Scale, FileText, Printer, Landmark, Wrench, Loader2,
-  CalendarRange, Plus, ArrowRightLeft } from 'lucide-react';
+  CalendarRange, Plus, ArrowRightLeft, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
+import { usePdfDownload } from '@/components/pdf/pdf-buttons';
 
 const REPORTS = [
   { key: 'cashbook',      icon: BookOpen,         label: 'Analysed Cash Book', desc: 'Receipts and payments, split cash/bank and analysed by vote head' },
@@ -152,6 +153,25 @@ export default function AccountingPage() {
     } catch (e: any) { toast.error(err(e, label, key)); }
     finally { setGenerating(''); }
   };
+  // Same document as View / Print, rendered to a PDF file instead of relying on
+  // the browser's print dialog — which on mobile often has no Save-as-PDF at all.
+  const { downloadHtmlAsPdf, downloading } = usePdfDownload();
+  const reportUrl = (key: string) => {
+    const p = new URLSearchParams();
+    if (yearId) p.set('yearId', yearId);
+    if (key === 'fee_statement' && feeFilter.gradeLevel) p.set('gradeLevel', feeFilter.gradeLevel);
+    if (key === 'fee_statement' && feeFilter.streamId) p.set('streamId', feeFilter.streamId);
+    const q = p.toString();
+    return `/finance/reports/${key}${q ? `?${q}` : ''}`;
+  };
+  const savePdf = (key: string, label: string) => downloadHtmlAsPdf(
+    reportUrl(key),
+    `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${selectedYear?.yearLabel || 'all'}.pdf`,
+    `dl-${key}`,
+    // The analysed cash book grows a column per vote head and only fits across.
+    key === 'cashbook' ? 'landscape' : 'portrait',
+  );
+
   const err = (e: any, label: string, key: string) => {
     if (e?.response?.status === 404) return `${label} report not available yet`;
     // The backend now returns a readable HTML error body on failure — surface its text
@@ -340,10 +360,16 @@ export default function AccountingPage() {
                   </select>
                 </div>
               )}
-              <button onClick={() => generate(r.key, r.label)} disabled={generating === r.key}
-                className="btn-ghost w-full justify-center text-xs">
-                <Printer size={13}/> {generating === r.key ? 'Opening…' : 'View / Print'}
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => generate(r.key, r.label)} disabled={generating === r.key}
+                  className="btn-ghost flex-1 justify-center text-xs">
+                  <Printer size={13}/> {generating === r.key ? 'Opening…' : 'View'}
+                </button>
+                <button onClick={() => savePdf(r.key, r.label)} disabled={downloading === `dl-${r.key}`}
+                  className="btn-primary flex-1 justify-center text-xs">
+                  <Download size={13}/> {downloading === `dl-${r.key}` ? 'Saving…' : 'PDF'}
+                </button>
+              </div>
             </div>
           );
         })}

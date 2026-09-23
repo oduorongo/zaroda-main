@@ -176,17 +176,21 @@ export default function FinancePage() {
               <p className="text-theme-muted">No invoices for selected term</p>
             </div>
           ) : (
-            <div className="card overflow-hidden">
+            <div className="card overflow-x-auto">
+              {/* overflow-x-auto, not overflow-hidden: on a phone the Actions column
+                  was being clipped off the edge, so the Invoice button could not be
+                  reached at all. Status is dropped on narrow screens too — the
+                  balance is already colour-coded, so it said nothing extra. */}
               <table className="w-full">
                 <thead>
                   <tr className="table-header">
-                    <th className="px-4 py-3 text-left text-xs">Learner</th>
-                    <th className="px-4 py-3 text-left text-xs hidden sm:table-cell">Invoice No.</th>
-                    <th className="px-4 py-3 text-right text-xs">Total</th>
-                    <th className="px-4 py-3 text-right text-xs hidden md:table-cell">Paid</th>
-                    <th className="px-4 py-3 text-right text-xs">Balance</th>
-                    <th className="px-4 py-3 text-center text-xs">Status</th>
-                    <th className="px-4 py-3 text-center text-xs">Actions</th>
+                    <th className="px-2 sm:px-4 py-3 text-left text-xs">Learner</th>
+                    <th className="px-2 sm:px-4 py-3 text-left text-xs hidden sm:table-cell">Invoice No.</th>
+                    <th className="px-2 sm:px-4 py-3 text-right text-xs">Total</th>
+                    <th className="px-2 sm:px-4 py-3 text-right text-xs hidden md:table-cell">Paid</th>
+                    <th className="px-2 sm:px-4 py-3 text-right text-xs">Balance</th>
+                    <th className="px-2 sm:px-4 py-3 text-center text-xs hidden sm:table-cell">Status</th>
+                    <th className="px-2 sm:px-4 py-3 text-center text-xs">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -194,16 +198,16 @@ export default function FinancePage() {
                     const balance = (inv.totalAmount || 0) - (inv.amountPaid || 0);
                     return (
                       <tr key={inv.id} className={`border-b border-theme hover:bg-[#f9fafb] ${i%2===0?'bg-surface':'bg-surface-2'}`}>
-                        <td className="px-4 py-3">
+                        <td className="px-2 sm:px-4 py-3">
                           <div className="text-sm font-semibold text-theme-heading">{inv.learner?.firstName} {inv.learner?.lastName}</div>
                           <div className="text-xs text-theme-muted">{inv.learner?.stream?.name}</div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-theme-muted hidden sm:table-cell">{inv.invoiceNumber}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-right text-theme-heading">{fmt(inv.totalAmount)}</td>
-                        <td className="px-4 py-3 text-sm text-right text-green-600 hidden md:table-cell">{fmt(inv.amountPaid)}</td>
-                        <td className={`px-4 py-3 text-sm font-bold text-right ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(Math.abs(balance))}</td>
-                        <td className="px-4 py-3 text-center">{statusBadge(inv.status)}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-2 sm:px-4 py-3 text-sm text-theme-muted hidden sm:table-cell">{inv.invoiceNumber}</td>
+                        <td className="px-2 sm:px-4 py-3 text-sm font-semibold text-right text-theme-heading">{fmt(inv.totalAmount)}</td>
+                        <td className="px-2 sm:px-4 py-3 text-sm text-right text-green-600 hidden md:table-cell">{fmt(inv.amountPaid)}</td>
+                        <td className={`px-2 sm:px-4 py-3 text-sm font-bold text-right ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(Math.abs(balance))}</td>
+                        <td className="px-2 sm:px-4 py-3 text-center hidden sm:table-cell">{statusBadge(inv.status)}</td>
+                        <td className="px-2 sm:px-4 py-3">
                           <div className="flex items-center justify-center gap-2 flex-wrap">
                             <button onClick={() => openInvoices({ learnerId: inv.id })} disabled={printing}
                               className="text-xs border border-theme px-2 py-1 rounded-lg hover:bg-surface-2 font-medium">

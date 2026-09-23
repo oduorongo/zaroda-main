@@ -14,6 +14,7 @@ import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/m
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 import { requireProPlan } from '../common/plan';
 import { feeStructureTableHtml } from '../common/fee-structure-table';
+import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML } from '../common/print-footer';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -264,11 +265,13 @@ class FinanceController {
       .print{margin:14px 0;text-align:center}
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
       @media print{.print{display:none}}
+      ${PRINT_FOOTER_CSS}
       </style></head><body>
       <div class="head"><h1>${esc(school.name || 'School')}</h1>
         <h2>Fee Structure · ${esc(scope)}</h2></div>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
-      ${table || '<p>No fee items have been set up for this selection.</p>'}</body></html>`);
+      ${table || '<p>No fee items have been set up for this selection.</p>'}
+      ${PRINT_FOOTER_HTML}</body></html>`);
   }
 
   @Get('fee-structures')
@@ -814,10 +817,12 @@ class FinanceController {
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
       @media print{.print{display:none}.inv{page-break-after:always}.inv:last-child{page-break-after:auto}
         .inv + .inv{border-top:none;margin-top:0;padding-top:0}}
+      ${PRINT_FOOTER_CSS}
       </style></head><body>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button>
         &nbsp;<span style="font-size:12px;color:#555">${(learners as any[]).length} invoice(s)</span></div>
-      ${pages.join('')}</body></html>`);
+      ${pages.join('')}
+      ${PRINT_FOOTER_HTML}</body></html>`);
   }
 
   @Get('invoices')
@@ -1066,12 +1071,14 @@ class FinanceController {
       .print{margin:16px 0;text-align:center}
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
       @media print{.print{display:none}${landscape ? 'table{font-size:10px}th,td{padding:4px 5px}' : ''}}
+      ${PRINT_FOOTER_CSS}
       </style></head><body>
       <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)}${
         year ? ` · ${esc(year.year_label)} (${esc(dmy(year.start_date))} to ${esc(dmy(year.end_date))})` : ''
       } · printed ${esc(today)}</h2></div>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
-      ${inner}</body></html>`;
+      ${inner}
+      ${PRINT_FOOTER_HTML}</body></html>`;
 
     let inner = '';
     if (key === 'cashbook') {
