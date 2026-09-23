@@ -13,13 +13,24 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving]   = useState(false);
-  const [form, setForm] = useState({ description: '', category: 'Supplies', amount: 0, date: new Date().toISOString().split('T')[0], payee: '' });
+  const [form, setForm] = useState({
+    description: '', category: 'Supplies', voteHead: '', amount: 0,
+    date: new Date().toISOString().split('T')[0], payee: '', paymentMethod: 'bank',
+  });
+
+  // The school's own vote heads, with what is left in each. Charging an expense
+  // to one is what lets the vote head ledger net off — without it, money goes
+  // into Tuition and out under a name no receipt ever used.
+  const [voteHeads, setVoteHeads] = useState<any[]>([]);
 
   const load = () => {
     setLoading(true);
     apiClient.get('/finance/expenses').then(r => setExpenses(r.data)).catch(()=>{}).finally(()=>setLoading(false));
+    apiClient.get('/finance/expenses/vote-heads').then(r => setVoteHeads(Array.isArray(r.data) ? r.data : [])).catch(()=>{});
   };
   useEffect(() => { load(); }, []);
+
+  const selectedHead = voteHeads.find(v => v.head === form.voteHead);
 
   const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e.target.value }));
   const submit = async (e: React.FormEvent) => {
@@ -58,9 +69,14 @@ export default function ExpensesPage() {
             {expenses.map((ex: any, i: number) => (
               <tr key={ex.id} className={`border-b border-theme ${i%2===0?'bg-surface':'bg-surface-2'}`}>
                 <td className="px-4 py-3 text-sm font-semibold text-theme-heading">{ex.description}</td>
-                <td className="px-4 py-3"><span className="badge bg-surface-2 text-theme">{ex.category}</span></td>
+                <td className="px-4 py-3">
+                  <span className="badge bg-surface-2 text-theme">{ex.category}</span>
+                  {ex.voteHead && (
+                    <span className="badge bg-[#1a2e5a] text-white ml-1">{ex.voteHead}</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-sm text-theme-muted hidden sm:table-cell">{ex.payee || '—'}</td>
-                <td className="px-4 py-3 text-sm text-theme-muted hidden md:table-cell">{ex.date ? new Date(ex.date).toLocaleDateString('en-KE') : '—'}</td>
+                <td className="px-4 py-3 text-sm text-theme-muted hidden md:table-cell">{ex.spentOn ? new Date(ex.spentOn).toLocaleDateString('en-KE') : '—'}</td>
                 <td className="px-4 py-3 text-sm font-bold text-right text-red-600">{fmt(ex.amount)}</td>
               </tr>
             ))}
@@ -77,14 +93,41 @@ export default function ExpensesPage() {
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
               <div><label className="label">Description *</label><input required value={form.description} onChange={set('description')} className="input" placeholder="Printer toner cartridges"/></div>
+              <div>
+                <label className="label">Charge to vote head</label>
+                <select value={form.voteHead} onChange={set('voteHead')} className="input">
+                  <option value="">Not charged to a vote head</option>
+                  {voteHeads.map((v: any) => (
+                    <option key={v.head} value={v.head}>{v.head} — {fmt(v.balance)} left</option>
+                  ))}
+                </select>
+                {voteHeads.length === 0 ? (
+                  <p className="text-xs text-theme-muted mt-1">
+                    No vote heads yet — add a fee structure and they will appear here.
+                  </p>
+                ) : selectedHead && Number(form.amount) > selectedHead.balance ? (
+                  <p className="text-xs text-amber-600 mt-1">
+                    This is more than {selectedHead.head} has left ({fmt(selectedHead.balance)}). It will still be recorded, and the head will show a debit balance.
+                  </p>
+                ) : (
+                  <p className="text-xs text-theme-muted mt-1">Which fund the money comes out of.</p>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Category</label><select value={form.category} onChange={set('category')} className="input">{EXPENSE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
                 <div><label className="label">Amount (KES)</label><input type="number" value={form.amount} onChange={set('amount')} className="input"/></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Date</label><input type="date" value={form.date} onChange={set('date')} className="input"/></div>
-                <div><label className="label">Payee</label><input value={form.payee} onChange={set('payee')} className="input" placeholder="Supplier name"/></div>
+                <div>
+                  <label className="label">Paid by</label>
+                  <select value={form.paymentMethod} onChange={set('paymentMethod')} className="input">
+                    <option value="bank">Bank / cheque</option>
+                    <option value="cash">Cash</option>
+                  </select>
+                </div>
               </div>
+              <div><label className="label">Payee</label><input value={form.payee} onChange={set('payee')} className="input" placeholder="Supplier name"/></div>
               <div className="flex gap-3"><button type="button" onClick={()=>setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? <Loader2 size={14} className="animate-spin"/> : 'Record'}</button></div>
             </form>

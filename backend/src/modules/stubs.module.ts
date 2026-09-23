@@ -969,7 +969,12 @@ class FinanceController {
         ORDER BY d ASC`, [tenantId, from, to],
     ).catch(() => []);
     const expenses = await this.ds.query(
-      `SELECT id, description, category, amount, payment_method, voucher_number, cheque_number,
+      // Analysed by the vote head it was charged to, falling back to category for
+      // expenses recorded before that was captured (migration 070) — so no past
+      // report changes and the two sides of a head can finally net off.
+      `SELECT id, description, category, vote_head, amount, payment_method,
+              voucher_number, cheque_number,
+              COALESCE(NULLIF(vote_head,''), NULLIF(category,''), 'Uncategorised') AS head,
               COALESCE(spent_on, created_at::date) AS d
          FROM expenses WHERE tenant_id = $1
           AND COALESCE(spent_on, created_at::date) BETWEEN $2::date AND $3::date
@@ -1007,7 +1012,7 @@ class FinanceController {
     // no Ministry circular fixing these — they are whatever the school bills and
     // spends on, so they are read from the data rather than hard-coded.
     const receiptHeads = [...new Set((allocRows as any[]).map(r => String(r.head)))].sort();
-    const paymentHeads = [...new Set((expenses as any[]).map(e => String(e.category || 'Uncategorised')))].sort();
+    const paymentHeads = [...new Set((expenses as any[]).map(e => String(e.head || 'Uncategorised')))].sort();
 
     // A school's own money is cash unless it moved through a bank or M-Pesa.
     const isCashMethod = (m: any) => String(m || '').toLowerCase().trim() === 'cash';
@@ -1035,7 +1040,7 @@ class FinanceController {
 
     const spendByHead: Record<string, number> = {};
     for (const e of expenses as any[]) {
-      const h = String(e.category || 'Uncategorised');
+      const h = String(e.head || 'Uncategorised');
       spendByHead[h] = (spendByHead[h] || 0) + Number(e.amount || 0);
     }
     const votedByHead: Record<string, number> = {};
@@ -1116,7 +1121,7 @@ class FinanceController {
         const amt = Number(e.amount || 0);
         const cash = isCashMethod(e.payment_method) ? amt : 0;
         const bank = isCashMethod(e.payment_method) ? 0 : amt;
-        const head = String(e.category || 'Uncategorised');
+        const head = String(e.head || 'Uncategorised');
         const cells = outCols.map(h => {
           const v = h === head ? amt : 0;
           if (v) outTotals[h] = (outTotals[h] || 0) + v;
@@ -1171,8 +1176,11 @@ class FinanceController {
            FROM payment_allocations WHERE tenant_id = $1 GROUP BY vote_head ORDER BY total DESC`, [tenantId],
       ).catch(() => []);
       const exp = await this.ds.query(
-        `SELECT COALESCE(category,'Other') AS cat, COALESCE(SUM(amount),0) AS total
-           FROM expenses WHERE tenant_id = $1 GROUP BY category ORDER BY total DESC`, [tenantId],
+        `SELECT COALESCE(NULLIF(vote_head,''), NULLIF(category,''), 'Other') AS cat,
+                COALESCE(SUM(amount),0) AS total
+           FROM expenses WHERE tenant_id = $1
+          GROUP BY COALESCE(NULLIF(vote_head,''), NULLIF(category,''), 'Other')
+          ORDER BY total DESC`, [tenantId],
       ).catch(() => []);
       const revRows = (rev as any[]).map(r => `<tr><td>${esc(r.head)}</td><td class="n">${ksh(r.total)}</td></tr>`).join('') || '<tr><td>No revenue recorded</td><td class="n">KES 0</td></tr>';
       const expRows = (exp as any[]).map(r => `<tr><td>${esc(r.cat)}</td><td class="n">${ksh(r.total)}</td></tr>`).join('') || '<tr><td>No expenses recorded</td><td class="n">KES 0</td></tr>';
@@ -1632,7 +1640,8 @@ class FinanceController {
   async getExpenses(@Request() req: any) {
     await this.ensureExpensesTable();
     return this.ds.query(
-      `SELECT id, category, description, amount, spent_on AS "spentOn", created_at AS "createdAt"
+      `SELECT id, category, vote_head AS "voteHead", description, amount, payment_method AS "paymentMethod",
+              supplier_name AS "payee", spent_on AS "spentOn", created_at AS "createdAt"
          FROM expenses WHERE tenant_id = $1 ORDER BY COALESCE(spent_on, created_at) DESC`,
       [req.user.tenantId],
     ).catch(() => []);
@@ -1651,6 +1660,11 @@ class FinanceController {
       ['amount', 'numeric'], ['spent_on', 'date'], ['created_at', 'timestamptz DEFAULT NOW()'],
       // Needed to split the analysed cash book into its cash and bank columns.
       ['payment_method', 'text'], ['voucher_number', 'text'], ['cheque_number', 'text'],
+      // Which fund the money came out of — see migration 070.
+      ['vote_head', 'text'],
+      // The form has always collected a payee and the insert has always dropped
+      // it, so every supplier name a bursar typed was silently lost.
+      ['supplier_name', 'text'],
     ];
     for (const [name, type] of cols) {
       await this.ds.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);
@@ -1675,13 +1689,66 @@ class FinanceController {
     if (!dto?.amount || isNaN(Number(dto.amount))) return { error: 'A valid amount is required.' };
     await this.ensureExpensesTable();
     const rows = await this.ds.query(
-      `INSERT INTO expenses (tenant_id, school_id, category, description, amount, spent_on, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,NOW())
-       RETURNING id, category, description, amount, spent_on AS "spentOn"`,
+      `INSERT INTO expenses (tenant_id, school_id, category, vote_head, description, amount,
+                             payment_method, supplier_name, spent_on, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+       RETURNING id, category, vote_head AS "voteHead", description, amount,
+                 supplier_name AS "payee", spent_on AS "spentOn"`,
       [req.user.tenantId, req.user.schoolId || null, dto.category || 'General',
-       dto.description || null, Number(dto.amount), dto.spentOn || new Date().toISOString().slice(0, 10)],
+       // Null rather than a guess: an expense with no vote head still analyses by
+       // category in the books, exactly as every expense did before migration 070.
+       dto.voteHead || null,
+       dto.description || null, Number(dto.amount),
+       dto.paymentMethod || null,
+       dto.payee || dto.supplierName || null,
+       dto.spentOn || dto.date || new Date().toISOString().slice(0, 10)],
     ).catch((e: any) => { throw new BadRequestException(e.message); });
     return rows[0];
+  }
+
+  /**
+   * The vote heads an expense may be charged to: the school's own fee heads,
+   * which is what receipts are analysed into. Returned with what each has
+   * collected and spent so far, so a bursar can see what is left before
+   * committing money against it.
+   */
+  @Get('expenses/vote-heads')
+  async expenseVoteHeads(@Request() req: any) {
+    await this.ensureFeeItemsTable();
+    await this.ensureAllocationsTable();
+    await this.ensureExpensesTable().catch(() => null);
+    const tenantId = req.user.tenantId;
+
+    // Every head the school bills, plus any already used on a receipt — a head
+    // can have been collected against and later removed from the structure.
+    const rows = await this.ds.query(
+      `SELECT name AS head FROM fee_items WHERE tenant_id::text = $1 AND name IS NOT NULL
+       UNION
+       SELECT DISTINCT vote_head FROM payment_allocations
+        WHERE tenant_id::text = $1 AND vote_head IS NOT NULL`,
+      [tenantId],
+    ).catch(() => []);
+
+    const received = await this.ds.query(
+      `SELECT COALESCE(vote_head,'Unallocated') AS head, COALESCE(SUM(amount),0) AS total
+         FROM payment_allocations WHERE tenant_id::text = $1 GROUP BY vote_head`, [tenantId],
+    ).catch(() => []);
+    const spent = await this.ds.query(
+      `SELECT COALESCE(vote_head, category) AS head, COALESCE(SUM(amount),0) AS total
+         FROM expenses WHERE tenant_id::text = $1 GROUP BY COALESCE(vote_head, category)`, [tenantId],
+    ).catch(() => []);
+
+    const inBy: Record<string, number> = {};
+    for (const r of received as any[]) inBy[String(r.head)] = Number(r.total || 0);
+    const outBy: Record<string, number> = {};
+    for (const r of spent as any[]) outBy[String(r.head)] = Number(r.total || 0);
+
+    return [...new Set((rows as any[]).map(r => String(r.head)))].sort().map(head => ({
+      head,
+      received: inBy[head] || 0,
+      spent:    outBy[head] || 0,
+      balance:  (inBy[head] || 0) - (outBy[head] || 0),
+    }));
   }
 
   // Not private: PayrollController (below) posts payroll costs into the cashbook
