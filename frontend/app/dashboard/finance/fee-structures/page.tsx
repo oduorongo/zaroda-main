@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2, Printer } from 'lucide-react';
+import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2, Printer, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isBursar } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
+import { saveBlob } from '@/lib/utils/save-blob';
 
 const FEE_CATEGORIES = [
   { value: 'tuition',   label: 'Tuition',   icon: Receipt },
@@ -33,6 +34,15 @@ export default function FeeStructuresPage() {
       }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch { toast.error('Could not open the fee structure'); }
+  };
+
+  const downloadStructure = async () => {
+    try {
+      const res = await apiClient.get('/finance/fee-structures/print', {
+        responseType: 'blob', params: { format: 'pdf' },
+      });
+      saveBlob(res.data, 'fee-structure.pdf');
+    } catch { toast.error('Could not download the fee structure'); }
   };
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving]   = useState(false);
@@ -99,6 +109,7 @@ export default function FeeStructuresPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={printStructure} className="btn-ghost"><Printer size={16}/> Print</button>
+          <button onClick={downloadStructure} className="btn-ghost"><Download size={16}/> PDF</button>
           {isBursar(user?.role || '') && (
             <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Structure</button>
           )}

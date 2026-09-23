@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { DollarSign, Search, CreditCard, Loader2, FileText, CheckCircle, AlertCircle, Clock, Printer } from 'lucide-react';
+import { DollarSign, Search, CreditCard, Loader2, FileText, CheckCircle, AlertCircle, Clock, Printer, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
+import { saveBlob } from '@/lib/utils/save-blob';
 
 export default function FinancePage() {
   const [tab,       setTab]      = useState<'invoices'|'receipts'>('invoices');
@@ -52,6 +53,21 @@ export default function FinancePage() {
     } catch {
       toast.error('Could not open the invoice');
     } finally { setPrinting(false); }
+  };
+
+  // Downloads the same invoice as a real PDF, rendered server-side.
+  const [savingPdf, setSavingPdf] = useState('');
+  const downloadInvoices = async (params: Record<string, string>, name: string) => {
+    setSavingPdf(name);
+    try {
+      const res = await apiClient.get('/finance/invoices/print', {
+        responseType: 'blob',
+        params: { format: 'pdf', term, academicYear: year, ...params },
+      });
+      saveBlob(res.data, `${name}.pdf`);
+    } catch {
+      toast.error('Could not download the invoice');
+    } finally { setSavingPdf(''); }
   };
 
   const fmt = (n: number) => `KES ${(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 })}`;
@@ -136,9 +152,16 @@ export default function FinancePage() {
             </select>
             {/* Prints every invoice matching the filters above, one per page. */}
             <button onClick={() => openInvoices(gradeLevel ? { gradeLevel } : {})} disabled={printing || !invoices.length}
-              className="btn-primary text-xs disabled:opacity-40"
+              className="btn-ghost text-xs disabled:opacity-40"
               title={gradeLevel ? 'Print an invoice for every learner in this class' : 'Print an invoice for every learner shown'}>
-              <Printer size={14}/> {printing ? 'Opening…' : `Print ${invoices.length || ''} invoice${invoices.length === 1 ? '' : 's'}`}
+              <Printer size={14}/> {printing ? 'Opening…' : `Print ${invoices.length || ''}`}
+            </button>
+            <button
+              onClick={() => downloadInvoices(gradeLevel ? { gradeLevel } : {}, `fee-invoices-${gradeLevel || 'all'}`)}
+              disabled={savingPdf !== '' || !invoices.length}
+              className="btn-primary text-xs disabled:opacity-40"
+              title="Download every invoice shown as one PDF">
+              <Download size={14}/> {savingPdf.startsWith('fee-invoices') ? 'Saving…' : 'PDF'}
             </button>
           </div>
 
@@ -211,7 +234,16 @@ export default function FinancePage() {
                           <div className="flex items-center justify-center gap-2 flex-wrap">
                             <button onClick={() => openInvoices({ learnerId: inv.id })} disabled={printing}
                               className="text-xs border border-theme px-2 py-1 rounded-lg hover:bg-surface-2 font-medium">
-                              Invoice
+                              View
+                            </button>
+                            <button
+                              onClick={() => downloadInvoices(
+                                { learnerId: inv.id },
+                                `invoice-${inv.learner?.admissionNumber || inv.invoiceNumber}`,
+                              )}
+                              disabled={savingPdf !== ''}
+                              className="text-xs bg-[#1a2e5a] text-white px-2 py-1 rounded-lg hover:opacity-90 font-medium">
+                              {savingPdf === `invoice-${inv.learner?.admissionNumber || inv.invoiceNumber}` ? '…' : 'PDF'}
                             </button>
                             {balance > 0 && (
                               <button onClick={() => setMpeza({ learnerId: inv.id, phone: inv.learner?.guardianPhone || '', amount: String(balance) })}

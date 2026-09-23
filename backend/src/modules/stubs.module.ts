@@ -14,7 +14,8 @@ import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/m
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 import { requireProPlan } from '../common/plan';
 import { feeStructureTableHtml } from '../common/fee-structure-table';
-import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML } from '../common/print-footer';
+import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
+import { PdfExportService } from '../common/pdf-export.service';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -158,7 +159,43 @@ class Invoice {
 @Controller('finance')
 @UseGuards(JwtAuthGuard)
 class FinanceController {
-  constructor(private readonly ds: DataSource) {}
+  constructor(
+    private readonly ds: DataSource,
+    private readonly pdfExport: PdfExportService,
+  ) {}
+
+  /**
+   * Send a document either as printable HTML or as a real PDF.
+   *
+   * The PDF is rendered by headless Chromium, which lays the page out exactly as
+   * the browser would and emits selectable text. The client-side alternative
+   * screenshots the page into one enormous PNG — a single sheet came to 15 MB,
+   * the text could not be selected or searched, and pages were sliced by pixel
+   * height straight through a table row.
+   */
+  private async sendDocument(
+    res: any, html: string, opts: { asPdf: boolean; filename: string; landscape?: boolean },
+  ) {
+    if (!opts.asPdf) {
+      res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+      return;
+    }
+    try {
+      const pdf = await this.pdfExport.htmlToPdf(html, { landscape: opts.landscape });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${opts.filename}"`,
+        'Content-Length': String(pdf.length),
+        'Cache-Control': 'no-transform',
+      });
+      res.end(pdf);
+    } catch (e: any) {
+      // Chromium can be absent or OOM-killed on a small instance. Falling back to
+      // the HTML keeps the document reachable instead of failing outright.
+      console.error('[finance] PDF render failed, returning HTML instead:', e?.message);
+      res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+    }
+  }
 
   // ── Class-teacher fee-collection override ─────────────────
   // Off by default (platform-wide) — many primary/JS schools let the class teacher
@@ -251,7 +288,7 @@ class FinanceController {
       q.academicYear || '',
     ].filter(Boolean).join(' · ');
 
-    res.set('Content-Type', 'text/html').send(`<!doctype html><html><head><meta charset="utf-8">
+    const feeHtml = `<!doctype html><html><head><meta charset="utf-8">
       <title>Fee Structure</title><style>
       @page{size:A4 portrait;margin:14mm}
       body{font-family:Arial,sans-serif;color:#1a2e5a;margin:22px}
@@ -265,13 +302,18 @@ class FinanceController {
       .print{margin:14px 0;text-align:center}
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
       @media print{.print{display:none}}
-      ${PRINT_FOOTER_CSS}
+      ${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
       </style></head><body>
       <div class="head"><h1>${esc(school.name || 'School')}</h1>
         <h2>Fee Structure · ${esc(scope)}</h2></div>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
       ${table || '<p>No fee items have been set up for this selection.</p>'}
-      ${PRINT_FOOTER_HTML}</body></html>`);
+      ${PRINT_FOOTER_HTML}</body></html>`;
+
+    await this.sendDocument(res, feeHtml, {
+      asPdf: String(q.format) === 'pdf',
+      filename: `fee-structure-${(q.gradeLevel || 'all-classes').replace(/[^a-z0-9]+/gi, '-')}.pdf`,
+    });
   }
 
   @Get('fee-structures')
@@ -797,7 +839,7 @@ class FinanceController {
       </section>`);
     }
 
-    res.set('Content-Type', 'text/html').send(`<!doctype html><html><head><meta charset="utf-8">
+    const invoicesHtml = `<!doctype html><html><head><meta charset="utf-8">
       <title>Fee Invoice${(learners as any[]).length > 1 ? 's' : ''}</title><style>
       @page{size:A4 portrait;margin:14mm}
       body{font-family:Arial,sans-serif;color:#1a2e5a;margin:20px}
@@ -815,14 +857,25 @@ class FinanceController {
       .note{font-size:12px;margin-top:8px}
       .print{margin:16px 0;text-align:center}
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
-      @media print{.print{display:none}.inv{page-break-after:always}.inv:last-child{page-break-after:auto}
+      @media print{.print{display:none}.inv{page-break-after:always}
+        /* last-of-type, not last-child: the footer div sits after the final
+           invoice, so :last-child stopped matching it and every invoice forced
+           a break — leaving the footer alone on a page of its own. */
+        .inv:last-of-type{page-break-after:auto}
         .inv + .inv{border-top:none;margin-top:0;padding-top:0}}
-      ${PRINT_FOOTER_CSS}
+      ${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
       </style></head><body>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button>
         &nbsp;<span style="font-size:12px;color:#555">${(learners as any[]).length} invoice(s)</span></div>
       ${pages.join('')}
-      ${PRINT_FOOTER_HTML}</body></html>`);
+      ${PRINT_FOOTER_HTML}</body></html>`;
+
+    await this.sendDocument(res, invoicesHtml, {
+      asPdf: String(q.format) === 'pdf',
+      filename: (learners as any[]).length === 1
+        ? `invoice-${String((learners as any[])[0].admissionNumber || 'learner')}.pdf`
+        : `fee-invoices-${(learners as any[]).length}.pdf`,
+    });
   }
 
   @Get('invoices')
@@ -1071,7 +1124,7 @@ class FinanceController {
       .print{margin:16px 0;text-align:center}
       button{background:#f5820a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:bold}
       @media print{.print{display:none}${landscape ? 'table{font-size:10px}th,td{padding:4px 5px}' : ''}}
-      ${PRINT_FOOTER_CSS}
+      ${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
       </style></head><body>
       <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)}${
         year ? ` · ${esc(year.year_label)} (${esc(dmy(year.start_date))} to ${esc(dmy(year.end_date))})` : ''
@@ -1264,10 +1317,13 @@ class FinanceController {
     } else {
       res.status(400).send('<p>Unknown report.</p>'); return;
     }
-    res.set('Content-Type', 'text/html').send(wrap(
-      ({ cashbook:'Analysed Cash Book', income:'Income & Expenditure', trial_balance:'Trial Balance',
-         ledger:'Vote Head Ledger', cash_flow:'Cash Flow Statement', fee_statement:'Fee Statements' } as any)[key] || 'Report',
-      inner));
+    const title = ({ cashbook:'Analysed Cash Book', income:'Income & Expenditure', trial_balance:'Trial Balance',
+      ledger:'Vote Head Ledger', cash_flow:'Cash Flow Statement', fee_statement:'Fee Statements' } as any)[key] || 'Report';
+    await this.sendDocument(res, wrap(title, inner), {
+      asPdf: String(q.format) === 'pdf',
+      filename: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${year?.year_label || 'all'}.pdf`,
+      landscape,
+    });
   }
 
   // Parent-safe: a parent's OWN child's balance + payment history (read-only). Verifies the
@@ -3110,7 +3166,7 @@ class TransportController {
 @Module({
   imports: [TypeOrmModule.forFeature([Invoice])],
   controllers: [FinanceController, MpesaPaybillController, MpesaCallbackController, PayrollController, TransportController],
-  providers: [FinanceController],
+  providers: [FinanceController, PdfExportService],
 })
 export class FinanceModule {}
 

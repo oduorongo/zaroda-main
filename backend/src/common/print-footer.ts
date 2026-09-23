@@ -12,3 +12,16 @@ export const PRINT_FOOTER_CSS = `
 
 export const PRINT_FOOTER_HTML =
   `<div class="z-powered">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>`;
+
+/**
+ * Page-break rules for a long table. Without these Chromium will happily split
+ * a row in half across a page boundary and leave the continuation with no
+ * column headings, which makes a multi-page cash book unreadable.
+ */
+export const PRINT_PAGE_CSS = `
+  thead{display:table-header-group}
+  tfoot{display:table-footer-group}
+  tr{page-break-inside:avoid;break-inside:avoid}
+  h3{page-break-after:avoid;break-after:avoid}
+  table{page-break-inside:auto}
+`;

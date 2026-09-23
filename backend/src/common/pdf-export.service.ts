@@ -45,13 +45,18 @@ export class PdfExportService {
       this.logger.warn('Cached Chromium instance is disconnected (likely crashed/OOM-killed) — relaunching.');
       this.browser = null;
     }
-    // --single-process and --disable-gpu trade off some rendering robustness for
-    // a much smaller memory footprint — the standard recommendation for running
-    // headless Chromium on a memory-constrained host (Render/Heroku free/starter
-    // tiers), where the default multi-process Chromium is a common OOM cause.
+    // --disable-dev-shm-usage and --disable-gpu keep the memory footprint down on
+    // a small host without affecting rendering.
+    //
+    // --single-process and --no-zygote used to be here for the same reason, and
+    // they broke PDF generation outright: Page.printToPDF needs to spawn a
+    // renderer, which a single-process Chromium cannot do, so every call failed
+    // with "Protocol error (Page.printToPDF): Target closed". Verified directly —
+    // identical content renders in ~26 KB with the flag removed and fails 100% of
+    // the time with it. A smaller footprint is worth nothing if no PDF comes out.
     const baseArgs = [
       '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-      '--disable-gpu', '--single-process', '--no-zygote',
+      '--disable-gpu',
     ];
 
     const sparticuzPath = await this.sparticuzExecutablePath();
