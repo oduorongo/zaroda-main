@@ -31,8 +31,10 @@ import {
 
 const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
 
+// Built the same way as the Professional Records wallet's callback, which Tuma is
+// known to reach: APP_URL is the frontend, which forwards /api/v1 to this backend.
 function callbackUrl(): string {
-  const base = (process.env.RENDER_EXTERNAL_URL || process.env.BACKEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const base = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || process.env.BACKEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
   return `${base}/api/v1/billing/subscription/callback`;
 }
 
@@ -142,7 +144,20 @@ export class SubscriptionController {
       description,
       callbackUrl: callbackUrl(),
     });
-    if (!result.ok) throw new BadRequestException(result.detail || 'Could not start the M-Pesa payment. Try again.');
+    if (!result.ok) {
+      // Keep the attempt and Tuma's full response: without it there is nothing to
+      // show Tuma support when a push is refused. It appears as "failed" in the
+      // school's payment history.
+      console.warn(`[billing] STK push refused for tenant ${tenantId} (KES ${amount}): ${result.detail}`, JSON.stringify(result.raw || {}).slice(0, 500));
+      await this.ds.query(
+        `INSERT INTO subscription_payments
+           (tenant_id, amount, phone, status, description, streams_primary_js, streams_senior, raw_response, initiated_by)
+         VALUES ($1,$2,$3,'failed',$4,$5,$6,$7,$8)`,
+        [tenantId, amount, phone, `${description} — refused: ${result.detail || 'no detail'}`,
+         primaryJs, senior, JSON.stringify({ response: result.raw || null, detail: result.detail || null, callbackUrl: callbackUrl() }), req.user.id],
+      ).catch(() => null);
+      throw new BadRequestException(result.detail || 'Could not start the M-Pesa payment. Try again.');
+    }
 
     const inserted = await this.ds.query(
       `INSERT INTO subscription_payments
