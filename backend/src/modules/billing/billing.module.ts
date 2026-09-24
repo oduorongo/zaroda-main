@@ -31,6 +31,15 @@ import {
 
 const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
 
+// Tuma go-live review: they asked to see the full payment flow with a KES 1 test
+// item while ZARODA's account is still in sandbox (which refuses KES 100 and up).
+// A school listed here is charged KES 1 as "[Tuma Integration Test]" instead of
+// its real total. The payment gets a receipt but covers nothing — no stream
+// coverage, no change to the school's status. Remove once Tuma has gone live.
+const TUMA_TEST_TENANT_IDS = ['2216b5be-d6a8-4389-b701-2c5eb415d1b9']; // Sinskutu Comprehensive
+const TUMA_TEST_ITEM = '[Tuma Integration Test]';
+const isTumaTestTenant = (tenantId: string) => TUMA_TEST_TENANT_IDS.includes(String(tenantId));
+
 // Built the same way as the Professional Records wallet's callback, which Tuma is
 // known to reach: APP_URL is the frontend, which forwards /api/v1 to this backend.
 function callbackUrl(): string {
@@ -103,6 +112,8 @@ export class SubscriptionController {
       dueSoonDays: DUE_SOON_DAYS,
       defaultSelection: sel,
       amountDue,
+      // Tuma go-live test school: /pay charges KES 1 and covers nothing.
+      tumaTest: isTumaTestTenant(req.user.tenantId),
       counts: {
         grace: billable.filter(s => s.status === 'grace').length,
         lapsed: billable.filter(s => s.status === 'lapsed').length,
@@ -132,11 +143,12 @@ export class SubscriptionController {
 
     const primaryJs = streams.filter(s => !s.senior).length;
     const senior = streams.filter(s => s.senior).length;
-    const amount = streams.reduce((n, s) => n + s.price, 0) + (includePro ? PRICE_PRO_PLAN : 0);
+    const isTest = isTumaTestTenant(tenantId);
+    const amount = isTest ? 1 : streams.reduce((n, s) => n + s.price, 0) + (includePro ? PRICE_PRO_PLAN : 0);
     const schoolName = cov.schoolName || 'your school';
     const what = [streams.length ? `${streams.length} stream${streams.length === 1 ? '' : 's'}` : '', includePro ? 'Pro plan' : '']
       .filter(Boolean).join(' + ');
-    const description = `ZARODA subscription — ${schoolName} (${what})`;
+    const description = isTest ? `${TUMA_TEST_ITEM} — ${schoolName}` : `ZARODA subscription — ${schoolName} (${what})`;
 
     const result = await initiateStkPush({
       amount,
@@ -161,17 +173,18 @@ export class SubscriptionController {
 
     const inserted = await this.ds.query(
       `INSERT INTO subscription_payments
-         (tenant_id, amount, phone, status, merchant_request_id, description,
+         (tenant_id, amount, phone, status, merchant_request_id, description, is_test,
           streams_primary_js, streams_senior, raw_response, initiated_by)
-       VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,$8,$9)
+       VALUES ($1,$2,$3,'pending',$4,$5,$10,$6,$7,$8,$9)
        RETURNING id`,
       [tenantId, amount, phone, result.merchantRequestId || null,
        description,
-       primaryJs, senior, JSON.stringify(result.raw || {}), req.user.id],
+       primaryJs, senior, JSON.stringify(result.raw || {}), req.user.id, isTest],
     ).catch(() => []);
     const paymentId = inserted[0]?.id;
 
-    if (paymentId) {
+    // A test payment covers nothing, so it carries no coverage lines.
+    if (paymentId && !isTest) {
       const lines: { kind: string; streamId: string | null; name: string | null; grade: string | null; price: number }[] =
         streams.map(s => ({ kind: 'stream', streamId: s.id, name: s.name, grade: s.gradeLevel, price: s.price }));
       if (includePro) lines.push({ kind: 'pro', streamId: null, name: null, grade: null, price: PRICE_PRO_PLAN });
@@ -185,7 +198,9 @@ export class SubscriptionController {
     }
 
     return {
-      message: 'STK push sent. Ask the person at that phone to enter their M-Pesa PIN.',
+      message: isTest
+        ? `Tuma test: STK push for KES 1 (${TUMA_TEST_ITEM}) sent. Enter the M-Pesa PIN to complete it.`
+        : 'STK push sent. Ask the person at that phone to enter their M-Pesa PIN.',
       paymentId, merchantRequestId: result.merchantRequestId, amount,
     };
   }
@@ -330,11 +345,28 @@ async function markPaidStatic(ds: DataSource, paymentId: string, tenantId: strin
         SET status = 'success', mpesa_receipt = $2, receipt_number = $3, callback_raw = $4,
             paid_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND status IS DISTINCT FROM 'success'
-      RETURNING id`,
+      RETURNING id, is_test AS "isTest"`,
     [paymentId, mpesaReceipt || null, receiptNumber, JSON.stringify(rawCallback || {})],
   ).catch(() => []);
   if (!flipped.length) return;
 
+  // A Tuma integration test payment (KES 1) proves the flow end to end and gets a
+  // receipt, but must not extend anything or flip the school to active.
+  if (!flipped[0].isTest) await applyPaymentCover(ds, paymentId, tenantId);
+
+  const admin = await schoolAdmin(ds, tenantId);
+  if (admin?.email) {
+    sendEmail(
+      admin.email,
+      `Payment received — receipt ${receiptNumber}`,
+      `<p>Hi ${esc(admin.firstName || '')},</p><p>Your ZARODA subscription payment has been received. Receipt number: <b>${receiptNumber}</b>.</p><p>Log in to your dashboard to view or print the receipt.</p>`,
+    );
+  }
+}
+
+// Everything a real (non-test) payment does to the school once paid: a year of
+// cover per line, the school-wide date, active status, and settling invoices.
+async function applyPaymentCover(ds: DataSource, paymentId: string, tenantId: string) {
   const activated = await activatePaymentLines(ds, paymentId);
   if (activated) {
     await syncTenantPaidUntil(ds, tenantId);
@@ -354,15 +386,6 @@ async function markPaidStatic(ds: DataSource, paymentId: string, tenantId: strin
     [tenantId],
   ).catch(() => null);
   await reconcileInvoices(ds, String(tenantId), { issue: false });
-
-  const admin = await schoolAdmin(ds, tenantId);
-  if (admin?.email) {
-    sendEmail(
-      admin.email,
-      `Payment received — receipt ${receiptNumber}`,
-      `<p>Hi ${esc(admin.firstName || '')},</p><p>Your ZARODA subscription payment has been received. Receipt number: <b>${receiptNumber}</b>.</p><p>Log in to your dashboard to view or print the receipt.</p>`,
-    );
-  }
 }
 
 // Turns a paid payment's pending lines into a year of cover each; returns how many.
@@ -501,7 +524,9 @@ function renderReceiptHtml(p: any, lines: any[] = []): string {
       <table>
         <tr><td>Receipt No.</td><td class="r"><b>${esc(p.receipt_number)}</b></td></tr>
         <tr><td>Date</td><td class="r">${esc(p.paid_at && String(p.paid_at).slice(0, 10))}</td></tr>
-        <tr><td>Streams covered</td><td class="r">${esc(p.streams_primary_js)} primary/JS · ${esc(p.streams_senior)} senior</td></tr>
+        ${p.is_test
+          ? `<tr><td>Item</td><td class="r">${esc(TUMA_TEST_ITEM)} — covers no streams</td></tr>`
+          : `<tr><td>Streams covered</td><td class="r">${esc(p.streams_primary_js)} primary/JS · ${esc(p.streams_senior)} senior</td></tr>`}
         <tr><td>Method</td><td class="r">M-PESA${p.mpesa_receipt ? ' · Ref ' + esc(p.mpesa_receipt) : ''}</td></tr>
       </table>
       ${lineRows ? `<table style="border-top:1px solid #ddd">${lineRows}</table>` : ''}

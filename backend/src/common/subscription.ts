@@ -116,6 +116,7 @@ async function createBillingTables(ds: DataSource) {
     ['initiated_by', 'uuid'],
     ['paid_at', 'timestamptz'],
     ['updated_at', 'timestamptz DEFAULT NOW()'],
+    ['is_test', 'boolean DEFAULT false'],
   ];
   for (const [name, type] of cols) {
     await ds.query(`ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS ${name} ${type}`).catch(() => null);

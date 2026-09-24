@@ -199,9 +199,14 @@ export default function SubscriptionPage() {
               placeholder="07XX XXX XXX" disabled={locked}/>
             <button onClick={pay} disabled={locked || total <= 0} className="btn-primary">
               {paying ? <Loader2 size={15} className="animate-spin"/> : <Smartphone size={15}/>}
-              {pendingPaymentId ? 'Awaiting payment…' : `Pay ${ksh(total)}`}
+              {pendingPaymentId ? 'Awaiting payment…' : summary.tumaTest ? 'Pay KES 1 (Tuma test)' : `Pay ${ksh(total)}`}
             </button>
           </div>
+          {summary.tumaTest && (
+            <p className="text-xs text-blue-700">
+              Payment test mode for this school: paying charges KES 1 as “[Tuma Integration Test]” and does not cover any streams.
+            </p>
+          )}
           {pendingPaymentId && (
             <p className="text-xs text-theme-muted flex items-center gap-1"><Loader2 size={11} className="animate-spin"/> Waiting for confirmation — enter your M-Pesa PIN on the phone that received the prompt.</p>
           )}
