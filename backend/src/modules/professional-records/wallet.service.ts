@@ -224,6 +224,13 @@ export class WalletService {
     if (!referrer?.tenantId) return;
 
     const wallet = await this.findOrCreateWallet(referrer.tenantId, referrerId, manager);
+    // A failed statement aborts the whole Postgres transaction even when caught,
+    // so the duplicate-insert attempt runs under a savepoint — otherwise catching
+    // 23505 here left the caller's transaction dead, and the next write (e.g.
+    // saving a scheme's weeks) failed with "current transaction is aborted".
+    // Reachable because "first debit" is counted per tenant: a teacher whose
+    // earlier debits sit under another tenant looks like a first-timer again.
+    await manager.query('SAVEPOINT referral_bonus');
     try {
       await manager.getRepository(PrWalletTransaction).save(manager.getRepository(PrWalletTransaction).create({
         tenantId: referrer.tenantId, teacherId: referrerId, type: 'topup', amount: REFERRAL_BONUS_KES,
@@ -231,7 +238,9 @@ export class WalletService {
         description: 'Referral bonus — your referral generated their first item',
         referenceType: 'referral', referenceId: refereeId, status: 'paid',
       }));
+      await manager.query('RELEASE SAVEPOINT referral_bonus');
     } catch (err: any) {
+      await manager.query('ROLLBACK TO SAVEPOINT referral_bonus');
       if (err?.code === '23505') return; // already credited for this referee
       throw err;
     }
