@@ -164,7 +164,7 @@ export class AiGeneratorService {
     // period numbers) that run as a double lesson — each one merges 2 periods
     // into a single lesson/column, so lessonsPerWeek = periodsPerWeek - count.
     doubleLessonSlots?: number[];
-  }): Promise<{ weeks: SchemeWeekData[]; title: string; tokens: number; lessonsPerWeek: number }> {
+  }, onProgress?: (weeksDone: number) => void): Promise<{ weeks: SchemeWeekData[]; title: string; tokens: number; lessonsPerWeek: number }> {
     const band = gradeBand(params.gradeLevel);
     const grade = params.gradeLevel.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const termLabel = params.term.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -278,6 +278,7 @@ Return ONLY valid JSON (no preamble, no markdown fences):
 
       weeks.push(...parsed.weeks);
       totalTokens += response.tokens;
+      onProgress?.(end);
     }
 
     return { weeks, title, tokens: totalTokens, lessonsPerWeek };

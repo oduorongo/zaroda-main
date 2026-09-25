@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 import { SchemeOfWork, SchemeWeek, TeacherDocument, PrAudit, SubjectCatalogue } from './entities';
 import { Tenant } from '../auth/entities/tenant.entity';
@@ -8,8 +9,24 @@ import { WalletService, ITEM_PRICE_KES } from './wallet.service';
 import { GenerateSchemeDto, ReviewRecordDto, EditSchemeWeekDto } from './dto';
 import { documentShell, isKiswahiliSubject, label } from './document-render.util';
 
+interface SchemeJob {
+  id: string;
+  key: string;
+  tenantId: string;
+  teacherId: string;
+  status: 'running' | 'done' | 'failed';
+  weeksDone: number;
+  totalWeeks: number;
+  result?: any;
+  error?: string;
+  updatedAt: number;
+}
+
 @Injectable()
 export class SchemeService {
+  private readonly logger = new Logger(SchemeService.name);
+  private readonly jobs = new Map<string, SchemeJob>();
+
   constructor(
     @InjectRepository(SchemeOfWork) private schemeRepo: Repository<SchemeOfWork>,
     @InjectRepository(SchemeWeek) private weekRepo: Repository<SchemeWeek>,
@@ -113,6 +130,63 @@ export class SchemeService {
 
   // ── GENERATE SCHEME OF WORK (AI) ──────────────────────────
   async generate(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
+    const prep = await this.prepareGeneration(tenantId, schoolId, teacherId, role, dto);
+    return this.runGeneration(tenantId, schoolId, teacherId, dto, prep);
+  }
+
+  // A full-term scheme is several sequential Sonnet calls and routinely runs for
+  // minutes. Held open as one HTTP request, anything between the browser and the
+  // API (Cloudflare in front of Render, a flaky mobile connection, an instance
+  // restart) could drop it — the teacher then saw a bare "Could not generate
+  // scheme." with no reason, since no JSON error body ever arrived. So the checks
+  // that can fail fast (assignment, duplicate, wallet) still run in the request
+  // and surface as normal errors; the AI work runs in the background and the
+  // page polls getGenerationJob() for progress, the result, or the real error.
+  // In-memory is fine on a single instance: a restart loses the job, and the
+  // poll then says so instead of failing silently.
+  async startGeneration(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
+    const prep = await this.prepareGeneration(tenantId, schoolId, teacherId, role, dto);
+    const key = [tenantId, teacherId, prep.streamId, prep.subjectId, dto.academicYear, dto.term].join(':');
+    for (const j of this.jobs.values()) {
+      if (j.key === key && j.status === 'running') {
+        throw new BadRequestException('This scheme is already being generated — wait for it to finish, then check the Schemes list.');
+      }
+    }
+
+    const job: SchemeJob = {
+      id: randomUUID(), key, tenantId, teacherId,
+      status: 'running', weeksDone: 0, totalWeeks: prep.totalWeeks, updatedAt: Date.now(),
+    };
+    this.jobs.set(job.id, job);
+    this.runGeneration(tenantId, schoolId, teacherId, dto, prep, (weeksDone) => {
+      job.weeksDone = weeksDone;
+      job.updatedAt = Date.now();
+    })
+      .then((result) => { job.status = 'done'; job.result = result; })
+      .catch((err: any) => {
+        job.status = 'failed';
+        job.error = err?.message || 'Unknown error';
+        this.logger.error(`Scheme generation failed (tenant ${tenantId}, teacher ${teacherId}): ${job.error}`);
+      })
+      .finally(() => { job.updatedAt = Date.now(); });
+
+    return { jobId: job.id, totalWeeks: job.totalWeeks };
+  }
+
+  getGenerationJob(tenantId: string, teacherId: string, jobId: string) {
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    for (const [id, j] of this.jobs) {
+      if (j.status !== 'running' && j.updatedAt < cutoff) this.jobs.delete(id);
+    }
+    const job = this.jobs.get(jobId);
+    if (!job || job.tenantId !== tenantId || job.teacherId !== teacherId) {
+      throw new NotFoundException('This generation was interrupted (the server restarted). Check the Schemes list — if the scheme is not there, generate it again; you were not charged for an unfinished scheme.');
+    }
+    const { status, weeksDone, totalWeeks, result, error } = job;
+    return { status, weeksDone, totalWeeks, result, error };
+  }
+
+  private async prepareGeneration(tenantId: string, schoolId: string, teacherId: string, role: string, dto: GenerateSchemeDto) {
     // Strands/sub-strands are mandatory, not "leave it blank and the AI will
     // follow the KICD sequence" — that free-sequence fallback drifted a lot
     // in practice (wrong pacing, repeated or skipped sub-strands across
@@ -202,6 +276,15 @@ export class SchemeService {
       ? dto.columns
       : ['keyInquiry', 'learningExperiences', 'resources', 'assessment', 'reflection'];
 
+    return { isIndividual, streamId, subjectId, price, totalWeeks, periodsPerWeek, startWeek, columns };
+  }
+
+  private async runGeneration(
+    tenantId: string, schoolId: string, teacherId: string, dto: GenerateSchemeDto,
+    prep: Awaited<ReturnType<SchemeService['prepareGeneration']>>,
+    onProgress?: (weeksDone: number) => void,
+  ) {
+    const { isIndividual, streamId, subjectId, price, totalWeeks, periodsPerWeek, startWeek, columns } = prep;
     const { weeks, title, tokens, lessonsPerWeek } = await this.aiGenerator.generateSchemeOfWork({
       subjectName: dto.subjectName,
       gradeLevel: dto.gradeLevel,
@@ -214,7 +297,7 @@ export class SchemeService {
       columns,
       specialWeeks: dto.specialWeeks,
       doubleLessonSlots: dto.doubleLessonSlots,
-    });
+    }, onProgress);
 
     return this.dataSource.transaction(async (manager) => {
       const scheme = manager.create(SchemeOfWork, {

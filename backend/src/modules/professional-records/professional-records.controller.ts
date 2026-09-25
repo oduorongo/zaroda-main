@@ -103,6 +103,20 @@ export class ProfessionalRecordsController {
     return this.schemeService.generate(u.tenantId, u.schoolId, u.id, u.role, dto);
   }
 
+  // Background variant the web app uses — see SchemeService.startGeneration().
+  // The synchronous route above stays for clients still on an older bundle.
+  @Post('schemes/generate/start')
+  @Roles(...ALL_GENERATOR_ROLES)
+  startSchemeGeneration(@CurrentUser() u: AuthUser, @Body() dto: GenerateSchemeDto) {
+    return this.schemeService.startGeneration(u.tenantId, u.schoolId, u.id, u.role, dto);
+  }
+
+  @Get('scheme-jobs/:jobId')
+  @Roles(...ALL_GENERATOR_ROLES)
+  getSchemeGenerationJob(@CurrentUser() u: AuthUser, @Param('jobId') jobId: string) {
+    return this.schemeService.getGenerationJob(u.tenantId, u.id, jobId);
+  }
+
   @Get('schemes')
   @Roles('class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner')
   async listSchemes(@CurrentUser() u: AuthUser, @Query() filters: any) {

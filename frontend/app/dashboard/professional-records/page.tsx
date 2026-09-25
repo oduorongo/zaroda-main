@@ -97,6 +97,7 @@ export default function ProfessionalRecordsPage() {
   const [openNotes, setOpenNotes] = useState<any>(null);
   const [showNewScheme, setShowNewScheme] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState<{ done: number; total: number } | null>(null);
   // Set when reopening the generate form from a rejected scheme, so the teacher can
   // see exactly what the HOI flagged while they refill the form to address it.
   const [regenerateComment, setRegenerateComment] = useState('');
@@ -321,7 +322,7 @@ export default function ProfessionalRecordsPage() {
         const m = line.match(/^\D*(\d+)\D+(.+)$/);
         return m ? { week: Number(m[1]), label: m[2].trim() } : null;
       }).filter(Boolean);
-      const { data: gen } = await apiClient.post('/professional-records/schemes/generate', {
+      const { data: job } = await apiClient.post('/professional-records/schemes/generate/start', {
         ...(individual
           ? { streamName: form.streamName, subjectName: form.subjectName }
           : { streamId: form.streamId, subjectId: form.subjectId, subjectName: subject?.name || 'Subject' }),
@@ -342,7 +343,29 @@ export default function ProfessionalRecordsPage() {
         curriculumEdition: form.curriculumEdition || undefined,
         columns: selectedColumns,
         defaultFont: form.font,
-      }, { timeout: 300000 }); // a full-term scheme is generated in several sequential AI calls (2 weeks at a time) and can take minutes
+      });
+      // A full-term scheme is several sequential AI calls (2 weeks at a time) and
+      // takes minutes — too long to hold one request open, so the server runs it in
+      // the background and we poll. A dropped poll (flaky connection) is retried;
+      // only the job's own outcome ends the loop.
+      setGenProgress({ done: 0, total: job.totalWeeks });
+      const deadline = Date.now() + 20 * 60 * 1000;
+      let gen: any;
+      for (;;) {
+        await new Promise(r => setTimeout(r, 4000));
+        let status: any;
+        try {
+          ({ data: status } = await apiClient.get(`/professional-records/scheme-jobs/${job.jobId}`));
+        } catch (pollErr: any) {
+          if (pollErr?.response?.status === 404) throw pollErr;
+          if (Date.now() > deadline) throw pollErr;
+          continue;
+        }
+        setGenProgress({ done: status.weeksDone, total: status.totalWeeks });
+        if (status.status === 'done') { gen = status.result; break; }
+        if (status.status === 'failed') throw { response: { data: { message: `Could not generate scheme: ${status.error}` } } };
+        if (Date.now() > deadline) throw { code: 'ECONNABORTED' };
+      }
       toast.success(gen?.wasFree
         ? `Scheme of work generated — your first one's free! Review and submit when ready.`
         : `Scheme of work generated (KES ${schemePrice} deducted from wallet). Review and submit when ready.`);
@@ -360,10 +383,16 @@ export default function ProfessionalRecordsPage() {
         load();
         loadWallet();
       } else {
-        toast.error(err?.response?.data?.message || 'Could not generate scheme.');
+        // No JSON body means the reply never made it back (network drop, gateway
+        // error) — say so rather than a bare "could not generate", so a teacher
+        // (and support) can tell a connection problem from a real failure.
+        const status = err?.response?.status;
+        toast.error(err?.response?.data?.message || (status
+          ? `Could not generate scheme (server error ${status}). Please try again.`
+          : 'Could not reach the server — check your internet connection and try again.'));
       }
     }
-    finally { setGenerating(false); }
+    finally { setGenerating(false); setGenProgress(null); }
   };
 
   // ── WALLET TOP-UP (M-Pesa STK push) ───────────────────────
@@ -980,7 +1009,7 @@ export default function ProfessionalRecordsPage() {
                 <button type="button" onClick={() => { setShowNewScheme(false); setRegenerateComment(''); }} className="btn-ghost flex-1">Cancel</button>
                 <button type="submit" disabled={generating} className="btn-primary flex-1">
                   {generating
-                    ? <><Loader2 size={14} className="animate-spin"/> Generating…</>
+                    ? <><Loader2 size={14} className="animate-spin"/> Generating…{genProgress && ` week ${Math.min(genProgress.done + 1, genProgress.total)} of ${genProgress.total}`}</>
                     : <><Sparkles size={14}/> {regenerateComment ? 'Regenerate' : 'Generate'} {firstSchemeFree ? '(Free)' : `(KES ${schemePrice})`}</>}
                 </button>
               </div>
