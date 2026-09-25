@@ -134,6 +134,27 @@ export default function ProfessionalRecordsPage() {
     font: 'Times New Roman',
   });
 
+  // The generate form is a lot of typing (every strand, sub-strand and its scope),
+  // so it's kept as a per-teacher draft in the browser and only cleared once a
+  // scheme actually generates — a failed attempt, a refresh or closing the form
+  // never makes the teacher type it all again. Regenerate mode is pre-filled from
+  // the rejected scheme instead, so it isn't saved over the fresh draft.
+  const draftKey = user?.id ? `pr-scheme-draft:${user.id}` : '';
+  const readDraft = (): Partial<typeof form> | null => {
+    try { return draftKey ? JSON.parse(localStorage.getItem(draftKey) || 'null') : null; } catch { return null; }
+  };
+  const clearDraft = () => { try { if (draftKey) localStorage.removeItem(draftKey); } catch {} };
+
+  useEffect(() => {
+    const draft = readDraft();
+    if (draft) setForm(f => ({ ...f, ...draft }));
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey || !showNewScheme || regenerateComment) return;
+    try { localStorage.setItem(draftKey, JSON.stringify(form)); } catch {}
+  }, [form, showNewScheme, regenerateComment, draftKey]);
+
   useEffect(() => {
     if (!user) return;
     setForm(f => ({ ...f, teacherName: f.teacherName || `${user.firstName || ''} ${user.lastName || ''}`.trim() }));
@@ -366,6 +387,7 @@ export default function ProfessionalRecordsPage() {
         if (status.status === 'failed') throw { response: { data: { message: `Could not generate scheme: ${status.error}` } } };
         if (Date.now() > deadline) throw { code: 'ECONNABORTED' };
       }
+      if (!regenerateComment) clearDraft();
       toast.success(gen?.wasFree
         ? `Scheme of work generated — your first one's free! Review and submit when ready.`
         : `Scheme of work generated (KES ${schemePrice} deducted from wallet). Review and submit when ready.`);
@@ -478,7 +500,8 @@ export default function ProfessionalRecordsPage() {
   // once the existing one is 'rejected' (see SchemeService.generate()).
   const openFreshGenerate = () => {
     setRegenerateComment('');
-    setForm(f => ({ ...f, strandFocus: [] }));
+    const draft = readDraft();
+    setForm(f => ({ ...f, strandFocus: [], ...(draft || {}) }));
     setShowNewScheme(true);
   };
 
