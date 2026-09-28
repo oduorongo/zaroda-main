@@ -10,6 +10,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
+import { learningAreaMeanFooter } from './pdf/learning-area-means';
 import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/messaging';
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 import { requireProPlan } from '../common/plan';
@@ -6137,6 +6138,8 @@ class PdfController {
           <td><b>${L.points}/${maxPoints}</b></td>
           <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
         </tr>`).join('');
+      // Class mean per learning-area column + its position, to show the best-performing areas.
+      const laFoot = learningAreaMeanFooter(learners as any[], subjects, 3, 2, lvl, esc);
 
       const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
@@ -6160,7 +6163,7 @@ class PdfController {
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}</tbody></table>
+        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
         <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
@@ -6310,6 +6313,8 @@ class PdfController {
           <td><b>${L.points}/${maxPoints}</b></td>
           <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
         </tr>`).join('');
+      // Class mean per learning-area column + its position, to show the best-performing areas.
+      const laFoot = learningAreaMeanFooter(learners as any[], subjects, 4, 2, lvl, esc);
 
       const gradeLabel = String(gradeLevel).replace('grade_', 'Grade ').replace(/^./, (c: string) => c.toUpperCase());
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
@@ -6333,7 +6338,7 @@ class PdfController {
           <h2>Grade Mark List — ${esc(gradeLabel)} (${esc(String(streamRows.length))} stream${streamRows.length===1?'':'s'} combined) · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Stream</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this grade &amp; term.</td></tr>`}</tbody></table>
+        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this grade &amp; term.</td></tr>`}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
         <div class="ml-note">Ranking basis: every stream in ${esc(gradeLabel)} pooled together — position reflects standing across the WHOLE grade, not one stream.</div>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
@@ -6471,6 +6476,8 @@ class PdfController {
           <td><b>${L.points}/${maxPoints}</b></td>
           <td><b>${L.count ? esc(L.avgLevel) : '-'}</b></td>
         </tr>`).join('');
+      // Class mean per learning-area column + its position, to show the best-performing areas.
+      const laFoot = learningAreaMeanFooter(learners as any[], subjects, 3, 2, lvl, esc);
 
       const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
@@ -6495,7 +6502,7 @@ class PdfController {
           <h2>Term Average Mark List — ${esc(stream.name||'')} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this term.</td></tr>`}</tbody></table>
+        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this term.</td></tr>`}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
         <div class="ml-note">Ranking basis: average % per subject across every assessment entered this term — the SAME basis used for the report card's Term Average and Points total.</div>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
@@ -7065,6 +7072,77 @@ class AdminController {
          (SELECT COUNT(*) FROM tenants WHERE account_type = 'individual') AS "individualTenants"`,
     ).catch(() => [{}]);
     return r[0] || {};
+  }
+
+  // Which schools are actually using the system, judged by mark-list activity.
+  // For each learning area a school entered marks for within the window, count the
+  // distinct learners who have a mark; average that across its learning areas and
+  // divide by active learners → "coverage" (how full the average mark list is).
+  //   active   — coverage >= 50%
+  //   low      — some marks in the window, but coverage below 50%
+  //   inactive — no marks entered in the window
+  // Saving marks deletes + re-inserts the row with created_at = NOW(), so created_at
+  // is the time a mark was last entered/edited. Subjects are grouped case/space-
+  // insensitively. tenant_id/learner_id are compared as text since the table may
+  // have been created by TypeORM synchronize (varchar) rather than migration 013 (uuid).
+  @Get('engagement')
+  async getEngagement(@Request() req: any, @Query('days') daysQ: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
+    const days = Math.min(365, Math.max(7, parseInt(daysQ, 10) || 30));
+    const rows = await this.ds.query(
+      `WITH la AS (
+         SELECT ar.tenant_id::text AS tenant_id,
+                MIN(TRIM(ar.subject))              AS subject,
+                COUNT(*)::int                      AS marks,
+                COUNT(DISTINCT ar.learner_id)::int AS learners,
+                MAX(ar.created_at)                 AS last_at
+           FROM assessment_results ar
+          WHERE ar.deleted_at IS NULL
+            AND ar.subject IS NOT NULL AND TRIM(ar.subject) <> ''
+            AND ar.created_at > NOW() - make_interval(days => $1)
+          GROUP BY ar.tenant_id::text, LOWER(TRIM(ar.subject))
+       ),
+       per_tenant AS (
+         SELECT tenant_id,
+                COUNT(*)::int        AS learning_areas,
+                SUM(marks)::int      AS marks,
+                AVG(learners)::float AS avg_learners_per_la,
+                json_agg(json_build_object('subject', subject, 'marks', marks, 'learners', learners)
+                         ORDER BY learners DESC, subject) AS breakdown
+           FROM la GROUP BY tenant_id
+       ),
+       last_mark AS (
+         SELECT tenant_id::text AS tenant_id, MAX(created_at) AS last_at
+           FROM assessment_results WHERE deleted_at IS NULL GROUP BY tenant_id::text
+       )
+       SELECT t.id, t.name, t.status, t.county, t.sub_county AS "subCounty",
+              t.school_levels AS "schoolLevels",
+              (SELECT COUNT(*) FROM learners l WHERE l.tenant_id::text = t.id::text AND l.is_active = true)::int AS "learnerCount",
+              COALESCE(p.learning_areas, 0) AS "learningAreas",
+              COALESCE(p.marks, 0)          AS "marks",
+              p.avg_learners_per_la         AS "avgLearnersPerArea",
+              COALESCE(p.breakdown, '[]'::json) AS "breakdown",
+              lm.last_at                    AS "lastMarkAt"
+         FROM tenants t
+         LEFT JOIN per_tenant p ON p.tenant_id = t.id::text
+         LEFT JOIN last_mark lm ON lm.tenant_id = t.id::text
+        WHERE COALESCE(t.account_type, 'school') = 'school'`,
+      [days],
+    ).catch((e: any) => { console.error('engagement query failed:', e.message); return []; });
+
+    const data = rows.map((r: any) => {
+      const learners = Number(r.learnerCount) || 0;
+      const avg = r.avgLearnersPerArea == null ? null : Number(r.avgLearnersPerArea);
+      const coverage = avg != null && learners > 0 ? Math.min(100, Math.round((avg / learners) * 100)) : null;
+      const engagement = r.marks === 0 ? 'inactive' : (coverage != null && coverage >= 50 ? 'active' : 'low');
+      return { ...r, avgLearnersPerArea: avg == null ? null : Math.round(avg * 10) / 10, coverage, engagement };
+    });
+    const summary = {
+      active:   data.filter((d: any) => d.engagement === 'active').length,
+      low:      data.filter((d: any) => d.engagement === 'low').length,
+      inactive: data.filter((d: any) => d.engagement === 'inactive').length,
+    };
+    return { days, summary, data };
   }
 
   // Professional Records: real AI spend vs wallet revenue collected, platform-wide.

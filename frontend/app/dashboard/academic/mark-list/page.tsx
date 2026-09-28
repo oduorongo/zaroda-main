@@ -8,6 +8,7 @@ import {
   LEARNING_AREAS, GRADE_LEVELS, percentToLevel, isSeniorScale, levelsFor, levelFromPointsTotal,
   learningAreasFor, levelBandLabel, matchLearningArea,
 } from '@/lib/cbc/constants';
+import { learningAreaMeans } from '@/lib/cbc/learning-area-means';
 import toast from 'react-hot-toast';
 
 export default function MarkListPage() {
@@ -139,6 +140,10 @@ export default function MarkListPage() {
     const withScores = rows.filter(r => r.hasScores).sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
     return [...withScores, ...rows.filter(r => !r.hasScores)];
   }, [learners, savedMeta, subjects, stream, apiComputed]);
+
+  // Class mean per learning-area column (over the whole class, not the search filter).
+  const areaMeans = useMemo(() => learningAreaMeans(ranked, subjects), [ranked, subjects]);
+  const hasAreaMeans = subjects.some(s => areaMeans[s]?.mean != null);
 
   const printMarkList = async () => {
     const win = window.open('', '_blank');
@@ -379,6 +384,38 @@ export default function MarkListPage() {
                 );
               })}
             </tbody>
+            {hasAreaMeans && (
+              <tfoot>
+                <tr className="bg-surface-2 border-t-2 border-[#1a2e5a]">
+                  <td colSpan={2} className="px-3 py-2 text-right font-black text-theme-heading sticky left-0 bg-surface-2">Mean %</td>
+                  {subjects.map(subj => {
+                    const m = areaMeans[subj]?.mean;
+                    const cl = m != null ? percentToLevel(m, stream?.gradeLevel || 'grade_4') : null;
+                    return (
+                      <td key={subj} className="px-2 py-2 text-center font-black">
+                        {cl ? <span style={{ color: showLevels ? cl.color : undefined }}>{m}%{showLevels && <span className="text-[10px]"> {cl.code}</span>}</span>
+                            : <span className="text-theme-muted">—</span>}
+                      </td>
+                    );
+                  })}
+                  <td colSpan={showLevels ? 2 : 1}/>
+                </tr>
+                <tr className="bg-surface-2">
+                  <td colSpan={2} className="px-3 py-2 text-right font-bold text-theme-muted sticky left-0 bg-surface-2">Position</td>
+                  {subjects.map(subj => {
+                    const p = areaMeans[subj]?.position;
+                    return (
+                      <td key={subj} className="px-2 py-2 text-center">
+                        {p == null ? <span className="text-theme-muted">—</span>
+                          : p === 1 ? <span className="inline-flex items-center gap-0.5 font-black text-[#b8941f]"><Trophy size={11}/>1</span>
+                          : <span className="font-bold text-theme-heading">{p}</span>}
+                      </td>
+                    );
+                  })}
+                  <td colSpan={showLevels ? 2 : 1}/>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}

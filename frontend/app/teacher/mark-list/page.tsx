@@ -10,6 +10,7 @@ import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea, pointsForLevel } from '@/lib/cbc/constants';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
+import { learningAreaMeans } from '@/lib/cbc/learning-area-means';
 import toast from 'react-hot-toast';
 
 export default function TeacherMarkListPage() {
@@ -157,6 +158,10 @@ export default function TeacherMarkListPage() {
     return [...withScores, ...rows.filter(r => !r.hasScores)];
   }, [learners, savedMeta, subjects, stream]);
 
+  // Class mean per learning-area column (over the whole class, not the search filter).
+  const areaMeans = useMemo(() => learningAreaMeans(ranked, subjects), [ranked, subjects]);
+  const hasAreaMeans = subjects.some(s => areaMeans[s]?.mean != null);
+
   // ── Print / Save as PDF (browser-based, no server PDF engine) ────
   // Loads a script from CDN once (cached after first use).
   const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
@@ -247,6 +252,10 @@ export default function TeacherMarkListPage() {
       ];
       lines.push(row.join(','));
     });
+    if (hasAreaMeans) {
+      lines.push(['', '', 'Mean %', ...subjects.map(s => areaMeans[s]?.mean ?? ''), '', '', ''].join(','));
+      lines.push(['', '', 'Position', ...subjects.map(s => areaMeans[s]?.position ?? ''), '', '', ''].join(','));
+    }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -281,7 +290,12 @@ export default function TeacherMarkListPage() {
       <table><thead><tr>
         <th>#</th><th>Adm No</th><th>Learner</th>
         ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
-      </tr></thead><tbody>${rows}</tbody></table>
+      </tr></thead><tbody>${rows}</tbody>${hasAreaMeans ? `<tfoot>
+        <tr style="background:#e8edf7;font-weight:700"><td colspan="3" style="text-align:right">Mean %</td>
+          ${subjects.map(s => { const m = areaMeans[s]?.mean; return `<td style="text-align:center">${m != null ? `${m}% ${percentToLevel(m, stream?.gradeLevel || 'grade_4').code}` : '-'}</td>`; }).join('')}<td colspan="2"></td></tr>
+        <tr style="background:#e8edf7;font-weight:700"><td colspan="3" style="text-align:right">Position</td>
+          ${subjects.map(s => `<td style="text-align:center">${areaMeans[s]?.position ?? '-'}</td>`).join('')}<td colspan="2"></td></tr>
+      </tfoot>` : ''}</table>
       <script>window.onload=function(){window.print()}</script>
       </body></html>`);
     w.document.close();
@@ -397,6 +411,38 @@ export default function TeacherMarkListPage() {
                 </tr>
               ))}
             </tbody>
+            {hasAreaMeans && (
+              <tfoot>
+                <tr className="bg-surface-2 border-t-2 border-[#1a2e5a]">
+                  <td colSpan={2} className="px-4 py-2 text-right font-black text-theme-heading">Mean %</td>
+                  {subjects.map(subj => {
+                    const m = areaMeans[subj]?.mean;
+                    const cl = m != null ? percentToLevel(m, stream?.gradeLevel || 'grade_4') : null;
+                    return (
+                      <td key={subj} className="px-2 py-2 text-center font-black">
+                        {cl ? <span style={{ color: showLevels ? cl.color : undefined }}>{m}%{showLevels && <span className="text-[10px]"> {cl.code}</span>}</span>
+                            : <span className="text-theme-muted">—</span>}
+                      </td>
+                    );
+                  })}
+                  <td colSpan={2}/>
+                </tr>
+                <tr className="bg-surface-2">
+                  <td colSpan={2} className="px-4 py-2 text-right font-bold text-theme-muted">Position</td>
+                  {subjects.map(subj => {
+                    const p = areaMeans[subj]?.position;
+                    return (
+                      <td key={subj} className="px-2 py-2 text-center">
+                        {p == null ? <span className="text-theme-muted">—</span>
+                          : p === 1 ? <span className="inline-flex items-center gap-0.5 font-black text-[#b8941f]"><Trophy size={11}/>1</span>
+                          : <span className="font-bold text-theme-heading">{p}</span>}
+                      </td>
+                    );
+                  })}
+                  <td colSpan={2}/>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}
