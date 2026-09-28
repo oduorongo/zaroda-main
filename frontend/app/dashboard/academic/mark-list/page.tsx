@@ -384,9 +384,22 @@ export default function MarkListPage() {
                 );
               })}
             </tbody>
+            <tfoot>
+              {/* Learning-area names repeated at the bottom — the list is long, and this
+                  saves scrolling back up to see which column is which. */}
+              <tr className="table-header">
+                <td colSpan={2} className="px-3 py-3 text-right font-semibold sticky left-0 bg-[#1a2e5a]">Learning area</td>
+                {subjects.map(s => (
+                  <td key={s} className="px-2 py-3 text-center font-semibold" title={s}>
+                    {s.length > 12 ? s.slice(0, 10) + '…' : s}
+                  </td>
+                ))}
+                <td className="px-3 py-3 text-center font-semibold">Points</td>
+                {showLevels && <td className="px-3 py-3 text-center font-semibold">Level</td>}
+              </tr>
             {hasAreaMeans && (
-              <tfoot>
-                <tr className="bg-surface-2 border-t-2 border-[#1a2e5a]">
+              <>
+                <tr className="bg-surface-2">
                   <td colSpan={2} className="px-3 py-2 text-right font-black text-theme-heading sticky left-0 bg-surface-2">Mean %</td>
                   {subjects.map(subj => {
                     const m = areaMeans[subj]?.mean;
@@ -414,8 +427,9 @@ export default function MarkListPage() {
                   })}
                   <td colSpan={showLevels ? 2 : 1}/>
                 </tr>
-              </tfoot>
+              </>
             )}
+            </tfoot>
           </table>
         </div>
       )}

@@ -290,12 +290,15 @@ export default function TeacherMarkListPage() {
       <table><thead><tr>
         <th>#</th><th>Adm No</th><th>Learner</th>
         ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
-      </tr></thead><tbody>${rows}</tbody>${hasAreaMeans ? `<tfoot>
+      </tr></thead><tbody>${rows}</tbody><tfoot>
+        <tr style="background:#1a2e5a;color:#fff;font-weight:700;font-size:10px"><td colspan="3" style="text-align:right">Learning area</td>
+          ${subjects.map(s => `<td style="text-align:center">${s}</td>`).join('')}<td style="text-align:center">Avg %</td><td style="text-align:center">Points Avg (level)</td></tr>
+        ${hasAreaMeans ? `
         <tr style="background:#e8edf7;font-weight:700"><td colspan="3" style="text-align:right">Mean %</td>
           ${subjects.map(s => { const m = areaMeans[s]?.mean; return `<td style="text-align:center">${m != null ? `${m}% ${percentToLevel(m, stream?.gradeLevel || 'grade_4').code}` : '-'}</td>`; }).join('')}<td colspan="2"></td></tr>
         <tr style="background:#e8edf7;font-weight:700"><td colspan="3" style="text-align:right">Position</td>
-          ${subjects.map(s => `<td style="text-align:center">${areaMeans[s]?.position ?? '-'}</td>`).join('')}<td colspan="2"></td></tr>
-      </tfoot>` : ''}</table>
+          ${subjects.map(s => `<td style="text-align:center">${areaMeans[s]?.position ?? '-'}</td>`).join('')}<td colspan="2"></td></tr>` : ''}
+      </tfoot></table>
       <script>window.onload=function(){window.print()}</script>
       </body></html>`);
     w.document.close();
@@ -411,9 +414,18 @@ export default function TeacherMarkListPage() {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              {/* Learning-area names repeated at the bottom — the list is long, and this
+                  saves scrolling back up to see which column is which. */}
+              <tr className="table-header">
+                <td colSpan={2} className="px-4 py-3 text-right font-semibold">Learning area</td>
+                {subjects.map(s => <td key={s} className="px-2 py-3 text-center font-semibold">{s}</td>)}
+                <td className="px-3 py-3 text-center font-semibold">Avg %</td>
+                <td className="px-3 py-3 text-center font-semibold">Points Avg</td>
+              </tr>
             {hasAreaMeans && (
-              <tfoot>
-                <tr className="bg-surface-2 border-t-2 border-[#1a2e5a]">
+              <>
+                <tr className="bg-surface-2">
                   <td colSpan={2} className="px-4 py-2 text-right font-black text-theme-heading">Mean %</td>
                   {subjects.map(subj => {
                     const m = areaMeans[subj]?.mean;
@@ -441,8 +453,9 @@ export default function TeacherMarkListPage() {
                   })}
                   <td colSpan={2}/>
                 </tr>
-              </tfoot>
+              </>
             )}
+            </tfoot>
           </table>
         </div>
       )}

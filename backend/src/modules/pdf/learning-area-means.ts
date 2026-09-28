@@ -24,8 +24,8 @@ export function learningAreaMeans(
   return out;
 }
 
-// <tfoot> with a "Mean %" row (mean + its performance level) and a "Position" row
-// under each learning-area column, plus a one-line best/weakest summary for below
+// <tfoot> with the learning-area names repeated, a "Mean %" row (mean + its
+// performance level) and a "Position" row under each learning-area column, plus a one-line best/weakest summary for below
 // the table. leadCols = columns before the first learning area (#, Learner, Adm…);
 // trailCols = columns after the last one (Points, Level).
 export function learningAreaMeanFooter(
@@ -40,20 +40,24 @@ export function learningAreaMeanFooter(
   const ranked = subjects.filter(s => means[s].mean != null).sort((a, b) => (means[b].mean as number) - (means[a].mean as number));
   if (!ranked.length) return { tfoot: '', summary: '' };
 
-  const cell = 'style="background:#e8edf7;font-weight:700;border-top:2px solid #1a2e5a"';
-  const label = (t: string) => `<td colspan="${leadCols}" ${cell.replace('font-weight:700', 'font-weight:700;text-align:right')}>${t}</td>`;
-  const trail = trailCols ? `<td colspan="${trailCols}" ${cell}></td>` : '';
-  const meanRow = subjects.map(s => {
+  // Row 1 repeats the learning-area names (styled like the header) so a long list can
+  // be read at the bottom without scrolling back up; rows 2–3 are the mean and position.
+  const head = 'background:#1a2e5a;color:#fff;font-weight:700';
+  const foot = 'background:#e8edf7;font-weight:700';
+  const td = (style: string, body: string, span = 1) =>
+    `<td${span > 1 ? ` colspan="${span}"` : ''} style="${style}">${body}</td>`;
+  const row = (style: string, label: string, cells: string[]) =>
+    `<tr>${td(`${style};text-align:right`, label, leadCols)}${cells.join('')}${trailCols ? td(style, '', trailCols) : ''}</tr>`;
+  const nameRow = row(head, 'Learning area', subjects.map(s => td(head, esc(s))));
+  const meanRow = row(foot, 'Mean %', subjects.map(s => {
     const m = means[s].mean;
-    return `<td ${cell}>${m != null ? `${m}% <span style="font-size:9px">${esc(level(m))}</span>` : '-'}</td>`;
-  }).join('');
-  const posRow = subjects.map(s => {
+    return td(foot, m != null ? `${m}% <span style="font-size:9px">${esc(level(m))}</span>` : '-');
+  }));
+  const posRow = row(foot, 'Position', subjects.map(s => {
     const p = means[s].position;
-    const best = p === 1 ? ';color:#1b7a3a' : '';
-    return `<td ${cell.replace('border-top:2px solid #1a2e5a', 'border-top:1px solid #cfd6e4' + best)}>${p != null ? p : '-'}</td>`;
-  }).join('');
-  const posLabel = label('Position').replace('border-top:2px solid #1a2e5a', 'border-top:1px solid #cfd6e4');
-  const tfoot = `<tfoot><tr>${label('Mean %')}${meanRow}${trail}</tr><tr>${posLabel}${posRow}${trail.replace('border-top:2px solid #1a2e5a', 'border-top:1px solid #cfd6e4')}</tr></tfoot>`;
+    return td(p === 1 ? `${foot};color:#1b7a3a` : foot, p != null ? String(p) : '-');
+  }));
+  const tfoot = `<tfoot>${nameRow}${meanRow}${posRow}</tfoot>`;
 
   // Name every area sharing the top (or bottom) mean, so ties aren't hidden.
   const top = means[ranked[0]].mean as number, low = means[ranked[ranked.length - 1]].mean as number;
