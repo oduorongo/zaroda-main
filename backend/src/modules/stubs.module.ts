@@ -209,20 +209,129 @@ class FinanceController {
     await this.ds.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS class_teachers_collect_fees boolean DEFAULT false`).catch(() => null);
   }
 
+  // ── Who may collect fees / view finance reports ──────────
+  // Public schools: unchanged — the HOI, deputy, school admin, owner and bursar may do both.
+  // Private schools are proprietor-run, so money is held tighter:
+  //   collect fees  (record/edit/delete payments, STK push, match unmatched M-Pesa)
+  //                 → HOI, bursar (accounts clerk) and the owner only; no class-teacher override
+  //   view reports  (Accounting: cash book, ledger, trial balance, income, fee statement,
+  //                 vote-head summary, receipts list, financial years)
+  //                 → owner and bursar; the HOI only once the owner grants it
+  //                 (tenants.hoi_views_finance_reports). A private school with no active
+  //                 owner account has nobody to grant it, so its HOI keeps access.
+  //   payroll & expenses → owner and bursar only (HOI only when there is no active owner)
+  private static readonly FINANCE_STAFF = ['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'];
+
+  private async ensureHoiReportsColumn() {
+    await this.ds.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS hoi_views_finance_reports boolean DEFAULT false`).catch(() => null);
+  }
+
+  async financeAccess(tenantId: string, role: string) {
+    await this.ensureHoiReportsColumn();
+    await this.ensureClassTeacherOverrideColumn();
+    const t = (await this.ds.query(
+      `SELECT t.ownership, COALESCE(t.hoi_views_finance_reports, false) AS granted,
+              COALESCE(t.class_teachers_collect_fees, false) AS "classTeachersCollect",
+              EXISTS (SELECT 1 FROM users u WHERE u.tenant_id::text = t.id::text
+                        AND u.role = 'tenant_owner' AND COALESCE(u.is_active, true) = true) AS "hasOwner"
+         FROM tenants t WHERE t.id::text = $1`,
+      [tenantId],
+    // No .catch: a failed lookup must block the request, not quietly treat a private
+    // school as public and open up collection/reports.
+    ))[0] || {};
+    const isPrivate = t.ownership === 'private';
+    const hoiReportsGranted = !!t.granted;
+    const hasOwner = !!t.hasOwner;
+    if (!isPrivate) {
+      const staff = FinanceController.FINANCE_STAFF.includes(role);
+      // A class teacher collects only under the override, and only for their own class
+      // (enforced per payment by assertClassTeacherCanRecordPayment).
+      const classTeacher = ['class_teacher', 'overall_class_teacher'].includes(role) && !!t.classTeachersCollect;
+      return { isPrivate, canCollect: staff || classTeacher, canViewReports: staff, canManagePayrollExpenses: staff, hoiReportsGranted, hasOwner, canGrantHoiReports: false };
+    }
+    return {
+      isPrivate,
+      canCollect: ['hoi', 'bursar', 'tenant_owner'].includes(role),
+      canViewReports: ['tenant_owner', 'bursar'].includes(role) || (role === 'hoi' && (hoiReportsGranted || !hasOwner)),
+      // Payroll & expenses: owner and bursar only. The HOI reports grant does not extend
+      // here; the HOI only steps in when the school has no active owner account.
+      canManagePayrollExpenses: ['tenant_owner', 'bursar'].includes(role) || (role === 'hoi' && !hasOwner),
+      hoiReportsGranted,
+      hasOwner,
+      canGrantHoiReports: role === 'tenant_owner',
+    };
+  }
+
+  // Throws unless this staff member may collect fees. Class teachers are handled
+  // separately (assertClassTeacherCanRecordPayment) — this is the staff check.
+  async assertCanCollectFees(req: any) {
+    const a = await this.financeAccess(req.user.tenantId, req.user.role);
+    if (!a.canCollect) {
+      throw new ForbiddenException(a.isPrivate
+        ? 'In private schools only the HOI, the bursar/accounts clerk or the school owner can collect fees.'
+        : 'Only the bursar or an administrator can do this.');
+    }
+  }
+
+  async assertCanManagePayrollExpenses(req: any) {
+    const a = await this.financeAccess(req.user.tenantId, req.user.role);
+    if (!a.canManagePayrollExpenses) {
+      throw new ForbiddenException(a.isPrivate
+        ? 'In private schools payroll and expenses are handled only by the school owner and the bursar/accounts clerk.'
+        : 'Only the HOI, bursar or administrator can manage payroll and expenses.');
+    }
+  }
+
+  private async assertCanViewReports(req: any) {
+    const a = await this.financeAccess(req.user.tenantId, req.user.role);
+    if (!a.canViewReports) {
+      throw new ForbiddenException(a.isPrivate
+        ? (req.user.role === 'hoi'
+            ? 'Finance reports are restricted to the school owner and bursar. Ask the owner to give you access in Finance → M-Pesa Settings.'
+            : 'Finance reports are restricted to the school owner and bursar.')
+        : 'You do not have permission to view finance reports.');
+    }
+  }
+
+  @Get('access')
+  async getFinanceAccess(@Request() req: any) {
+    return this.financeAccess(req.user.tenantId, req.user.role);
+  }
+
+  // Owner-only (private schools): let the HOI view finance reports.
+  @Patch('settings/hoi-reports')
+  async setHoiReports(@Request() req: any, @Body() dto: { enabled: boolean }) {
+    const a = await this.financeAccess(req.user.tenantId, req.user.role);
+    if (!a.canGrantHoiReports) {
+      throw new ForbiddenException('Only the school owner of a private school can change who views finance reports.');
+    }
+    await this.ds.query(
+      `UPDATE tenants SET hoi_views_finance_reports = $1 WHERE id::text = $2`,
+      [!!dto?.enabled, req.user.tenantId],
+    );
+    return { enabled: !!dto?.enabled };
+  }
+
   @Get('settings/class-teacher-override')
   async getClassTeacherOverride(@Request() req: any) {
     await this.ensureClassTeacherOverrideColumn();
+    // Never on in a private school — only the HOI, bursar and owner collect there.
+    const a = await this.financeAccess(req.user.tenantId, req.user.role);
+    if (a.isPrivate) return { enabled: false, available: false };
     const enabled = await this.ds.query(
       `SELECT COALESCE(class_teachers_collect_fees, false) AS e FROM tenants WHERE id::text = $1`,
       [req.user.tenantId],
     ).then((r: any[]) => !!r[0]?.e).catch(() => false);
-    return { enabled };
+    return { enabled, available: true };
   }
 
   @Patch('settings/class-teacher-override')
   async setClassTeacherOverride(@Request() req: any, @Body() dto: { enabled: boolean }) {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
       throw new BadRequestException('Only the HOI or administrator can change this setting.');
+    }
+    if ((await this.financeAccess(req.user.tenantId, req.user.role)).isPrivate) {
+      throw new BadRequestException('In private schools only the HOI, the bursar/accounts clerk or the school owner can collect fees.');
     }
     await this.ensureClassTeacherOverrideColumn();
     await this.ds.query(
@@ -237,6 +346,9 @@ class FinanceController {
   // registered as class teacher of.
   private async assertClassTeacherCanRecordPayment(tenantId: string, teacherId: string, learnerId: string) {
     if (!learnerId) throw new BadRequestException('Please select a learner.');
+    if ((await this.financeAccess(tenantId, 'class_teacher')).isPrivate) {
+      throw new BadRequestException('In private schools only the HOI, the bursar/accounts clerk or the school owner can collect fees.');
+    }
     await this.ensureClassTeacherOverrideColumn();
     const enabled = await this.ds.query(
       `SELECT COALESCE(class_teachers_collect_fees, false) AS e FROM tenants WHERE id::text = $1`,
@@ -496,6 +608,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('Only the bursar or an administrator can reconcile balances.');
     }
+    await this.assertCanViewReports(req);
     await this.ensurePaymentsTable();
     await this.ensureFeeItemsTable();
     await this.ensureAllocationsTable();
@@ -585,6 +698,7 @@ class FinanceController {
 
   @Get('financial-years')
   async listFinancialYears(@Request() req: any) {
+    await this.assertCanViewReports(req);
     await this.ensureFinancialYears();
     return this.ds.query(
       `SELECT id, year_label AS "yearLabel", start_date AS "startDate", end_date AS "endDate",
@@ -600,6 +714,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('You do not have permission to manage financial years.');
     }
+    await this.assertCanViewReports(req);
     await this.ensureFinancialYears();
     const { yearLabel, startDate, endDate } = dto || {};
     if (!yearLabel || !startDate || !endDate) {
@@ -632,6 +747,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('You do not have permission to set opening balances.');
     }
+    await this.assertCanViewReports(req);
     await this.ensureFinancialYears();
     const cash = Number(dto?.openingCash ?? 0);
     const bank = Number(dto?.openingBank ?? 0);
@@ -658,6 +774,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('You do not have permission to close a financial year.');
     }
+    await this.assertCanViewReports(req);
     const tenantId = req.user.tenantId;
     const from = await this.resolveYear(tenantId, id);
     if (!from) throw new BadRequestException('That financial year was not found.');
@@ -712,6 +829,7 @@ class FinanceController {
   // captured as a learner id.
   @Get('vote-heads/summary')
   async voteHeadSummary(@Request() req: any, @Query() q: any) {
+    await this.assertCanViewReports(req);
     await this.ensureAllocationsTable();
     const tenantId = req.user.tenantId;
     const rows = await this.ds.query(
@@ -1005,6 +1123,7 @@ class FinanceController {
 
   @Get('receipts')
   async getReceipts(@Request() req: any, @Query() q: any) {
+    await this.assertCanViewReports(req);
     await this.ensurePaymentsTable();
     return this.ds.query(
       `SELECT id, receipt_number AS "receiptNumber", learner_name AS "learnerName",
@@ -1033,6 +1152,9 @@ class FinanceController {
   private async financeReportInner(req: any, key: string, q: any, res: any) {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       res.status(403).send('<p>Not authorised.</p>'); return;
+    }
+    if (!(await this.financeAccess(req.user.tenantId, req.user.role)).canViewReports) {
+      res.status(403).send('<p style="font-family:sans-serif">Finance reports are restricted to the school owner and bursar.</p>'); return;
     }
     await this.ensurePaymentsTable();
     await this.ensureAllocationsTable();
@@ -1415,6 +1537,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
       throw new BadRequestException('Only the bursar or an administrator can edit payments.');
     }
+    await this.assertCanCollectFees(req);
     await this.ensurePaymentsTable();
     const fields: string[] = []; const vals: any[] = []; let i = 1;
     const map: Record<string, string> = {
@@ -1517,6 +1640,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
       throw new BadRequestException('Only the bursar or an administrator can delete payments.');
     }
+    await this.assertCanCollectFees(req);
     // Remove the payment AND its vote-head allocations, so vote-head balances stay correct.
     await this.ensureAllocationsTable();
     await this.ds.query(`DELETE FROM payment_allocations WHERE payment_id::text = $1 AND tenant_id = $2`, [id, req.user.tenantId]).catch(() => null);
@@ -1563,6 +1687,8 @@ class FinanceController {
       } else {
         throw new BadRequestException('Only the bursar or an administrator can record payments.');
       }
+    } else {
+      await this.assertCanCollectFees(req);
     }
     if (!dto?.learnerId) throw new BadRequestException('Please select a learner.');
     const amount = Number(dto.amount);
@@ -1748,6 +1874,9 @@ class FinanceController {
 
   @Get('expenses')
   async getExpenses(@Request() req: any) {
+    // Was unguarded — any signed-in user (parents included) could list school spending.
+    if (!FinanceController.FINANCE_STAFF.includes(req.user.role)) throw new ForbiddenException('Not authorised.');
+    await this.assertCanManagePayrollExpenses(req);
     await this.ensureExpensesTable();
     return this.ds.query(
       `SELECT id, category, vote_head AS "voteHead", description, amount, payment_method AS "paymentMethod",
@@ -1796,6 +1925,7 @@ class FinanceController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(role)) {
       return { error: 'Only the HOI, bursar or administrator can record expenses.' };
     }
+    await this.assertCanManagePayrollExpenses(req);
     if (!dto?.amount || isNaN(Number(dto.amount))) return { error: 'A valid amount is required.' };
     await this.ensureExpensesTable();
     const rows = await this.ds.query(
@@ -1824,6 +1954,8 @@ class FinanceController {
    */
   @Get('expenses/vote-heads')
   async expenseVoteHeads(@Request() req: any) {
+    if (!FinanceController.FINANCE_STAFF.includes(req.user.role)) throw new ForbiddenException('Not authorised.');
+    await this.assertCanManagePayrollExpenses(req);
     await this.ensureFeeItemsTable();
     await this.ensureAllocationsTable();
     await this.ensureExpensesTable().catch(() => null);
@@ -2004,6 +2136,7 @@ class MpesaPaybillController {
     if (!MPESA_STAFF_ROLES.includes(req.user.role) && !isParent) {
       throw new BadRequestException('Only the bursar, an administrator, or the learner\'s own parent can request a payment.');
     }
+    if (!isParent) await this.financeController.assertCanCollectFees(req);
     const tenantId = req.user.tenantId;
     const settings = await getMpesaSettingsRow(this.ds, tenantId);
     if (!settings) {
@@ -2135,6 +2268,7 @@ class MpesaPaybillController {
     if (!MPESA_STAFF_ROLES.includes(req.user.role)) {
       throw new BadRequestException('Only the bursar or an administrator can do this.');
     }
+    await this.financeController.assertCanCollectFees(req);
     if (!dto?.learnerId) throw new BadRequestException('Select which learner this payment belongs to.');
     const rows = await this.ds.query(
       `SELECT * FROM mpesa_transactions WHERE id::text = $1 AND tenant_id::text = $2 AND status = 'unmatched'`,
@@ -2378,6 +2512,7 @@ class PayrollController {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
       throw new BadRequestException('Only the HOI, bursar or administrator can manage payroll.');
     }
+    await this.financeController.assertCanManagePayrollExpenses(req);
     await requireProPlan(this.ds, req.user.tenantId, 'Payroll', req.method);
   }
 

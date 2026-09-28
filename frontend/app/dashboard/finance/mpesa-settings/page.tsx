@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, Link2, RefreshCw, UserPlus2, Smartphone, Users } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, Link2, RefreshCw, UserPlus2, Smartphone, Users, FileBarChart } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { matchesLearner } from '@/components/LearnerSearch';
+import { useFinanceAccess } from '@/lib/hooks/useFinanceAccess';
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
 
@@ -44,6 +45,22 @@ export default function MpesaSettingsPage() {
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Could not update this setting.');
     } finally { setSavingOverride(false); }
+  };
+
+  // Private schools: the owner decides whether the HOI may view finance reports.
+  const { access, reload: reloadAccess } = useFinanceAccess();
+  const [savingHoiReports, setSavingHoiReports] = useState(false);
+  const toggleHoiReports = async () => {
+    if (!access) return;
+    const next = !access.hoiReportsGranted;
+    setSavingHoiReports(true);
+    try {
+      await apiClient.patch('/finance/settings/hoi-reports', { enabled: next });
+      reloadAccess();
+      toast.success(next ? 'The HOI can now view finance reports.' : 'Finance reports are now limited to you and the bursar.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not update this setting.');
+    } finally { setSavingHoiReports(false); }
   };
 
   const loadSettings = () => {
@@ -135,6 +152,29 @@ export default function MpesaSettingsPage() {
       {tab === 'settings' && (
         loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-theme-muted" size={26}/></div> : (
         <>
+          {access?.canGrantHoiReports && (
+            <div className="card p-5 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><FileBarChart size={16}/> Let the HOI view finance reports</div>
+                <button type="button" onClick={toggleHoiReports} disabled={savingHoiReports}
+                  className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 border ${access.hoiReportsGranted ? 'bg-[#1a2e5a] border-[#1a2e5a]' : 'bg-gray-300 border-gray-300'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${access.hoiReportsGranted ? 'translate-x-5' : ''}`}/>
+                </button>
+              </div>
+              <p className="text-xs text-theme-muted">
+                Finance reports (cash book, ledger, trial balance, income statement, fee statement, vote-head totals and receipts) are seen only by you and the bursar/accounts clerk. Turn this on to let the HOI view them too. The HOI can collect fees either way. Payroll and expenses stay with you and the bursar.
+              </p>
+            </div>
+          )}
+
+          {access?.isPrivate ? (
+            <div className="card p-5 space-y-1">
+              <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Users size={16}/> Who collects fees</div>
+              <p className="text-xs text-theme-muted">
+                In a private school, fees are collected only by the HOI, the bursar/accounts clerk and the school owner. Class teachers cannot record payments.
+              </p>
+            </div>
+          ) : (
           <div className="card p-5 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Users size={16}/> Let class teachers collect fees</div>
@@ -147,6 +187,7 @@ export default function MpesaSettingsPage() {
               Common in primary/JS schools where the class teacher — not a bursar — collects money from learners. When on, each class teacher gets a "Collect Fees" option in their own workspace, but can only record payments for learners in the class(es) they're registered as class teacher of. The admin/bursar still sets up the fee structure (vote heads and amounts, under Fee Structures) — class teachers only collect against it, and editing or deleting a payment still needs the bursar or an administrator.
             </p>
           </div>
+          )}
 
           <div className="card p-5 space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading"><Smartphone size={16}/> Choose how to collect payments</div>

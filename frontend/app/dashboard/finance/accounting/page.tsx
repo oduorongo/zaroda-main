@@ -4,6 +4,8 @@ import { BookOpen, FileSpreadsheet, Scale, FileText, Printer, Landmark, Wrench, 
   CalendarRange, Plus, ArrowRightLeft, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
+import { useFinanceAccess } from '@/lib/hooks/useFinanceAccess';
+import { Lock } from 'lucide-react';
 import { saveBlob } from '@/lib/utils/save-blob';
 
 const REPORTS = [
@@ -17,7 +19,7 @@ const REPORTS = [
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
 
-export default function AccountingPage() {
+function AccountingContent() {
   const [generating, setGenerating] = useState('');
   const [voteHeads, setVoteHeads] = useState<any[]>([]);
   const [totalReceived, setTotalReceived] = useState(0);
@@ -380,4 +382,21 @@ export default function AccountingPage() {
       </div>
     </div>
   );
+}
+
+// Private schools restrict this page (see FinanceController.financeAccess) — check
+// before mounting the page so a locked-out user sees why instead of failing requests.
+export default function AccountingPage() {
+  const { access } = useFinanceAccess();
+  if (!access) return <div className="h-64 shimmer rounded-2xl"/>;
+  if (!access.canViewReports) {
+    return (
+      <div className="card p-10 text-center max-w-xl mx-auto space-y-2">
+        <Lock className="mx-auto text-theme-muted" size={28}/>
+        <h1 className="text-lg font-black text-theme-heading">Finance reports are restricted</h1>
+        <p className="text-sm text-theme-muted">In this school, finance reports are viewed by the school owner and the bursar/accounts clerk. The owner can give the HOI access under Finance → M-Pesa Settings.</p>
+      </div>
+    );
+  }
+  return <AccountingContent/>;
 }

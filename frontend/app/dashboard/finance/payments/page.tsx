@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { DollarSign, Search, Loader2, CheckCircle, Printer, ArrowLeft } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isBursar } from '@/lib/hooks/useAuth';
+import { useFinanceAccess } from '@/lib/hooks/useFinanceAccess';
+import { Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const METHODS = [
@@ -21,7 +23,7 @@ const TERMS = [
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
 
-export default function RecordPaymentPage() {
+function RecordPaymentContent() {
   const { user } = useAuth();
   // A class teacher using the fee-collection override may only ever pick from their
   // own class(es) — a bursar/admin sees every stream as before.
@@ -416,4 +418,21 @@ export default function RecordPaymentPage() {
       )}
     </div>
   );
+}
+
+// Private schools restrict this page (see FinanceController.financeAccess) — check
+// before mounting the page so a locked-out user sees why instead of failing requests.
+export default function RecordPaymentPage() {
+  const { access } = useFinanceAccess();
+  if (!access) return <div className="h-64 shimmer rounded-2xl"/>;
+  if (!access.canCollect) {
+    return (
+      <div className="card p-10 text-center max-w-xl mx-auto space-y-2">
+        <Lock className="mx-auto text-theme-muted" size={28}/>
+        <h1 className="text-lg font-black text-theme-heading">Fee collection is restricted</h1>
+        <p className="text-sm text-theme-muted">In this school, fees are collected by the HOI, the bursar/accounts clerk or the school owner.</p>
+      </div>
+    );
+  }
+  return <RecordPaymentContent/>;
 }

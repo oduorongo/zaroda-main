@@ -3,11 +3,13 @@ import { useState, useEffect } from 'react';
 import { Plus, X, Loader2, TrendingDown, Wallet } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isBursar } from '@/lib/hooks/useAuth';
+import { useFinanceAccess } from '@/lib/hooks/useFinanceAccess';
+import { Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const EXPENSE_CATEGORIES = ['Salaries','Utilities','Supplies','Maintenance','Transport','Food','Examinations','Co-curricular','Other'];
 
-export default function ExpensesPage() {
+function ExpensesContent() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,4 +138,21 @@ export default function ExpensesPage() {
       )}
     </div>
   );
+}
+
+// Private schools restrict this page (see FinanceController.financeAccess) — check
+// before mounting the page so a locked-out user sees why instead of failing requests.
+export default function ExpensesPage() {
+  const { access } = useFinanceAccess();
+  if (!access) return <div className="h-64 shimmer rounded-2xl"/>;
+  if (!access.canManagePayrollExpenses) {
+    return (
+      <div className="card p-10 text-center max-w-xl mx-auto space-y-2">
+        <Lock className="mx-auto text-theme-muted" size={28}/>
+        <h1 className="text-lg font-black text-theme-heading">Expenses are restricted</h1>
+        <p className="text-sm text-theme-muted">In this school, payroll and expenses are handled by the school owner and the bursar/accounts clerk.</p>
+      </div>
+    );
+  }
+  return <ExpensesContent/>;
 }

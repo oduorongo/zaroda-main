@@ -6,9 +6,15 @@ import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
 import { saveBlob } from '@/lib/utils/save-blob';
+import { useFinanceAccess } from '@/lib/hooks/useFinanceAccess';
 
 export default function FinancePage() {
   const [tab,       setTab]      = useState<'invoices'|'receipts'>('invoices');
+  // Private schools restrict collection and reports — hide what this user cannot use.
+  const { access } = useFinanceAccess();
+  const canCollect = !!access?.canCollect;
+  const canViewReports = !!access?.canViewReports;
+  const canManagePayrollExpenses = !!access?.canManagePayrollExpenses;
   const [invoices,  setInvoices] = useState<any[]>([]);
   const [search,    setSearch]   = useState('');
   const [loading,   setLoading]  = useState(true);
@@ -98,7 +104,7 @@ export default function FinancePage() {
 
   const TABS = [
     { key: 'invoices', label: 'Fee Invoices' },
-    { key: 'receipts', label: 'Receipts'     },
+    ...(canViewReports ? [{ key: 'receipts', label: 'Receipts' }] : []),
   ];
 
   return (
@@ -109,11 +115,11 @@ export default function FinancePage() {
           <p className="text-sm text-theme-muted">Fee collection · M-Pesa · Payroll · FPE/FDJSE/FDSSE</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Link href="/dashboard/finance/payments" className="btn-primary text-xs"><DollarSign size={13}/> Record Payment</Link>
+          {canCollect && <Link href="/dashboard/finance/payments" className="btn-primary text-xs"><DollarSign size={13}/> Record Payment</Link>}
           <Link href="/dashboard/finance/fee-structures" className="btn-ghost text-xs">Fee Structures</Link>
-          <Link href="/dashboard/finance/expenses" className="btn-ghost text-xs">Expenses</Link>
-          <Link href="/dashboard/finance/payroll" className="btn-ghost text-xs">Payroll</Link>
-          <Link href="/dashboard/finance/accounting" className="btn-ghost text-xs">Accounting</Link>
+          {canManagePayrollExpenses && <Link href="/dashboard/finance/expenses" className="btn-ghost text-xs">Expenses</Link>}
+          {canManagePayrollExpenses && <Link href="/dashboard/finance/payroll" className="btn-ghost text-xs">Payroll</Link>}
+          {canViewReports && <Link href="/dashboard/finance/accounting" className="btn-ghost text-xs">Accounting</Link>}
           <Link href="/dashboard/finance/mpesa-settings" className="btn-ghost text-xs">M-Pesa Settings</Link>
         </div>
       </div>
@@ -245,7 +251,7 @@ export default function FinancePage() {
                               className="text-xs bg-[#1a2e5a] text-white px-2 py-1 rounded-lg hover:opacity-90 font-medium">
                               {savingPdf === `invoice-${inv.learner?.admissionNumber || inv.invoiceNumber}` ? '…' : 'PDF'}
                             </button>
-                            {balance > 0 && (
+                            {balance > 0 && canCollect && (
                               <button onClick={() => setMpeza({ learnerId: inv.id, phone: inv.learner?.guardianPhone || '', amount: String(balance) })}
                                 className="text-xs bg-green-600 text-white px-2 py-1 rounded-lg hover:bg-green-700 font-medium">
                                 M-Pesa
@@ -263,7 +269,7 @@ export default function FinancePage() {
         </>
       )}
 
-      {tab === 'receipts' && (
+      {tab === 'receipts' && canViewReports && (
         <div className="card p-8 text-center">
           <p className="text-theme-muted">Receipts list — calls <code className="bg-surface-2 px-1 rounded">/api/v1/finance/receipts</code></p>
         </div>

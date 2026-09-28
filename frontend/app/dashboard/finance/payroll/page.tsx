@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { ArrowLeft, Loader2, Users, Play, Lock, Trash2, Printer, Save, Plus, X, Download, FileText } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
+import { useFinanceAccess } from '@/lib/hooks/useFinanceAccess';
 import { ProUpgradeNotice, isProPlanError } from '@/components/ProUpgradeNotice';
 
 const ksh = (n: number) => 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 });
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
-export default function PayrollPage() {
+function PayrollContent() {
   const [tab, setTab] = useState<'salaries' | 'runs' | 'loans'>('runs');
   const [proLocked, setProLocked] = useState(false);
 
@@ -543,4 +544,21 @@ export default function PayrollPage() {
       )}
     </div>
   );
+}
+
+// Private schools restrict this page (see FinanceController.financeAccess) — check
+// before mounting the page so a locked-out user sees why instead of failing requests.
+export default function PayrollPage() {
+  const { access } = useFinanceAccess();
+  if (!access) return <div className="h-64 shimmer rounded-2xl"/>;
+  if (!access.canManagePayrollExpenses) {
+    return (
+      <div className="card p-10 text-center max-w-xl mx-auto space-y-2">
+        <Lock className="mx-auto text-theme-muted" size={28}/>
+        <h1 className="text-lg font-black text-theme-heading">Payroll is restricted</h1>
+        <p className="text-sm text-theme-muted">In this school, payroll and expenses are handled by the school owner and the bursar/accounts clerk.</p>
+      </div>
+    );
+  }
+  return <PayrollContent/>;
 }
