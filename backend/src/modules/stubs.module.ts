@@ -566,6 +566,38 @@ class FinanceController {
     return { ok: true, count: ids.length };
   }
 
+  // Edit one fee item in place. Declared after `reorder` so that path isn't taken as an id.
+  // Payments already allocated to this vote head keep pointing at it, so balances recompute.
+  @Patch('fee-structures/:id')
+  async updateFeeStructure(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    if (!['hoi', 'dhois', 'tenant_owner', 'school_admin', 'bursar'].includes(req.user.role)) {
+      throw new BadRequestException('Only the HOI, bursar or administrator can edit fee structures.');
+    }
+    if (!dto?.name || !String(dto.name).trim()) {
+      throw new BadRequestException('Fee name is required.');
+    }
+    await this.ensureFeeItemsTable();
+    const rows = await this.ds.query(
+      `UPDATE fee_items
+          SET name = $3, grade_level = $4, term = $5, academic_year = $6, category = $7,
+              amount = $8, is_mandatory = $9, priority = $10
+        WHERE id = $1 AND tenant_id = $2
+        RETURNING id, name, grade_level AS "gradeLevel", term, academic_year AS "academicYear",
+                  category, amount, is_mandatory AS "isMandatory", priority`,
+      [
+        id, req.user.tenantId,
+        String(dto.name).trim(), dto.gradeLevel ? String(dto.gradeLevel).trim() : null,
+        dto.term || null, dto.academicYear || null, dto.category || 'tuition',
+        Number(dto.amount) || 0, dto.isMandatory !== false,
+        dto.priority != null ? Number(dto.priority) : 100,
+      ],
+    ).catch((e: any) => { throw new BadRequestException(`Could not update fee structure: ${e.message}`); });
+    // pg returns [rows, count] for UPDATE ... RETURNING through TypeORM's query().
+    const updated = Array.isArray(rows?.[0]) ? rows[0][0] : rows?.[0];
+    if (!updated) throw new BadRequestException('Fee item not found.');
+    return updated;
+  }
+
   // Records which payment paid how much toward which vote head (fee item). This is what makes
   // per-vote-head balances possible — a lump sum is split into several allocation rows.
   private async ensureAllocationsTable() {
@@ -6298,7 +6330,7 @@ class PdfController {
           <h2>Mark List — ${esc(stream.name||'')} · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
+        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this assessment.</td></tr>`}${laFoot.rows}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
         <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
         <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
@@ -6473,7 +6505,7 @@ class PdfController {
           <h2>Grade Mark List — ${esc(gradeLabel)} (${esc(String(streamRows.length))} stream${streamRows.length===1?'':'s'} combined) · ${esc(examName)} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Stream</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this grade &amp; term.</td></tr>`}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
+        <tbody>${body || `<tr><td colspan="${subjects.length+6}">No marks found for this grade &amp; term.</td></tr>`}${laFoot.rows}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
         <div class="ml-note">Ranking basis: every stream in ${esc(gradeLabel)} pooled together — position reflects standing across the WHOLE grade, not one stream.</div>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>
@@ -6637,7 +6669,7 @@ class PdfController {
           <h2>Term Average Mark List — ${esc(stream.name||'')} · ${esc((term||'').replace('term_','Term '))} · ${esc(academicYear||'')}</h2>
         </div>
         <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${head}<th>Points<br/><span style="font-weight:400;font-size:9px">out of ${maxPoints}</span></th><th>Level</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this term.</td></tr>`}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
+        <tbody>${body || `<tr><td colspan="${subjects.length+5}">No marks found for this term.</td></tr>`}${laFoot.rows}</tbody>${laFoot.tfoot}</table>${laFoot.summary}
         <div class="ml-note">Ranking basis: average % per subject across every assessment entered this term — the SAME basis used for the report card's Term Average and Points total.</div>
         <div class="ml-foot">Powered by ZARODA SOLUTIONS<br>Reliable. Innovative. Forward.</div>
         <div class="no-print"><button onclick="window.print()" style="background:#1a2e5a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer">Print / Save as PDF</button></div>

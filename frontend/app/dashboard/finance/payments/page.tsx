@@ -165,6 +165,12 @@ function RecordPaymentContent() {
     }
   };
 
+  // Starting a new search (or switching class) means the bursar has moved on to another
+  // learner, so the last one's balance, vote heads and receipt shouldn't linger below.
+  const clearLearner = () => {
+    setLearner(null); setBal(null); setVoteHeads([]); setOverride({}); setUseOverride(false); setLastReceipt(null);
+  };
+
   const filtered = learners.filter(l =>
     !search || `${l.firstName} ${l.lastName} ${l.admissionNumber}`.toLowerCase().includes(search.toLowerCase()));
 
@@ -182,13 +188,13 @@ function RecordPaymentContent() {
       <div className="card p-5">
         <h2 className="font-bold text-theme-heading mb-3">1 · Select learner</h2>
         <div className="grid sm:grid-cols-2 gap-3 mb-3">
-          <select value={streamId} onChange={e => { setStreamId(e.target.value); setLearner(null); setBal(null); }} className="input">
+          <select value={streamId} onChange={e => { setStreamId(e.target.value); clearLearner(); }} className="input">
             <option value="">Select class…</option>
             {streams.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <div className="relative">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted"/>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or admission no." className="input pl-9"/>
+            <input value={search} onChange={e => { setSearch(e.target.value); if (learner) clearLearner(); }} placeholder="Search name or admission no." className="input pl-9"/>
           </div>
         </div>
         {streamId && (
@@ -243,7 +249,7 @@ function RecordPaymentContent() {
                         if (val && val !== vh.priority) changePriority(vh.feeItemId, val);
                       }}
                       title="Priority (lower = filled first)"
-                      className="input w-14 py-1 text-center text-xs"
+                      className="input w-16 py-1 px-1 text-center text-xs"
                     />
                     <span className="flex-1 font-medium text-theme-heading">{vh.name}</span>
                     <span className="text-theme-muted">{ksh(vh.paid)} / {ksh(vh.billed)}</span>
@@ -295,10 +301,16 @@ function RecordPaymentContent() {
                 </div>
                 {!useOverride ? (
                   <div className="space-y-1">
+                    <div className="flex gap-2 text-[11px] uppercase tracking-wide text-theme-muted">
+                      <span className="flex-1">Vote head</span>
+                      <span className="w-28 text-right">Paid earlier</span>
+                      <span className="w-28 text-right">This payment</span>
+                    </div>
                     {previewAllocation().rows.filter(r => r.willPay > 0).map(r => (
-                      <div key={r.feeItemId} className="flex justify-between text-sm">
-                        <span className="text-theme-heading">{r.name}</span>
-                        <span className="font-bold text-green-600">{ksh(r.willPay)}</span>
+                      <div key={r.feeItemId} className="flex gap-2 text-sm">
+                        <span className="flex-1 text-theme-heading">{r.name}</span>
+                        <span className="w-28 text-right text-theme-muted">{r.paid > 0 ? ksh(r.paid) : '—'}</span>
+                        <span className="w-28 text-right font-bold text-green-600">{ksh(r.willPay)}</span>
                       </div>
                     ))}
                     {previewAllocation().leftover > 0 && (
@@ -310,9 +322,15 @@ function RecordPaymentContent() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
+                    <div className="flex gap-2 text-[11px] uppercase tracking-wide text-theme-muted">
+                      <span className="flex-1">Vote head</span>
+                      <span className="w-28 text-right">Paid earlier</span>
+                      <span className="w-28">This payment</span>
+                    </div>
                     {voteHeads.map(vh => (
                       <div key={vh.feeItemId} className="flex items-center gap-2 text-sm">
                         <span className="flex-1 text-theme-heading">{vh.name} <span className="text-theme-muted text-xs">({ksh(vh.balance)} due)</span></span>
+                        <span className="w-28 text-right text-theme-muted">{vh.paid > 0 ? ksh(vh.paid) : '—'}</span>
                         <input type="number" min={0} value={override[vh.feeItemId] || ''} onChange={e => setOverride(o => ({ ...o, [vh.feeItemId]: e.target.value }))}
                           className="input w-28 py-1 text-sm" placeholder="0"/>
                       </div>

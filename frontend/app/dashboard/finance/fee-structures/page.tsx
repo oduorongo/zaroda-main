@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2, Printer, Download } from 'lucide-react';
+import { Plus, X, Loader2, Receipt, Bus, Home, Utensils, Award, Trash2, Printer, Download, Pencil } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isBursar } from '@/lib/hooks/useAuth';
 import { GRADE_LEVELS } from '@/lib/cbc/constants';
@@ -46,12 +46,28 @@ export default function FeeStructuresPage() {
   };
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving]   = useState(false);
-  const [form, setForm] = useState<any>({
+  const blankForm = {
     name: '', gradeLevel: '', gradeLevels: [] as string[], term: 'term_1', academicYear: '2025/2026',
     category: 'tuition', amount: 0, isMandatory: true, priority: 100,
-  });
+  };
+  const [form, setForm] = useState<any>(blankForm);
+  // Set when the modal is editing an existing fee item rather than creating new ones.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // An existing item belongs to one class (or none = school-wide), so editing picks at most one.
   const toggleGrade = (val: string) =>
-    setForm((f: any) => ({ ...f, gradeLevels: f.gradeLevels.includes(val) ? f.gradeLevels.filter((g: string) => g !== val) : [...f.gradeLevels, val] }));
+    setForm((f: any) => ({ ...f, gradeLevels: f.gradeLevels.includes(val)
+      ? f.gradeLevels.filter((g: string) => g !== val)
+      : editingId ? [val] : [...f.gradeLevels, val] }));
+  const openNew = () => { setEditingId(null); setForm(blankForm); setShowNew(true); };
+  const openEdit = (s: any) => {
+    setEditingId(s.id);
+    setForm({
+      name: s.name || '', gradeLevel: s.gradeLevel || '', gradeLevels: s.gradeLevel ? [s.gradeLevel] : [],
+      term: s.term || 'term_1', academicYear: s.academicYear || '2025/2026', category: s.category || 'tuition',
+      amount: Number(s.amount) || 0, isMandatory: s.isMandatory !== false, priority: s.priority ?? 100,
+    });
+    setShowNew(true);
+  };
   const allGradeValues = GRADE_LEVELS.map(g => g.value);
   const toggleAllGrades = () =>
     setForm((f: any) => ({ ...f, gradeLevels: f.gradeLevels.length === allGradeValues.length ? [] : [...allGradeValues] }));
@@ -66,7 +82,7 @@ export default function FeeStructuresPage() {
   useEffect(() => { load(); }, []);
 
   const set = (k: string) => (e: any) =>
-    setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+    setForm((f: any) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
   const canManage = isBursar(user?.role || '');
 
@@ -85,11 +101,16 @@ export default function FeeStructuresPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form, gradeLevels: form.gradeLevels };
-      const r = await apiClient.post('/finance/fee-structures', payload);
-      const n = r?.data?.count || 1;
-      toast.success(n > 1 ? `Fee structure created for ${n} classes` : 'Fee structure created');
-      setShowNew(false);
+      if (editingId) {
+        await apiClient.patch(`/finance/fee-structures/${editingId}`, { ...form, gradeLevel: form.gradeLevels[0] || null });
+        toast.success('Fee structure updated');
+      } else {
+        const payload = { ...form, gradeLevels: form.gradeLevels };
+        const r = await apiClient.post('/finance/fee-structures', payload);
+        const n = r?.data?.count || 1;
+        toast.success(n > 1 ? `Fee structure created for ${n} classes` : 'Fee structure created');
+      }
+      setShowNew(false); setEditingId(null);
       setForm((f: any) => ({ ...f, name: '', gradeLevels: [], amount: 0 }));
       load();
     } catch (err: any) {
@@ -111,7 +132,7 @@ export default function FeeStructuresPage() {
           <button onClick={printStructure} className="btn-ghost"><Printer size={16}/> Print</button>
           <button onClick={downloadStructure} className="btn-ghost"><Download size={16}/> PDF</button>
           {isBursar(user?.role || '') && (
-            <button onClick={() => setShowNew(true)} className="btn-primary"><Plus size={16}/> New Structure</button>
+            <button onClick={openNew} className="btn-primary"><Plus size={16}/> New Structure</button>
           )}
         </div>
       </div>
@@ -121,7 +142,7 @@ export default function FeeStructuresPage() {
         <div className="card p-10 text-center">
           <Receipt size={36} className="mx-auto text-[#e2e6f0] mb-2"/>
           <p className="text-theme-muted">No fee structures defined</p>
-          {isBursar(user?.role || '') && <button onClick={() => setShowNew(true)} className="btn-primary mt-4"><Plus size={16}/> Create First</button>}
+          {isBursar(user?.role || '') && <button onClick={openNew} className="btn-primary mt-4"><Plus size={16}/> Create First</button>}
         </div>
       ) : (
         <div className="card overflow-hidden">
@@ -145,7 +166,10 @@ export default function FeeStructuresPage() {
                   <td className="px-4 py-3 text-center text-sm text-theme-muted hidden md:table-cell">{s.priority ?? 100}</td>
                   <td className="px-4 py-3 text-center text-sm text-theme-muted hidden md:table-cell">{s.term?.replace('_',' ')}</td>
                   {canManage && (
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <button onClick={() => openEdit(s)} title="Edit this fee" className="text-theme-muted hover:text-[#1a2e5a] p-1.5">
+                        <Pencil size={15}/>
+                      </button>
                       <button onClick={() => remove(s)} title="Delete this fee" className="text-theme-muted hover:text-red-600 p-1.5">
                         <Trash2 size={15}/>
                       </button>
@@ -162,17 +186,19 @@ export default function FeeStructuresPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-md">
             <div className="flex items-center justify-between p-5 border-b border-theme">
-              <h3 className="text-lg font-bold text-theme-heading">New Fee Structure</h3>
+              <h3 className="text-lg font-bold text-theme-heading">{editingId ? 'Edit Fee Structure' : 'New Fee Structure'}</h3>
               <button onClick={() => setShowNew(false)}><X size={20} className="text-theme-muted"/></button>
             </div>
             <form onSubmit={submit} className="p-5 space-y-4">
               <div><label className="label">Name *</label><input required value={form.name} onChange={set('name')} className="input" placeholder="Grade 4 Term 1 Tuition"/></div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="label mb-0">Classes — tick all that this fee applies to</label>
-                  <button type="button" onClick={toggleAllGrades} className="text-xs text-[#1a2e5a] hover:underline">
-                    {form.gradeLevels.length === allGradeValues.length ? 'Clear all' : 'Select all'}
-                  </button>
+                  <label className="label mb-0">{editingId ? 'Class — pick the one this fee applies to' : 'Classes — tick all that this fee applies to'}</label>
+                  {!editingId && (
+                    <button type="button" onClick={toggleAllGrades} className="text-xs text-[#1a2e5a] hover:underline">
+                      {form.gradeLevels.length === allGradeValues.length ? 'Clear all' : 'Select all'}
+                    </button>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto border border-theme rounded-xl p-2">
                   {GRADE_LEVELS.map(g => {
@@ -187,7 +213,9 @@ export default function FeeStructuresPage() {
                   })}
                 </div>
                 <p className="text-[11px] text-theme-muted mt-1">
-                  {form.gradeLevels.length === 0 ? 'None selected → applies school-wide (all classes).' : `${form.gradeLevels.length} class(es) selected — one fee item created for each.`}
+                  {form.gradeLevels.length === 0 ? 'None selected → applies school-wide (all classes).'
+                    : editingId ? 'Payments already made toward this fee stay on it; balances update to the new amount.'
+                    : `${form.gradeLevels.length} class(es) selected — one fee item created for each.`}
                 </p>
               </div>
               <div>
@@ -213,7 +241,7 @@ export default function FeeStructuresPage() {
                 <input type="checkbox" checked={form.isMandatory} onChange={set('isMandatory')} className="accent-[#1a2e5a]"/> Mandatory fee
               </label>
               <div className="flex gap-3"><button type="button" onClick={()=>setShowNew(false)} className="btn-ghost flex-1">Cancel</button>
-                <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? <Loader2 size={14} className="animate-spin"/> : 'Create'}</button>
+                <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? <Loader2 size={14} className="animate-spin"/> : editingId ? 'Save changes' : 'Create'}</button>
               </div>
             </form>
           </div>
