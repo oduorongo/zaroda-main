@@ -15,6 +15,7 @@ import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/m
 import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
 import { requireProPlan } from '../common/plan';
 import { feeStructureTableHtml } from '../common/fee-structure-table';
+import { schoolHeadInfo, schoolLetterheadHtml } from '../common/school-letterhead';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
 import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
@@ -389,9 +390,7 @@ class FinanceController {
   async printFeeStructure(@Request() req: any, @Query() q: any, @Res() res: any) {
     const tenantId = req.user.tenantId;
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
-    const school = await this.ds.query(
-      `SELECT name, address, phone FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId],
-    ).then((r: any[]) => r[0] || {}).catch(() => ({} as any));
+    const school = await schoolHeadInfo(this.ds, tenantId);
     await this.ensureFeeItemsTable();
     const table = await feeStructureTableHtml(this.ds, tenantId, {
       gradeLevel: q.gradeLevel, term: q.term, academicYear: q.academicYear,
@@ -406,8 +405,6 @@ class FinanceController {
       <title>Fee Structure</title><style>
       @page{size:A4 portrait;margin:14mm}
       body{font-family:Arial,sans-serif;color:#1a2e5a;margin:22px}
-      .head{text-align:center;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:8px}
-      .head h1{margin:0;font-size:20px}.head h2{margin:4px 0 0;font-size:13px;font-weight:400;color:#555}
       table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
       th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
       th{background:#1a2e5a;color:#fff}
@@ -418,8 +415,7 @@ class FinanceController {
       @media print{.print{display:none}}
       ${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
       </style></head><body>
-      <div class="head"><h1>${esc(school.name || 'School')}</h1>
-        <h2>Fee Structure · ${esc(scope)}</h2></div>
+      ${schoolLetterheadHtml(school, `Fee Structure · ${scope}`)}
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
       ${table || '<p>No fee items have been set up for this selection.</p>'}
       ${PRINT_FOOTER_HTML}</body></html>`;
@@ -6767,12 +6763,9 @@ class PdfController {
   private async feePageHtml(tenantId: string, gradeLevel?: string, term?: string, academicYear?: string) {
     const table = await feeStructureTableHtml(this.ds, tenantId, { gradeLevel, term, academicYear });
     if (!table) return '';
-    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c] || c));
+    const scope = [gradeLevel ? String(gradeLevel).replace(/_/g, ' ') : 'All classes', academicYear || ''].filter(Boolean).join(' · ');
     return `<div class="rc" style="page-break-before:always">
-      <h2 style="text-align:center;margin:0 0 4px;font-size:17px">Fee Structure</h2>
-      <p style="text-align:center;margin:0 0 12px;font-size:12px;color:#555">
-        ${esc(gradeLevel ? String(gradeLevel).replace(/_/g, ' ') : 'All classes')}${academicYear ? ` · ${esc(academicYear)}` : ''}
-      </p>
+      ${schoolLetterheadHtml(await schoolHeadInfo(this.ds, tenantId), `Fee Structure · ${scope}`)}
       ${table}
     </div>`;
   }
@@ -7029,19 +7022,12 @@ class PdfController {
         </div>`;
       }
     } catch { /* fees optional — omit cleanly if unavailable */ }
-    const logoTag = lr.logo ? `<img src="${lr.logo}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
-    const contactBits = [lr.schoolAddress, lr.schoolPhone, lr.schoolEmail].filter(Boolean).map((x: string) => esc(x)).join(' · ');
-    const contactLine = contactBits ? `<p style="font-size:11px;color:#555;margin:2px 0">${contactBits}</p>` : '';
-    const mottoLine = lr.schoolMotto ? `<p style="font-size:11px;font-style:italic;color:#777;margin:2px 0">“${esc(lr.schoolMotto)}”</p>` : '';
     const card = `
       <div class="rc">
-        <div class="rc-head">
-          ${logoTag}
-          <h1>${esc(lr.schoolName || 'ZARODA School')}</h1>
-          ${contactLine}
-          ${mottoLine}
-          <p>Learner Report Card · ${esc(termLabel)} · ${esc(academicYear)}</p>
-        </div>
+        ${schoolLetterheadHtml({
+          name: lr.schoolName, logo: lr.logo, phone: lr.schoolPhone, email: lr.schoolEmail,
+          address: lr.schoolAddress, motto: lr.schoolMotto,
+        }, `Learner Report Card · ${termLabel} · ${academicYear}`)}
         <div class="rc-meta">
           <span><b>Name:</b> ${esc(`${lr.firstName||''} ${lr.lastName||''}`.trim())}</span>
           <span><b>Adm:</b> ${esc(lr.adm || '')}</span>
