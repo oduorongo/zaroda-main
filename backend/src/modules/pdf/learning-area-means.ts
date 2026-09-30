@@ -24,9 +24,15 @@ export function learningAreaMeans(
   return out;
 }
 
-// <tfoot> with the learning-area names repeated, a "Mean %" row (mean + its
-// performance level) and a "Position" row under each learning-area column, plus a one-line best/weakest summary for below
-// the table. leadCols = columns before the first learning area (#, Learner, Adm…);
+// Footer pieces for a printed mark list:
+//   rows    — "Mean %" (mean + its level) and "Position" rows, placed just before the
+//             table's closing </tbody> so they print once, after the last learner, on
+//             the last page
+//   tfoot   — the learning-area names repeated; browsers print <tfoot> at the bottom
+//             of EVERY page, mirroring the header at the top
+//   summary — a one-line best/lowest note for below the table
+// Anything placed in <tfoot> repeats on each printed page, which is why the means
+// must not live there. leadCols = columns before the first learning area (#, Learner, Adm…);
 // trailCols = columns after the last one (Points, Level).
 export function learningAreaMeanFooter(
   learners: { marks: Record<string, { pct: number } | undefined> }[],
@@ -35,19 +41,18 @@ export function learningAreaMeanFooter(
   trailCols: number,
   level: (pct: number) => string,
   esc: (s: any) => string,
-): { tfoot: string; summary: string } {
+): { rows: string; tfoot: string; summary: string } {
   const means = learningAreaMeans(learners, subjects);
   const ranked = subjects.filter(s => means[s].mean != null).sort((a, b) => (means[b].mean as number) - (means[a].mean as number));
-  if (!ranked.length) return { tfoot: '', summary: '' };
+  if (!ranked.length) return { rows: '', tfoot: '', summary: '' };
 
-  // Row 1 repeats the learning-area names (styled like the header) so a long list can
-  // be read at the bottom without scrolling back up; rows 2–3 are the mean and position.
   const head = 'background:#1a2e5a;color:#fff;font-weight:700';
   const foot = 'background:#e8edf7;font-weight:700';
   const td = (style: string, body: string, span = 1) =>
     `<td${span > 1 ? ` colspan="${span}"` : ''} style="${style}">${body}</td>`;
+  // break-inside:avoid keeps a row from being split across two printed pages.
   const row = (style: string, label: string, cells: string[]) =>
-    `<tr>${td(`${style};text-align:right`, label, leadCols)}${cells.join('')}${trailCols ? td(style, '', trailCols) : ''}</tr>`;
+    `<tr style="break-inside:avoid;page-break-inside:avoid">${td(`${style};text-align:right`, label, leadCols)}${cells.join('')}${trailCols ? td(style, '', trailCols) : ''}</tr>`;
   const nameRow = row(head, 'Learning area', subjects.map(s => td(head, esc(s))));
   const meanRow = row(foot, 'Mean %', subjects.map(s => {
     const m = means[s].mean;
@@ -57,7 +62,11 @@ export function learningAreaMeanFooter(
     const p = means[s].position;
     return td(p === 1 ? `${foot};color:#1b7a3a` : foot, p != null ? String(p) : '-');
   }));
-  const tfoot = `<tfoot>${nameRow}${meanRow}${posRow}</tfoot>`;
+  // Mean and Position go in their own <tbody> (closing the learners' one first; the
+  // caller's </tbody> closes this one) so the printer keeps the pair on one page
+  // instead of splitting it across two.
+  const rows = `</tbody><tbody style="break-inside:avoid;page-break-inside:avoid">${meanRow}${posRow}`;
+  const tfoot = `<tfoot>${nameRow}</tfoot>`;
 
   // Name every area sharing the top (or bottom) mean, so ties aren't hidden.
   const top = means[ranked[0]].mean as number, low = means[ranked[ranked.length - 1]].mean as number;
@@ -67,5 +76,5 @@ export function learningAreaMeanFooter(
       ? `All assessed learning areas have the same mean (${top}%)`
       : `Best performing: ${names(top)} (${top}%) · Lowest: ${names(low)} (${low}%)`)
     + `</div>`;
-  return { tfoot, summary };
+  return { rows, tfoot, summary };
 }

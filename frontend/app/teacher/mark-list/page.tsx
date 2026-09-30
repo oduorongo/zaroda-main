@@ -290,14 +290,18 @@ export default function TeacherMarkListPage() {
       <table><thead><tr>
         <th>#</th><th>Adm No</th><th>Learner</th>
         ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
-      </tr></thead><tbody>${rows}</tbody><tfoot>
+      </tr></thead><tbody>${rows}${hasAreaMeans ? `
+        <!-- Mean/Position end the table in their own body, so they print once on the
+             last page and the printer keeps the pair together. -->
+        </tbody><tbody style="break-inside:avoid;page-break-inside:avoid">
+        <tr style="background:#e8edf7;font-weight:700;break-inside:avoid"><td colspan="3" style="text-align:right">Mean %</td>
+          ${subjects.map(s => { const m = areaMeans[s]?.mean; return `<td style="text-align:center">${m != null ? `${m}% ${percentToLevel(m, stream?.gradeLevel || 'grade_4').code}` : '-'}</td>`; }).join('')}<td colspan="2"></td></tr>
+        <tr style="background:#e8edf7;font-weight:700;break-inside:avoid"><td colspan="3" style="text-align:right">Position</td>
+          ${subjects.map(s => `<td style="text-align:center">${areaMeans[s]?.position ?? '-'}</td>`).join('')}<td colspan="2"></td></tr>` : ''}
+      </tbody><tfoot>
+        <!-- <tfoot> repeats at the bottom of every printed page, like the header at the top. -->
         <tr style="background:#1a2e5a;color:#fff;font-weight:700;font-size:10px"><td colspan="3" style="text-align:right">Learning area</td>
           ${subjects.map(s => `<td style="text-align:center">${s}</td>`).join('')}<td style="text-align:center">Avg %</td><td style="text-align:center">Points Avg (level)</td></tr>
-        ${hasAreaMeans ? `
-        <tr style="background:#e8edf7;font-weight:700"><td colspan="3" style="text-align:right">Mean %</td>
-          ${subjects.map(s => { const m = areaMeans[s]?.mean; return `<td style="text-align:center">${m != null ? `${m}% ${percentToLevel(m, stream?.gradeLevel || 'grade_4').code}` : '-'}</td>`; }).join('')}<td colspan="2"></td></tr>
-        <tr style="background:#e8edf7;font-weight:700"><td colspan="3" style="text-align:right">Position</td>
-          ${subjects.map(s => `<td style="text-align:center">${areaMeans[s]?.position ?? '-'}</td>`).join('')}<td colspan="2"></td></tr>` : ''}
       </tfoot></table>
       <script>window.onload=function(){window.print()}</script>
       </body></html>`);
@@ -415,14 +419,6 @@ export default function TeacherMarkListPage() {
               ))}
             </tbody>
             <tfoot>
-              {/* Learning-area names repeated at the bottom — the list is long, and this
-                  saves scrolling back up to see which column is which. */}
-              <tr className="table-header">
-                <td colSpan={2} className="px-4 py-3 text-right font-semibold">Learning area</td>
-                {subjects.map(s => <td key={s} className="px-2 py-3 text-center font-semibold">{s}</td>)}
-                <td className="px-3 py-3 text-center font-semibold">Avg %</td>
-                <td className="px-3 py-3 text-center font-semibold">Points Avg</td>
-              </tr>
             {hasAreaMeans && (
               <>
                 <tr className="bg-surface-2">
@@ -455,6 +451,14 @@ export default function TeacherMarkListPage() {
                 </tr>
               </>
             )}
+              {/* Learning-area names repeated as the last row — the list is long, and this
+                  saves scrolling back up to see which column is which. */}
+              <tr className="table-header">
+                <td colSpan={2} className="px-4 py-3 text-right font-semibold">Learning area</td>
+                {subjects.map(s => <td key={s} className="px-2 py-3 text-center font-semibold">{s}</td>)}
+                <td className="px-3 py-3 text-center font-semibold">Avg %</td>
+                <td className="px-3 py-3 text-center font-semibold">Points Avg</td>
+              </tr>
             </tfoot>
           </table>
         </div>

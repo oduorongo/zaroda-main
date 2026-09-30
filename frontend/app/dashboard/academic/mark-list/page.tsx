@@ -385,18 +385,6 @@ export default function MarkListPage() {
               })}
             </tbody>
             <tfoot>
-              {/* Learning-area names repeated at the bottom — the list is long, and this
-                  saves scrolling back up to see which column is which. */}
-              <tr className="table-header">
-                <td colSpan={2} className="px-3 py-3 text-right font-semibold sticky left-0 bg-[#1a2e5a]">Learning area</td>
-                {subjects.map(s => (
-                  <td key={s} className="px-2 py-3 text-center font-semibold" title={s}>
-                    {s.length > 12 ? s.slice(0, 10) + '…' : s}
-                  </td>
-                ))}
-                <td className="px-3 py-3 text-center font-semibold">Points</td>
-                {showLevels && <td className="px-3 py-3 text-center font-semibold">Level</td>}
-              </tr>
             {hasAreaMeans && (
               <>
                 <tr className="bg-surface-2">
@@ -429,6 +417,18 @@ export default function MarkListPage() {
                 </tr>
               </>
             )}
+              {/* Learning-area names repeated as the last row — the list is long, and this
+                  saves scrolling back up to see which column is which. */}
+              <tr className="table-header">
+                <td colSpan={2} className="px-3 py-3 text-right font-semibold sticky left-0 bg-[#1a2e5a]">Learning area</td>
+                {subjects.map(s => (
+                  <td key={s} className="px-2 py-3 text-center font-semibold" title={s}>
+                    {s.length > 12 ? s.slice(0, 10) + '…' : s}
+                  </td>
+                ))}
+                <td className="px-3 py-3 text-center font-semibold">Points</td>
+                {showLevels && <td className="px-3 py-3 text-center font-semibold">Level</td>}
+              </tr>
             </tfoot>
           </table>
         </div>
