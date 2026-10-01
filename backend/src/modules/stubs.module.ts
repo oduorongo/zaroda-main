@@ -5964,7 +5964,7 @@ class PdfController {
       ['show_performance_levels', 'boolean DEFAULT true'], // EE/ME/AE/BE letter bands vs percentage-only
       ['show_points_total', 'boolean DEFAULT true'],        // "Performance-level total: X/Y" vs a plain average %
       ['show_marklist_levels', 'boolean DEFAULT true'],     // same EE/ME/AE/BE bands, but on the mark-list views
-      ['total_marks_out_of', 'integer'],                    // e.g. 500 → "Total marks: 412 / 500"; NULL = line hidden
+      ['show_total_marks', 'boolean DEFAULT false'],        // "Total marks: 432 / 600" (class's learning areas × 100)
       ['updated_at', 'timestamptz DEFAULT NOW()'],
     ] as [string, string][]) {
       await this.ds.query(`ALTER TABLE tenant_report_card_settings ADD COLUMN IF NOT EXISTS ${n} ${t}`).catch(() => null);
@@ -5989,35 +5989,26 @@ class PdfController {
     await this.ensureReportCardSettingsTable();
     const rows = await this.ds.query(
       `SELECT show_performance_levels AS "showPerformanceLevels", show_points_total AS "showPointsTotal",
-              show_marklist_levels AS "showMarklistLevels", total_marks_out_of AS "totalMarksOutOf"
+              show_marklist_levels AS "showMarklistLevels", show_total_marks AS "showTotalMarks"
          FROM tenant_report_card_settings WHERE tenant_id::text = $1`,
       [req.user.tenantId],
     ).catch(() => []);
-    return rows[0] || { showPerformanceLevels: true, showPointsTotal: true, showMarklistLevels: true, totalMarksOutOf: null };
+    return rows[0] || { showPerformanceLevels: true, showPointsTotal: true, showMarklistLevels: true, showTotalMarks: false };
   }
 
   @Post('report-card-settings')
-  async setReportCardSettings(@Request() req: any, @Body() dto: { showPerformanceLevels?: boolean; showPointsTotal?: boolean; showMarklistLevels?: boolean; totalMarksOutOf?: number | string | null }) {
+  async setReportCardSettings(@Request() req: any, @Body() dto: { showPerformanceLevels?: boolean; showPointsTotal?: boolean; showMarklistLevels?: boolean; showTotalMarks?: boolean }) {
     if (!['hoi', 'dhois', 'tenant_owner', 'school_admin'].includes(req.user.role)) {
       throw new BadRequestException('Only the HOI or an administrator can change report card settings.');
     }
-    // Blank/0 turns the "Total marks" line off; anything else must be a whole positive number.
-    let totalMarksOutOf: number | null = null;
-    if (dto.totalMarksOutOf != null && dto.totalMarksOutOf !== '' && Number(dto.totalMarksOutOf) !== 0) {
-      const n = Number(dto.totalMarksOutOf);
-      if (!Number.isInteger(n) || n < 1 || n > 100000) {
-        throw new BadRequestException('Total marks must be a whole number between 1 and 100000.');
-      }
-      totalMarksOutOf = n;
-    }
     await this.ensureReportCardSettingsTable();
     await this.ds.query(
-      `INSERT INTO tenant_report_card_settings (tenant_id, show_performance_levels, show_points_total, show_marklist_levels, total_marks_out_of, updated_at)
+      `INSERT INTO tenant_report_card_settings (tenant_id, show_performance_levels, show_points_total, show_marklist_levels, show_total_marks, updated_at)
        VALUES ($1,$2,$3,$4,$5,NOW())
        ON CONFLICT (tenant_id) DO UPDATE SET
          show_performance_levels = $2, show_points_total = $3, show_marklist_levels = $4,
-         total_marks_out_of = $5, updated_at = NOW()`,
-      [req.user.tenantId, dto.showPerformanceLevels !== false, dto.showPointsTotal !== false, dto.showMarklistLevels !== false, totalMarksOutOf],
+         show_total_marks = $5, updated_at = NOW()`,
+      [req.user.tenantId, dto.showPerformanceLevels !== false, dto.showPointsTotal !== false, dto.showMarklistLevels !== false, dto.showTotalMarks === true],
     );
     return { saved: true };
   }
@@ -6838,7 +6829,7 @@ class PdfController {
     await this.ensureReportCardSettingsTable();
     const settingsRows = await this.ds.query(
       `SELECT show_performance_levels AS "showPerformanceLevels", show_points_total AS "showPointsTotal",
-              total_marks_out_of AS "totalMarksOutOf"
+              show_total_marks AS "showTotalMarks"
          FROM tenant_report_card_settings WHERE tenant_id::text = $1`,
       [tenantId],
     ).catch(() => []);
@@ -6932,6 +6923,10 @@ class PdfController {
 
     const showLevels = rcSettings.showPerformanceLevels !== false;
     let totalPoints = 0; const maxPoints = areaNames.length * (senior ? 8 : 4);
+    // Total marks: each of the CLASS's learning areas is out of 100 (its term average %),
+    // so a 6-area class totals out of 600 and an 8-area class out of 800. An area with no
+    // marks yet adds 0 rather than shrinking the "out of" for this one learner.
+    let totalMarks = 0; const maxMarks = (rubricAreas.length || areaNames.length) * 100;
     const body = areaNames.map((area: string) => {
       const cells = cols.map((c: any) => {
         const p = byArea[area][c.id];
@@ -6940,7 +6935,7 @@ class PdfController {
       // Average across this area's assessments for the term column + points.
       const vals = Object.values(byArea[area]);
       const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
-      totalPoints += pts(avg);
+      totalPoints += pts(avg); totalMarks += avg;
       return `<tr><td>${esc(area)}</td>${cells}<td class="c"><b>${avg}%${showLevels ? ` ${lvl(avg)}` : ''}</b></td></tr>`;
     }).join('');
     const headCols = cols.map((c: any) => `<th class="c">${esc(c.name)}</th>`).join('');
@@ -6953,16 +6948,11 @@ class PdfController {
       const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
       return { area, level: lvl(avg) };
     });
-    const overallAvgExact = areaNames.length
-      ? areaNames.reduce((s, area) => {
+    const overallAvg = areaNames.length
+      ? Math.round(areaNames.reduce((s, area) => {
           const vals = Object.values(byArea[area]); return s + (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0);
-        }, 0) / areaNames.length
+        }, 0) / areaNames.length)
       : 0;
-    const overallAvg = Math.round(overallAvgExact);
-    // School-set "Total marks out of" (Report Card Settings): every learning area carries an
-    // equal share of it, so the learner's total is their overall term average on that scale.
-    const totalMarksOutOf = Number(rcSettings.totalMarksOutOf) || 0;
-    const totalMarks = Math.round((overallAvgExact / 100) * totalMarksOutOf);
     const overallFam = lvl(overallAvg).replace(/[0-9]/g, '').slice(0, 2) || 'BE';
     const strong = areaLevels.filter(a => a.level.startsWith('EE')).map(a => a.area);
     const meeting = areaLevels.filter(a => a.level.startsWith('ME')).map(a => a.area);
@@ -7058,8 +7048,7 @@ class PdfController {
           rcSettings.showPointsTotal !== false
             ? `Performance-level total: ${totalPoints} / ${maxPoints} (${areaNames.length} learning areas)`
             : `Term Average: ${overallAvg}% (${areaNames.length} learning areas)`
-        }</p>` : ''}
-        ${areaNames.length && totalMarksOutOf > 0 ? `<p class="rc-total">Total marks: ${totalMarks} / ${totalMarksOutOf}</p>` : ''}
+        }${rcSettings.showTotalMarks === true ? ` &nbsp;·&nbsp; Total marks: ${totalMarks} / ${maxMarks}` : ''}</p>` : ''}
         ${areaNames.length ? `
         <div class="rc-comment">
           <div class="rc-comment-label">Class Teacher's Remark</div>
