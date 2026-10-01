@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Calculator, User, BookOpen, Download, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { percentToLevel, learningAreasFor, levelsFor, isSeniorScale } from '@/lib/cbc/constants';
+import { percentToLevel, learningAreasFor, levelsFor, isSeniorScale, matchLearningArea } from '@/lib/cbc/constants';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import toast from 'react-hot-toast';
 
@@ -151,14 +151,18 @@ export default function AdminEnterMarksPage() {
   useEffect(() => { loadExisting(); /* eslint-disable-next-line */ }, [streamId, term, examId]);
 
   // Pre-fill boxes from saved marks when area/learner/mode changes — paper subjects reload
-  // Paper 1 / Paper 2 (and each one's "out of") into their own boxes.
+  // Paper 1 / Paper 2 (and each one's "out of") into their own boxes. Saved subject names
+  // are resolved to this page's area names the same tolerant way the mark list does: the
+  // backend stores e.g. "Creative Arts Activities" as "Creative Arts", so an exact-name
+  // match left saved marks invisible here even though the mark list showed them.
+  const isSavedArea = (saved: string, a: string) => matchLearningArea(saved, areas) === a;
   useEffect(() => {
     if (mode !== 'area' || !area) return;
     if (hasPapers(area)) {
       const p1: Record<string, string> = {}; const p2: Record<string, string> = {};
       let maxP1 = ''; let maxP2 = '';
       for (const [lid, subs] of Object.entries(savedPaperMap)) {
-        const key = Object.keys(subs).find(s => s === area.toLowerCase());
+        const key = Object.keys(subs).find(s => isSavedArea(s, area));
         if (!key) continue;
         const entry = subs[key];
         if (entry.p1) { p1[lid] = entry.p1.raw; if (!maxP1) maxP1 = entry.p1.max; }
@@ -169,12 +173,12 @@ export default function AdminEnterMarksPage() {
     } else {
       const next: Record<string, string> = {};
       for (const [lid, subs] of Object.entries(savedMap)) {
-        const hit = Object.entries(subs).find(([s]) => s.toLowerCase() === area.toLowerCase());
+        const hit = Object.entries(subs).find(([s]) => isSavedArea(s, area));
         if (hit) next[lid] = hit[1];
       }
       setAreaScores(next); setAreaScoresP2({});
     }
-  }, [savedMap, savedPaperMap, area, mode, paperConfig]);
+  }, [savedMap, savedPaperMap, area, mode, paperConfig, areas]);
 
   useEffect(() => {
     if (mode !== 'learner' || !learnerId) return;
@@ -184,13 +188,13 @@ export default function AdminEnterMarksPage() {
     const lpm: Record<string, { p1: string; p2: string }> = {};
     for (const a of areas) {
       if (hasPapers(a)) {
-        const key = Object.keys(paperSaved).find(s => s === a.toLowerCase());
+        const key = Object.keys(paperSaved).find(s => isSavedArea(s, a));
         const entry = key ? paperSaved[key] : undefined;
         if (entry?.p1) ls[a] = entry.p1.raw;
         if (entry?.p2) ls2[a] = entry.p2.raw;
         lpm[a] = { p1: entry?.p1?.max || '', p2: entry?.p2?.max || '' };
       } else {
-        const hit = Object.entries(flatSaved).find(([s]) => s.toLowerCase() === a.toLowerCase());
+        const hit = Object.entries(flatSaved).find(([s]) => isSavedArea(s, a));
         if (hit) ls[a] = hit[1];
       }
     }
