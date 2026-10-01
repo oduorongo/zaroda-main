@@ -14,12 +14,17 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
+type Settings = { showPerformanceLevels: boolean; showPointsTotal: boolean; showMarklistLevels: boolean; totalMarksOutOf: string };
+
 export default function ReportCardSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPerformanceLevels, setShowPerformanceLevels] = useState(true);
   const [showPointsTotal, setShowPointsTotal] = useState(true);
   const [showMarklistLevels, setShowMarklistLevels] = useState(true);
+  // "Total marks out of" — blank means the report card doesn't show a total-marks line.
+  const [totalMarksOutOf, setTotalMarksOutOf] = useState('');
+  const [savedTotalMarksOutOf, setSavedTotalMarksOutOf] = useState('');
 
   useEffect(() => {
     apiClient.get('/pdf/report-card-settings')
@@ -27,19 +32,29 @@ export default function ReportCardSettingsPage() {
         setShowPerformanceLevels(r.data?.showPerformanceLevels !== false);
         setShowPointsTotal(r.data?.showPointsTotal !== false);
         setShowMarklistLevels(r.data?.showMarklistLevels !== false);
+        const t = r.data?.totalMarksOutOf ? String(r.data.totalMarksOutOf) : '';
+        setTotalMarksOutOf(t); setSavedTotalMarksOutOf(t);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const save = async (next: { showPerformanceLevels: boolean; showPointsTotal: boolean; showMarklistLevels: boolean }) => {
+  // Always sends every setting (the backend overwrites the whole row), with `change` applied
+  // on top of what's currently on screen.
+  const save = async (change: Partial<Settings>) => {
+    const next: Settings = {
+      showPerformanceLevels, showPointsTotal, showMarklistLevels, totalMarksOutOf: savedTotalMarksOutOf, ...change,
+    };
     setSaving(true);
     try {
-      await apiClient.post('/pdf/report-card-settings', next);
+      await apiClient.post('/pdf/report-card-settings', { ...next, totalMarksOutOf: next.totalMarksOutOf.trim() || null });
+      setSavedTotalMarksOutOf(next.totalMarksOutOf.trim());
       toast.success('Saved');
     } catch (err: any) { toast.error(err?.response?.data?.message || 'Could not save'); }
     finally { setSaving(false); }
   };
+
+  const totalDirty = totalMarksOutOf.trim() !== savedTotalMarksOutOf;
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -61,7 +76,7 @@ export default function ReportCardSettingsPage() {
               <p className="text-xs text-theme-muted mt-1">EE/ME/AE/BE (or EE1–BE2 for Grade 7–12) next to each percentage. Turn off to show percentages only.</p>
             </div>
             <Toggle checked={showPerformanceLevels} disabled={saving}
-              onChange={() => { const next = !showPerformanceLevels; setShowPerformanceLevels(next); save({ showPerformanceLevels: next, showPointsTotal, showMarklistLevels }); }}/>
+              onChange={() => { const next = !showPerformanceLevels; setShowPerformanceLevels(next); save({ showPerformanceLevels: next }); }}/>
           </div>
           <div className="card p-5 flex items-center justify-between gap-3">
             <div>
@@ -69,7 +84,28 @@ export default function ReportCardSettingsPage() {
               <p className="text-xs text-theme-muted mt-1">"Performance-level total: X / Y" at the bottom of the report card. Turn off to show a plain "Term Average: Z%" instead.</p>
             </div>
             <Toggle checked={showPointsTotal} disabled={saving}
-              onChange={() => { const next = !showPointsTotal; setShowPointsTotal(next); save({ showPerformanceLevels, showPointsTotal: next, showMarklistLevels }); }}/>
+              onChange={() => { const next = !showPointsTotal; setShowPointsTotal(next); save({ showPointsTotal: next }); }}/>
+          </div>
+          <div className="card p-5 space-y-3">
+            <div>
+              <div className="font-semibold text-theme-heading text-sm">Total marks out of</div>
+              <p className="text-xs text-theme-muted mt-1">
+                Adds "Total marks: X / {totalMarksOutOf.trim() || 'Y'}" to the report card. Each learning area carries an equal share,
+                so a learner averaging 80% gets 80% of this total. Leave blank to hide the line.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" inputMode="numeric" min={1} step={1} value={totalMarksOutOf}
+                onChange={e => setTotalMarksOutOf(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && totalDirty) save({ totalMarksOutOf }); }}
+                placeholder="e.g. 500"
+                className="input w-32 font-bold"
+              />
+              <button type="button" onClick={() => save({ totalMarksOutOf })} disabled={saving || !totalDirty} className="btn-primary">
+                {saving ? <Loader2 className="animate-spin" size={14}/> : null} Save
+              </button>
+            </div>
           </div>
           <div className="card p-5 flex items-center justify-between gap-3">
             <div>
@@ -77,7 +113,7 @@ export default function ReportCardSettingsPage() {
               <p className="text-xs text-theme-muted mt-1">EE/ME/AE/BE bands next to scores on the mark-list views. Turn off to show percentage scores only.</p>
             </div>
             <Toggle checked={showMarklistLevels} disabled={saving}
-              onChange={() => { const next = !showMarklistLevels; setShowMarklistLevels(next); save({ showPerformanceLevels, showPointsTotal, showMarklistLevels: next }); }}/>
+              onChange={() => { const next = !showMarklistLevels; setShowMarklistLevels(next); save({ showMarklistLevels: next }); }}/>
           </div>
           <p className="text-xs text-theme-muted bg-surface-2/60 rounded-lg px-3 py-2">
             To write your own class teacher / HOI remark instead of the auto-generated one, open a learner's report card from Report Card (teacher view) and use "Edit Remarks" there — it's per learner, per term.
