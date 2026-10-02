@@ -9,7 +9,7 @@ import {
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
   Bus, BookMarked, ExternalLink, ShieldCheck, Receipt, KeyRound,
 } from 'lucide-react';
-import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan } from '@/lib/hooks/useAuth';
+import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan, homePathForRole } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 import { useTheme } from '@/lib/hooks/useTheme';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -125,6 +125,14 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   // Fee collection is a class-teacher-only override (see settings/class-teacher-override) —
   // subject teachers with no class of their own have no reason to be here.
   const isClassTeacher = ['class_teacher', 'overall_class_teacher'].includes(user?.role || '');
+  // Parents and learners only ever use their own portal pages — anything else under
+  // /dashboard is staff territory (the API refuses them there too).
+  const FAMILY_ALLOWED: Record<string, string[]> = {
+    parent:  ['/dashboard/parent', '/dashboard/communication', '/dashboard/senior-selection', '/dashboard/help'],
+    learner: ['/dashboard/learner', '/dashboard/help'],
+  };
+  const familyRole = isParent(user?.role || '') || isLearner(user?.role || '');
+  const familyAllowedHere = (FAMILY_ALLOWED[user?.role || ''] || []).some(p => pathname.startsWith(p));
   const teacherAllowedHere = TEACHER_ALLOWED.some(p => pathname.startsWith(p))
     || (isClassTeacher && pathname.startsWith('/dashboard/finance/payments'));
 
@@ -134,7 +142,8 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
     if (user.mustChangePassword) { router.replace('/auth/change-password'); return; }
     if (user.role === 'super_admin') { router.replace('/owner'); return; }
     if (isTeacher(user.role) && !teacherAllowedHere) router.replace('/teacher');
-  }, [user, ready, router, teacherAllowedHere]);
+    if (familyRole && !familyAllowedHere) router.replace(homePathForRole(user.role));
+  }, [user, ready, router, teacherAllowedHere, familyRole, familyAllowedHere]);
 
   if (!ready) return null;
   if (!user) return null;
@@ -218,9 +227,11 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         <Link href="/dashboard/help" onClick={() => setSidebarOpen(false)} className="nav-item">
           <HelpCircle size={18}/> <span>Help & Guide</span>
         </Link>
-        <Link href="/dashboard/settings" onClick={() => setSidebarOpen(false)} className="nav-item">
-          <Settings size={18}/> <span>Settings</span>
-        </Link>
+        {!familyRole && (
+          <Link href="/dashboard/settings" onClick={() => setSidebarOpen(false)} className="nav-item">
+            <Settings size={18}/> <span>Settings</span>
+          </Link>
+        )}
         <a href="https://zarodabooks.com" target="_blank" rel="noopener noreferrer" className="nav-item">
           <BookMarked size={18}/> <span className="flex-1">Zaroda Books</span>
           <ExternalLink size={13} className="text-white/40"/>
