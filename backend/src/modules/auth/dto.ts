@@ -44,6 +44,11 @@ export class LoginDto {
   @IsString() password: string;
 }
 
+export class ChangePasswordDto {
+  @IsString() currentPassword: string;
+  @IsString() @MinLength(8, { message: 'New password must be at least 8 characters.' }) newPassword: string;
+}
+
 // Converting an existing individual (Professional Records) account into a real
 // school account. Identity fields — email, password, name — come from the
 // authenticated user, so this carries only the school details that signup asks

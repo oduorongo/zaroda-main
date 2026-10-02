@@ -8,7 +8,59 @@
 // every raw response/callback body is kept by the caller for the DB record, so real
 // payloads can be inspected and this tightened once live traffic is flowing.
 
+import { safeEqual } from './security';
+
 const TUMA_BASE = 'https://api.tuma.co.ke';
+
+// Exact, case-insensitive matches only: a pattern test such as /success|completed/
+// would also accept 'unsuccessful' or 'not completed'.
+const SUCCESS_STATUSES = ['success', 'successful', 'completed'];
+export function isSuccessStatus(status: any): boolean {
+  return SUCCESS_STATUSES.includes(String(status ?? '').trim().toLowerCase());
+}
+
+// ── Callback authentication ─────────────────────────────────
+// Every payment callback URL we hand to Tuma or Daraja carries ?token=CALLBACK_SECRET.
+// A callback without it is not from the gateway we called, so it is ignored. Even a
+// callback with it only prompts a re-check with the gateway (see confirmTumaPayment
+// and the Daraja STK query) — the callback body itself never settles a payment.
+export function withCallbackToken(url: string): string {
+  const secret = process.env.CALLBACK_SECRET || '';
+  return secret ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(secret)}` : url;
+}
+
+export function callbackTokenValid(token: any): boolean {
+  const secret = process.env.CALLBACK_SECRET || '';
+  return !!secret && !!token && safeEqual(String(token), secret);
+}
+
+/** Differ by more than rounding: the gateway reported a different sum than we asked for. */
+export function amountMismatch(expected: any, reported: any): boolean {
+  if (reported === undefined || reported === null || reported === '') return false;
+  const r = Number(reported);
+  return !Number.isFinite(r) || Math.abs(r - Number(expected)) > 0.009;
+}
+
+export interface TumaConfirmation {
+  outcome: 'paid' | 'review' | 'unconfirmed';
+  mpesaReceipt?: string;
+  raw?: any;
+  detail?: string;
+}
+
+/** Ask Tuma whether this payment really succeeded, for the amount we stored when the
+ *  push was created. Only 'paid' may settle anything; 'review' means Tuma reports a
+ *  success for a different amount, which a person has to look at. */
+export async function confirmTumaPayment(merchantRequestId: string, expectedAmount: number, creds?: TumaCreds): Promise<TumaConfirmation> {
+  const result = await checkPaymentStatus(merchantRequestId, creds);
+  if (!result.ok || !isSuccessStatus(result.status)) {
+    return { outcome: 'unconfirmed', raw: result.raw, detail: result.detail || `Tuma status: ${result.status ?? 'unknown'}` };
+  }
+  if (amountMismatch(expectedAmount, result.amount)) {
+    return { outcome: 'review', mpesaReceipt: result.mpesaReceipt, raw: result.raw, detail: `Tuma reported KES ${result.amount}, expected KES ${expectedAmount}` };
+  }
+  return { outcome: 'paid', mpesaReceipt: result.mpesaReceipt, raw: result.raw };
+}
 
 export interface TumaCreds { email: string; apiKey: string; }
 
@@ -120,6 +172,7 @@ export interface PaymentStatusResult {
   ok: boolean;
   status?: string;
   mpesaReceipt?: string;
+  amount?: number;
   raw?: any;
   detail?: string;
 }
@@ -135,9 +188,11 @@ export async function checkPaymentStatus(merchantRequestId: string, creds?: Tuma
     const data: any = await resp.json().catch(() => ({}));
     if (!resp.ok) return { ok: false, raw: data, detail: `Tuma status check failed (${resp.status}): ${JSON.stringify(data).slice(0, 300)}` };
 
-    const status = data.status || data.Status || data.result_desc || data.ResultDesc;
-    const mpesaReceipt = data.mpesa_receipt || data.MpesaReceiptNumber || data.receipt_number;
-    return { ok: true, status, mpesaReceipt, raw: data };
+    const status = data.status || data.Status || data.result_desc || data.ResultDesc || data.data?.status;
+    const mpesaReceipt = data.mpesa_receipt || data.MpesaReceiptNumber || data.receipt_number || data.data?.mpesa_receipt;
+    const rawAmount = data.amount ?? data.Amount ?? data.data?.amount ?? data.data?.Amount;
+    const amount = rawAmount === undefined || rawAmount === null || rawAmount === '' ? undefined : Number(rawAmount);
+    return { ok: true, status, mpesaReceipt, amount, raw: data };
   } catch (err: any) {
     return { ok: false, detail: err?.message || 'Tuma status check failed.' };
   }
@@ -149,8 +204,8 @@ export function parseTumaCallback(body: any): { merchantRequestId?: string; succ
   const merchantRequestId = body?.merchant_request_id || body?.MerchantRequestID
     || body?.data?.merchant_request_id || body?.data?.MerchantRequestID;
   const resultCode = body?.result_code ?? body?.ResultCode ?? body?.data?.result_code ?? body?.data?.ResultCode;
-  const status = String(body?.status || body?.Status || body?.data?.status || '').toLowerCase();
-  const success = resultCode === 0 || resultCode === '0' || status === 'success' || status === 'completed';
+  const status = body?.status || body?.Status || body?.data?.status || '';
+  const success = resultCode === 0 || resultCode === '0' || isSuccessStatus(status);
   const mpesaReceipt = body?.mpesa_receipt || body?.MpesaReceiptNumber || body?.receipt_number || body?.data?.mpesa_receipt;
   return { merchantRequestId, success, mpesaReceipt };
 }

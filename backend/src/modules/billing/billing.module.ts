@@ -15,13 +15,14 @@
 // ============================================================
 
 import {
-  Module, Controller, Get, Post, Param, Body, Injectable,
+  Module, Controller, Get, Post, Param, Query, Body, Injectable,
   Request, Res, UseGuards, ForbiddenException, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../../common/tuma';
+import { SchoolOnly } from '../../common/decorators/access.decorator';
+import { initiateStkPush, parseTumaCallback, normalisePhoneForTuma, withCallbackToken, callbackTokenValid, confirmTumaPayment } from '../../common/tuma';
 import { sendEmail } from '../../common/messaging';
 import {
   PRICE_PRIMARY_JS, PRICE_SENIOR, PRICE_PRO_PLAN, GRACE_DAYS, DUE_SOON_DAYS,
@@ -44,7 +45,7 @@ const isTumaTestTenant = (tenantId: string) => TUMA_TEST_TENANT_IDS.includes(Str
 // known to reach: APP_URL is the frontend, which forwards /api/v1 to this backend.
 function callbackUrl(): string {
   const base = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || process.env.BACKEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
-  return `${base}/api/v1/billing/subscription/callback`;
+  return withCallbackToken(`${base}/api/v1/billing/subscription/callback`);
 }
 
 function appUrl(): string {
@@ -77,6 +78,7 @@ async function schoolAdmin(ds: DataSource, tenantId: string): Promise<{ email: s
 }
 
 @Controller('billing/subscription')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 export class SubscriptionController {
   constructor(private readonly ds: DataSource) {}
@@ -166,7 +168,7 @@ export class SubscriptionController {
            (tenant_id, amount, phone, status, description, streams_primary_js, streams_senior, raw_response, initiated_by)
          VALUES ($1,$2,$3,'failed',$4,$5,$6,$7,$8)`,
         [tenantId, amount, phone, `${description} — refused: ${result.detail || 'no detail'}`,
-         primaryJs, senior, JSON.stringify({ response: result.raw || null, detail: result.detail || null, callbackUrl: callbackUrl() }), req.user.id],
+         primaryJs, senior, JSON.stringify({ response: result.raw || null, detail: result.detail || null }), req.user.id],
       ).catch(() => null);
       throw new BadRequestException(result.detail || 'Could not start the M-Pesa payment. Try again.');
     }
@@ -201,7 +203,7 @@ export class SubscriptionController {
       message: isTest
         ? `Tuma test: STK push for KES 1 (${TUMA_TEST_ITEM}) sent. Enter the M-Pesa PIN to complete it.`
         : 'STK push sent. Ask the person at that phone to enter their M-Pesa PIN.',
-      paymentId, merchantRequestId: result.merchantRequestId, amount,
+      paymentId, amount,
     };
   }
 
@@ -217,14 +219,12 @@ export class SubscriptionController {
     ).catch(() => []);
     if (!rows.length) throw new NotFoundException('Payment not found.');
     const payment = rows[0];
-    if (payment.status === 'success' || !payment.merchant_request_id) return { status: payment.status };
+    if (payment.status === 'success' || payment.status === 'review' || !payment.merchant_request_id) return { status: payment.status };
 
-    const result = await checkPaymentStatus(payment.merchant_request_id);
-    if (result.ok && result.status && /success|completed/i.test(result.status)) {
-      await markPaidStatic(this.ds, payment.id, payment.tenant_id, result.mpesaReceipt, result.raw);
-      return { status: 'success' };
-    }
-    return { status: payment.status, detail: result.detail };
+    const outcome = await settleSubscriptionPayment(this.ds, payment);
+    if (outcome.outcome === 'paid') return { status: 'success' };
+    if (outcome.outcome === 'review') return { status: 'review' };
+    return { status: payment.status, detail: outcome.detail };
   }
 
   @Get('receipts')
@@ -298,7 +298,11 @@ export class SubscriptionWebhookController {
   constructor(private readonly ds: DataSource) {}
 
   @Post('callback')
-  async callback(@Body() body: any) {
+  async callback(@Query('token') token: string, @Body() body: any) {
+    if (!callbackTokenValid(token)) {
+      console.warn('[billing] ignored subscription callback without a valid token:', JSON.stringify(body).slice(0, 300));
+      return { received: true };
+    }
     await ensureBillingTables(this.ds);
     const parsed = parseTumaCallback(body);
     if (!parsed.merchantRequestId) {
@@ -306,7 +310,7 @@ export class SubscriptionWebhookController {
       return { received: true };
     }
     const rows = await this.ds.query(
-      `SELECT id, tenant_id FROM subscription_payments WHERE merchant_request_id = $1 LIMIT 1`,
+      `SELECT id, tenant_id, amount, merchant_request_id FROM subscription_payments WHERE merchant_request_id = $1 LIMIT 1`,
       [parsed.merchantRequestId],
     ).catch(() => []);
     if (!rows.length) {
@@ -314,7 +318,9 @@ export class SubscriptionWebhookController {
       return { received: true };
     }
     if (parsed.success) {
-      await markPaidStatic(this.ds, rows[0].id, rows[0].tenant_id, parsed.mpesaReceipt, body);
+      // The callback only prompts a check — Tuma itself must confirm the payment.
+      const outcome = await settleSubscriptionPayment(this.ds, rows[0]);
+      if (outcome.outcome === 'unconfirmed') console.warn(`[billing] callback success not confirmed by Tuma for payment ${rows[0].id}: ${outcome.detail}`);
     } else {
       await this.ds.query(
         `UPDATE subscription_payments SET status = 'failed', callback_raw = $2, updated_at = NOW()
@@ -328,6 +334,24 @@ export class SubscriptionWebhookController {
     }
     return { received: true };
   }
+}
+
+// Confirms a pending subscription payment with Tuma and settles it only if Tuma
+// reports success for the amount stored when the push was created. A success for a
+// different amount parks the payment as 'review' instead of settling it.
+async function settleSubscriptionPayment(ds: DataSource, payment: { id: string; tenant_id: string; amount: any; merchant_request_id: string }) {
+  const outcome = await confirmTumaPayment(payment.merchant_request_id, Number(payment.amount));
+  if (outcome.outcome === 'paid') {
+    await markPaidStatic(ds, payment.id, payment.tenant_id, outcome.mpesaReceipt, outcome.raw);
+  } else if (outcome.outcome === 'review') {
+    console.warn(`[billing] payment ${payment.id} needs review: ${outcome.detail}`);
+    await ds.query(
+      `UPDATE subscription_payments SET status = 'review', callback_raw = $2, updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'`,
+      [payment.id, JSON.stringify(outcome.raw || {})],
+    ).catch(() => null);
+  }
+  return outcome;
 }
 
 // Shared "mark paid" logic used by both the webhook and the status-poll fallback:
@@ -344,7 +368,7 @@ async function markPaidStatic(ds: DataSource, paymentId: string, tenantId: strin
     `UPDATE subscription_payments
         SET status = 'success', mpesa_receipt = $2, receipt_number = $3, callback_raw = $4,
             paid_at = NOW(), updated_at = NOW()
-      WHERE id = $1 AND status IS DISTINCT FROM 'success'
+      WHERE id = $1 AND status IS DISTINCT FROM 'success' AND status IS DISTINCT FROM 'review'
       RETURNING id, is_test AS "isTest"`,
     [paymentId, mpesaReceipt || null, receiptNumber, JSON.stringify(rawCallback || {})],
   ).catch(() => []);

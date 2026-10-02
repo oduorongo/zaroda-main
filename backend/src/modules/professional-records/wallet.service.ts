@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, DataSource } from 'typeorm';
 import { PrWallet, PrWalletTransaction } from './entities';
 import { User } from '../auth/entities/user.entity';
-import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../../common/tuma';
+import { initiateStkPush, parseTumaCallback, normalisePhoneForTuma, withCallbackToken, callbackTokenValid, confirmTumaPayment } from '../../common/tuma';
 
 // Referral reward: a teacher who refers another teacher gets this flat wallet
 // credit the first time the REFERRED teacher pays for a generation — not at
@@ -35,7 +35,7 @@ const ITEM_LABEL: Record<PrItemType, string> = {
 
 function callbackUrl(): string {
   const base = (process.env.APP_URL || '').replace(/\/$/, '');
-  return `${base}/api/v1/professional-records/mpesa/callback`;
+  return withCallbackToken(`${base}/api/v1/professional-records/mpesa/callback`);
 }
 
 @Injectable()
@@ -93,30 +93,59 @@ export class WalletService {
 
     return {
       transactionId: txn.id,
-      merchantRequestId: result.merchantRequestId,
       amount,
       message: `STK push sent to ${normalizedPhone}. Enter your M-Pesa PIN to top up KES ${amount}.`,
     };
   }
 
-  // Credits the wallet exactly once for a topup transaction, guarded by only
-  // crediting from 'pending' — the webhook and the poll-status fallback can
-  // both race to call this for the same transaction.
+  // Credits the wallet exactly once for a topup transaction. The webhook and the
+  // poll-status fallback can race for the same transaction, so the status flip
+  // from 'pending' is the claim — only the call that wins it moves money — and
+  // the balance is incremented in SQL rather than written back from a read.
   private async creditTopUp(txn: PrWalletTransaction, mpesaReceiptNumber?: string) {
     return this.dataSource.transaction(async (manager) => {
-      const txnRepo = manager.getRepository(PrWalletTransaction);
-      const fresh = await txnRepo.findOne({ where: { id: txn.id } });
-      if (!fresh || fresh.status !== 'pending') return; // already settled
+      const claimed = await manager.query(
+        `UPDATE pr_wallet_transactions SET status = 'paid', mpesa_receipt_number = $2, updated_at = NOW()
+          WHERE id = $1 AND status = 'pending' RETURNING tenant_id, teacher_id, amount`,
+        [txn.id, mpesaReceiptNumber || null],
+      );
+      const row = claimed[0];
+      if (!row) return; // already settled
 
-      const wallet = await this.findOrCreateWallet(fresh.tenantId, fresh.teacherId, manager);
-      const balanceAfter = Number(wallet.balance) + Number(fresh.amount);
-      await manager.getRepository(PrWallet).update(wallet.id, { balance: balanceAfter });
-      await txnRepo.update(fresh.id, { status: 'paid', mpesaReceiptNumber, balanceAfter });
+      await this.findOrCreateWallet(row.tenant_id, row.teacher_id, manager);
+      const credited = await manager.query(
+        `UPDATE pr_wallets SET balance = balance + $3, updated_at = NOW()
+          WHERE tenant_id = $1 AND teacher_id = $2 RETURNING balance`,
+        [row.tenant_id, row.teacher_id, row.amount],
+      );
+      await manager.query(
+        `UPDATE pr_wallet_transactions SET balance_after = $2 WHERE id = $1`, [txn.id, credited[0]?.balance ?? null],
+      );
     });
   }
 
+  // Confirms with Tuma (never the callback body) and credits the amount we stored
+  // when the push was created. A success for a different amount goes to 'review'.
+  private async confirmAndCredit(txn: PrWalletTransaction): Promise<'paid' | 'review' | 'unconfirmed'> {
+    const outcome = await confirmTumaPayment(txn.merchantRequestId, Number(txn.amount));
+    if (outcome.outcome === 'paid') {
+      await this.creditTopUp(txn, outcome.mpesaReceipt);
+    } else if (outcome.outcome === 'review') {
+      this.logger.warn(`Wallet top-up ${txn.id} needs review: ${outcome.detail}`);
+      await this.dataSource.query(
+        `UPDATE pr_wallet_transactions SET status = 'review', result_desc = $2, updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+        [txn.id, outcome.detail || null],
+      ).catch(() => null);
+    }
+    return outcome.outcome;
+  }
+
   // ── WEBHOOK (Tuma calls this — no auth) ───────────────────
-  async handleCallback(body: any): Promise<void> {
+  async handleCallback(body: any, token?: string): Promise<void> {
+    if (!callbackTokenValid(token)) {
+      this.logger.warn(`Ignored wallet callback without a valid token: ${JSON.stringify(body).slice(0, 300)}`);
+      return;
+    }
     const parsed = parseTumaCallback(body);
     if (!parsed.merchantRequestId) {
       this.logger.warn(`Tuma callback with no merchant_request_id: ${JSON.stringify(body).slice(0, 500)}`);
@@ -126,9 +155,9 @@ export class WalletService {
     if (!txn) return;
 
     if (parsed.success) {
-      await this.creditTopUp(txn, parsed.mpesaReceipt);
+      await this.confirmAndCredit(txn);
     } else {
-      await this.txnRepo.update(txn.id, { status: 'failed' });
+      await this.txnRepo.update({ id: txn.id, status: 'pending' }, { status: 'failed' });
     }
   }
 
@@ -141,11 +170,9 @@ export class WalletService {
       return { status: txn.status, transactionId: txn.id };
     }
 
-    const result = await checkPaymentStatus(txn.merchantRequestId);
-    if (result.ok && result.status && /success|completed/i.test(result.status)) {
-      await this.creditTopUp(txn, result.mpesaReceipt);
-      return { status: 'paid', transactionId: txn.id };
-    }
+    const outcome = await this.confirmAndCredit(txn);
+    if (outcome === 'paid') return { status: 'paid', transactionId: txn.id };
+    if (outcome === 'review') return { status: 'review', transactionId: txn.id };
     return { status: txn.status, transactionId: txn.id };
   }
 
@@ -244,6 +271,8 @@ export class WalletService {
       if (err?.code === '23505') return; // already credited for this referee
       throw err;
     }
-    await manager.getRepository(PrWallet).update(wallet.id, { balance: Number(wallet.balance) + REFERRAL_BONUS_KES });
+    // Incremented in SQL: the referrer's wallet is not locked here, so writing back
+    // a balance read earlier could undo a top-up credited in the meantime.
+    await manager.query(`UPDATE pr_wallets SET balance = balance + $2 WHERE id = $1`, [wallet.id, REFERRAL_BONUS_KES]);
   }
 }

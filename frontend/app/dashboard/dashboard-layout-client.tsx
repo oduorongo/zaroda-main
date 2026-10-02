@@ -7,7 +7,7 @@ import {
   Library, Settings, HelpCircle, LogOut, Share2,
   Menu, X, ChevronRight, Users,
   GraduationCap, Heart, Backpack, Sun, Moon, ArrowLeft, TrendingUp,
-  Bus, BookMarked, ExternalLink, ShieldCheck, Receipt,
+  Bus, BookMarked, ExternalLink, ShieldCheck, Receipt, KeyRound,
 } from 'lucide-react';
 import { useAuth, isHoi, isTeacher, isBursar, isParent, isLearner, isIndividualAccount, isProPlan } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -131,6 +131,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   useEffect(() => {
     if (!ready) return;
     if (!user) { router.push('/auth/login'); return; }
+    if (user.mustChangePassword) { router.replace('/auth/change-password'); return; }
     if (user.role === 'super_admin') { router.replace('/owner'); return; }
     if (isTeacher(user.role) && !teacherAllowedHere) router.replace('/teacher');
   }, [user, ready, router, teacherAllowedHere]);
@@ -227,6 +228,9 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
         <button onClick={() => { setShowShare(true); setSidebarOpen(false); }} className="nav-item w-full text-[#d4af37] hover:bg-white/10">
           <Share2 size={18}/> <span>Refer a School</span>
         </button>
+        <Link href="/auth/change-password" className="nav-item">
+          <KeyRound size={18}/> <span>Change password</span>
+        </Link>
         <button onClick={logout} className="nav-item w-full text-red-400/80 hover:text-red-400 hover:bg-red-500/10">
           <LogOut size={18}/> <span>Sign Out</span>
         </button>

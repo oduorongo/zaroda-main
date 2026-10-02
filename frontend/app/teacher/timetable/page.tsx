@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
+import { escapeHtml, safeImageSrc } from '@/lib/html';
 import { useAuth } from '@/lib/hooks/useAuth';
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
@@ -66,18 +67,18 @@ export default function MyTimetable() {
   }
 
   const teacherName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Teacher';
-  const esc = (s:any) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+  const esc = escapeHtml;
   const printMine = () => {
     if (!lessons.length) return;
-    const w = window.open('', '_blank');
+    const w = window.open('', '_blank'); if (w) w.opener = null;
     if (!w) return;
     let body = '';
     rows.forEach(row => {
       if (row.kind === 'fixed') {
         const lbl = row.label + (row.type==='ppi'?' · Friday only':'');
-        body += `<tr class="fixed"><td class="ph">${lbl}${row.time?`<br><small>${row.time}</small>`:''}</td><td colspan="${DAYS.length}">${lbl}</td></tr>`;
+        body += `<tr class="fixed"><td class="ph">${esc(lbl)}${row.time?`<br><small>${esc(row.time)}</small>`:''}</td><td colspan="${DAYS.length}">${esc(lbl)}</td></tr>`;
       } else {
-        body += `<tr><td class="ph">${row.label}${row.time?`<br><small>${row.time}</small>`:''}</td>` +
+        body += `<tr><td class="ph">${esc(row.label)}${row.time?`<br><small>${esc(row.time)}</small>`:''}</td>` +
           DAYS.map(day => {
             const l = grid[row.label]?.[day];
             return `<td>${l ? `<b>${esc(l.subject)}</b>${l.streamName?`<br><small>${esc(l.streamName)}</small>`:''}` : ''}</td>`;
@@ -94,7 +95,7 @@ export default function MyTimetable() {
       tr.fixed td{background:#f7f7f9;font-style:italic;color:#555}
     </style></head><body>
       <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:10px">
-        ${school.badgeBase64 ? `<img src="${school.badgeBase64}" style="width:60px;height:60px;object-fit:contain"/>` : ''}
+        ${safeImageSrc(school.badgeBase64) ? `<img src="${safeImageSrc(school.badgeBase64)}" style="width:60px;height:60px;object-fit:contain"/>` : ''}
         <div>
           <h1 style="margin:0">${esc(school.schoolName || 'School')}</h1>
           <h2 style="margin:2px 0">Personal Timetable — ${esc(teacherName)}</h2>

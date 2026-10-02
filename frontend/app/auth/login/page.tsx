@@ -21,7 +21,8 @@ export default function LoginPage() {
       await login(email, password);
       toast.success('Welcome back!');
       // Route by role — teachers get their own independent portal
-      router.push(homePathForRole(useAuth.getState().user?.role));
+      const signedIn = useAuth.getState().user;
+      router.push(signedIn?.mustChangePassword ? '/auth/change-password' : homePathForRole(signedIn?.role));
     } catch (err: any) {
       setError(err.message || 'Login failed');
     }

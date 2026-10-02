@@ -146,7 +146,7 @@ export default function MarkListPage() {
   const hasAreaMeans = subjects.some(s => areaMeans[s]?.mean != null);
 
   const printMarkList = async () => {
-    const win = window.open('', '_blank');
+    const win = window.open('', '_blank'); if (win) win.opener = null;
     try {
       const res = await apiClient.get('/pdf/mark-list/html', {
         params: { streamId, term, examType, examId, academicYear: '2025/2026' },
@@ -165,7 +165,7 @@ export default function MarkListPage() {
   // entered this term (Mid Term + End Term + CATs), the SAME basis the report card's Term
   // Average / Points total uses, so positions read here match what's on the report card.
   const printAverageMarkList = async () => {
-    const win = window.open('', '_blank');
+    const win = window.open('', '_blank'); if (win) win.opener = null;
     try {
       const res = await apiClient.get('/pdf/average-mark-list/html', {
         params: { streamId, term, academicYear: '2025/2026' },
@@ -185,7 +185,7 @@ export default function MarkListPage() {
   // Only meaningful (and only shown) when the grade has more than one stream.
   const streamsInGrade = streams.filter(s => s.gradeLevel === stream?.gradeLevel);
   const printGradeMarkList = async () => {
-    const win = window.open('', '_blank');
+    const win = window.open('', '_blank'); if (win) win.opener = null;
     try {
       const res = await apiClient.get('/pdf/grade-mark-list/html', {
         params: { gradeLevel: stream?.gradeLevel, term, examId, academicYear: '2025/2026' },

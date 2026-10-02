@@ -3,6 +3,7 @@ import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
 import { assertStreamsWritable } from '../../common/subscription';
 
 // ── Entities ───────────────────────────────────────────────
@@ -702,6 +703,7 @@ export class AssessmentService {
 
 // ── Controller ─────────────────────────────────────────────
 @Controller('assessment')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 export class AssessmentController {
   constructor(private svc: AssessmentService) {}
@@ -716,6 +718,7 @@ export class AssessmentController {
     return this.svc.getBook(req.user.tenantId, q.gradeLevel, q.learningArea, q.term);
   }
 
+  @AllowRoles('parent')
   @Get('child-rubric/:learnerId')
   getChildRubric(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
     return this.svc.getChildRubric(req.user.tenantId, req.user.email || '', learnerId, q.term || 'term_1');
@@ -738,6 +741,7 @@ export class AssessmentController {
 
   // Fire-and-forget click log — the frontend calls this the moment a video
   // link is opened, without waiting for the response.
+  @AllowRoles('parent')
   @Post('resource/click')
   logResourceClick(@Request() req: any, @Body() dto: any) {
     return this.svc.logResourceClick(req.user, dto.substrandId, dto.videoUrl, dto.learnerId);

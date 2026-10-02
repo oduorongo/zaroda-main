@@ -11,6 +11,8 @@ export interface AuthUserRow {
   schoolId: string | null;
   isActive: boolean;
   tokenVersion: number;
+  mustChangePassword: boolean;
+  accountType: string | null;
 }
 
 export const AUTH_CACHE_TTL_MS = 30_000;

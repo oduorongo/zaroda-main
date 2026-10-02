@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Building2, Activity, Megaphone, GraduationCap, ShieldCheck, LogOut, BookOpen, Menu, X, Sun, Moon, Receipt, Quote } from 'lucide-react';
+import { LayoutDashboard, Building2, Activity, Megaphone, GraduationCap, ShieldCheck, LogOut, BookOpen, Menu, X, Sun, Moon, Receipt, Quote, KeyRound } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { useTheme } from '@/lib/hooks/useTheme';
 
@@ -27,6 +27,7 @@ export default function OwnerLayoutClient({ children }: { children: React.ReactN
   const [open, setOpen] = useState(false);  // mobile drawer
 
   useEffect(() => {
+    if (user?.mustChangePassword) { router.replace('/auth/change-password'); return; }
     if (user && user.role !== 'super_admin') router.replace('/dashboard');
   }, [user, router]);
 
@@ -84,6 +85,10 @@ export default function OwnerLayoutClient({ children }: { children: React.ReactN
             {theme === 'dark' ? <Sun size={17}/> : <Moon size={17}/>}
             {theme === 'dark' ? 'Light mode' : 'Dark mode'}
           </button>
+          <Link href="/auth/change-password"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white">
+            <KeyRound size={17}/> Change password
+          </Link>
           <button onClick={logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white">
             <LogOut size={17}/> Sign out

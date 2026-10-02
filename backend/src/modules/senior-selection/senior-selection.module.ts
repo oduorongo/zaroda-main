@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
 
 const VIEW_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admin'];
 const PATHWAYS = [
@@ -22,6 +23,7 @@ const PATHWAYS = [
 ];
 
 @Controller('senior-selection')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 export class SeniorSelectionController {
   constructor(private readonly ds: DataSource) {}
@@ -68,6 +70,7 @@ export class SeniorSelectionController {
   }
 
   // ── PARENT: my Grade 9 children + any existing form ───────
+  @AllowRoles('parent')
   @Get('my-children')
   async myChildren(@Request() req: any) {
     await this.ensureTable();
@@ -126,6 +129,7 @@ export class SeniorSelectionController {
   }
 
   // ── PARENT: create/update a draft or submit ───────────────
+  @AllowRoles('parent')
   @Post(':learnerId')
   async upsert(@Request() req: any, @Param('learnerId') learnerId: string, @Body() dto: any) {
     if (req.user.role !== 'parent') {
@@ -367,6 +371,7 @@ export class SeniorSelectionController {
   }
 
   // ── TEACHER / ADMIN / owning PARENT: full form detail ─────
+  @AllowRoles('parent')
   @Get(':id')
   async detail(@Request() req: any, @Param('id') id: string) {
     await this.ensureTable();

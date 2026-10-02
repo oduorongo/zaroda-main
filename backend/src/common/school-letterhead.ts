@@ -1,4 +1,5 @@
 import { DataSource } from 'typeorm';
+import { safeImageSrc } from './security';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 
@@ -23,7 +24,7 @@ export async function schoolHeadInfo(ds: DataSource, tenantId: string): Promise<
  * the same heading. Styles are inline, so it renders the same in any document.
  */
 export function schoolLetterheadHtml(school: SchoolHeadInfo, subtitle: string): string {
-  const logo = school.logo ? `<img src="${esc(school.logo)}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+  const logo = safeImageSrc(school.logo) ? `<img src="${esc(safeImageSrc(school.logo))}" style="height:60px;width:auto;margin:0 auto 6px;display:block"/>` : '';
   const contacts = [school.address, school.phone, school.email].filter(Boolean).map(esc).join(' · ');
   return `<div class="rc-head" style="text-align:center;border-bottom:3px solid #d4af37;padding-bottom:8px;margin-bottom:12px">
       ${logo}

@@ -21,6 +21,7 @@ import { DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { SchoolOnly } from '../../common/decorators/access.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 
 // Categories a school may shorten. The statutory ones are seeded with
@@ -208,6 +209,7 @@ export class ComplianceService {
 }
 
 @Controller('compliance')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ComplianceController {
   constructor(private svc: ComplianceService) {}

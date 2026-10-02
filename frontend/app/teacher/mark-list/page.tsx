@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Save, Loader2, Trophy, ArrowLeft, Calculator, Download, Printer, Lock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api/client';
+import { escapeHtml } from '@/lib/html';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { percentToLevel, isSeniorScale, levelsFor, learningAreasFor, levelBandLabel, matchLearningArea, pointsForLevel } from '@/lib/cbc/constants';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
@@ -224,7 +225,7 @@ export default function TeacherMarkListPage() {
     } catch (e) {
       toast.dismiss(toastId);
       // Fallback: open the print page so the teacher can still Save-as-PDF.
-      const win = window.open('', '_blank');
+      const win = window.open('', '_blank'); if (win) win.opener = null;
       try {
         const res = await apiClient.get('/pdf/mark-list/html', {
           params: { streamId, term, examType, examId, academicYear: '2025/2026' }, responseType: 'text',
@@ -266,18 +267,18 @@ export default function TeacherMarkListPage() {
 
   // ── Print (opens print dialog with a clean table) ────────
   const print = () => {
-    const w = window.open('', '_blank');
+    const w = window.open('', '_blank'); if (w) w.opener = null;
     if (!w) { toast.error('Allow pop-ups to print'); return; }
     const rows = ranked.map((r: any) => `
       <tr>
         <td style="text-align:center">${r.hasScores ? r.rank : ''}</td>
-        <td>${r.learner.admissionNumber || ''}</td>
-        <td>${r.learner.firstName} ${r.learner.lastName}</td>
+        <td>${escapeHtml(r.learner.admissionNumber || '')}</td>
+        <td>${escapeHtml(r.learner.firstName)} ${escapeHtml(r.learner.lastName)}</td>
         ${subjects.map(s => { const p = r.subjectPct?.[s]; const lv = r.subjectLvl?.[s]; return `<td style="text-align:center">${p != null ? p + '% ' + (lv||'') : '-'}</td>`; }).join('')}
         <td style="text-align:center;font-weight:700">${r.hasScores ? r.percent + '%' : ''}</td>
         <td style="text-align:center;font-weight:700">${r.hasScores ? r.avgPoints.toFixed(1) + ' ' + r.avgLevel : ''}</td>
       </tr>`).join('');
-    w.document.write(`<!doctype html><html><head><title>Mark List — ${stream?.name || ''}</title>
+    w.document.write(`<!doctype html><html><head><title>Mark List — ${escapeHtml(stream?.name || '')}</title>
       <style>
         body{font-family:Arial,sans-serif;padding:24px;color:#1a2e5a}
         h2{margin:0 0 2px} p{margin:0 0 14px;color:#555;font-size:12px}
@@ -285,11 +286,11 @@ export default function TeacherMarkListPage() {
         th,td{border:1px solid #ccc;padding:4px 6px}
         th{background:#1a2e5a;color:#fff;font-size:10px}
       </style></head><body>
-      <h2>${stream?.name || 'Class'} — Mark List</h2>
+      <h2>${escapeHtml(stream?.name || 'Class')} — Mark List</h2>
       <p>${term.replace('_',' ')} · ${examType.replace('_',' ')} · ${academicYearLabel()}</p>
       <table><thead><tr>
         <th>#</th><th>Adm No</th><th>Learner</th>
-        ${subjects.map(s => `<th>${s}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
+        ${subjects.map(s => `<th>${escapeHtml(s)}</th>`).join('')}<th>Avg %</th><th>Points Avg (level)</th>
       </tr></thead><tbody>${rows}${hasAreaMeans ? `
         <!-- Mean/Position end the table in their own body, so they print once on the
              last page and the printer keeps the pair together. -->

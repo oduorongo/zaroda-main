@@ -350,7 +350,7 @@ export default function AdminEnterMarksPage() {
       const token = localStorage.getItem('zaroda_token');
       const url = `${(process.env.NEXT_PUBLIC_API_URL || base)}/api/v1/pdf/area-ranking/html?streamId=${streamId}&term=${term}&examId=${examId}&subject=${encodeURIComponent(area)}&academicYear=2025/2026`;
       fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.text())
-        .then(html => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } })
+        .then(html => { const w = window.open('', '_blank'); if (w) w.opener = null; if (w) { w.document.write(html); w.document.close(); } })
         .catch(() => toast.error('Could not generate PDF'));
     }
   };
@@ -525,7 +525,7 @@ export default function AdminEnterMarksPage() {
               const url = `${(process.env.NEXT_PUBLIC_API_URL || base)}/api/v1/pdf/area-ranking/html?streamId=${streamId}&term=${term}&examId=${examId}&subject=${encodeURIComponent(area)}&academicYear=2025/2026`;
               fetch(url, { headers: { Authorization: `Bearer ${token}` } })
                 .then(r => r.text())
-                .then(html => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } })
+                .then(html => { const w = window.open('', '_blank'); if (w) w.opener = null; if (w) { w.document.write(html); w.document.close(); } })
                 .catch(() => toast.error('Could not open ranking'));
             }}
             className="btn-ghost w-full justify-center">

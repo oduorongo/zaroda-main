@@ -30,6 +30,9 @@ export interface AppUser {
   // Whether this user's own phone is on record as having opted out of
   // promotional SMS with the telco — only meaningful to show to them.
   smsOptedOut?: boolean;
+  // Signed in with a temporary password from an admin — must choose their own
+  // (at /auth/change-password) before the API allows anything else.
+  mustChangePassword?: boolean;
 }
 
 interface AuthState {

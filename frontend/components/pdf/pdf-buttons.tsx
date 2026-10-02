@@ -90,7 +90,7 @@ export function usePdfDownload() {
     setDownloading(key);
     setError(null);
     // Open the window synchronously (inside the click) so the browser doesn't block the popup.
-    const win = window.open('', '_blank');
+    const win = window.open('', '_blank'); if (win) win.opener = null;
     try {
       const response = await apiClient.request({ url: endpoint, method: 'GET', responseType: 'text' });
       const html = typeof response.data === 'string' ? response.data : String(response.data);
@@ -436,7 +436,7 @@ export function SchemeButton({
       const html = typeof res.data === 'string' ? res.data : String(res.data);
       const blob = new Blob([html], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
-      const w = window.open(url, '_blank');
+      const w = window.open(url, '_blank'); if (w) w.opener = null;
       if (!w) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch { /* surfaced by interceptor */ }

@@ -10,7 +10,7 @@ import helmet             from 'helmet';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule }      from './app.module';
 import { AuthService }    from './modules/auth/auth.service';
-import { safeEqual, assertJwtSecretsConfigured } from './common/security';
+import { safeEqual, assertJwtSecretsConfigured, assertDataKeyConfigured } from './common/security';
 
 /**
  * Gate for the key-protected maintenance URLs registered in bootstrap().
@@ -254,6 +254,7 @@ async function runMigrations(app: any) {
 async function bootstrap() {
   // Fail fast with a clear message rather than signing tokens with a guessable key.
   assertJwtSecretsConfigured();
+  assertDataKeyConfigured();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'log'],

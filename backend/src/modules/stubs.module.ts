@@ -9,17 +9,18 @@ import { Module, Controller, Get, Post, Patch, Delete, Param, Query, Body, Reque
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { AllowRoles, SchoolOnly } from '../common/decorators/access.decorator';
 import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
 import { learningAreaMeanFooter } from './pdf/learning-area-means';
 import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/messaging';
-import { initiateStkPush, checkPaymentStatus, parseTumaCallback, normalisePhoneForTuma } from '../common/tuma';
+import { initiateStkPush, parseTumaCallback, normalisePhoneForTuma, withCallbackToken, callbackTokenValid, confirmTumaPayment, amountMismatch } from '../common/tuma';
 import { requireProPlan } from '../common/plan';
 import { feeStructureTableHtml } from '../common/fee-structure-table';
 import { schoolHeadInfo, schoolLetterheadHtml } from '../common/school-letterhead';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
 import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
-import { safeEqual, escapeHtml } from '../common/security';
+import { safeEqual, escapeHtml, encryptSecret, decryptSecret, generateTempPassword, safeImageSrc } from '../common/security';
 import { revokeSessions } from '../common/sessions';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
@@ -121,7 +122,11 @@ async function getMpesaSettingsRow(ds: DataSource, tenantId: string): Promise<an
        FROM tenant_mpesa_settings WHERE tenant_id::text = $1 LIMIT 1`,
     [tenantId],
   ).catch(() => []);
-  return rows[0] || null;
+  const row = rows[0];
+  if (!row) return null;
+  // Credentials are stored encrypted (see common/security.ts); older rows in plain text.
+  for (const k of ['consumerKey', 'consumerSecret', 'passkey', 'tumaApiKey']) row[k] = decryptSecret(row[k]);
+  return row;
 }
 
 async function getDarajaToken(environment: string, consumerKey: string, consumerSecret: string): Promise<string> {
@@ -134,6 +139,29 @@ async function getDarajaToken(environment: string, consumerKey: string, consumer
     throw new Error(`M-Pesa auth failed: ${JSON.stringify(data).slice(0, 200)}`);
   }
   return data.access_token;
+}
+
+/** Ask Safaricom (STK Push Query, with the school's own credentials) whether an
+ *  STK push really completed. ok only when Safaricom answers ResultCode 0. */
+async function queryDarajaStk(settings: any, checkoutRequestId: string): Promise<{ ok: boolean; detail?: string; raw?: any }> {
+  if (!checkoutRequestId || !settings?.shortcode || !settings.consumerKey || !settings.consumerSecret || !settings.passkey) {
+    return { ok: false, detail: 'missing checkout id or M-Pesa credentials' };
+  }
+  try {
+    const token = await getDarajaToken(settings.environment, settings.consumerKey, settings.consumerSecret);
+    const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
+    const password = Buffer.from(`${settings.shortcode}${settings.passkey}${timestamp}`).toString('base64');
+    const resp = await fetch(`${mpesaBaseUrl(settings.environment)}/mpesa/stkpushquery/v1/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ BusinessShortCode: settings.shortcode, Password: password, Timestamp: timestamp, CheckoutRequestID: checkoutRequestId }),
+    });
+    const data: any = await resp.json().catch(() => ({}));
+    const ok = resp.ok && String(data.ResultCode) === '0';
+    return { ok, raw: data, detail: ok ? undefined : (data.ResultDesc || data.errorMessage || `HTTP ${resp.status}`) };
+  } catch (e: any) {
+    return { ok: false, detail: e?.message || 'STK query failed' };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -162,6 +190,7 @@ class Invoice {
 // auto-reconciliation.
 @Injectable()
 @Controller('finance')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class FinanceController {
   constructor(
@@ -315,6 +344,7 @@ class FinanceController {
     return { enabled: !!dto?.enabled };
   }
 
+  @SchoolOnly(false)   // the teacher workspace reads this for every teacher
   @Get('settings/class-teacher-override')
   async getClassTeacherOverride(@Request() req: any) {
     await this.ensureClassTeacherOverrideColumn();
@@ -1527,6 +1557,7 @@ class FinanceController {
 
   // Parent-safe: a parent's OWN child's balance + payment history (read-only). Verifies the
   // learner's guardian_email matches the requesting parent's account email.
+  @AllowRoles('parent')
   @Get('payments/my-child/:learnerId')
   async parentChildFinance(@Request() req: any, @Param('learnerId') learnerId: string) {
     await this.ensurePaymentsTable();
@@ -2048,6 +2079,7 @@ const MPESA_STAFF_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin', 'burs
 const MPESA_ADMIN_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin'];
 
 @Controller('finance/mpesa')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class MpesaPaybillController {
   constructor(private readonly ds: DataSource, private readonly financeController: FinanceController) {}
@@ -2086,6 +2118,10 @@ class MpesaPaybillController {
     await ensureMpesaSettingsTable(this.ds);
     // COALESCE on the secret fields: leave a previously-saved key/secret/passkey in
     // place if the admin didn't retype it this time (the form never shows them back).
+    // Secrets are encrypted before they reach the table; one that was not retyped is
+    // re-encrypted from the saved value, so rows from before encryption get upgraded.
+    const saved = await getMpesaSettingsRow(this.ds, req.user.tenantId);
+    const secret = (typed: any, previous: any) => encryptSecret(typed || previous || '');
     await this.ds.query(
       `INSERT INTO tenant_mpesa_settings
          (tenant_id, shortcode, consumer_key, consumer_secret, passkey, environment, gateway, tuma_email, tuma_api_key, updated_at)
@@ -2100,8 +2136,9 @@ class MpesaPaybillController {
          tuma_email = EXCLUDED.tuma_email,
          tuma_api_key = COALESCE(NULLIF(EXCLUDED.tuma_api_key, ''), tenant_mpesa_settings.tuma_api_key),
          updated_at = NOW()`,
-      [req.user.tenantId, dto.shortcode || null, dto.consumerKey || '', dto.consumerSecret || '', dto.passkey || '',
-       dto.environment === 'sandbox' ? 'sandbox' : 'production', gateway, dto.tumaEmail || null, dto.tumaApiKey || ''],
+      [req.user.tenantId, dto.shortcode || null,
+       secret(dto.consumerKey, saved?.consumerKey), secret(dto.consumerSecret, saved?.consumerSecret), secret(dto.passkey, saved?.passkey),
+       dto.environment === 'sandbox' ? 'sandbox' : 'production', gateway, dto.tumaEmail || null, secret(dto.tumaApiKey, saved?.tumaApiKey)],
     );
     return { message: 'M-Pesa settings saved.' };
   }
@@ -2165,6 +2202,7 @@ class MpesaPaybillController {
   // Professional Records wallet. A parent may only trigger this for a
   // learner actually linked to their account (verified below); staff may
   // trigger it for anyone.
+  @AllowRoles('parent')
   @Post('stk-push')
   async stkPush(@Request() req: any, @Body() dto: { learnerId: string; phone: string; amount: number }) {
     const isParent = req.user.role === 'parent';
@@ -2203,20 +2241,22 @@ class MpesaPaybillController {
       const result = await initiateStkPush({
         amount, phone,
         description: `School fees${learner ? ` — ${learner.firstName} ${learner.lastName}` : ''}`.slice(0, 100),
-        callbackUrl: `${base}/api/v1/finance/mpesa/tuma-callback`,
+        callbackUrl: withCallbackToken(`${base}/api/v1/finance/mpesa/tuma-callback`),
         creds: { email: settings.tumaEmail, apiKey: settings.tumaApiKey },
       });
       if (!result.ok || !result.merchantRequestId) {
         throw new BadRequestException(result.detail || 'Could not send the M-Pesa prompt.');
       }
       await ensureMpesaTransactionsTable(this.ds);
-      await this.ds.query(
+      const created = await this.ds.query(
         `INSERT INTO mpesa_transactions
            (tenant_id, type, merchant_request_id, phone, amount, account_reference, learner_id, status, created_at)
-         VALUES ($1,'tuma_stk',$2,$3,$4,$5,$6,'pending',NOW())`,
+         VALUES ($1,'tuma_stk',$2,$3,$4,$5,$6,'pending',NOW()) RETURNING id`,
         [tenantId, result.merchantRequestId, phone, amount, accountRef, dto.learnerId],
       );
-      return { merchantRequestId: result.merchantRequestId, message: `STK push sent to ${phone}. Ask the parent to enter their M-Pesa PIN.` };
+      // Only our own id goes back to the browser — the gateway's request id is what
+      // a forged callback would need, so it never leaves the server.
+      return { transactionId: created[0]?.id, message: `STK push sent to ${phone}. Ask the parent to enter their M-Pesa PIN.` };
     }
 
     // ── Daraja (direct Safaricom Paybill) ──
@@ -2246,7 +2286,7 @@ class MpesaPaybillController {
           PartyA: phone,
           PartyB: settings.shortcode,
           PhoneNumber: phone,
-          CallBackURL: `${base}/api/v1/finance/mpesa/stk-callback`,
+          CallBackURL: withCallbackToken(`${base}/api/v1/finance/mpesa/stk-callback`),
           AccountReference: accountRef,
           TransactionDesc: `School fees${learner ? ` — ${learner.firstName} ${learner.lastName}` : ''}`.slice(0, 100),
         }),
@@ -2260,14 +2300,14 @@ class MpesaPaybillController {
     }
 
     await ensureMpesaTransactionsTable(this.ds);
-    await this.ds.query(
+    const created = await this.ds.query(
       `INSERT INTO mpesa_transactions
          (tenant_id, type, checkout_request_id, merchant_request_id, phone, amount, account_reference, learner_id, status, created_at)
-       VALUES ($1,'stk',$2,$3,$4,$5,$6,$7,'pending',NOW())`,
+       VALUES ($1,'stk',$2,$3,$4,$5,$6,$7,'pending',NOW()) RETURNING id`,
       [tenantId, data.CheckoutRequestID, data.MerchantRequestID, phone, amount, accountRef, dto.learnerId],
     );
 
-    return { checkoutRequestId: data.CheckoutRequestID, message: `STK push sent to ${phone}. Ask the parent to enter their M-Pesa PIN.` };
+    return { transactionId: created[0]?.id, message: `STK push sent to ${phone}. Ask the parent to enter their M-Pesa PIN.` };
   }
 
   @Get('transactions')
@@ -2291,8 +2331,8 @@ class MpesaPaybillController {
     await ensureMpesaTransactionsTable(this.ds);
     return this.ds.query(
       `SELECT id, type, phone, amount, account_reference AS "accountReference",
-              mpesa_receipt_number AS "mpesaReceiptNumber", created_at AS "createdAt"
-         FROM mpesa_transactions WHERE tenant_id::text = $1 AND status = 'unmatched'
+              mpesa_receipt_number AS "mpesaReceiptNumber", status, created_at AS "createdAt"
+         FROM mpesa_transactions WHERE tenant_id::text = $1 AND status IN ('unmatched', 'review')
         ORDER BY created_at DESC`,
       [req.user.tenantId],
     ).catch(() => []);
@@ -2306,7 +2346,9 @@ class MpesaPaybillController {
     await this.financeController.assertCanCollectFees(req);
     if (!dto?.learnerId) throw new BadRequestException('Select which learner this payment belongs to.');
     const rows = await this.ds.query(
-      `SELECT * FROM mpesa_transactions WHERE id::text = $1 AND tenant_id::text = $2 AND status = 'unmatched'`,
+      // 'review': the gateway confirmed the payment but for a different amount than
+      // was requested — a person checks it against the M-Pesa statement, then assigns it.
+      `SELECT * FROM mpesa_transactions WHERE id::text = $1 AND tenant_id::text = $2 AND status IN ('unmatched', 'review')`,
       [id, req.user.tenantId],
     ).catch(() => []);
     const txn = rows[0];
@@ -2392,8 +2434,22 @@ class MpesaCallbackController {
   // the tenant is recovered from our own mpesa_transactions row saved at
   // push time, keyed by CheckoutRequestID (same pattern as every other
   // STK integration in this app — see WalletService/SmsWalletService).
+  // A gateway reported success for a sum other than the one we pushed — park the
+  // transaction for a person to look at instead of crediting either figure.
+  private async markForReview(txnId: string, body: any, why: string) {
+    console.warn(`[mpesa] transaction ${txnId} needs review: ${why}`);
+    await this.ds.query(
+      `UPDATE mpesa_transactions SET status = 'review', raw_callback = $2 WHERE id::text = $1 AND status = 'pending'`,
+      [txnId, JSON.stringify(body)],
+    ).catch(() => null);
+  }
+
   @Post('stk-callback')
-  async stkCallback(@Body() body: any) {
+  async stkCallback(@Query('token') token: string, @Body() body: any) {
+    if (!callbackTokenValid(token)) {
+      console.warn('[mpesa] ignored stk-callback without a valid token:', JSON.stringify(body).slice(0, 300));
+      return { ResultCode: 0, ResultDesc: 'Accepted' };
+    }
     const stk = body?.Body?.stkCallback;
     if (!stk) return { ResultCode: 0, ResultDesc: 'Accepted' };
     const rows = await this.ds.query(
@@ -2410,8 +2466,22 @@ class MpesaCallbackController {
       const items = stk.CallbackMetadata?.Item || [];
       const get = (name: string) => items.find((i: any) => i.Name === name)?.Value;
       const mpesaReceiptNumber = get('MpesaReceiptNumber');
-      const amount = Number(get('Amount') ?? txn.amount);
-      const phone = String(get('PhoneNumber') ?? txn.phone ?? '');
+      // Always the amount stored at push time (and the phone it went to). Daraja was
+      // asked for the rounded-up whole shilling amount, so that is what it reports.
+      const amount = Number(txn.amount);
+      const phone = String(txn.phone ?? '');
+
+      // The callback only prompts a check: Safaricom's STK Query must confirm it.
+      const settings = await getMpesaSettingsRow(this.ds, txn.tenant_id);
+      const confirmed = settings ? await queryDarajaStk(settings, txn.checkout_request_id) : { ok: false, detail: 'no M-Pesa settings' };
+      if (!confirmed.ok) {
+        console.warn(`[mpesa] STK success for ${txn.id} not confirmed by Safaricom: ${confirmed.detail}`);
+        return { ResultCode: 0, ResultDesc: 'Accepted' };
+      }
+      if (amountMismatch(Math.ceil(amount), get('Amount'))) {
+        await this.markForReview(txn.id, body, `callback reported KES ${get('Amount')}, pushed KES ${Math.ceil(amount)}`);
+        return { ResultCode: 0, ResultDesc: 'Accepted' };
+      }
 
       const claimed = await this.ds.query(
         `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3
@@ -2433,7 +2503,11 @@ class MpesaCallbackController {
   // Tuma has no published webhook schema — parseTumaCallback is deliberately
   // permissive (see src/common/tuma.ts) and the raw body is always kept.
   @Post('tuma-callback')
-  async tumaCallback(@Body() body: any) {
+  async tumaCallback(@Query('token') token: string, @Body() body: any) {
+    if (!callbackTokenValid(token)) {
+      console.warn('[mpesa] ignored tuma-callback without a valid token:', JSON.stringify(body).slice(0, 300));
+      return { ok: true };
+    }
     const parsed = parseTumaCallback(body);
     if (!parsed.merchantRequestId) return { ok: true };
     const rows = await this.ds.query(
@@ -2443,14 +2517,24 @@ class MpesaCallbackController {
     const txn = rows[0];
     if (!txn) return { ok: true };
 
-    // Same pending-only claim as stk-callback above.
+    // Same pending-only claim as stk-callback above, after the school's own Tuma
+    // account confirms the payment for the amount we stored.
     if (parsed.success) {
+      const settings = await getMpesaSettingsRow(this.ds, txn.tenant_id);
+      if (!settings?.tumaEmail || !settings?.tumaApiKey) return { ok: true };
+      const outcome = await confirmTumaPayment(txn.merchant_request_id, Number(txn.amount), { email: settings.tumaEmail, apiKey: settings.tumaApiKey });
+      if (outcome.outcome === 'review') { await this.markForReview(txn.id, body, outcome.detail || 'amount mismatch'); return { ok: true }; }
+      if (outcome.outcome !== 'paid') {
+        console.warn(`[mpesa] Tuma success for ${txn.id} not confirmed: ${outcome.detail}`);
+        return { ok: true };
+      }
+      const receipt = outcome.mpesaReceipt || parsed.mpesaReceipt || null;
       const claimed = await this.ds.query(
         `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3
           WHERE id::text = $1 AND status = 'pending' RETURNING id`,
-        [txn.id, parsed.mpesaReceipt || null, JSON.stringify(body)],
+        [txn.id, receipt, JSON.stringify(body)],
       ).catch(() => []);
-      if (claimed.length) await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, Number(txn.amount), txn.phone, parsed.mpesaReceipt || '');
+      if (claimed.length) await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, Number(txn.amount), txn.phone, receipt || '');
     } else {
       await this.ds.query(
         `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1 AND status = 'pending'`,
@@ -2556,6 +2640,7 @@ const PAYROLL_STAFF_ROLES = [
 ];
 
 @Controller('finance/payroll')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class PayrollController {
   constructor(private readonly ds: DataSource, private readonly financeController: FinanceController) {}
@@ -3113,6 +3198,7 @@ const TRANSPORT_MANAGER_ROLES = ['hoi', 'dhois', 'tenant_owner', 'school_admin',
 // which route+stop. A route's fee is picked up by FeeService.generateStreamInvoices
 // as an extra per-learner line item — see getActiveTransportFee() there.
 @Controller('transport')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class TransportController {
   constructor(private readonly ds: DataSource) {}
@@ -3324,6 +3410,7 @@ class TransportController {
   // A parent may check their own child's route/stop/vehicle — read-only, no
   // ability to change it. Same guardian_email ownership check used by the
   // parent fees/library endpoints elsewhere in this file.
+  @AllowRoles('parent')
   @Get('my-child/:learnerId')
   async myChildTransport(@Request() req: any, @Param('learnerId') learnerId: string) {
     const tenantId = req.user.tenantId;
@@ -3420,7 +3507,7 @@ export const SMS_COST_KES = 0.8; // Africa's Talking's actual per-SMS cost, for 
 
 function smsCallbackUrl(): string {
   const base = (process.env.APP_URL || '').replace(/\/$/, '');
-  return `${base}/api/v1/communication/sms-wallet/mpesa/callback`;
+  return withCallbackToken(`${base}/api/v1/communication/sms-wallet/mpesa/callback`);
 }
 
 @Injectable()
@@ -3470,9 +3557,24 @@ class SmsWalletService {
   async debit(tenantId: string, units: number, description: string) {
     if (units <= 0) return;
     const cost = units * SMS_PRICE_KES;
-    const wallet = await this.findOrCreateWallet(tenantId);
-    const balanceAfter = Number(wallet.balance) - cost;
-    await this.ds.query(`UPDATE sms_wallets SET balance = $2, updated_at = NOW() WHERE tenant_id = $1`, [tenantId, balanceAfter]);
+    await this.findOrCreateWallet(tenantId);
+    // Decremented in SQL so two sends finishing together can't both write back the
+    // same starting balance. The messages have already gone out by now, so if a
+    // concurrent send left too little, the debit still lands (the balance goes
+    // negative, as it could before) rather than those messages going unbilled.
+    let rows = await this.ds.query(
+      `UPDATE sms_wallets SET balance = balance - $2, updated_at = NOW()
+        WHERE tenant_id = $1 AND balance >= $2 RETURNING balance`,
+      [tenantId, cost],
+    );
+    if (!rows.length) {
+      console.warn(`[sms-wallet] ${tenantId}: debit of KES ${cost} exceeds balance (concurrent sends) — debiting anyway`);
+      rows = await this.ds.query(
+        `UPDATE sms_wallets SET balance = balance - $2, updated_at = NOW() WHERE tenant_id = $1 RETURNING balance`,
+        [tenantId, cost],
+      );
+    }
+    const balanceAfter = Number(rows[0]?.balance ?? 0);
     await this.ds.query(
       `INSERT INTO sms_wallet_transactions (tenant_id, type, amount, sms_count, balance_after, description, status)
        VALUES ($1,'debit',$2,$3,$4,$5,'completed')`,
@@ -3509,25 +3611,47 @@ class SmsWalletService {
     };
   }
 
+  // The webhook and the status poll can race for one top-up: flipping it from
+  // 'pending' is the claim, so only one caller ever credits, and the credit is an
+  // in-SQL increment of the amount stored when the push was created.
   private async creditTopUp(txn: any, mpesaReceiptNumber?: string) {
-    const fresh = await this.ds.query(`SELECT * FROM sms_wallet_transactions WHERE id = $1`, [txn.id]);
-    if (!fresh[0] || fresh[0].status !== 'pending') return; // already settled
-    const wallet = await this.findOrCreateWallet(fresh[0].tenant_id);
-    const balanceAfter = Number(wallet.balance) + Number(fresh[0].amount);
-    await this.ds.query(`UPDATE sms_wallets SET balance = $2, updated_at = NOW() WHERE tenant_id = $1`, [fresh[0].tenant_id, balanceAfter]);
-    await this.ds.query(
-      `UPDATE sms_wallet_transactions SET status = 'paid', mpesa_receipt_number = $2, balance_after = $3 WHERE id = $1`,
-      [txn.id, mpesaReceiptNumber, balanceAfter],
+    const claimed = await this.ds.query(
+      `UPDATE sms_wallet_transactions SET status = 'paid', mpesa_receipt_number = $2
+        WHERE id = $1 AND status = 'pending' RETURNING tenant_id, amount`,
+      [txn.id, mpesaReceiptNumber || null],
     );
+    const row = claimed[0];
+    if (!row) return; // already settled
+    await this.findOrCreateWallet(row.tenant_id);
+    const credited = await this.ds.query(
+      `UPDATE sms_wallets SET balance = balance + $2, updated_at = NOW() WHERE tenant_id = $1 RETURNING balance`,
+      [row.tenant_id, row.amount],
+    );
+    await this.ds.query(`UPDATE sms_wallet_transactions SET balance_after = $2 WHERE id = $1`, [txn.id, credited[0]?.balance ?? null]);
   }
 
-  async handleCallback(body: any): Promise<void> {
+  // Tuma must confirm the payment (for the stored amount) before anything is credited.
+  private async confirmAndCredit(txn: any): Promise<'paid' | 'review' | 'unconfirmed'> {
+    const outcome = await confirmTumaPayment(txn.merchant_request_id, Number(txn.amount));
+    if (outcome.outcome === 'paid') await this.creditTopUp(txn, outcome.mpesaReceipt);
+    else if (outcome.outcome === 'review') {
+      console.warn(`[sms-wallet] top-up ${txn.id} needs review: ${outcome.detail}`);
+      await this.ds.query(`UPDATE sms_wallet_transactions SET status = 'review' WHERE id = $1 AND status = 'pending'`, [txn.id]).catch(() => null);
+    }
+    return outcome.outcome;
+  }
+
+  async handleCallback(body: any, token?: string): Promise<void> {
+    if (!callbackTokenValid(token)) {
+      console.warn('[sms-wallet] ignored callback without a valid token:', JSON.stringify(body).slice(0, 300));
+      return;
+    }
     const parsed = parseTumaCallback(body);
     if (!parsed.merchantRequestId) return;
-    const rows = await this.ds.query(`SELECT id FROM sms_wallet_transactions WHERE merchant_request_id = $1`, [parsed.merchantRequestId]);
+    const rows = await this.ds.query(`SELECT id, amount, merchant_request_id FROM sms_wallet_transactions WHERE merchant_request_id = $1`, [parsed.merchantRequestId]);
     if (!rows[0]) return;
-    if (parsed.success) await this.creditTopUp(rows[0], parsed.mpesaReceipt);
-    else await this.ds.query(`UPDATE sms_wallet_transactions SET status = 'failed' WHERE id = $1`, [rows[0].id]);
+    if (parsed.success) await this.confirmAndCredit(rows[0]);
+    else await this.ds.query(`UPDATE sms_wallet_transactions SET status = 'failed' WHERE id = $1 AND status = 'pending'`, [rows[0].id]);
   }
 
   async getTopUpStatus(tenantId: string, id: string) {
@@ -3536,16 +3660,20 @@ class SmsWalletService {
     if (!txn) throw new BadRequestException('Top-up not found.');
     if (txn.status !== 'pending' || !txn.merchant_request_id) return { status: txn.status, transactionId: txn.id };
 
-    const result = await checkPaymentStatus(txn.merchant_request_id);
-    if (result.ok && result.status && /success|completed/i.test(result.status)) {
-      await this.creditTopUp(txn, result.mpesaReceipt);
-      return { status: 'paid', transactionId: txn.id };
-    }
+    const outcome = await this.confirmAndCredit(txn);
+    if (outcome === 'paid') return { status: 'paid', transactionId: txn.id };
+    if (outcome === 'review') return { status: 'review', transactionId: txn.id };
     return { status: txn.status, transactionId: txn.id };
   }
 }
 
+// Roles that may send announcements over SMS/email (see createAnnouncement).
+const ANNOUNCE_BROADCAST_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
+// Matches isHoi() in the frontend, which decides who sees the fee-reminder button.
+const FEE_REMINDER_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'dos'];
+
 @Controller('communication')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class CommunicationController {
   constructor(
@@ -3574,8 +3702,19 @@ class CommunicationController {
   // TypeORM entity here (wrong column names, no school_id) that silently worked only
   // because the old stub never actually inserted anything. Raw SQL against the real
   // schema instead of an out-of-sync entity.
+  @AllowRoles('parent')
   @Get('announcements')
   async getAnnouncements(@Request() req: any) {
+    // Parents see only what was addressed to them — not staff/admin notices — and
+    // never the delivery record, which lists other families' phone numbers.
+    if (req.user.role === 'parent') {
+      return this.ds.query(
+        `SELECT id, title, body AS content, audience, priority, created_at AS "createdAt", published_at AS "sentAt"
+           FROM announcements WHERE tenant_id::text = $1 AND deleted_at IS NULL AND audience IN ('all', 'parents')
+           ORDER BY created_at DESC`,
+        [req.user.tenantId],
+      ).catch(() => []);
+    }
     try {
       // audience_filter doubles as a place to persist delivery stats (sms/email
       // sent-failed counts) since the table has no dedicated columns for that.
@@ -3741,6 +3880,11 @@ class CommunicationController {
     const audience = ['all', 'admins', 'teachers', 'learners', 'parents'].includes(dto.audience) ? dto.audience : 'all';
     const priority = ['low', 'normal', 'high', 'urgent'].includes(dto.priority) ? dto.priority : 'normal';
     const channel = dto.channel || 'push'; // 'push' has no automated sender yet — logged only
+    // SMS and email reach every parent and cost the school money, so only the
+    // school's administrators may use them; teachers can post in-app notices.
+    if (channel !== 'push' && !ANNOUNCE_BROADCAST_ROLES.includes(req.user.role)) {
+      throw new ForbiddenException('Only the HOI or a school administrator can send announcements by SMS or email.');
+    }
     const recipients = channel === 'push' ? [] : await this.resolveRecipients(tenantId, audience);
     const sendResult = recipients.length ? await this.dispatch(tenantId, recipients, dto.title, dto.content, channel) : {};
 
@@ -3771,6 +3915,9 @@ class CommunicationController {
   // recipients that already went through.
   @Post('announcements/:id/retry-sms')
   async retryAnnouncementSms(@Request() req: any, @Param('id') id: string) {
+    if (!ANNOUNCE_BROADCAST_ROLES.includes(req.user.role)) {
+      throw new ForbiddenException('Only the HOI or a school administrator can resend SMS.');
+    }
     const tenantId = req.user.tenantId;
     const rows = await this.ds.query(
       `SELECT body AS content, audience_filter AS delivery FROM announcements WHERE id::text = $1 AND tenant_id::text = $2`,
@@ -3812,6 +3959,11 @@ class CommunicationController {
 
   @Post('fee-reminders')
   async sendFeeReminders(@Request() req: any, @Body() dto: any) {
+    // Paid SMS/email to every family with a balance — the same roles the
+    // Communication page offers this button to.
+    if (!FEE_REMINDER_ROLES.includes(req.user.role)) {
+      throw new ForbiddenException('Only the HOI, a deputy, the Director of Studies or a school administrator can send fee reminders.');
+    }
     const tenantId = req.user.tenantId;
     const term = dto.term || null;
     const academicYear = dto.academicYear || null;
@@ -3907,6 +4059,8 @@ class CommunicationController {
     return 'all';
   }
 
+  @SchoolOnly(false)
+  @AllowRoles('parent', 'learner')
   @Get('notifications')
   async getNotifications(@Request() req: any) {
     const audience = this.roleToAudience(req.user.role);
@@ -3924,6 +4078,8 @@ class CommunicationController {
     return { unreadCount: rows.filter((r: any) => !r.isRead).length, notifications: rows };
   }
 
+  @SchoolOnly(false)
+  @AllowRoles('parent', 'learner')
   @Post('notifications/:id/read')
   @HttpCode(HttpStatus.NO_CONTENT)
   async markNotificationRead(@Request() req: any, @Param('id') id: string) {
@@ -3942,8 +4098,8 @@ class SmsWalletCallbackController {
   constructor(private readonly smsWallet: SmsWalletService) {}
 
   @Post('sms-wallet/mpesa/callback')
-  async handleCallback(@Body() body: any) {
-    await this.smsWallet.handleCallback(body);
+  async handleCallback(@Query('token') token: string, @Body() body: any) {
+    await this.smsWallet.handleCallback(body, token);
     return { ResultCode: 0, ResultDesc: 'Accepted' };
   }
 }
@@ -4026,6 +4182,7 @@ class LibraryLoan {
 }
 
 @Controller('library')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class LibraryController {
   constructor(private readonly ds: DataSource) {}
@@ -4229,6 +4386,7 @@ class LibraryController {
     return { issued, total: learners.length, baseCode: base, title, failures };
   }
 
+  @AllowRoles('parent')
   @Get('my-child/:learnerId')
   async getChildLoans(@Request() req: any, @Param('learnerId') learnerId: string) {
     await this.ensureTables();
@@ -4510,6 +4668,7 @@ export class LibraryModule {}
 // SPORTS MODULE
 // ═══════════════════════════════════════════════════════════
 @Controller('sports')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class SportsController {
   constructor(private readonly ds: DataSource) {}
@@ -4918,6 +5077,7 @@ class Incident {
 }
 
 @Controller('discipline')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class DisciplineController {
   constructor(private readonly ds: DataSource) {}
@@ -5040,6 +5200,7 @@ class SchoolActivityEntry {
 }
 
 @Controller('duty-roster')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class DutyRosterController {
   constructor(private readonly ds: DataSource) {}
@@ -5280,6 +5441,7 @@ const HR_STAFF_LOGIN_ROLES = [
 ];
 
 @Controller('hr')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class HrController {
   constructor(private readonly ds: DataSource) {}
@@ -5969,6 +6131,7 @@ export class ReferralModule {}
 // PDF MODULE
 // ═══════════════════════════════════════════════════════════
 @Controller('pdf')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 class PdfController {
   constructor(private readonly ds: DataSource) {}
@@ -6158,7 +6321,7 @@ class PdfController {
           <td>${r.pct}%</td>
           <td><b>${lvl(r.pct)}</b></td>
         </tr>`).join('');
-      const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+      const logoTag = safeImageSrc(stream.logo) ? `<img src="${safeImageSrc(stream.logo)}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
 
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
         <title>${esc(subject)} ranking — ${esc(stream.name||'')}</title>
@@ -6187,7 +6350,7 @@ class PdfController {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
-      res.status(500).send(`<p style="font-family:sans-serif">Could not build ranking: ${e?.message || 'error'}</p>`);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build ranking: ${escapeHtml(e?.message || 'error')}</p>`);
     }
   }
 
@@ -6330,7 +6493,7 @@ class PdfController {
       // Class mean per learning-area column + its position, to show the best-performing areas.
       const laFoot = learningAreaMeanFooter(learners as any[], subjects, 3, 2, lvl, esc);
 
-      const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+      const logoTag = safeImageSrc(stream.logo) ? `<img src="${safeImageSrc(stream.logo)}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
         <title>Mark List — ${esc(stream.name||'')}</title>
         <style>
@@ -6360,7 +6523,7 @@ class PdfController {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
-      res.status(500).send(`<p style="font-family:sans-serif">Could not build mark list: ${e?.message || 'error'}</p>`);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build mark list: ${escapeHtml(e?.message || 'error')}</p>`);
     }
   }
 
@@ -6536,7 +6699,7 @@ class PdfController {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
-      res.status(500).send(`<p style="font-family:sans-serif">Could not build grade mark list: ${e?.message || 'error'}</p>`);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build grade mark list: ${escapeHtml(e?.message || 'error')}</p>`);
     }
   }
 
@@ -6668,7 +6831,7 @@ class PdfController {
       // Class mean per learning-area column + its position, to show the best-performing areas.
       const laFoot = learningAreaMeanFooter(learners as any[], subjects, 3, 2, lvl, esc);
 
-      const logoTag = stream.logo ? `<img src="${stream.logo}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
+      const logoTag = safeImageSrc(stream.logo) ? `<img src="${safeImageSrc(stream.logo)}" style="height:54px;width:auto;margin:0 auto 6px;display:block"/>` : '';
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
         <title>Term Average Mark List — ${esc(stream.name||'')}</title>
         <style>
@@ -6700,7 +6863,7 @@ class PdfController {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
-      res.status(500).send(`<p style="font-family:sans-serif">Could not build term average mark list: ${e?.message || 'error'}</p>`);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build term average mark list: ${escapeHtml(e?.message || 'error')}</p>`);
     }
   }
 
@@ -6712,6 +6875,7 @@ class PdfController {
   // Printable single report card (HTML → browser print / save as PDF). Self-contained:
   // builds from assessment_results for the learner across the term, averaging each
   // learning area's percentage across that term's assessments to a CBC level + points.
+  @AllowRoles('parent')
   @Get('report-card/:learnerId/html')
   async reportCardHtml(@Param('learnerId') learnerId: string, @Request() req: any, @Query() q: any, @Res() res: any) {
     try {
@@ -6736,7 +6900,7 @@ class PdfController {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
-      res.status(500).send(`<p style="font-family:sans-serif">Could not build report card: ${e?.message || 'error'}</p>`);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build report card: ${escapeHtml(e?.message || 'error')}</p>`);
     }
   }
 
@@ -6776,7 +6940,7 @@ class PdfController {
       res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.send(html);
     } catch (e: any) {
-      res.status(500).send(`<p style="font-family:sans-serif">Could not build report cards: ${e?.message || 'error'}</p>`);
+      res.status(500).send(`<p style="font-family:sans-serif">Could not build report cards: ${escapeHtml(e?.message || 'error')}</p>`);
     }
   }
 
@@ -7997,9 +8161,7 @@ class AdminController {
   async resetUserPassword(@Request() req: any, @Param('id') id: string) {
     if (!this.isOwner(req)) return { error: 'forbidden' };
     const bcryptLib = require('bcryptjs');
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const temp = `${block()}-${block()}`;
+    const temp = generateTempPassword();
     const hash = await bcryptLib.hash(temp, 12);
     const rows = await this.ds.query(
       `UPDATE users SET password_hash = $2, must_change_password = true, is_active = true
@@ -8157,6 +8319,7 @@ class TestimonialController {
 
   private isOwner(req: any): boolean { return req.user?.role === 'super_admin'; }
 
+  @AllowRoles('parent')
   @Post()
   async submit(@Request() req: any, @Body() dto: any) {
     if (!dto?.message || !dto.message.trim()) return { error: 'Please write a few words about your experience.' };
@@ -8203,6 +8366,7 @@ class TestimonialController {
   // Whether the current user has already submitted one (the prompt shouldn't nag
   // twice) — scoped separately per child when ?learnerId= is given, since a parent's
   // own testimonial and one voiced for a specific child are tracked independently.
+  @AllowRoles('parent')
   @Get('mine')
   async mine(@Request() req: any, @Query('learnerId') learnerId?: string) {
     const rows = await this.ds.query(
@@ -8250,6 +8414,7 @@ class TestimonialController {
 
   // Permanently remove — the owner can delete any; a regular user can delete
   // only their own (retracting a testimonial they wrote).
+  @AllowRoles('parent')
   @Delete(':id')
   async remove(@Request() req: any, @Param('id') id: string) {
     const owner = this.isOwner(req);

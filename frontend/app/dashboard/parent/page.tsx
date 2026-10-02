@@ -239,7 +239,7 @@ export default function ParentPortalPage() {
   const downloadChildReport = async (c: any) => {
     const term = 'term_2';
     const year = '2025/2026';
-    const win = window.open('', '_blank');
+    const win = window.open('', '_blank'); if (win) win.opener = null;
     try {
       const res = await apiClient.get(`/pdf/report-card/${c.id}/html`, {
         params: { term, academicYear: year }, responseType: 'text',

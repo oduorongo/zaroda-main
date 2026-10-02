@@ -60,6 +60,11 @@ apiClient.interceptors.response.use(
         if (typeof window !== 'undefined') window.location.href = '/auth/login';
       }
     }
+    // Signed in with a temporary password: the API refuses everything until it is changed.
+    if (error.response?.status === 403 && error.response?.data?.code === 'PASSWORD_CHANGE_REQUIRED'
+        && typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth/change-password')) {
+      window.location.href = '/auth/change-password';
+    }
     return Promise.reject(error);
   },
 );

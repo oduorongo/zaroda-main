@@ -28,15 +28,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const hit = authUserCache.get(id);
     if (hit && Date.now() - hit.at < AUTH_CACHE_TTL_MS) return hit.row;
     const select = (version: string) => this.ds.query(
-      `SELECT id, role, tenant_id AS "tenantId", school_id AS "schoolId",
-              is_active AS "isActive", ${version} AS "tokenVersion"
-         FROM users WHERE id::text = $1 LIMIT 1`,
+      `SELECT u.id, u.role, u.tenant_id AS "tenantId", u.school_id AS "schoolId",
+              u.is_active AS "isActive", ${version} AS "tokenVersion",
+              COALESCE(u.must_change_password, false) AS "mustChangePassword",
+              t.account_type AS "accountType"
+         FROM users u LEFT JOIN tenants t ON t.id = u.tenant_id
+        WHERE u.id::text = $1 LIMIT 1`,
       [id],
     );
     // Migrations run just after the port binds, so for the first seconds of a fresh
     // deploy token_version may not exist yet. Treat it as 0 rather than logging
     // everyone out; nothing can have been revoked before the column existed.
-    const rows = await select('token_version').catch((e: any) => {
+    const rows = await select('u.token_version').catch((e: any) => {
       if (e?.code === '42703') return select('0');
       throw e;
     });
@@ -57,6 +60,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role:     user!.role,
       tenantId: user!.tenantId,
       schoolId: user!.schoolId,
+      // Read by JwtAuthGuard's account-level rules (see common/guards/jwt-auth.guard.ts).
+      mustChangePassword: !!user!.mustChangePassword,
+      accountType: user!.accountType || 'school',
     };
   }
 }

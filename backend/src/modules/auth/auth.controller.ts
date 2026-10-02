@@ -1,9 +1,10 @@
 import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { SignupDto, SignupIndividualDto, LoginDto, UpgradeToSchoolDto } from './dto';
+import { SignupDto, SignupIndividualDto, LoginDto, UpgradeToSchoolDto, ChangePasswordDto } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { AllowRoles, AllowDuringPasswordChange } from '../../common/decorators/access.decorator';
 
 // Per-IP limits on the unauthenticated auth routes only — deliberately not global,
 // since a whole school's staff room often shares one public IP.
@@ -74,6 +75,8 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @AllowRoles('parent', 'learner')
+  @AllowDuringPasswordChange()
   @ApiBearerAuth()
   me(@Request() req: any) {
     return this.authService.getMe(req.user.id);
@@ -81,9 +84,24 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
+  @AllowRoles('parent', 'learner')
+  @AllowDuringPasswordChange()
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   logout(@Request() req: any) {
     return this.authService.logout(req.user.id);
+  }
+
+  // Signed-in password change. Also how a user with must_change_password (a
+  // temporary password from an admin) gets back into the rest of the app.
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @perMinute(10)
+  @AllowRoles('parent', 'learner')
+  @AllowDuringPasswordChange()
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(req.user.id, dto.currentPassword, dto.newPassword);
   }
 }

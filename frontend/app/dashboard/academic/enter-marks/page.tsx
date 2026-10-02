@@ -303,7 +303,7 @@ export default function AdminEnterMarksPage() {
     if (!examId) { toast.error('Pick an assessment first'); return; }
     const token = localStorage.getItem('zaroda_token');
     fetch(areaRankingUrl(), { headers: { Authorization: `Bearer ${token}` } }).then(r => r.text())
-      .then(html => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } })
+      .then(html => { const w = window.open('', '_blank'); if (w) w.opener = null; if (w) { w.document.write(html); w.document.close(); } })
       .catch(() => toast.error('Could not open ranking'));
   };
 

@@ -27,7 +27,9 @@ export default function FeeStructuresPage() {
       const res = await apiClient.get('/finance/fee-structures/print', { responseType: 'text' });
       const blob = new Blob([typeof res.data === 'string' ? res.data : String(res.data)], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
-      if (!window.open(url, '_blank')) {
+      const opened = window.open(url, '_blank');
+      if (opened) opened.opener = null;
+      if (!opened) {
         const a = document.createElement('a');
         a.href = url; a.target = '_blank'; a.rel = 'noopener';
         document.body.appendChild(a); a.click(); a.remove();

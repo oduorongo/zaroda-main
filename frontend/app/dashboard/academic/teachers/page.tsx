@@ -41,6 +41,10 @@ export default function TeachersPage() {
     setCopied(true); setTimeout(() => setCopied(false), 1500);
   };
   const [saving, setSaving]     = useState(false);
+  // An individual (Professional Records) account already uses this email: moving it
+  // into the school needs that teacher's own password, typed in here.
+  const [convertAsk, setConvertAsk] = useState<{ message: string; payload: any; name: { firstName: string; lastName: string } } | null>(null);
+  const [convertPassword, setConvertPassword] = useState('');
   const [search, setSearch]     = useState('');
   const [newCreds, setNewCreds] = useState<{name:string;username:string;password:string}|null>(null);
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
@@ -180,22 +184,40 @@ export default function TeachersPage() {
     const lastName  = parts.join(' ');
     setSaving(true);
     try {
-      let res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, subjects: form.subjects });
+      const payload = { ...form, firstName, lastName, subjects: form.subjects };
+      const res = await apiClient.post('/academic/teachers', payload);
       if (res.data?.requiresConfirmation) {
-        const ok = window.confirm(res.data.message);
-        if (!ok) { setSaving(false); return; }
-        res = await apiClient.post('/academic/teachers', { ...form, firstName, lastName, subjects: form.subjects, confirmConvert: true });
+        setConvertPassword('');
+        setConvertAsk({ message: res.data.message, payload, name: { firstName, lastName } });
+        return;
       }
-      const creds = res.data?.credentials;
-      toast.success(res.data?.converted ? res.data.message : `${firstName} ${lastName} onboarded`);
-      setShowNew(false);
-      setForm({ fullName:'', email:'', phone:'', gender:'', idNumber:'', tscNumber:'', role:'subject_teacher', streamId:'', streamName:'', subjects:[], streamSubjects:[{ streamId:'', subjects:[] }] });
-      setTeachGrade('');
-      if (creds) setNewCreds({ name: `${res.data.teacher.firstName} ${res.data.teacher.lastName}`, ...creds });
-      load();
+      onboarded(res, firstName, lastName);
     } catch (err:any) {
       toast.error(err?.response?.data?.message || 'Could not onboard teacher');
     } finally { setSaving(false); }
+  };
+
+  const confirmConvert = async () => {
+    if (!convertAsk) return;
+    if (!convertPassword) { toast.error("Enter the teacher's current password"); return; }
+    setSaving(true);
+    try {
+      const res = await apiClient.post('/academic/teachers', { ...convertAsk.payload, confirmConvert: true, existingPassword: convertPassword });
+      setConvertAsk(null); setConvertPassword('');
+      onboarded(res, convertAsk.name.firstName, convertAsk.name.lastName);
+    } catch (err:any) {
+      toast.error(err?.response?.data?.message || 'Could not add this teacher');
+    } finally { setSaving(false); }
+  };
+
+  const onboarded = (res: any, firstName: string, lastName: string) => {
+    const creds = res.data?.credentials;
+    toast.success(res.data?.converted ? res.data.message : `${firstName} ${lastName} onboarded`);
+    setShowNew(false);
+    setForm({ fullName:'', email:'', phone:'', gender:'', idNumber:'', tscNumber:'', role:'subject_teacher', streamId:'', streamName:'', subjects:[], streamSubjects:[{ streamId:'', subjects:[] }] });
+    setTeachGrade('');
+    if (creds) setNewCreds({ name: `${res.data.teacher.firstName} ${res.data.teacher.lastName}`, ...creds });
+    load();
   };
 
   const doDelete = async () => {
@@ -427,6 +449,26 @@ export default function TeachersPage() {
         </div>
       )}
       {/* Delete teacher confirmation */}
+      {convertAsk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>
+            <div className="p-5">
+              <h3 className="text-lg font-bold text-theme-heading">Existing ZARODA account</h3>
+              <p className="text-sm text-theme-muted mt-1">{convertAsk.message}</p>
+              <label className="label mt-4">Teacher's current password</label>
+              <input type="password" autoComplete="off" className="input" value={convertPassword}
+                onChange={e => setConvertPassword(e.target.value)} placeholder="Typed by the teacher"/>
+              <div className="flex gap-3 mt-5">
+                <button onClick={() => { setConvertAsk(null); setConvertPassword(''); }} className="btn-ghost flex-1">Cancel</button>
+                <button onClick={confirmConvert} disabled={saving} className="btn-primary flex-1 justify-center">
+                  {saving ? <Loader2 size={14} className="animate-spin"/> : 'Add to school'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-surface rounded-2xl shadow-modal w-full max-w-sm" style={{ border: '1px solid var(--border)' }}>

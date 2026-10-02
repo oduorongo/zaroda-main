@@ -156,7 +156,7 @@ function PayrollContent() {
       const html = typeof res.data === 'string' ? res.data : String(res.data);
       const blob = new Blob([html], { type: 'text/html' });
       const blobUrl = URL.createObjectURL(blob);
-      const w = window.open(blobUrl, '_blank');
+      const w = window.open(blobUrl, '_blank'); if (w) w.opener = null;
       if (!w) {
         const a = document.createElement('a');
         a.href = blobUrl; a.target = '_blank'; a.rel = 'noopener';
@@ -179,7 +179,7 @@ function PayrollContent() {
       const html = typeof res.data === 'string' ? res.data : String(res.data);
       const blob = new Blob([html], { type: 'text/html' });
       const blobUrl = URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank');
+      const opened = window.open(blobUrl, '_blank'); if (opened) opened.opener = null;
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
       toast.dismiss(tId);
     } catch (e: any) {

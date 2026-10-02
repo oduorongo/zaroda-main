@@ -2,16 +2,18 @@
 import { Module }        from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
 import { AuditPii } from '../../common/pii-audit';
 import * as bcrypt from 'bcryptjs';
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
-  UseGuards, Request, Delete, BadRequestException, NotFoundException, Res,
+  UseGuards, Request, Delete, BadRequestException, NotFoundException, Res, ForbiddenException,
 } from '@nestjs/common';
 import { PdfExportService } from '../../common/pdf-export.service';
 import { assertStreamsWritable } from '../../common/subscription';
 import { normalisePhone } from '../../common/messaging';
 import { revokeSessions } from '../../common/sessions';
+import { generateTempPassword, escapeHtml } from '../../common/security';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -466,20 +468,6 @@ export class AcademicService {
     return b ? { key: b.key, label: b.label } : { key: 'unknown', label: 'Other' };
   }
 
-  /** Default parent password derived from the email's first part + the year, e.g.
-   *  "john.doe@gmail.com" → "johndoe2026". Easy to communicate; the parent is forced to
-   *  change it on first login (must_change_password=true). Padded to a safe minimum length.
-   *  When there's no email (phone-only parent), falls back to the last 6 digits of the
-   *  phone instead — still easy to read out over a call, and never collapses to the same
-   *  "parent2026" for every phone-only account the way an empty email prefix would. */
-  private parentDefaultPassword(email?: string, phone?: string): string {
-    let prefix = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!prefix && phone) prefix = String(phone).replace(/\D/g, '').slice(-6);
-    if (!prefix) prefix = 'parent';
-    if (prefix.length < 3) prefix = (prefix + 'parent').slice(0, 6);
-    return `${prefix}2026`;
-  }
-
   /** Returns true if `actor` (a non-HOI teacher) may manage a learner in `streamId` —
    *  i.e. they are the class teacher of that stream, or it's their primary stream. */
   private async actorOwnsStream(tenantId: string, actor: any, streamId: any): Promise<boolean> {
@@ -491,6 +479,14 @@ export class AcademicService {
     const ids = new Set<string>(owned.map((r: any) => String(r.id)));
     if (actor.streamId) ids.add(String(actor.streamId));
     return ids.has(String(streamId));
+  }
+
+  /** Bulk learner upload: HOI-level staff for any stream; a teacher only for a class they manage. */
+  async assertCanAddLearnersTo(actor: any, streamId: any) {
+    if (ACADEMIC_ADMIN_ROLES.includes(actor.role)) return;
+    if (!this.isTeacherRole(actor.role) || !(await this.actorOwnsStream(actor.tenantId, actor, streamId))) {
+      throw new ForbiddenException('You can only upload learners to a class you manage.');
+    }
   }
 
   /**
@@ -1625,7 +1621,7 @@ export class AcademicService {
           [guardianEmail, guardianPhone],
         );
         if (!existing.length) {
-          const plain = this.parentDefaultPassword(guardianEmail || undefined, guardianPhone || undefined);
+          const plain = generateTempPassword();
           const hash  = await bcrypt.hash(plain, 12);
           const gName = (dto.guardianName || 'Parent').trim().split(/\s+/);
           await this.dataSource.query(
@@ -1926,7 +1922,7 @@ export class AcademicService {
       ).catch(() => null);
     }
 
-    const plain = this.parentDefaultPassword(email || undefined, phone || undefined);
+    const plain = generateTempPassword();
     const hash = await bcrypt.hash(plain, 12);
     const username = email || phone!;
 
@@ -2111,8 +2107,8 @@ export class AcademicService {
     ).catch(() => []);
     if (!rows.length) throw new BadRequestException('Staff member not found.');
 
-    // Same easy-to-communicate format as the parent default password (email prefix + year).
-    const plainPassword = this.parentDefaultPassword(rows[0].email);
+    // Random one-time password, shown once to the admin; the user must change it at next login.
+    const plainPassword = generateTempPassword();
     const passwordHash  = await bcrypt.hash(plainPassword, 12);
 
     await this.dataSource.query(
@@ -2603,12 +2599,7 @@ export class AcademicService {
     const subjectsCsv = Array.isArray(dto.subjects) ? dto.subjects.join(',') : (dto.subjects || '');
 
     // Generate a secure, human-shareable password (e.g. "Kx7p-9Qm-3Rt")
-    const gen = () => {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-      const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      return `${block()}-${block()}-${block()}`;
-    };
-    const plainPassword = gen();
+    const plainPassword = generateTempPassword();
     const passwordHash  = await bcrypt.hash(plainPassword, 12);
 
     // Email is the teacher's username (now required).
@@ -2618,7 +2609,7 @@ export class AcademicService {
     // account is a one-person "individual" tenant, in which case we offer to convert it
     // into a school user instead of leaving the admin stuck.
     const existing = await this.dataSource.query(
-      `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.tenant_id AS "tenantId",
+      `SELECT u.id, u.tenant_id AS "tenantId", u.password_hash AS "passwordHash",
               t.account_type AS "accountType"
          FROM users u JOIN tenants t ON t.id = u.tenant_id
         WHERE u.email = $1`,
@@ -2629,17 +2620,26 @@ export class AcademicService {
       if (match.accountType !== 'individual') {
         throw new BadRequestException('A user with this email already exists. Use a different email.');
       }
+      // Knowing someone's email proves nothing about owning the account. Moving an
+      // individual account (and its wallet and documents) into this school needs that
+      // teacher's own password — the same rule as joining through an onboarding link.
+      // The account holder's name is not echoed back until then.
       if (!dto.confirmConvert) {
         return {
           requiresConfirmation: true,
-          conversionCandidate: {
-            userId: match.id,
-            firstName: match.firstName,
-            lastName: match.lastName,
-            email,
-          },
-          message: `${match.firstName} ${match.lastName} already has an individual Professional Records account with this email. Add them as a school user and move their existing wallet balance and generated documents over? Resubmit with confirmConvert to proceed.`,
+          conversionCandidate: { email },
+          message: 'This email already has an individual Professional Records account. To add it to your school — keeping its wallet balance and generated documents — the teacher must enter their current ZARODA password.',
         };
+      }
+      const supplied = String(dto.existingPassword || '');
+      if (!supplied || !(await bcrypt.compare(supplied, match.passwordHash))) {
+        throw new BadRequestException("That password doesn't match this teacher's existing ZARODA account. Ask the teacher to enter their own password.");
+      }
+      const siblings = await this.dataSource.query(
+        `SELECT count(*)::int AS n FROM users WHERE tenant_id = $1`, [match.tenantId],
+      ).catch(() => [{ n: 1 }]);
+      if ((siblings[0]?.n || 0) > 1) {
+        throw new BadRequestException('This account cannot be moved automatically. Please contact ZARODA support.');
       }
       return this.convertIndividualToSchoolUser(match.id, match.tenantId, tenantId, schoolId, dto, email);
     }
@@ -2844,11 +2844,23 @@ export class AcademicService {
   }
 }
 
+// HOI-level for academic set-up (streams, classes, allocations). Includes the
+// Director of Studies, who runs academics everywhere except Finance.
+const ACADEMIC_ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admin', 'dos'];
+
 // ── Controller ────────────────────────────────────────────
 @Controller('academic')
+@SchoolOnly()
 @UseGuards(JwtAuthGuard)
 export class AcademicController {
   constructor(private academicService: AcademicService, private pdfExportService: PdfExportService) {}
+
+  // Setting up classes, streams and allocations is school administration.
+  private academicAdminOnly(req: any) {
+    if (!ACADEMIC_ADMIN_ROLES.includes(req.user.role)) {
+      throw new ForbiddenException('Only the HOI, a deputy, the Director of Studies or a school administrator can do this.');
+    }
+  }
 
   // Dashboard
   @Get('dashboard')
@@ -2857,6 +2869,7 @@ export class AcademicController {
   }
 
   // Streams
+  @SchoolOnly(false)   // Professional Records lists the teacher's classes
   @Get('streams')
   getStreams(@Request() req: any) {
     return this.academicService.getStreams(req.user.tenantId);
@@ -2869,26 +2882,31 @@ export class AcademicController {
 
   @Post('streams')
   createStream(@Request() req: any, @Body() dto: any) {
+    this.academicAdminOnly(req);
     return this.academicService.createStream(req.user.tenantId, req.user.schoolId, dto);
   }
 
   @Post('classes')
   createClassWithStreams(@Request() req: any, @Body() dto: any) {
+    this.academicAdminOnly(req);
     return this.academicService.createClassWithStreams(req.user.tenantId, req.user.schoolId, dto);
   }
 
   @Post('classes/bulk')
   bulkCreateClasses(@Request() req: any, @Body() dto: any) {
+    this.academicAdminOnly(req);
     return this.academicService.bulkCreateClasses(req.user.tenantId, req.user.schoolId, dto);
   }
 
   @Patch('streams/:id')
   updateStream(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+    this.academicAdminOnly(req);
     return this.academicService.updateStream(req.user.tenantId, id, dto);
   }
 
   @Delete('streams/:id')
   deleteStream(@Request() req: any, @Param('id') id: string) {
+    this.academicAdminOnly(req);
     return this.academicService.deleteStream(req.user.tenantId, id);
   }
 
@@ -2913,7 +2931,8 @@ export class AcademicController {
   }
 
   @Post('learners/bulk')
-  bulkCreateLearners(@Request() req: any, @Body() dto: any) {
+  async bulkCreateLearners(@Request() req: any, @Body() dto: any) {
+    await this.academicService.assertCanAddLearnersTo(req.user, dto?.streamId);
     return this.academicService.bulkCreate(req.user.tenantId, req.user.schoolId, dto, req.user.id);
   }
 
@@ -3020,7 +3039,7 @@ export class AcademicController {
     const table = (headers: string[], rows: (string | number)[][]) => `
       <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
         <thead><tr>${headers.map(h => `<th style="text-align:left;padding:6px 8px;background:#1a2e5a;color:#fff;font-size:11px;text-transform:uppercase">${h}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map((r, i) => `<tr style="background:${i % 2 ? '#f4f6fb' : '#fff'}">${r.map(c => `<td style="padding:6px 8px;border-bottom:1px solid #e2e6f0;font-size:12px">${c}</td>`).join('')}</tr>`).join('')}</tbody>
+        <tbody>${rows.map((r, i) => `<tr style="background:${i % 2 ? '#f4f6fb' : '#fff'}">${r.map(c => `<td style="padding:6px 8px;border-bottom:1px solid #e2e6f0;font-size:12px">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>`;
 
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -3064,11 +3083,13 @@ export class AcademicController {
     return this.academicService.getSubjectTeacherAnalytics(req.user, q.subject, q.term);
   }
 
+  @AllowRoles('parent')
   @Get('analytics/parent')
   getParentAnalytics(@Request() req: any, @Query() q: any) {
     return this.academicService.getParentAnalytics(req.user, q.learnerId, q.term);
   }
 
+  @AllowRoles('parent')
   @Get('my-children')
   getMyChildren(@Request() req: any) {
     return this.academicService.getMyChildren(req.user);
@@ -3208,6 +3229,7 @@ export class AcademicController {
     return this.academicService.getTeachers(req.user.tenantId);
   }
 
+  @SchoolOnly(false)   // the teacher workspace reads its own subjects
   @Get('teachers/:id/stream-subjects')
   getTeacherStreamSubjects(@Request() req: any, @Param('id') id: string) {
     return this.academicService.getTeacherStreamSubjects(req.user.tenantId, id);
@@ -3246,6 +3268,7 @@ export class AcademicController {
   // ── Subject allocation (senior school) ───────────────────
   @Post('subject-allocations')
   allocateSubjects(@Request() req: any, @Body() dto: any) {
+    this.academicAdminOnly(req);
     return this.academicService.allocateSubjects(req.user.tenantId, dto);
   }
 
@@ -3256,6 +3279,7 @@ export class AcademicController {
 
   @Delete('subject-allocations/:id')
   removeSubjectAllocation(@Request() req: any, @Param('id') id: string) {
+    this.academicAdminOnly(req);
     return this.academicService.removeSubjectAllocation(req.user.tenantId, id);
   }
 
@@ -3267,6 +3291,7 @@ export class AcademicController {
 
   @Post('allocations')
   allocateTeacher(@Request() req: any, @Body() dto: any) {
+    this.academicAdminOnly(req);
     return this.academicService.allocateTeacher(req.user.tenantId, dto);
   }
 }

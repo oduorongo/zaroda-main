@@ -19,6 +19,7 @@ import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { revokeSessions } from '../../common/sessions';
+import { generateTempPassword } from '../../common/security';
 
 @Entity('teacher_onboard_links')
 export class TeacherOnboardLink {
@@ -185,16 +186,11 @@ export class TeacherOnboardService {
     // The teacher chooses their own password during self-onboarding (copy-pasting a
     // system password that bundles username+password was error-prone). Fall back to a
     // generated one only if none was provided.
-    const gen = () => {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-      const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      return `${block()}-${block()}-${block()}`;
-    };
     const chosen = (body.password || '').trim();
     if (chosen && chosen.length < 6) {
       throw new BadRequestException('Password must be at least 6 characters.');
     }
-    const plain = chosen || gen();
+    const plain = chosen || generateTempPassword();
     const passwordHash = await bcrypt.hash(plain, 12);
     const teacherSetOwnPassword = !!chosen;
     const subjects = Array.isArray(body.subjects) ? body.subjects.join(',') : '';

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Calendar, Pencil, Check, X, Loader2, UserCheck, Trash2, Wand2, LayoutGrid, Download, Printer, SlidersHorizontal } from 'lucide-react';
 import apiClient from '@/lib/api/client';
+import { escapeHtml, safeImageSrc } from '@/lib/html';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { learningAreasFor, learningAreaMatches } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
@@ -88,29 +89,29 @@ export default function TimetablePage() {
 
   // Master grid → CSV (stream, day, period, subject, teacher)
   // Print the current stream's timetable, customised with school + class name.
-  const esc = (s:any) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));
+  const esc = escapeHtml;
   const printStream = () => {
     const stream = streams.find(s => s.id === streamId);
     const rows = (structure?.periods || []);
     if (!rows.length) { toast.error('Select a class first'); return; }
-    const w = window.open('', '_blank');
+    const w = window.open('', '_blank'); if (w) w.opener = null;
     if (!w) { toast.error('Allow pop-ups to print'); return; }
     const fixedLabel: Record<string,string> = { break:'Health Break', lunch:'Lunch Break', games:'Games / Co-curricular', ppi:'PPI (Friday only)', assembly:'Assembly / Roll Call', non_formal:'Non-formal', free_choice:'Free Choice' };
     let body = '';
     rows.forEach((p:any) => {
       if (p.type === 'lesson' || p.type === 'remedial') {
         const label = periodKey(p); // must match the on-screen grid's key exactly
-        body += `<tr><td class="ph">${label}<br><small>${p.startTime}–${p.endTime}</small></td>` +
+        body += `<tr><td class="ph">${esc(label)}<br><small>${esc(p.startTime)}–${esc(p.endTime)}</small></td>` +
           DAYS.map(day => {
             const l = grid[label]?.[day];
-            return `<td>${l ? `<b>${l.subject}</b>${l.teacherName?`<br><small>${l.teacherName}</small>`:''}` : ''}</td>`;
+            return `<td>${l ? `<b>${esc(l.subject)}</b>${l.teacherName?`<br><small>${esc(l.teacherName)}</small>`:''}` : ''}</td>`;
           }).join('') + `</tr>`;
       } else {
         const lbl = p.label || fixedLabel[p.type] || p.type;
-        body += `<tr class="fixed"><td class="ph">${lbl}<br><small>${p.startTime}–${p.endTime}</small></td><td colspan="${DAYS.length}">${lbl}</td></tr>`;
+        body += `<tr class="fixed"><td class="ph">${esc(lbl)}<br><small>${esc(p.startTime)}–${esc(p.endTime)}</small></td><td colspan="${DAYS.length}">${esc(lbl)}</td></tr>`;
       }
     });
-    w.document.write(`<!doctype html><html><head><title>Timetable — ${stream?.name||''}</title><style>
+    w.document.write(`<!doctype html><html><head><title>Timetable — ${esc(stream?.name||'')}</title><style>
       body{font-family:Arial,sans-serif;padding:24px;color:#1a2e5a}
       h1{margin:0;font-size:16pt} h2{margin:2px 0;font-size:12pt;font-weight:600}
       .meta{color:#666;font-size:10px;margin-bottom:12px}
@@ -120,7 +121,7 @@ export default function TimetablePage() {
       tr.fixed td{background:#f7f7f9;font-style:italic;color:#555}
     </style></head><body>
       <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:10px">
-        ${school.badgeBase64 ? `<img src="${school.badgeBase64}" alt="badge" style="width:60px;height:60px;object-fit:contain"/>` : ''}
+        ${safeImageSrc(school.badgeBase64) ? `<img src="${safeImageSrc(school.badgeBase64)}" alt="badge" style="width:60px;height:60px;object-fit:contain"/>` : ''}
         <div>
           <h1 style="margin:0">${esc(school.schoolName || 'School')}</h1>
           <h2 style="margin:2px 0">Class Timetable — ${esc(stream?.name || '')}</h2>
@@ -153,7 +154,7 @@ export default function TimetablePage() {
   // Master grid → print (one table per stream)
   const printMaster = () => {
     if (!masterRows.length) return;
-    const w = window.open('', '_blank');
+    const w = window.open('', '_blank'); if (w) w.opener = null;
     if (!w) { toast.error('Allow pop-ups to print'); return; }
     const byStream: Record<string, any> = {};
     masterRows.forEach((r:any) => {
@@ -169,17 +170,17 @@ export default function TimetablePage() {
       td.day{text-align:left;font-weight:700;background:#f4f6fb}
     </style></head><body>
       <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #1a2e5a;padding-bottom:10px;margin-bottom:10px">
-        ${school.badgeBase64 ? `<img src="${school.badgeBase64}" style="width:56px;height:56px;object-fit:contain"/>` : ''}
-        <div><h1 style="margin:0">${(school.schoolName||'School')}</h1><h2 style="margin:2px 0">Master Block Timetable</h2></div>
+        ${safeImageSrc(school.badgeBase64) ? `<img src="${safeImageSrc(school.badgeBase64)}" style="width:56px;height:56px;object-fit:contain"/>` : ''}
+        <div><h1 style="margin:0">${esc(school.schoolName||'School')}</h1><h2 style="margin:2px 0">Master Block Timetable</h2></div>
       </div>`;
     Object.keys(byStream).sort().forEach(sn => {
       const periods = Array.from(new Set(masterRows.filter((r:any)=>r.streamName===sn).map((r:any)=>r.periodLabel)))
         .sort((a:any,b:any)=>((parseInt(String(a).replace(/\D/g,''))||0)-(parseInt(String(b).replace(/\D/g,''))||0)));
-      html += `<h2>${sn}</h2><table><thead><tr><th>Day</th>${periods.map((p:any)=>`<th>${p}</th>`).join('')}</tr></thead><tbody>`;
+      html += `<h2>${esc(sn)}</h2><table><thead><tr><th>Day</th>${periods.map((p:any)=>`<th>${esc(p)}</th>`).join('')}</tr></thead><tbody>`;
       dayList.forEach(day => {
         html += `<tr><td class="day">${day}</td>` + periods.map((p:any)=>{
           const c = byStream[sn][day]?.[p];
-          return `<td>${c ? c.subject + (c.teacherName?`<br><small>${c.teacherName}</small>`:'') : '—'}</td>`;
+          return `<td>${c ? esc(c.subject) + (c.teacherName?`<br><small>${esc(c.teacherName)}</small>`:'') : '—'}</td>`;
         }).join('') + `</tr>`;
       });
       html += `</tbody></table>`;

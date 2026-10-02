@@ -3,12 +3,14 @@
 // Lets a school admin edit school profile + report-card branding.
 // Brand colours live in schools.settings (JSONB) so no schema change is needed.
 import {
-  Controller, Get, Patch, Body, UseGuards, Request, Injectable,
+  Controller, Get, Patch, Body, UseGuards, Request, Injectable, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IsOptional, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AllowRoles } from '../../common/decorators/access.decorator';
+import { safeImageSrc } from '../../common/security';
 import { School } from './entities/school.entity';
 
 export class UpdateSchoolSettingsDto {
@@ -64,6 +66,11 @@ export class SchoolSettingsService {
     if (dto.knecCode !== undefined) (school as any).knecCode = dto.knecCode;
     if (dto.principalName !== undefined) (school as any).principalName = dto.principalName;
 
+    // The badge is drawn into report cards and PDFs: only an embedded PNG/JPEG/WebP,
+    // never a URL the PDF renderer would go and fetch.
+    if (dto.badgeBase64 && !safeImageSrc(dto.badgeBase64)) {
+      throw new BadRequestException('The school badge must be a PNG, JPEG or WebP image.');
+    }
     const settings = { ...((school as any).settings || {}) };
     for (const k of ['motto', 'brandPrimary', 'brandPrimaryDeep', 'brandAccent', 'badgeBase64'] as const) {
       if (dto[k] !== undefined) settings[k] = dto[k];
@@ -91,6 +98,7 @@ export class SchoolSettingsService {
 export class SchoolSettingsController {
   constructor(private readonly svc: SchoolSettingsService) {}
 
+  @AllowRoles('parent', 'learner')
   @Get('settings')
   get(@Request() req: any) {
     return this.svc.get(req.user.tenantId);
@@ -98,6 +106,10 @@ export class SchoolSettingsController {
 
   @Patch('settings')
   update(@Request() req: any, @Body() dto: UpdateSchoolSettingsDto) {
+    // The school profile and report-card branding belong to the school's administrators.
+    if (!['hoi', 'dhois', 'school_admin', 'tenant_owner'].includes(req.user.role)) {
+      throw new ForbiddenException('Only the HOI or a school administrator can change school settings.');
+    }
     return this.svc.update(req.user.tenantId, dto);
   }
 }

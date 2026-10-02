@@ -365,8 +365,8 @@ export class ProfessionalRecordsPaymentsController {
   constructor(private walletService: WalletService) {}
 
   @Post('mpesa/callback')
-  async mpesaCallback(@Body() body: any) {
-    await this.walletService.handleCallback(body);
+  async mpesaCallback(@Query('token') token: string, @Body() body: any) {
+    await this.walletService.handleCallback(body, token);
     return { ResultCode: 0, ResultDesc: 'Accepted' };
   }
 }

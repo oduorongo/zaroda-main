@@ -88,7 +88,7 @@ export class AuthService {
   // number on file — try email first (the common case), then fall back to phone so a
   // number typed into the same field still finds the right account.
   async login(identifier: string, password: string) {
-    const columns = ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive'];
+    const columns = ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive','mustChangePassword'];
     let user = await this.findUserByEmail(identifier, columns);
     if (!user) user = await this.findUserByPhone(identifier, columns);
 
@@ -142,6 +142,9 @@ export class AuthService {
         ownership,
         accountType,
         planTier,
+        // True after an admin issued a temporary password: the app sends them to
+        // /auth/change-password, and the API refuses everything else until then.
+        mustChangePassword: !!user.mustChangePassword,
       },
     };
   }
@@ -501,7 +504,7 @@ export class AuthService {
   async getMe(userId: string) {
     const user = await this.userRepo.findOne({
       where:  { id: userId },
-      select: ['id','email','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','phone','lastLoginAt'],
+      select: ['id','email','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','phone','lastLoginAt','mustChangePassword'],
     });
     if (!user) return user;
 
@@ -540,6 +543,32 @@ export class AuthService {
 
   async logout(_userId: string) {
     return { message: 'Logged out successfully' };
+  }
+
+  // ── Change password (signed in) ─────────────────────────
+  // Ends every other session (the token version is bumped) and hands this one
+  // fresh tokens, so the device that made the change stays signed in.
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) throw new BadRequestException('New password must be at least 8 characters.');
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'email', 'role', 'tenantId', 'schoolId', 'isActive', 'passwordHash'],
+    });
+    if (!user || !user.isActive) throw new UnauthorizedException('Account not found');
+    // 400 rather than 401: the app treats a 401 as an expired session and signs out.
+    if (!(await bcrypt.compare(currentPassword || '', user.passwordHash))) {
+      throw new BadRequestException('Your current password is incorrect.');
+    }
+    if (newPassword === currentPassword) throw new BadRequestException('Choose a new password that is different from the current one.');
+
+    const hash = await bcrypt.hash(newPassword, 12);
+    await this.dataSource.query(
+      `UPDATE users SET password_hash = $2, must_change_password = false, updated_at = NOW() WHERE id = $1`,
+      [user.id, hash],
+    );
+    await revokeSessions(this.dataSource, [user.id]);
+    const tokens = await this.generateTokens(user);
+    return { message: 'Password changed.', accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, mustChangePassword: false };
   }
 
   // ── Generate JWT pair ───────────────────────────────────

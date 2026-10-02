@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
   Sparkles, Menu, X, LogOut, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
-  DollarSign,
+  DollarSign, KeyRound,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -61,6 +61,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
   // Guard: only teachers may use this portal
   useEffect(() => {
     if (user === null) { router.replace('/auth/login'); return; }
+    if (user?.mustChangePassword) { router.replace('/auth/change-password'); return; }
     if (user && !isTeacher(user.role)) {
       // Admins/bursars/etc. belong in the admin dashboard
       router.replace('/dashboard');
@@ -153,6 +154,10 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
           className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-[#d4af37] hover:bg-white/10 w-full">
           <Share2 size={18}/> Refer a School
         </button>
+        <Link href="/auth/change-password"
+          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-white/65 hover:bg-white/10 hover:text-white w-full">
+          <KeyRound size={18}/> Change password
+        </Link>
         <button onClick={() => { logout(); router.replace('/auth/login'); }}
           className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-white/65 hover:bg-white/10 hover:text-white w-full">
           <LogOut size={18}/> Sign out

@@ -316,6 +316,9 @@ export default function MpesaSettingsPage() {
               <div>
                 <div className="font-bold text-theme-heading">{ksh(t.amount)} <span className="font-normal text-theme-muted text-sm">from {t.phone || 'unknown number'}</span></div>
                 <div className="text-xs text-theme-muted">Typed as account no.: "{t.accountReference || '(blank)'}" · {t.mpesaReceiptNumber} · {(t.createdAt||'').slice(0,10)}</div>
+                {t.status === 'review' && (
+                  <div className="text-xs text-amber-700 mt-1">Needs checking: M-Pesa reported a different amount than was requested. Confirm it on your M-Pesa statement before assigning.</div>
+                )}
               </div>
               <button onClick={() => setAssigning(t)} className="btn-primary text-sm"><UserPlus2 size={14}/> Assign to learner</button>
             </div>
