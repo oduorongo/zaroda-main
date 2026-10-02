@@ -2,7 +2,7 @@
   "name": "ZARODA School Management System",
   "short_name": "ZARODA SMS",
   "description": "AI-powered CBC/CBE school management for Kenyan schools — academics, finance, communication, and Professional Records.",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0f1c38",

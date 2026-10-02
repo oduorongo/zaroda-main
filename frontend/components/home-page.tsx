@@ -7,7 +7,7 @@ import {
   Trophy, Scale, Zap, Sparkles, ShieldCheck, MapPin,
   ArrowRight, Check, Phone, PlayCircle, Quote, Star, GraduationCap,
 } from 'lucide-react';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, homePathForRole } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
 
 const MODULES = [
@@ -84,7 +84,7 @@ export default function HomePage() {
           </nav>
           <div className="flex items-center gap-2">
             {user ? (
-              <Link href="/dashboard" className="btn-primary text-sm">Go to Dashboard</Link>
+              <Link href={homePathForRole(user.role)} className="btn-primary text-sm">Go to Dashboard</Link>
             ) : (
               <>
                 <Link href="/auth/login" className="text-sm font-semibold text-[#1a2e5a] px-3 py-2 hover:bg-[#f4f6fb] rounded-xl">Sign In</Link>

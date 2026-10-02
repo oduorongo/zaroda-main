@@ -60,6 +60,10 @@ export class User {
   @Column({ name: 'must_change_password', default: false })
   mustChangePassword: boolean;
 
+  // Bumped to revoke every token issued before it (see common/sessions.ts).
+  @Column({ name: 'token_version', type: 'int', default: 0 })
+  tokenVersion: number;
+
   @Column({ name: 'last_login_at', nullable: true })
   lastLoginAt: Date;
 

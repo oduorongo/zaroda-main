@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth, homePathForRole } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
 
 export default function LoginPage() {
@@ -21,18 +21,7 @@ export default function LoginPage() {
       await login(email, password);
       toast.success('Welcome back!');
       // Route by role — teachers get their own independent portal
-      const role = useAuth.getState().user?.role || '';
-      if (role === 'super_admin') {
-        router.push('/owner');
-      } else if (['class_teacher','subject_teacher','overall_class_teacher'].includes(role)) {
-        router.push('/teacher');
-      } else if (role === 'parent') {
-        router.push('/dashboard/parent');
-      } else if (role === 'learner') {
-        router.push('/dashboard/learner');
-      } else {
-        router.push('/dashboard');
-      }
+      router.push(homePathForRole(useAuth.getState().user?.role));
     } catch (err: any) {
       setError(err.message || 'Login failed');
     }

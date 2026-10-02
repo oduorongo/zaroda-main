@@ -18,6 +18,7 @@ import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { revokeSessions } from '../../common/sessions';
 
 @Entity('teacher_onboard_links')
 export class TeacherOnboardLink {
@@ -334,6 +335,8 @@ export class TeacherOnboardService {
     } finally {
       await runner.release();
     }
+    // New school and role: tokens from the old individual account must stop working.
+    await revokeSessions(this.dataSource, [found.id]);
 
     return {
       success: true,

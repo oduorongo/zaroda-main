@@ -19,6 +19,8 @@ import { schoolHeadInfo, schoolLetterheadHtml } from '../common/school-letterhea
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
 import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
+import { safeEqual, escapeHtml } from '../common/security';
+import { revokeSessions } from '../common/sessions';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -2122,6 +2124,11 @@ class MpesaPaybillController {
     }
     const base = (process.env.APP_URL || '').replace(/\/+$/, '');
     if (!base) throw new BadRequestException('Server is missing APP_URL — contact ZARODA support.');
+    // The confirmation URL is public, so the secret in it is what tells a real
+    // Safaricom call apart from a forged "payment received" post.
+    const secret = process.env.C2B_CALLBACK_SECRET || '';
+    if (!secret) throw new BadRequestException('Server is missing C2B_CALLBACK_SECRET — contact ZARODA support.');
+    const tokenQuery = `?token=${encodeURIComponent(secret)}`;
     let token: string;
     try {
       token = await getDarajaToken(settings.environment, settings.consumerKey, settings.consumerSecret);
@@ -2134,8 +2141,8 @@ class MpesaPaybillController {
       body: JSON.stringify({
         ShortCode: settings.shortcode,
         ResponseType: 'Completed',
-        ConfirmationURL: `${base}/api/v1/finance/mpesa/c2b/confirmation/${req.user.tenantId}`,
-        ValidationURL: `${base}/api/v1/finance/mpesa/c2b/validation/${req.user.tenantId}`,
+        ConfirmationURL: `${base}/api/v1/finance/mpesa/c2b/confirmation/${req.user.tenantId}${tokenQuery}`,
+        ValidationURL: `${base}/api/v1/finance/mpesa/c2b/validation/${req.user.tenantId}${tokenQuery}`,
       }),
     });
     const data: any = await resp.json().catch(() => ({}));
@@ -2396,6 +2403,9 @@ class MpesaCallbackController {
     const txn = rows[0];
     if (!txn) return { ResultCode: 0, ResultDesc: 'Accepted' };
 
+    // Only a transaction still 'pending' is settled, and the status flip is the
+    // claim: a repeated or replayed callback finds nothing to update and stops,
+    // so one payment can never be reconciled twice.
     if (stk.ResultCode === 0) {
       const items = stk.CallbackMetadata?.Item || [];
       const get = (name: string) => items.find((i: any) => i.Name === name)?.Value;
@@ -2403,14 +2413,15 @@ class MpesaCallbackController {
       const amount = Number(get('Amount') ?? txn.amount);
       const phone = String(get('PhoneNumber') ?? txn.phone ?? '');
 
-      await this.ds.query(
-        `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3 WHERE id::text = $1`,
+      const claimed = await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3
+          WHERE id::text = $1 AND status = 'pending' RETURNING id`,
         [txn.id, mpesaReceiptNumber, JSON.stringify(body)],
-      ).catch(() => null);
-      await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, amount, phone, mpesaReceiptNumber);
+      ).catch(() => []);
+      if (claimed.length) await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, amount, phone, mpesaReceiptNumber);
     } else {
       await this.ds.query(
-        `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1`,
+        `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1 AND status = 'pending'`,
         [txn.id, JSON.stringify(body)],
       ).catch(() => null);
     }
@@ -2432,15 +2443,17 @@ class MpesaCallbackController {
     const txn = rows[0];
     if (!txn) return { ok: true };
 
+    // Same pending-only claim as stk-callback above.
     if (parsed.success) {
-      await this.ds.query(
-        `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3 WHERE id::text = $1`,
+      const claimed = await this.ds.query(
+        `UPDATE mpesa_transactions SET status = 'completed', mpesa_receipt_number = $2, raw_callback = $3
+          WHERE id::text = $1 AND status = 'pending' RETURNING id`,
         [txn.id, parsed.mpesaReceipt || null, JSON.stringify(body)],
-      ).catch(() => null);
-      await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, Number(txn.amount), txn.phone, parsed.mpesaReceipt || '');
+      ).catch(() => []);
+      if (claimed.length) await this.reconcile(txn.tenant_id, txn.id, txn.learner_id, txn.account_reference, Number(txn.amount), txn.phone, parsed.mpesaReceipt || '');
     } else {
       await this.ds.query(
-        `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1`,
+        `UPDATE mpesa_transactions SET status = 'failed', raw_callback = $2 WHERE id::text = $1 AND status = 'pending'`,
         [txn.id, JSON.stringify(body)],
       ).catch(() => null);
     }
@@ -2460,21 +2473,32 @@ class MpesaCallbackController {
   // ambiguity about which tenant this payment belongs to even if two schools
   // somehow shared a shortcode in testing.
   @Post('c2b/confirmation/:tenantId')
-  async c2bConfirmation(@Param('tenantId') tenantId: string, @Body() body: any) {
+  async c2bConfirmation(@Param('tenantId') tenantId: string, @Query('token') token: string, @Body() body: any) {
     await ensureMpesaTransactionsTable(this.ds);
     const phone = body?.MSISDN ? String(body.MSISDN) : '';
     const amount = Number(body?.TransAmount || 0);
     const accountReference = String(body?.BillRefNumber || '').trim();
     const mpesaReceiptNumber = body?.TransID || null;
 
+    // Without the secret registered in the URL (see registerC2b) this is not
+    // provably Safaricom: keep it for the record as 'unverified', but never let
+    // it touch a learner's balance.
+    const secret = process.env.C2B_CALLBACK_SECRET || '';
+    const verified = !!secret && !!token && safeEqual(String(token), secret);
+
+    // Safaricom retries a confirmation it thinks failed. A TransID already on file
+    // from a verified call is that retry — record nothing and reconcile nothing.
     const rows = await this.ds.query(
       `INSERT INTO mpesa_transactions
          (tenant_id, type, phone, amount, account_reference, mpesa_receipt_number, status, raw_callback, created_at)
-       VALUES ($1,'c2b',$2,$3,$4,$5,'pending',$6,NOW()) RETURNING id`,
-      [tenantId, phone, amount, accountReference, mpesaReceiptNumber, JSON.stringify(body)],
+       SELECT $1::uuid,'c2b',$2::text,$3::numeric,$4::text,$5::text,$6::text,$7::jsonb,NOW()
+        WHERE $5::text IS NULL OR NOT EXISTS (
+          SELECT 1 FROM mpesa_transactions WHERE mpesa_receipt_number = $5::text AND status <> 'unverified')
+       RETURNING id`,
+      [tenantId, phone, amount, accountReference, mpesaReceiptNumber, verified ? 'pending' : 'unverified', JSON.stringify(body)],
     ).catch(() => []);
     const txnId = rows[0]?.id;
-    if (txnId) await this.reconcile(tenantId, txnId, null, accountReference, amount, phone, mpesaReceiptNumber);
+    if (txnId && verified) await this.reconcile(tenantId, txnId, null, accountReference, amount, phone, mpesaReceiptNumber);
 
     // Safaricom expects exactly this shape to accept the C2B payment.
     return { ResultCode: 0, ResultDesc: 'Success' };
@@ -3639,7 +3663,7 @@ class CommunicationController {
     }
     if (wantsEmail) {
       const emails = Array.from(new Set(recipients.map(r => r.email).filter(Boolean))) as string[];
-      const html = `<p>${content.replace(/\n/g, '<br/>')}</p>`;
+      const html = `<p>${escapeHtml(content).replace(/\n/g, '<br/>')}</p>`;
       const outcomes: any[] = [];
       for (let i = 0; i < emails.length; i += 8) {
         const batch = emails.slice(i, i + 8);
@@ -3854,7 +3878,7 @@ class CommunicationController {
         await recordBlacklistedNumbers(this.ds, r.blacklistedNumbers);
       }
       if (wantsEmail && d.guardianEmail) {
-        const r = await sendEmail(d.guardianEmail, 'Outstanding Fee Balance', `<p>${text}</p>`, text);
+        const r = await sendEmail(d.guardianEmail, 'Outstanding Fee Balance', `<p>${escapeHtml(text)}</p>`, text);
         if (r.ok) emailSent++; else { emailFailed++; emailDetail = emailDetail || r.detail; }
       }
     }
@@ -7726,8 +7750,8 @@ class AdminController {
       const firstName = (adminName || '').trim().split(/\s+/)[0] || 'there';
       return `
         <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; color: #1a1a1a;">
-          <p>Dear ${firstName},</p>
-          <p>You have already taken the first step by onboarding <strong>${schoolName}</strong> to ZARODA SMS. Now, let&rsquo;s complete your setup!</p>
+          <p>Dear ${escapeHtml(firstName)},</p>
+          <p>You have already taken the first step by onboarding <strong>${escapeHtml(schoolName)}</strong> to ZARODA SMS. Now, let&rsquo;s complete your setup!</p>
           <p>Your account is ready, but some important setup steps are still incomplete. Completing them will allow you to fully benefit from ZARODA SMS.</p>
           <p>With a fully set-up account, you can:</p>
           <ul style="padding-left: 20px; line-height: 1.8;">
@@ -7959,10 +7983,11 @@ class AdminController {
     ).catch(() => []);
     if (!target.length) return { error: 'User not found.' };
     const tenantId = target[0].tenantId;
-    await this.ds.query(
-      `UPDATE users SET role = 'class_teacher' WHERE tenant_id = $1 AND role = 'hoi'`, [tenantId],
-    ).catch(() => null);
+    const demoted = await this.ds.query(
+      `UPDATE users SET role = 'class_teacher' WHERE tenant_id = $1 AND role = 'hoi' RETURNING id`, [tenantId],
+    ).catch(() => []);
     await this.ds.query(`UPDATE users SET role = 'hoi' WHERE id = $1`, [id]).catch((e: any) => { throw e; });
+    await revokeSessions(this.ds, [...(demoted as any[]).map(r => r.id), id]);
     return { promoted: true, email: target[0].email };
   }
 
@@ -7981,6 +8006,7 @@ class AdminController {
         WHERE id = $1 RETURNING email`, [id, hash],
     ).catch(() => []);
     if (!rows.length) return { error: 'User not found.' };
+    await revokeSessions(this.ds, [id]);
     return { email: rows[0].email, tempPassword: temp };
   }
 

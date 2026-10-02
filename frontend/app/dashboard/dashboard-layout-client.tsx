@@ -131,6 +131,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
   useEffect(() => {
     if (!ready) return;
     if (!user) { router.push('/auth/login'); return; }
+    if (user.role === 'super_admin') { router.replace('/owner'); return; }
     if (isTeacher(user.role) && !teacherAllowedHere) router.replace('/teacher');
   }, [user, ready, router, teacherAllowedHere]);
 

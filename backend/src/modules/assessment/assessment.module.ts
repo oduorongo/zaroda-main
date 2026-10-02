@@ -240,6 +240,32 @@ export class AssessmentService {
   // ── Owner rubric editing: add / rename / delete strands and sub-strands ──
   private isOwner(role: string) { return ['super_admin','tenant_owner','hoi','dhois'].includes(role); }
 
+  // A shared template (tenant_id IS NULL) is the rubric every school sees, so only
+  // the platform owner may change it. A school's own template stays editable by
+  // its owner roles; another school's template is out of reach entirely.
+  private assertCanEditTemplate(user: any, tpl: { tenantId: string | null } | undefined) {
+    if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    if (!tpl) throw new BadRequestException('Rubric item not found.');
+    if (user.role === 'super_admin') return;
+    if (!tpl.tenantId) throw new BadRequestException('Only the platform owner can edit the shared rubric.');
+    if (String(tpl.tenantId) !== String(user.tenantId)) throw new BadRequestException('Rubric item not found.');
+  }
+
+  private async templateOfStrand(strandId: string) {
+    return (await this.dataSource.query(
+      `SELECT t.tenant_id AS "tenantId" FROM assessment_strands st
+         JOIN assessment_templates t ON t.id = st.template_id WHERE st.id::text = $1 LIMIT 1`, [strandId],
+    ).catch(() => []))[0];
+  }
+
+  private async templateOfSubstrand(substrandId: string) {
+    return (await this.dataSource.query(
+      `SELECT t.tenant_id AS "tenantId" FROM assessment_substrands ss
+         JOIN assessment_strands st ON st.id = ss.strand_id
+         JOIN assessment_templates t ON t.id = st.template_id WHERE ss.id::text = $1 LIMIT 1`, [substrandId],
+    ).catch(() => []))[0];
+  }
+
   private async templateId(gradeLevel: string, learningArea: string, tenantId: string): Promise<string> {
     let tpl = await this.dataSource.query(
       `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
@@ -256,6 +282,12 @@ export class AssessmentService {
   async addStrand(user: any, dto: any) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
     if (!dto?.gradeLevel || !dto?.learningArea || !dto?.term || !dto?.name?.trim()) throw new BadRequestException('Need gradeLevel, learningArea, term and name.');
+    // templateId() resolves to (or creates) the shared template, so check first.
+    const existingTpl = (await this.dataSource.query(
+      `SELECT tenant_id AS "tenantId" FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
+      [dto.gradeLevel, dto.learningArea],
+    ).catch(() => []))[0];
+    this.assertCanEditTemplate(user, existingTpl || { tenantId: null });
     const tid = await this.templateId(dto.gradeLevel, dto.learningArea, user.tenantId);
     const posRow = await this.dataSource.query(`SELECT COALESCE(MAX(position),0)+1 AS p FROM assessment_strands WHERE template_id = $1 AND term = $2`, [tid, dto.term]).catch(() => [{ p: 1 }]);
     const r = await this.dataSource.query(
@@ -268,12 +300,14 @@ export class AssessmentService {
   async renameStrand(user: any, strandId: string, name: string) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
     if (!name?.trim()) throw new BadRequestException('Name required.');
+    this.assertCanEditTemplate(user, await this.templateOfStrand(strandId));
     await this.dataSource.query(`UPDATE assessment_strands SET name = $2 WHERE id = $1`, [strandId, name.trim()]);
     return { id: strandId, name: name.trim() };
   }
 
   async deleteStrand(user: any, strandId: string) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    this.assertCanEditTemplate(user, await this.templateOfStrand(strandId));
     await this.dataSource.query(`DELETE FROM assessment_substrands WHERE strand_id = $1`, [strandId]).catch(() => null);
     await this.dataSource.query(`DELETE FROM assessment_strands WHERE id = $1`, [strandId]).catch(() => null);
     return { deleted: true };
@@ -282,6 +316,7 @@ export class AssessmentService {
   async addSubstrand(user: any, dto: any) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
     if (!dto?.strandId || !dto?.name?.trim()) throw new BadRequestException('Need strandId and name.');
+    this.assertCanEditTemplate(user, await this.templateOfStrand(dto.strandId));
     const posRow = await this.dataSource.query(`SELECT COALESCE(MAX(position),0)+1 AS p FROM assessment_substrands WHERE strand_id = $1`, [dto.strandId]).catch(() => [{ p: 1 }]);
     const r = await this.dataSource.query(
       `INSERT INTO assessment_substrands (strand_id, position, name) VALUES ($1,$2,$3) RETURNING id, name, position`,
@@ -293,12 +328,14 @@ export class AssessmentService {
   async renameSubstrand(user: any, substrandId: string, name: string) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
     if (!name?.trim()) throw new BadRequestException('Name required.');
+    this.assertCanEditTemplate(user, await this.templateOfSubstrand(substrandId));
     await this.dataSource.query(`UPDATE assessment_substrands SET name = $2 WHERE id = $1`, [substrandId, name.trim()]);
     return { id: substrandId, name: name.trim() };
   }
 
   async deleteSubstrand(user: any, substrandId: string) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
+    this.assertCanEditTemplate(user, await this.templateOfSubstrand(substrandId));
     await this.dataSource.query(`DELETE FROM assessment_substrands WHERE id = $1`, [substrandId]).catch(() => null);
     return { deleted: true };
   }
@@ -308,9 +345,12 @@ export class AssessmentService {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
     if (!gradeLevel || !learningArea) throw new BadRequestException('Need gradeLevel and learningArea.');
     const tpls = await this.dataSource.query(
-      `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2`,
+      `SELECT id, tenant_id AS "tenantId" FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2`,
       [gradeLevel, learningArea],
     ).catch(() => []);
+    // Every template that would be removed must be one this user may edit — this used
+    // to delete the shared rubric and other schools' copies along with the caller's own.
+    for (const tpl of tpls) this.assertCanEditTemplate(user, tpl);
     let removed = 0;
     for (const tpl of tpls) {
       const strandIds = (await this.dataSource.query(`SELECT id FROM assessment_strands WHERE template_id = $1`, [tpl.id]).catch(() => [])).map((r: any) => r.id);
@@ -355,6 +395,12 @@ export class AssessmentService {
     if (!learnerId || !learningArea || !dto.term) {
       throw new BadRequestException('Missing learner, learning area, or term.');
     }
+    // The upsert below conflicts on (learner_id, substrand_id, term) alone, so a
+    // learner id from another school would overwrite that school's saved level.
+    const ownLearner = await this.dataSource.query(
+      `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`, [learnerId, user.tenantId],
+    ).catch(() => []);
+    if (!ownLearner.length) throw new BadRequestException('Learner not found.');
     await assertStreamsWritable(this.dataSource, user.tenantId, { streamIds: [streamId], learnerIds: [learnerId] });
     // Normalise defensively — the parent-facing rubric view (getChildRubric) always
     // queries by canonical term_1/2/3, so a raw label like "Term One" saved here

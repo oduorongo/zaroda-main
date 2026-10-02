@@ -7,8 +7,25 @@ import * as path          from 'path';
 import compression from 'compression';
 import { json, urlencoded } from 'express';
 import helmet             from 'helmet';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule }      from './app.module';
 import { AuthService }    from './modules/auth/auth.service';
+import { safeEqual, assertJwtSecretsConfigured } from './common/security';
+
+/**
+ * Gate for the key-protected maintenance URLs registered in bootstrap().
+ *
+ * There is no built-in default key: unless the env var holds a key of at least 24
+ * characters the URL answers 404, as if it did not exist. The key may come in the
+ * `x-admin-key` header or, for address-bar use, as ?key= (or `key` in a POST body).
+ */
+function maintenanceKeyOk(req: any, res: any, envName: 'MIGRATE_KEY' | 'OWNER_KEY', forbidden = 'Forbidden'): boolean {
+  const expected = process.env[envName] || '';
+  if (expected.length < 24) { res.status(404).send('Not Found'); return false; }
+  const supplied = String(req.headers?.['x-admin-key'] || req.body?.key || req.query?.key || '');
+  if (!supplied || !safeEqual(supplied, expected)) { res.status(403).send(forbidden); return false; }
+  return true;
+}
 
 /**
  * Split a migration file into individual statements.
@@ -235,9 +252,16 @@ async function runMigrations(app: any) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  // Fail fast with a clear message rather than signing tokens with a guessable key.
+  assertJwtSecretsConfigured();
+
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
+
+  // Render terminates TLS at its proxy, so req.ip would otherwise be the proxy's
+  // address and every client would share one rate-limit bucket. Trust exactly one hop.
+  app.set('trust proxy', 1);
 
   // Allow larger request bodies (e.g. base64 school logo uploads). The default ~100KB
   // limit causes 413 Content Too Large when saving settings with an image.
@@ -263,25 +287,25 @@ async function bootstrap() {
 
   // ── CORS — allow the Next.js frontend ────────────────────
   // Allowed browser origins: the configured frontend URL, any extra origins from
-  // ALLOWED_ORIGINS (comma-separated, e.g. a custom domain), localhost for dev, and
-  // any *.onrender.com host so the deployed frontend works out of the box.
+  // ALLOWED_ORIGINS (comma-separated, e.g. a custom domain or the frontend's exact
+  // *.onrender.com URL), localhost for dev, and the ZARODA custom domains. Any other
+  // onrender.com app is not allowed — anyone can create one.
   const staticOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:3001',
     ...(process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean),
     'http://localhost:3001',
     'http://localhost:3000',
     'http://127.0.0.1:3001',
-  ];
+  ].map(o => o.replace(/\/+$/, ''));   // a browser Origin never has a trailing slash
   app.enableCors({
     origin: (origin, cb) => {
-      // Allow same-origin/non-browser requests (no origin), any listed origin, any
-      // *.onrender.com host, and the zarodasolutions.app custom domain + subdomains.
+      // Allow same-origin/non-browser requests (no origin), any listed origin, and
+      // the zarodasolutions.app / zarodaschool.com custom domains + subdomains.
       if (!origin) return cb(null, true);
       let host = '';
       try { host = new URL(origin).hostname; } catch { return cb(null, false); }
       const ok =
         staticOrigins.includes(origin) ||
-        /\.onrender\.com$/.test(host) ||
         host === 'zarodasolutions.app' ||
         host.endsWith('.zarodasolutions.app') ||
         host === 'zarodaschool.com' || host.endsWith('.zarodaschool.com');
@@ -319,8 +343,7 @@ async function bootstrap() {
   const httpAdapter = app.getHttpAdapter();
   // Test messaging config: /messaging-check?key=...&email=you@x.com  or  &sms=07XXXXXXXX
   httpAdapter.get('/messaging-check', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const out: string[] = [];
     out.push(`GMAIL_USER set: ${!!process.env.GMAIL_USER}`);
     out.push(`GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`);
@@ -347,12 +370,11 @@ async function bootstrap() {
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.
-  // Visit: /data-check?key=zaroda-migrate-now   (uses the same MIGRATE_KEY). Returns
+  // Visit: /data-check?key=YOUR_KEY   (uses the same MIGRATE_KEY). Returns
   // row counts for the core tables + the database name it's actually connected to, so
   // we can tell if anything was wiped or if the backend is pointed at a fresh DB.
   httpAdapter.get('/data-check', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       const tables = ['users', 'schools', 'tenants', 'learners', 'streams', 'exams',
@@ -421,8 +443,7 @@ async function bootstrap() {
   // lists. Run with &confirm=yes to actually delete; without it, just reports what exists.
   // /remove-indigenous?key=...&confirm=yes
   httpAdapter.get('/remove-indigenous', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const like = `%indigenous%`;
     try {
       const ds = app.get(DataSource);
@@ -471,8 +492,7 @@ async function bootstrap() {
   // /remove-rubric-areas?key=...&areas=Creative Activities,Mathematical Activities,Indigenous Language
   // Matching is case-insensitive and also matches an optional " Activities" suffix variant.
   httpAdapter.get('/remove-rubric-areas', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const raw = String(req.query?.areas || '').trim();
     if (!raw) { res.status(400).type('text/plain').send('Provide ?areas=Name1,Name2 (comma-separated).'); return; }
     const names = raw.split(',').map(s => s.trim()).filter(Boolean);
@@ -693,10 +713,9 @@ async function bootstrap() {
   };
 
   // GET twin — runnable from the browser address bar (no console paste needed):
-  // /seed-rubric-bulk-run?key=zaroda-migrate-now
+  // /seed-rubric-bulk-run?key=YOUR_KEY
   httpAdapter.get('/seed-rubric-bulk-run', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const out = await runRubricSeed(null, req.query?.replace !== 'false');
       res.type('text/plain').send(out);
@@ -704,9 +723,8 @@ async function bootstrap() {
   });
 
   httpAdapter.post('/seed-rubric-bulk', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     const b = req.body || {};
-    if ((b.key || req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const out = await runRubricSeed(b.data, b.replace !== false);
       res.type('text/plain').send(out);
@@ -716,9 +734,8 @@ async function bootstrap() {
   });
 
   httpAdapter.post('/seed-rubric', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
     const b = req.body || {};
-    if ((b.key || req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const { gradeLevel, learningArea, term, strands, replace } = b;
     if (!gradeLevel || !learningArea || !term || !Array.isArray(strands) || !strands.length) {
       res.status(400).type('text/plain').send('Need gradeLevel, learningArea, term and a non-empty strands array.');
@@ -785,8 +802,7 @@ async function bootstrap() {
   // Browser-runnable: shows what learning areas exist in the rubric (assessment_templates)
   // per grade, so we can verify the rubric data. /rubric-check?key=...&grade=grade_7
   httpAdapter.get('/library-books-check', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       // Optional cleanup: ?deleteCode=LIB-... removes that copy (and its loans).
@@ -816,8 +832,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/fixtures-check', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       await ds.query(
@@ -838,8 +853,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/rubric-check', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       const grade = req.query?.grade || null;
@@ -901,8 +915,7 @@ async function bootstrap() {
   // Browser-runnable: shows the REAL top-performing classes the dashboard computes, so we
   // can confirm the data without logging in. /dashboard-check?key=...
   httpAdapter.get('/dashboard-check', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       const top = await ds.query(
@@ -924,17 +937,24 @@ async function bootstrap() {
 
   // OWNER BACKUP: download a full JSON snapshot of all data (schools, learners, marks,
   // streams, exams). Read-only. Save this file regularly — it is your restore point.
-  // Visit: /export-data?key=zaroda-migrate-now
+  // Visit: /export-data?key=YOUR_KEY
   httpAdapter.get('/export-data', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       const dump: any = { exportedAt: new Date().toISOString() };
       const tables = ['tenants', 'schools', 'users', 'streams', 'learners', 'exams',
         'assessment_results', 'assessment_scores'];
+      // Credentials never leave the database, backup or not: password hashes and any
+      // token/secret/API-key column are left out (token_version is only a counter).
+      const isSecret = (c: string) => /password|secret|api_key|token/i.test(c) && c !== 'token_version';
       for (const t of tables) {
-        dump[t] = await ds.query(`SELECT * FROM ${t}`).catch((e: any) => ({ error: e.message }));
+        const cols = (await ds.query(
+          `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 ORDER BY ordinal_position`, [t],
+        ).catch(() => [])).map((r: any) => r.column_name).filter((c: string) => !isSecret(c));
+        dump[t] = cols.length
+          ? await ds.query(`SELECT ${cols.map((c: string) => `"${c}"`).join(', ')} FROM ${t}`).catch((e: any) => ({ error: e.message }))
+          : { error: 'table not found' };
       }
       res.setHeader('Content-Disposition', `attachment; filename="zaroda-backup-${new Date().toISOString().slice(0,10)}.json"`);
       res.type('application/json').send(JSON.stringify(dump, null, 2));
@@ -946,7 +966,7 @@ async function bootstrap() {
   // saved as grade_7, which makes the rubric show the wrong learning areas). This only
   // updates the class's grade LABEL — it does not touch or delete any marks, which are
   // tied to the learner + subject, not the stream's grade tag.
-  // Visit: /fix-stream-grade?key=zaroda-migrate-now&name=Grade%205%20A&grade=grade_5
+  // Visit: /fix-stream-grade?key=YOUR_KEY&name=Grade%205%20A&grade=grade_5
   // Matches the stream by name (case-insensitive). Safe to run.
   // Inspect the distinct subject names that marks are stored under for a stream — used
   // to recover marks that were saved under a different grade's subject names (e.g. a
@@ -954,8 +974,7 @@ async function bootstrap() {
   // "Science & Technology"). Read-only. Visit:
   //   /stream-marks?key=...&name=Grade 5 A
   httpAdapter.get('/stream-marks', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const name = String(req.query?.name || '').trim();
     if (!name) { res.type('text/plain').send('Usage: /stream-marks?key=...&name=Grade 5 A'); return; }
     try {
@@ -992,8 +1011,7 @@ async function bootstrap() {
   // (0 learners AND 0 marks). /dedupe-streams?key=...          → report only
   //                          /dedupe-streams?key=...&delete=1  → delete empty duplicates
   httpAdapter.get('/dedupe-streams', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const doDelete = !!req.query?.delete;
     try {
       const ds = app.get(DataSource);
@@ -1037,8 +1055,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/learner-points', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       const name = String(req.query?.name || '').trim();
@@ -1092,8 +1109,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/marklist-diag', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     try {
       const ds = app.get(DataSource);
       const streamName = String(req.query?.stream || '').trim();
@@ -1189,8 +1205,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/align-mark-subjects', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const dry = !!req.query?.dry;
     const renames = MARK_RENAMES;   // single source of truth (shared with the auto-align on re-seed)
     try {
@@ -1228,8 +1243,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/rename-mark-subject', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const name = String(req.query?.name || '').trim();
     const from = String(req.query?.from || '').trim();
     const to = String(req.query?.to || '').trim();
@@ -1249,8 +1263,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/fix-stream-grade', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) { res.status(403).send('Forbidden'); return; }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY')) return;
     const name = String(req.query?.name || '').trim();
     const id = String(req.query?.id || '').trim();
     const grade = String(req.query?.grade || '').trim();
@@ -1294,11 +1307,7 @@ async function bootstrap() {
     }
   });
   httpAdapter.get('/run-migrations', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) {
-      res.status(403).send('Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.');
-      return;
-    }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY', 'Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.')) return;
     const lines: string[] = [];
     try {
       const ds = app.get(DataSource);
@@ -1336,11 +1345,7 @@ async function bootstrap() {
   // Temporary read-only check while confirming Africa's Talking actually calls the
   // DLR webhook — lets us look at sms_delivery_reports without an owner login.
   httpAdapter.get('/debug-dlr', async (req: any, res: any) => {
-    const expected = process.env.MIGRATE_KEY || 'zaroda-migrate-now';
-    if ((req.query?.key || '') !== expected) {
-      res.status(403).send('Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.');
-      return;
-    }
+    if (!maintenanceKeyOk(req, res, 'MIGRATE_KEY', 'Forbidden: add ?key=YOUR_MIGRATE_KEY to the URL.')) return;
     try {
       const ds = app.get(DataSource);
       const rows = await ds.query(`SELECT * FROM sms_delivery_reports ORDER BY received_at DESC LIMIT 20`).catch((e: any) => ({ error: String(e.message || e) }));
@@ -1351,38 +1356,30 @@ async function bootstrap() {
   });
 
   // One-time platform-owner creation (free tier has no shell). Visit:
-  //   /create-owner?key=SECRET&email=you@example.com&password=YourPass&name=Your+Name
-  // The key is OWNER_KEY env (defaults to 'zaroda-owner-setup'). Creates a super_admin
-  // with no tenant. Safe to call once; if the email already exists it upgrades that
-  // account to super_admin. Rotate/remove OWNER_KEY afterwards.
+  //   /create-owner?key=YOUR_KEY&email=you@example.com&password=YourPass&name=Your+Name
+  // The key is the OWNER_KEY env var (at least 24 characters; the URL is disabled
+  // without it). Creates a super_admin with no tenant. Never touches an existing
+  // account — an email already in use is refused. Remove OWNER_KEY afterwards.
   httpAdapter.get('/create-owner', async (req: any, res: any) => {
-    const expected = process.env.OWNER_KEY || 'zaroda-owner-setup';
-    if ((req.query?.key || '') !== expected) {
-      res.status(403).send('Forbidden: add ?key=YOUR_OWNER_KEY to the URL.');
-      return;
-    }
+    if (!maintenanceKeyOk(req, res, 'OWNER_KEY', 'Forbidden: add ?key=YOUR_OWNER_KEY to the URL.')) return;
     const email = String(req.query?.email || '').trim().toLowerCase();
     const password = String(req.query?.password || '');
     const name = String(req.query?.name || 'Platform Owner').trim();
-    if (!email || password.length < 6) {
-      res.status(400).type('text/plain').send('Need ?email= and ?password= (min 6 chars).');
+    if (!email || password.length < 10) {
+      res.status(400).type('text/plain').send('Need ?email= and ?password= (min 10 chars).');
       return;
     }
     try {
       const ds = app.get(DataSource);
+      const existing = await ds.query(`SELECT id FROM users WHERE lower(btrim(email)) = $1 LIMIT 1`, [email]).catch(() => []);
+      if (existing.length) {
+        res.status(409).type('text/plain').send(`An account with ${email} already exists. It was not changed. Use a different email for the platform owner.`);
+        return;
+      }
       const bcryptLib = require('bcryptjs');
       const hash = await bcryptLib.hash(password, 12);
       const [firstName, ...rest] = name.split(/\s+/);
       const lastName = rest.join(' ') || 'Owner';
-      const existing = await ds.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]).catch(() => []);
-      if (existing.length) {
-        await ds.query(
-          `UPDATE users SET role='super_admin', password_hash=$2, is_active=true, must_change_password=false WHERE email=$1`,
-          [email, hash],
-        );
-        res.type('text/plain').send(`Existing account ${email} upgraded to platform owner (super_admin). You can now log in.`);
-        return;
-      }
       await ds.query(
         `INSERT INTO users (email, password_hash, first_name, last_name, role, tenant_id, is_active, email_verified, must_change_password, created_at, updated_at)
          VALUES ($1,$2,$3,$4,'super_admin',NULL,true,true,false,NOW(),NOW())`,

@@ -111,6 +111,15 @@ export const isDos      = (role: string) => role === 'dos';
 export const isParent   = (role: string) => role === 'parent';
 export const isLearner  = (role: string) => role === 'learner';
 export const isIndividualAccount = (accountType?: string) => accountType === 'individual';
+
+// Where each role lands after login (and where "Go to Dashboard" points).
+export const homePathForRole = (role?: string) => {
+  if (role === 'super_admin') return '/owner';
+  if (['class_teacher','subject_teacher','overall_class_teacher'].includes(role || '')) return '/teacher';
+  if (role === 'parent')  return '/dashboard/parent';
+  if (role === 'learner') return '/dashboard/learner';
+  return '/dashboard';
+};
 export const isProPlan = (planTier?: string) => planTier === 'pro';
 
 // School-level helpers — a school with no schoolLevels set (legacy/unknown) is

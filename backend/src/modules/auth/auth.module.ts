@@ -11,6 +11,7 @@ import { User }           from './entities/user.entity';
 import { Tenant }         from './entities/tenant.entity';
 import { School }         from './entities/school.entity';
 import { SchoolSettingsController, SchoolSettingsService } from './school-settings.controller';
+import { jwtSecret }      from '../../common/security';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { SchoolSettingsController, SchoolSettingsService } from './school-settin
       imports:    [ConfigModule],
       inject:     [ConfigService],
       useFactory: (cfg: ConfigService) => ({
-        secret:      cfg.get('JWT_SECRET', 'zaroda-dev-secret'),
+        secret:      jwtSecret(),
         signOptions: { expiresIn: cfg.get('JWT_EXPIRES_IN', '12h') },
       }),
     }),

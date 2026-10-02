@@ -11,6 +11,7 @@ import {
 import { PdfExportService } from '../../common/pdf-export.service';
 import { assertStreamsWritable } from '../../common/subscription';
 import { normalisePhone } from '../../common/messaging';
+import { revokeSessions } from '../../common/sessions';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -1803,14 +1804,15 @@ export class AcademicService {
     ).catch(() => []);
     if (!target.length) throw new BadRequestException('Teacher not found in this school.');
     // Demote the current HOI(s) to class_teacher, promote the target to hoi.
-    await this.dataSource.query(
-      `UPDATE users SET role = 'class_teacher' WHERE tenant_id::text = $1 AND role = 'hoi'`,
+    const demoted = await this.dataSource.query(
+      `UPDATE users SET role = 'class_teacher' WHERE tenant_id::text = $1 AND role = 'hoi' RETURNING id`,
       [tenantId],
-    ).catch(() => null);
+    ).catch(() => []);
     await this.dataSource.query(
       `UPDATE users SET role = 'hoi' WHERE id::text = $1 AND tenant_id::text = $2`,
       [newHoiTeacherId, tenantId],
     ).catch((e: any) => { throw new BadRequestException(e.message); });
+    await revokeSessions(this.dataSource, [...(demoted as any[]).map(r => r.id), newHoiTeacherId]);
     return { message: 'HOI role transferred', newHoiId: newHoiTeacherId };
   }
 
@@ -1929,16 +1931,24 @@ export class AcademicService {
     const username = email || phone!;
 
     const existing = (await this.dataSource.query(
-      `SELECT id FROM users WHERE (email IS NOT NULL AND email = $1) OR (phone IS NOT NULL AND phone = $2) LIMIT 1`,
+      `SELECT id, tenant_id::text AS "tenantId" FROM users WHERE (email IS NOT NULL AND email = $1) OR (phone IS NOT NULL AND phone = $2) LIMIT 1`,
       [email, phone],
     ).catch(() => []))[0];
+
+    // The email/phone is whatever staff typed in. If it belongs to an account in
+    // another school (or the platform owner), resetting it here would hand this
+    // school a working password for someone else's login.
+    if (existing && existing.tenantId !== String(tenantId)) {
+      throw new BadRequestException('This email or phone number is already used by an account outside your school. Use a different email or phone for this parent.');
+    }
 
     if (existing) {
       await this.dataSource.query(
         `UPDATE users SET password_hash = $2, role = 'parent', is_active = true,
-                must_change_password = true WHERE id = $1`,
-        [existing.id, hash],
+                must_change_password = true WHERE id = $1 AND tenant_id::text = $3`,
+        [existing.id, hash, tenantId],
       ).catch((e: any) => { throw new BadRequestException(e.message); });
+      await revokeSessions(this.dataSource, [existing.id]);
     } else {
       await this.dataSource.query(
         `INSERT INTO users
@@ -2033,11 +2043,18 @@ export class AcademicService {
       fields.push(`gender = $${i++}`); vals.push(['male','female'].includes(g) ? g : null);
     }
     if (fields.length) {
+      const before = dto.role !== undefined
+        ? (await this.dataSource.query(
+            `SELECT role FROM users WHERE id::text = $1 AND tenant_id::text = $2`, [teacherId, tenantId],
+          ).catch(() => []))[0]
+        : null;
       vals.push(teacherId, tenantId);
       await this.dataSource.query(
         `UPDATE users SET ${fields.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
         vals,
       ).catch((e: any) => { throw new BadRequestException(e.message); });
+      // The edit form sends the role on every save — only an actual change revokes.
+      if (before && before.role !== dto.role) await revokeSessions(this.dataSource, [teacherId]);
     }
     // Per-stream subject assignments (also resyncs the flat subjects CSV + primary stream)
     if (dto.streamSubjects !== undefined) {
@@ -2078,6 +2095,7 @@ export class AcademicService {
       `UPDATE users SET is_active = $1 WHERE id::text = $2 AND tenant_id::text = $3`,
       [active, teacherId, tenantId],
     ).catch((e: any) => { throw new BadRequestException(e.message); });
+    if (!active) await revokeSessions(this.dataSource, [teacherId]);
     return { message: active ? 'Teacher reactivated' : 'Teacher deactivated', id: teacherId };
   }
 
@@ -2101,6 +2119,7 @@ export class AcademicService {
       `UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id::text = $2 AND tenant_id::text = $3`,
       [passwordHash, teacherId, tenantId],
     ).catch((e: any) => { throw new BadRequestException(e.message); });
+    await revokeSessions(this.dataSource, [teacherId]);
 
     return {
       message: 'Password reset',
@@ -2701,6 +2720,8 @@ export class AcademicService {
     });
 
     await this.saveStreamSubjects(newTenantId, userId, dto.streamSubjects);
+    // New school and role — tokens issued for the old individual account must stop working.
+    await revokeSessions(this.dataSource, [userId]);
 
     return {
       message: `${result.firstName} ${result.lastName}'s existing account was converted to a school user — their wallet balance and generated Professional Records were preserved.`,

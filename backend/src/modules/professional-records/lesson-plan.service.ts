@@ -31,7 +31,7 @@ export class LessonPlanService {
     });
     if (!scheme) throw new NotFoundException('Scheme not found');
 
-    const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId } });
+    const week = await this.weekRepo.findOne({ where: { id: dto.schemeWeekId, schemeId: scheme.id } });
     if (!week) throw new NotFoundException('Scheme week not found');
 
     // A week can hold several lessons (see SchemeWeek.lessons) — a plan is generated

@@ -23,7 +23,7 @@ function ResetInner() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+    if (password.length < 8) { toast.error('Password must be at least 8 characters'); return; }
     if (password !== confirm) { toast.error('Passwords do not match'); return; }
     setLoading(true);
     try {
@@ -64,7 +64,7 @@ function ResetInner() {
                 <label className="label">New password</label>
                 <div className="relative">
                   <input type={show ? 'text' : 'password'} required value={password} onChange={e => setPassword(e.target.value)}
-                    placeholder="At least 6 characters" className="input pr-10"/>
+                    placeholder="At least 8 characters" className="input pr-10"/>
                   <button type="button" onClick={() => setShow(!show)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a82a8] hover:text-[#1a2e5a]">
                     {show ? <EyeOff size={16}/> : <Eye size={16}/>}

@@ -14,6 +14,26 @@ import { SignupDto, SignupIndividualDto, UpgradeToSchoolDto } from './dto';
 import { normalisePhone } from '../../common/messaging';
 import { sendEmail } from '../../common/messaging';
 import { freePeriodEndForSignup, freePeriodEndTimestamp, longDay } from '../../common/subscription';
+import { escapeHtml, isUuid, jwtSecret, jwtRefreshSecret } from '../../common/security';
+import { revokeSessions } from '../../common/sessions';
+import { tokenMatchesUser } from './jwt.strategy';
+
+// Hosts a password-reset link may point at. A client-supplied appUrl outside this
+// list is ignored, so a reset email can never carry the token to someone else's site.
+const RESET_LINK_HOSTS = ['zarodaschool.com', 'www.zarodaschool.com', 'zarodasolutions.app', 'www.zarodasolutions.app', 'localhost'];
+
+function allowedResetBase(appUrl?: string): string | null {
+  if (!appUrl) return null;
+  let u: URL;
+  try { u = new URL(appUrl); } catch { return null; }
+  const extra = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean)
+    .map(o => { try { return new URL(o).hostname; } catch { return o.toLowerCase(); } });
+  const host = u.hostname.toLowerCase();
+  if (![...RESET_LINK_HOSTS, ...extra].includes(host)) return null;
+  // The link carries a live reset token — only plain http for local development.
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && host === 'localhost')) return null;
+  return u.origin;
+}
 
 /** Parse a value to an integer, returning null for missing/blank/non-numeric input
  *  (so a stray "NaN" or undefined never reaches a smallint/integer DB column). */
@@ -72,12 +92,14 @@ export class AuthService {
     let user = await this.findUserByEmail(identifier, columns);
     if (!user) user = await this.findUserByPhone(identifier, columns);
 
+    // One message for every failure, so the response can't be used to find out
+    // which emails/phones have accounts.
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid email/phone or password');
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid email or password');
+    if (!valid) throw new UnauthorizedException('Invalid email/phone or password');
 
     // Block users whose school has been suspended by the platform owner. The owner
     // (super_admin) has no tenant and is never blocked. Also fetch school_levels here
@@ -209,8 +231,8 @@ export class AuthService {
       sendEmail(
         savedUser.email,
         `Welcome to ZARODA, ${dto.schoolName}!`,
-        `<p>Hi ${dto.adminFirstName},</p>
-         <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and it is free to use until ${longDay(freePeriodEndForSignup())}.</p>
+        `<p>Hi ${escapeHtml(dto.adminFirstName)},</p>
+         <p>Your ZARODA account for <b>${escapeHtml(dto.schoolName)}</b> is ready, and it is free to use until ${longDay(freePeriodEndForSignup())}.</p>
          <p>A few things to do next to get your school fully set up:</p>
          <ol>
            <li>Create your first class / stream</li>
@@ -280,7 +302,9 @@ export class AuthService {
       // teacher actually pays for their first generation (see WalletService.debit).
       // A bad/self-referencing id is silently ignored rather than blocking signup.
       let referredBy: string | undefined;
-      if (dto.ref) {
+      // users.id is a uuid column, so anything else in ?ref= would make this lookup
+      // throw and abort the whole signup — treat it as no referral instead.
+      if (dto.ref && isUuid(dto.ref)) {
         const referrer = await queryRunner.manager.findOne(User, { where: { id: dto.ref } });
         if (referrer && referrer.email.toLowerCase().trim() !== dto.email.toLowerCase().trim()) referredBy = referrer.id;
       }
@@ -419,8 +443,8 @@ export class AuthService {
     sendEmail(
       user.email,
       `Welcome to ZARODA, ${dto.schoolName}!`,
-      `<p>Hi ${user.firstName},</p>
-       <p>Your ZARODA account for <b>${dto.schoolName}</b> is ready, and it is free to use until ${longDay(freePeriodEndForSignup())}.</p>
+      `<p>Hi ${escapeHtml(user.firstName)},</p>
+       <p>Your ZARODA account for <b>${escapeHtml(dto.schoolName)}</b> is ready, and it is free to use until ${longDay(freePeriodEndForSignup())}.</p>
        <p>You keep the same login you have been using, and all of your Professional Records work is still there.</p>
        <p>A few things to do next to get your school fully set up:</p>
        <ol>
@@ -434,6 +458,8 @@ export class AuthService {
 
     // The role is baked into the JWT, so the old tokens still say the previous
     // role — re-issue here or the school UI stays locked until they log out.
+    // Revoke first so tokens from other devices stop carrying the old role.
+    await revokeSessions(this.dataSource, [user.id]);
     const refreshed = await this.userRepo.findOne({ where: { id: user.id } });
     const tokens = await this.generateTokens(refreshed);
     return {
@@ -456,11 +482,15 @@ export class AuthService {
   // ── Refresh Token ───────────────────────────────────────
   async refreshToken(token: string) {
     try {
-      const payload = this.jwtService.verify(token, {
-        secret: this.configService.get('JWT_REFRESH_SECRET', 'zaroda-refresh-secret'),
+      const payload = this.jwtService.verify(token, { secret: jwtRefreshSecret() });
+      const user = await this.userRepo.findOne({
+        where: { id: payload.sub },
+        select: ['id', 'email', 'role', 'tenantId', 'schoolId', 'isActive'],
       });
-      const user = await this.userRepo.findOne({ where: { id: payload.sub } });
-      if (!user || !user.isActive) throw new UnauthorizedException('Invalid refresh token');
+      const tokenVersion = user ? await this.currentTokenVersion(user.id) : 0;
+      if (!user || !tokenMatchesUser(payload, { isActive: user.isActive, tokenVersion })) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
       return this.generateTokens(user);
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
@@ -513,16 +543,26 @@ export class AuthService {
   }
 
   // ── Generate JWT pair ───────────────────────────────────
+  /** Read separately (not via the entity) so login keeps working in the moments
+   *  after a deploy before migration 071 has added the column. */
+  private async currentTokenVersion(userId: string): Promise<number> {
+    const rows = await this.dataSource.query(
+      `SELECT token_version AS v FROM users WHERE id::text = $1 LIMIT 1`, [userId],
+    ).catch(() => []);
+    return Number(rows[0]?.v || 0);
+  }
+
   private async generateTokens(user: any) {
-    const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, schoolId: user.schoolId };
+    const tv = await this.currentTokenVersion(user.id);
+    const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, schoolId: user.schoolId, tv };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
-        secret:    this.configService.get('JWT_SECRET', 'zaroda-dev-secret'),
+        secret:    jwtSecret(),
         expiresIn: this.configService.get('JWT_EXPIRES_IN', '12h'),
       }),
       this.jwtService.signAsync(payload, {
-        secret:    this.configService.get('JWT_REFRESH_SECRET', 'zaroda-refresh-secret'),
+        secret:    jwtRefreshSecret(),
         expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d'),
       }),
     ]);
@@ -562,7 +602,7 @@ export class AuthService {
       [user.id, cleaned, tokenHash, expires.toISOString()],
     ).catch(() => null);
 
-    const base = (appUrl || process.env.FRONTEND_URL || 'https://zarodasolutions.app').replace(/\/+$/, '');
+    const base = (allowedResetBase(appUrl) || process.env.FRONTEND_URL || 'https://zarodasolutions.app').replace(/\/+$/, '');
     const link = `${base}/auth/reset-password?token=${token}&email=${encodeURIComponent(cleaned)}`;
     const { sendEmail } = eval('require')('../../common/messaging');
     const html = `
@@ -571,7 +611,7 @@ export class AuthService {
           <h2 style="margin:0">ZARODA — Password Reset</h2>
         </div>
         <div style="border:1px solid #eee;border-top:none;padding:20px;border-radius:0 0 8px 8px">
-          <p>Hello ${user.firstName || ''},</p>
+          <p>Hello ${escapeHtml(user.firstName || '')},</p>
           <p>We received a request to reset your ZARODA account password. Click the button below to set a new password. This link expires in <b>1 hour</b>.</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${link}" style="background:#f5820a;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:bold;display:inline-block">Reset my password</a>
@@ -591,8 +631,8 @@ export class AuthService {
   /** Consume a reset token and set a new password. */
   async resetPassword(email: string, token: string, newPassword: string) {
     const cleaned = (email || '').toLowerCase().trim();
-    if (!cleaned || !token || !newPassword || newPassword.length < 6) {
-      throw new UnauthorizedException('Invalid request. Password must be at least 6 characters.');
+    if (!cleaned || !token || !newPassword || newPassword.length < 8) {
+      throw new UnauthorizedException('Invalid request. Password must be at least 8 characters.');
     }
     await this.ensureResetTable();
     const crypto = eval('require')('crypto');
@@ -611,6 +651,8 @@ export class AuthService {
       [rows[0].user_id, hash],
     ).catch(() => { throw new UnauthorizedException('Could not update password.'); });
     await this.dataSource.query(`UPDATE password_resets SET used = true WHERE id = $1`, [rows[0].id]).catch(() => null);
+    // Whoever knew the old password may still hold a token — end every existing session.
+    await revokeSessions(this.dataSource, [rows[0].user_id]);
     return { ok: true, message: 'Your password has been reset. You can now log in.' };
   }
 }

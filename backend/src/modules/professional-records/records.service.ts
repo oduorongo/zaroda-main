@@ -267,7 +267,7 @@ export class RecordsService {
     );
 
     if (dto.lessonNoteId) {
-      await this.notesRepo.update(dto.lessonNoteId, {
+      await this.notesRepo.update({ id: dto.lessonNoteId, tenantId }, {
         coverageStatus: dto.coverageStatus,
         deliveryRemarks: dto.remarks,
       });
