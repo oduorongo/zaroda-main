@@ -283,7 +283,8 @@ async function bootstrap() {
         staticOrigins.includes(origin) ||
         /\.onrender\.com$/.test(host) ||
         host === 'zarodasolutions.app' ||
-        host.endsWith('.zarodasolutions.app');
+        host.endsWith('.zarodasolutions.app') ||
+        host === 'zarodaschool.com' || host.endsWith('.zarodaschool.com');
       return cb(null, ok);
     },
     methods:     ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],

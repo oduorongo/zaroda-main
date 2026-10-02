@@ -10,8 +10,10 @@ import InstallPrompt from '@/components/install-prompt';
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
 export const metadata: Metadata = {
-  title:       'ZARODA School Management System',
-  description: 'Kenya CBC/CBE-aligned school management — INNOVATIVE. RELIABLE. FORWARD.',
+  metadataBase: new URL('https://zarodaschool.com'),
+  title:       { default: 'ZARODA School – School Management System for Kenyan Schools', template: '%s | ZARODA School' },
+  description: 'ZARODA School is a CBC/CBE school management system for Kenya: marks, report cards, fees, M-Pesa, timetables, AI professional records and parent communication.',
+  openGraph:   { siteName: 'ZARODA School', type: 'website', url: 'https://zarodaschool.com' },
   manifest:    '/manifest.json',
   icons:       { icon: '/favicon.ico', apple: '/apple-touch-icon.png' },
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'ZARODA SMS' },
