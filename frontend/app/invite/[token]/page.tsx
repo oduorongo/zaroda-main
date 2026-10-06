@@ -1,12 +1,13 @@
 // app/invite/[token]/page.tsx
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 
-export default function InvitePage({ params }: { params: { token: string } }) {
+export default function InvitePage() {
+  const params = useParams<{ token: string }>();
   const router  = useRouter();
   const [status, setStatus] = useState<'loading'|'valid'|'invalid'>('loading');
   const [invite, setInvite] = useState<any>(null);

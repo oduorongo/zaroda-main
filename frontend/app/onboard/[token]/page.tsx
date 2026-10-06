@@ -2,7 +2,7 @@
 // Public page: a teacher self-onboards into a school via an admin's link.
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, CheckCircle, XCircle, GraduationCap, Copy, Check } from 'lucide-react';
 import apiClient from '@/lib/api/client';
@@ -10,7 +10,8 @@ import { LEARNING_AREAS } from '@/lib/cbc/constants';
 
 const ALL_SUBJECTS = Array.from(new Set(Object.values(LEARNING_AREAS).flat())).sort();
 
-export default function OnboardPage({ params }: { params: { token: string } }) {
+export default function OnboardPage() {
+  const params = useParams<{ token: string }>();
   const router = useRouter();
   const [status, setStatus]   = useState<'loading'|'valid'|'invalid'>('loading');
   const [schoolName, setSchoolName] = useState('');

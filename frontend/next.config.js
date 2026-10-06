@@ -1,15 +1,14 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
 const nextConfig = {
-  // Don't fail the production build on type/lint errors. The app runs fine; these
-  // can be cleaned up over time. (Dev still surfaces them in the editor.)
+  // Don't fail the production build on type errors. The app runs fine; these can be
+  // cleaned up over time. (Dev still surfaces them in the editor.)
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
-  // Force the "@/..." alias to resolve to this folder at the webpack level. This is
-  // independent of tsconfig paths, which Next.js on some setups fails to apply during
-  // a production build (causing "Module not found: Can't resolve '@/lib/...'").
+  // Next.js 16 builds with Turbopack, which reads the "@/..." alias from tsconfig paths.
+  // Webpack (next build --webpack) needs it set here.
+  turbopack: { root: __dirname, resolveAlias: { "@": "./" } },
   webpack: (config) => {
-    config.resolve.alias['@'] = path.resolve(__dirname);
+    config.resolve.alias["@"] = path.resolve(__dirname);
     return config;
   },
   images: {
