@@ -251,7 +251,7 @@ export default function TeachersPage() {
         </div>
         {isHoi(user?.role || '') && (
           <div className="flex gap-2">
-            <button onClick={()=>setShowShare(true)} className="btn-ghost"><Share2 size={16}/> Share Onboarding Link</button>
+            <button onClick={()=>setShowShare(true)} className="btn-gold"><Share2 size={16}/> Share Onboarding Link</button>
             <button onClick={()=>setShowNew(true)} className="btn-primary"><UserPlus size={16}/> Onboard Teacher</button>
           </div>
         )}

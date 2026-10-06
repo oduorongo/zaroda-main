@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Search, Plus, User, Phone, BookOpen, X, Loader2, Pencil, UserX, UserCheck, KeyRound, Trash2, AlertTriangle, ArrowRightLeft } from 'lucide-react';
+import { Search, Plus, User, Phone, BookOpen, X, Loader2, Pencil, UserX, UserCheck, KeyRound, Trash2, AlertTriangle, ArrowRightLeft, Upload } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import { SENIOR_ELECTIVES } from '@/lib/cbc/constants';
@@ -271,8 +271,8 @@ export default function LearnersPage() {
         </div>
         {isHoi(user?.role || '') && (
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowBulk(true)} className="btn-ghost">
-              <Plus size={16}/> Bulk Upload (CBA List)
+            <button onClick={() => setShowBulk(true)} className="btn-gold">
+              <Upload size={16}/> Bulk Upload (CBA List)
             </button>
             <button onClick={() => setShowForm(true)} className="btn-primary">
               <Plus size={16}/> Add Learner
