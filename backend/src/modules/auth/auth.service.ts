@@ -61,13 +61,31 @@ export class AuthService {
    *  reset. Matching on lower(btrim(email)) makes login work however the row was stored.
    *  Migration 065 normalises the existing rows; this keeps any stragglers usable. */
   private async findUserByEmail(email: string, columns?: string[]) {
+    return (await this.findUsersByEmail(email, columns))[0] ?? null;
+  }
+
+  /** Every account under an email, best first. The UNIQUE constraint is case-sensitive, so a
+   *  few addresses still have more than one account (e.g. a teacher's personal Professional
+   *  Records account plus their school account - see migration 065). Without an order, login
+   *  and password reset picked one of them at random and the other was unreachable. School
+   *  accounts come before personal ones, then the most recently used. */
+  private async findUsersByEmail(email: string, columns?: string[]) {
     const cleaned = (email || '').toLowerCase().trim();
-    if (!cleaned) return null;
-    const qb = this.userRepo.createQueryBuilder('u')
-      .where('lower(btrim(u.email)) = :email', { email: cleaned })
-      .limit(1);
-    if (columns) qb.select(columns.map(c => `u.${c}`));
-    return qb.getOne();
+    if (!cleaned) return [];
+    const ids: { id: string }[] = await this.dataSource.query(
+      `SELECT u.id FROM users u LEFT JOIN tenants t ON t.id::text = u.tenant_id::text
+        WHERE lower(btrim(u.email)) = $1
+        ORDER BY (t.account_type = 'individual') NULLS FIRST, u.last_login_at DESC NULLS LAST, u.created_at
+        LIMIT 5`, [cleaned],
+    );
+    const users = [];
+    for (const { id } of ids) {
+      const qb = this.userRepo.createQueryBuilder('u').where('u.id = :id', { id });
+      if (columns) qb.select(columns.map(c => `u.${c}`));
+      const user = await qb.getOne();
+      if (user) users.push(user);
+    }
+    return users;
   }
 
   /** Find a user by phone (normalised to +254… before comparing), for parents who log in
@@ -89,17 +107,23 @@ export class AuthService {
   // number typed into the same field still finds the right account.
   async login(identifier: string, password: string) {
     const columns = ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive','mustChangePassword'];
-    let user = await this.findUserByEmail(identifier, columns);
-    if (!user) user = await this.findUserByPhone(identifier, columns);
+    // When an email has more than one account, sign in to the first (school accounts first)
+    // whose password matches - so each account stays reachable with its own password.
+    let user = null;
+    for (const candidate of await this.findUsersByEmail(identifier, columns)) {
+      if (candidate.isActive && (await bcrypt.compare(password, candidate.passwordHash))) {
+        user = candidate;
+        break;
+      }
+    }
+    if (!user) {
+      const byPhone = await this.findUserByPhone(identifier, columns);
+      if (byPhone?.isActive && (await bcrypt.compare(password, byPhone.passwordHash))) user = byPhone;
+    }
 
     // One message for every failure, so the response can't be used to find out
     // which emails/phones have accounts.
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid email/phone or password');
-    }
-
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid email/phone or password');
+    if (!user) throw new UnauthorizedException('Invalid email/phone or password');
 
     // Block users whose school has been suspended by the platform owner. The owner
     // (super_admin) has no tenant and is never blocked. Also fetch school_levels here
