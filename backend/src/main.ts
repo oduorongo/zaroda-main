@@ -268,6 +268,12 @@ async function bootstrap() {
   // limit causes 413 Content Too Large when saving settings with an image.
   app.use(json({ limit: '5mb' }));
   app.use(urlencoded({ limit: '5mb', extended: true }));
+  // Express 5 (NestJS 11) leaves req.body undefined when a request has no body; Express 4
+  // gave {}. Many handlers read `dto.field` straight off @Body(), so keep the old behaviour.
+  app.use((req: any, _res: any, next: () => void) => {
+    if (req.body === undefined) req.body = {};
+    next();
+  });
 
   // ── Security ──────────────────────────────────────────────
   app.use(helmet({ contentSecurityPolicy: false }));

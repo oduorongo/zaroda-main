@@ -41,7 +41,7 @@ export class PdfExportService {
     // 500 for every request afterwards, since `this.browser` stayed set to a
     // disconnected instance forever. Check liveness before reusing it.
     if (this.browser) {
-      if (this.browser.isConnected()) return this.browser;
+      if (this.browser.connected) return this.browser;
       this.logger.warn('Cached Chromium instance is disconnected (likely crashed/OOM-killed) — relaunching.');
       this.browser = null;
     }
