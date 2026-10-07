@@ -162,6 +162,74 @@ export class CatController {
     </div></body></html>`;
   }
 
+  // Item analysis over learners who sat (≥1 mark); a blank question counts as 0 for them.
+  @Get(':id/analysis')
+  async analysis(@Request() req: any, @Param('id') id: string) {
+    const { cat, questions, learners, scores } = await this.detail(req.user, id);
+    const senior = SENIOR.includes(cat.gradeLevel);
+    const level = (pct: number) => percentToLevelCode(Math.round(pct), senior);
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+    const score = new Map<string, number>(scores.map((s: any) => [`${s.learnerId}:${s.questionId}`, s.score]));
+    const sat = learners.filter((l: any) => questions.some((q: any) => score.has(`${l.id}:${q.id}`)));
+    const n = sat.length;
+    const got = (l: any, q: any) => score.get(`${l.id}:${q.id}`) ?? 0;
+    const pctOf = (count: number) => (n ? r1((count / n) * 100) : 0);
+
+    const qStats = questions.map((q: any) => {
+      const vals = sat.map((l: any) => got(l, q));
+      const avg = n ? vals.reduce((a: number, v: number) => a + v, 0) / n : 0;
+      const belowHalf = pctOf(vals.filter((v: number) => v < q.maxMarks / 2).length);
+      return {
+        id: q.id, number: q.number, maxMarks: q.maxMarks, strand: q.strand, subStrand: q.subStrand,
+        fullPct: pctOf(vals.filter((v: number) => v >= q.maxMarks).length),
+        partialPct: pctOf(vals.filter((v: number) => v > 0 && v < q.maxMarks).length),
+        zeroPct: pctOf(vals.filter((v: number) => v === 0).length),
+        avg: r1(avg), avgPct: q.maxMarks ? r1((avg / q.maxMarks) * 100) : 0,
+        belowHalfPct: belowHalf, flagged: n > 0 && belowHalf > 50,
+      };
+    });
+
+    const roll = (qs: any[]) => {
+      const max = qs.reduce((a, q) => a + q.maxMarks, 0);
+      const avg = n ? sat.reduce((a: number, l: any) => a + qs.reduce((b, q) => b + got(l, q), 0), 0) / n : 0;
+      const avgPct = max ? r1((avg / max) * 100) : 0;
+      return { max, avg: r1(avg), avgPct, level: n ? level(avgPct) : null, flagged: qs.filter(q => q.flagged).length };
+    };
+    const strands: any[] = [];
+    for (const q of qStats) {
+      const name = q.strand || 'No strand';
+      let s = strands.find(x => x.name === name);
+      if (!s) strands.push(s = { name, qs: [], subs: [] as any[] });
+      s.qs.push(q);
+      const subName = q.subStrand || '—';
+      let sub = s.subs.find((x: any) => x.name === subName);
+      if (!sub) s.subs.push(sub = { name: subName, qs: [] });
+      sub.qs.push(q);
+    }
+
+    const maxTotal = questions.reduce((a: number, q: any) => a + q.maxMarks, 0);
+    const learnerRows = sat.map((l: any) => {
+      const total = questions.reduce((a: number, q: any) => a + got(l, q), 0);
+      const pct = maxTotal ? (total / maxTotal) * 100 : 0;
+      return {
+        id: l.id, name: `${l.firstName} ${l.lastName}`.trim(), admissionNumber: l.admissionNumber,
+        total, pct: r1(pct), level: level(pct),
+        missed: questions.filter((q: any) => got(l, q) < q.maxMarks / 2)
+          .map((q: any) => ({ number: q.number, score: score.get(`${l.id}:${q.id}`) ?? null, maxMarks: q.maxMarks })),
+      };
+    }).sort((a: any, b: any) => b.total - a.total);
+    const classAvg = n ? learnerRows.reduce((a: number, l: any) => a + l.total, 0) / n : 0;
+
+    return {
+      sat: n, enrolled: learners.length, maxTotal,
+      classAvg: r1(classAvg), classAvgPct: maxTotal ? r1((classAvg / maxTotal) * 100) : 0,
+      classLevel: n ? level(maxTotal ? (classAvg / maxTotal) * 100 : 0) : null,
+      questions: qStats,
+      strands: strands.map(s => ({ name: s.name, ...roll(s.qs), subStrands: s.subs.map((x: any) => ({ name: x.name, ...roll(x.qs) })) })),
+      learners: learnerRows,
+    };
+  }
+
   private async detail(user: any, id: string) {
     const cat = await this.load(user, id);
     const [questions, learners, scores] = await Promise.all([

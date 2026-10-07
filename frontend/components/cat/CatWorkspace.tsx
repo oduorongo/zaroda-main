@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download } from 'lucide-react';
+import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download, AlertTriangle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { percentToLevel } from '@/lib/cbc/constants';
+import { percentToLevel, levelsFor } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
 const TERMS = [{ v: 'term_1', l: 'Term 1' }, { v: 'term_2', l: 'Term 2' }, { v: 'term_3', l: 'Term 3' }];
@@ -155,6 +155,7 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [orig, setOrig] = useState<Record<string, string>>({});
   const [strands, setStrands] = useState<any[]>([]);
   const [busy, setBusy] = useState('');
+  const [view, setView] = useState<'marks' | 'analysis'>('marks');
 
   const load = async () => {
     try {
@@ -236,6 +237,12 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
               : <span className="badge bg-blue-100 text-blue-700"><Eye size={12} className="mr-1"/> Read-only</span>}
       </div>
 
+      <div className="flex gap-1 border-b border-theme">
+        {([['marks', 'Questions & marks'], ['analysis', 'Item analysis']] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setView(k)} className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px ${view === k ? 'border-[#d4af37] text-theme-heading' : 'border-transparent text-theme-muted'}`}>{label}</button>
+        ))}
+      </div>
+      {view === 'marks' ? (<>
       <div className="card p-4 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h2 className="font-semibold text-theme-heading">Questions <span className="text-theme-muted font-normal text-sm">· out of {maxTotal}</span></h2>
@@ -279,7 +286,7 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold text-theme-heading">Marks <span className="text-theme-muted font-normal text-sm">· {learners.length} learners</span></h2>
             <div className="flex gap-2">
-              <button onClick={() => downloadSheet(id, `${cat.title}-${cat.streamName}-${cat.subject}.pdf`.replace(/[^w.-]+/g, '_'))} className="btn-ghost"><Download size={16}/> Download PDF</button>
+              <button onClick={() => downloadSheet(id, `${cat.title}-${cat.streamName}-${cat.subject}.pdf`.replace(/[^\w.-]+/g, '_'))} className="btn-ghost"><Download size={16}/> Download PDF</button>
               {edit && <button onClick={saveMarks} disabled={busy === 'm'} className="btn-primary">{busy === 'm' ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>} Save marks</button>}
             </div>
           </div>
@@ -315,6 +322,107 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
           </div>
         </div>
       )}
+      </>) : <ItemAnalysis id={id} grade={cat.gradeLevel}/>}
+    </div>
+  );
+}
+
+function Lv({ code, grade }: { code: string | null; grade: string }) {
+  if (!code) return null;
+  return <span className="text-xs font-bold" style={{ color: levelsFor(grade).find(l => l.code === code)?.color }}>{code}</span>;
+}
+
+function ItemAnalysis({ id, grade }: { id: string; grade: string }) {
+  const [a, setA] = useState<any>(null);
+  useEffect(() => {
+    apiClient.get(`/cats/${id}/analysis`).then(r => setA(r.data)).catch(e => { err(e, 'Could not load item analysis'); setA({ sat: 0 }); });
+  }, [id]);
+  if (!a) return <div className="card p-10 text-center text-theme-muted"><Loader2 className="animate-spin mx-auto"/></div>;
+  if (!a.sat) return <div className="card p-10 text-center text-theme-muted">No marks entered yet — item analysis appears once learners have marks.</div>;
+
+  const flagged = a.questions.filter((q: any) => q.flagged);
+  const th = 'p-2 text-xs text-theme-muted font-semibold';
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[['Learners sat', `${a.sat} / ${a.enrolled}`], ['Class average', `${a.classAvg} / ${a.maxTotal}`], ['Class average %', <>{a.classAvgPct}% <Lv code={a.classLevel} grade={grade}/></>], ['Flagged questions', flagged.length]].map(([k, v]: any) => (
+          <div key={k} className="card p-3"><div className="text-xs text-theme-muted">{k}</div><div className={`text-lg font-bold ${k === 'Flagged questions' && v ? 'text-red-600' : 'text-theme-heading'}`}>{v}</div></div>
+        ))}
+      </div>
+
+      <div className="card p-4 space-y-2">
+        <h2 className="font-semibold text-theme-heading">Per question</h2>
+        <p className="text-xs text-theme-muted">Red = more than half the class scored below half the marks on that question.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left">{['Q', 'Strand › Sub-strand', 'Max', 'Class avg', 'Full marks', 'Partial', 'Zero', 'Below half'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {a.questions.map((q: any) => (
+                <tr key={q.id} className={`border-t border-theme ${q.flagged ? 'bg-red-50 text-red-800' : ''}`}>
+                  <td className="p-2 font-semibold whitespace-nowrap">{q.flagged && <AlertTriangle size={12} className="inline mr-1 text-red-600"/>}Q{q.number}</td>
+                  <td className="p-2">{[q.strand, q.subStrand].filter(Boolean).join(' › ') || '—'}</td>
+                  <td className="p-2">{q.maxMarks}</td>
+                  <td className="p-2 whitespace-nowrap">{q.avg} <span className="text-xs text-theme-muted">({q.avgPct}%)</span></td>
+                  <td className="p-2">{q.fullPct}%</td>
+                  <td className="p-2">{q.partialPct}%</td>
+                  <td className="p-2">{q.zeroPct}%</td>
+                  <td className={`p-2 font-semibold ${q.flagged ? 'text-red-600' : ''}`}>{q.belowHalfPct}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card p-4 space-y-2">
+        <h2 className="font-semibold text-theme-heading">Strand performance</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left">{['Strand / sub-strand', 'Max', 'Class avg', 'Avg %', 'Level', 'Flagged'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {a.strands.map((s: any) => [
+                <tr key={s.name} className="border-t border-theme bg-amber-50/60 font-semibold">
+                  <td className="p-2">{s.name}</td><td className="p-2">{s.max}</td><td className="p-2">{s.avg}</td><td className="p-2">{s.avgPct}%</td>
+                  <td className="p-2"><Lv code={s.level} grade={grade}/></td><td className={`p-2 ${s.flagged ? 'text-red-600' : ''}`}>{s.flagged || '—'}</td>
+                </tr>,
+                ...s.subStrands.map((ss: any) => (
+                  <tr key={`${s.name}:${ss.name}`} className="border-t border-theme">
+                    <td className="p-2 pl-6 text-theme-muted">{ss.name}</td><td className="p-2">{ss.max}</td><td className="p-2">{ss.avg}</td><td className="p-2">{ss.avgPct}%</td>
+                    <td className="p-2"><Lv code={ss.level} grade={grade}/></td><td className={`p-2 ${ss.flagged ? 'text-red-600' : ''}`}>{ss.flagged || '—'}</td>
+                  </tr>
+                )),
+              ])}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card p-4 space-y-2">
+        <h2 className="font-semibold text-theme-heading">Learner drill-down</h2>
+        <p className="text-xs text-theme-muted">Missed = scored below half the marks on that question.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left">{['Learner', 'Total', 'Level', 'Missed questions'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {a.learners.map((l: any) => (
+                <tr key={l.id} className="border-t border-theme align-top">
+                  <td className="p-2 whitespace-nowrap">{l.name}<div className="text-[10px] text-theme-muted">{l.admissionNumber}</div></td>
+                  <td className="p-2 whitespace-nowrap">{l.total} / {a.maxTotal}</td>
+                  <td className="p-2"><Lv code={l.level} grade={grade}/></td>
+                  <td className="p-2">
+                    {l.missed.length ? (
+                      <div className="flex flex-wrap gap-1">
+                        {l.missed.map((m: any) => <span key={m.number} className="badge bg-red-100 text-red-700">Q{m.number} · {m.score ?? '–'}/{m.maxMarks}</span>)}
+                      </div>
+                    ) : <span className="text-xs text-green-700">None</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
