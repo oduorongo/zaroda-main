@@ -3,9 +3,16 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { percentToLevel } from '@/lib/cbc/constants';
 import toast from 'react-hot-toast';
 
 const TERMS = [{ v: 'term_1', l: 'Term 1' }, { v: 'term_2', l: 'Term 2' }, { v: 'term_3', l: 'Term 3' }];
+function LevelCell({ got, max, grade }: { got: number | null; max: number; grade: string }) {
+  if (got === null) return <td className="p-2 text-center text-theme-muted">—</td>;
+  const lv = percentToLevel(Math.round((got / max) * 100), grade);
+  return <td className="p-2 text-center whitespace-nowrap"><span className="font-semibold">{got}</span> <span className="text-xs font-bold" style={{ color: lv.color }} title={lv.label}>{lv.code}</span></td>;
+}
+
 const err = (e: any, fallback: string) => toast.error(e?.response?.data?.message || fallback);
 
 export function CatWorkspace() {
@@ -165,10 +172,16 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
       toast.success('Marks saved'); await load();
     } catch (e) { err(e, 'Could not save marks'); } finally { setBusy(''); }
   };
-  const total = (lid: string) => {
-    const vals = saved.map((q: any) => cells[`${lid}:${q.id}`]).filter((v: any) => v !== undefined && v !== '');
+  const strandGroups = Object.values(saved.reduce((g: Record<string, any>, q: any) => {
+    const k = q.strand || 'No strand';
+    (g[k] ||= { name: k, qs: [], max: 0 }).qs.push(q); g[k].max += Number(q.maxMarks);
+    return g;
+  }, {})) as { name: string; qs: any[]; max: number }[];
+  const sumFor = (lid: string, list: any[]) => {
+    const vals = list.map((q: any) => cells[`${lid}:${q.id}`]).filter((v: any) => v !== undefined && v !== '');
     return vals.length ? vals.reduce((a: number, v: string) => a + Number(v), 0) : null;
   };
+  const total = (lid: string) => sumFor(lid, saved);
   const strandOpts = strands.map(s => s.name);
 
   return (
@@ -233,6 +246,7 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
                 <tr className="text-xs text-theme-muted">
                   <th className="p-2 text-left sticky left-0 bg-surface">Learner</th>
                   {saved.map((q: any) => <th key={q.id} className="p-1 text-center" title={[q.strand, q.subStrand].filter(Boolean).join(' › ')}>Q{q.number}<div className="font-normal">/{q.maxMarks}</div></th>)}
+                  {strandGroups.map(g => <th key={g.name} className="p-2 text-center bg-amber-50/60 max-w-[110px]" title={g.name}><div className="truncate">{g.name}</div><div className="font-normal">/{g.max}</div></th>)}
                   <th className="p-2 text-center">Total<div className="font-normal">/{maxTotal}</div></th>
                 </tr>
               </thead>
@@ -248,7 +262,8 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
                             value={cells[`${l.id}:${q.id}`] ?? ''} onChange={e => setCell(l.id, q, e.target.value)}/>
                         </td>
                       ))}
-                      <td className="p-2 text-center font-semibold">{t ?? '—'}</td>
+                      {strandGroups.map(g => <LevelCell key={g.name} got={sumFor(l.id, g.qs)} max={g.max} grade={cat.gradeLevel}/>)}
+                      <LevelCell got={t} max={maxTotal} grade={cat.gradeLevel}/>
                     </tr>
                   );
                 })}
