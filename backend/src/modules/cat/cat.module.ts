@@ -4,16 +4,20 @@
 // Kept apart from exams/assessment_results: never feeds the mark list or report cards.
 
 import {
-  Module, Controller, Get, Post, Patch, Put, Delete, Param, Query, Body, Request, UseGuards,
+  Module, Controller, Get, Post, Patch, Put, Delete, Param, Query, Body, Request, UseGuards, Header,
   BadRequestException, ForbiddenException, NotFoundException, ConflictException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SchoolOnly } from '../../common/decorators/access.decorator';
+import { schoolHeadInfo, schoolLetterheadHtml } from '../../common/school-letterhead';
+import { percentToLevelCode } from '../pdf/cbc-report.helper';
 
 const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admin', 'dos'];
 const TEACHER_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher'];
 const TERMS = ['term_1', 'term_2', 'term_3'];
+const SENIOR = ['grade_7', 'grade_8', 'grade_9', 'grade_10', 'grade_11', 'grade_12'];
+const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 
 @Controller('cats')
 @SchoolOnly()
@@ -41,7 +45,7 @@ export class CatController {
     this.allow(user);
     const rows = await this.ds.query(
       `SELECT c.id, c.teacher_id::text AS "teacherId", c.stream_id::text AS "streamId", c.subject, c.title,
-              c.term, c.academic_year AS "academicYear", c.cat_date AS "catDate",
+              c.term, c.academic_year AS "academicYear", c.cat_date::text AS "catDate",
               s.name AS "streamName", s.grade_level AS "gradeLevel",
               TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS "teacherName"
          FROM cats c
@@ -75,7 +79,7 @@ export class CatController {
     const admin = ADMIN_ROLES.includes(u.role);
     const cats = await this.ds.query(
       `SELECT c.id, c.teacher_id::text AS "teacherId", c.stream_id::text AS "streamId", c.subject, c.title,
-              c.term, c.cat_date AS "catDate", s.name AS "streamName",
+              c.term, c.cat_date::text AS "catDate", s.name AS "streamName",
               TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS "teacherName",
               (SELECT COUNT(*)::int FROM cat_questions q WHERE q.cat_id = c.id) AS "questionCount",
               (SELECT COALESCE(SUM(max_marks),0)::float FROM cat_questions q WHERE q.cat_id = c.id) AS "maxTotal",
@@ -112,8 +116,54 @@ export class CatController {
   }
 
   @Get(':id')
-  async get(@Request() req: any, @Param('id') id: string) {
-    const cat = await this.load(req.user, id);
+  get(@Request() req: any, @Param('id') id: string) {
+    return this.detail(req.user, id);
+  }
+
+  // Printable mark sheet: per-question marks, per-strand totals + CBC level, overall total.
+  @Get(':id/sheet')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async sheet(@Request() req: any, @Param('id') id: string) {
+    const { cat, questions, learners, scores } = await this.detail(req.user, id);
+    const senior = SENIOR.includes(cat.gradeLevel);
+    const score = new Map<string, number>(scores.map((s: any) => [`${s.learnerId}:${s.questionId}`, s.score]));
+    const groups: { name: string; qs: any[]; max: number }[] = [];
+    for (const q of questions) {
+      const name = q.strand || 'No strand';
+      let g = groups.find(x => x.name === name);
+      if (!g) groups.push(g = { name, qs: [], max: 0 });
+      g.qs.push(q); g.max += q.maxMarks;
+    }
+    const maxTotal = questions.reduce((a: number, q: any) => a + q.maxMarks, 0);
+    const sum = (lid: string, qs: any[]) => {
+      const v = qs.map(q => score.get(`${lid}:${q.id}`)).filter(x => x !== undefined) as number[];
+      return v.length ? v.reduce((a, b) => a + b, 0) : null;
+    };
+    const lvl = (got: number | null, max: number) => got === null || !max ? '<td>—</td>'
+      : `<td><b>${got}</b> <span class="lv">${percentToLevelCode(Math.round((got / max) * 100), senior)}</span></td>`;
+    const rows = learners.map((l: any, i: number) => `<tr><td>${i + 1}</td><td class="nm">${esc(l.firstName)} ${esc(l.lastName)}</td><td>${esc(l.admissionNumber)}</td>${
+      questions.map((q: any) => `<td>${score.get(`${l.id}:${q.id}`) ?? ''}</td>`).join('')}${
+      groups.map(g => lvl(sum(l.id, g.qs), g.max)).join('')}${lvl(sum(l.id, questions), maxTotal)}</tr>`).join('');
+    const key = questions.map((q: any) => `<tr><td>Q${q.number}</td><td>${q.maxMarks}</td><td>${esc(q.strand)}</td><td>${esc(q.subStrand)}</td></tr>`).join('');
+    const school = await schoolHeadInfo(this.ds, req.user.tenantId);
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cat.title)}</title><style>
+      .cs{font-family:Arial,sans-serif;color:#111;padding:16px;font-size:11px;background:#fff}
+      .cs table{border-collapse:collapse;width:100%;margin-top:8px}.cs th,.cs td{border:1px solid #bbb;padding:3px 4px;text-align:center}
+      .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs th.st{background:#d4af37;color:#111}.cs td.nm{text-align:left;white-space:nowrap}
+      .cs .lv{font-size:9px;font-weight:bold;color:#1a2e5a}.cs .meta{font-size:12px;margin:4px 0}.cs h3{margin:14px 0 2px;font-size:12px}
+      @page{size:A4 landscape;margin:10mm}
+    </style></head><body><div class="cs">
+      ${schoolLetterheadHtml(school, `CAT Mark Sheet · ${cat.title}`)}
+      <p class="meta"><b>Class:</b> ${esc(cat.streamName)} &nbsp; <b>Learning area:</b> ${esc(cat.subject)} &nbsp; <b>Term:</b> ${esc(String(cat.term).replace('term_', 'Term '))}${
+        cat.catDate ? ` &nbsp; <b>Date:</b> ${esc(cat.catDate)}` : ''} &nbsp; <b>Teacher:</b> ${esc(cat.teacherName)}</p>
+      <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${questions.map((q: any) => `<th>Q${q.number}<br>/${q.maxMarks}</th>`).join('')}${
+        groups.map(g => `<th class="st">${esc(g.name)}<br>/${g.max}</th>`).join('')}<th class="st">Total<br>/${maxTotal}</th></tr></thead><tbody>${rows}</tbody></table>
+      <h3>Question key</h3><table style="width:auto"><thead><tr><th>Q</th><th>Max</th><th>Strand</th><th>Sub-strand</th></tr></thead><tbody>${key}</tbody></table>
+    </div></body></html>`;
+  }
+
+  private async detail(user: any, id: string) {
+    const cat = await this.load(user, id);
     const [questions, learners, scores] = await Promise.all([
       this.ds.query(
         `SELECT id, number, max_marks::float AS "maxMarks", strand, sub_strand AS "subStrand", substrand_id AS "substrandId"
@@ -121,7 +171,7 @@ export class CatController {
       this.ds.query(
         `SELECT id, first_name AS "firstName", last_name AS "lastName", admission_number AS "admissionNumber"
            FROM learners WHERE tenant_id::text = $1 AND stream_id::text = $2 AND is_active = true
-          ORDER BY first_name, last_name`, [req.user.tenantId, cat.streamId]),
+          ORDER BY first_name, last_name`, [user.tenantId, cat.streamId]),
       this.ds.query(
         `SELECT question_id AS "questionId", learner_id AS "learnerId", score::float AS score
            FROM cat_scores WHERE cat_id::text = $1`, [id]),

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye } from 'lucide-react';
+import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { percentToLevel } from '@/lib/cbc/constants';
@@ -11,6 +11,46 @@ function LevelCell({ got, max, grade }: { got: number | null; max: number; grade
   if (got === null) return <td className="p-2 text-center text-theme-muted">—</td>;
   const lv = percentToLevel(Math.round((got / max) * 100), grade);
   return <td className="p-2 text-center whitespace-nowrap"><span className="font-semibold">{got}</span> <span className="text-xs font-bold" style={{ color: lv.color }} title={lv.label}>{lv.code}</span></td>;
+}
+
+const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+  if (document.querySelector(`script[src="${src}"]`)) return resolve();
+  const el = document.createElement('script');
+  el.src = src; el.onload = () => resolve(); el.onerror = () => reject(new Error('load failed'));
+  document.head.appendChild(el);
+});
+
+// Fetches the server-built mark sheet and saves it as a landscape A4 PDF; falls back to the print dialog.
+async function downloadSheet(id: string, filename: string) {
+  const toastId = toast.loading('Preparing PDF…');
+  let html = '';
+  try {
+    html = (await apiClient.get(`/cats/${id}/sheet`, { responseType: 'text' })).data;
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    const html2canvas = (window as any).html2canvas, JsPDF = (window as any).jspdf?.jsPDF;
+    if (!html2canvas || !JsPDF) throw new Error('pdf libs unavailable');
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-99999px;top:0;width:1100px;background:#fff';
+    holder.innerHTML = html;
+    document.body.appendChild(holder);
+    const canvas = await html2canvas(holder, { scale: 2, backgroundColor: '#ffffff' });
+    document.body.removeChild(holder);
+    const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const M = 20, w = pdf.internal.pageSize.getWidth() - M * 2, usable = pdf.internal.pageSize.getHeight() - M * 2;
+    const h = (canvas.height * w) / canvas.width, img = canvas.toDataURL('image/png');
+    for (let off = 0; off < h; off += usable) {
+      if (off) pdf.addPage();
+      pdf.addImage(img, 'PNG', M, M - off, w, h);
+    }
+    pdf.save(filename);
+    toast.success('PDF downloaded', { id: toastId });
+  } catch (e) {
+    toast.dismiss(toastId);
+    if (!html) { err(e, 'Could not build the PDF'); return; }
+    const win = window.open('', '_blank');
+    if (win) { win.opener = null; win.document.write(html + '<script>window.onload=()=>window.print()</' + 'script>'); win.document.close(); }
+  }
 }
 
 const err = (e: any, fallback: string) => toast.error(e?.response?.data?.message || fallback);
@@ -238,7 +278,10 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="card p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold text-theme-heading">Marks <span className="text-theme-muted font-normal text-sm">· {learners.length} learners</span></h2>
-            {edit && <button onClick={saveMarks} disabled={busy === 'm'} className="btn-primary">{busy === 'm' ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>} Save marks</button>}
+            <div className="flex gap-2">
+              <button onClick={() => downloadSheet(id, `${cat.title}-${cat.streamName}-${cat.subject}.pdf`.replace(/[^w.-]+/g, '_'))} className="btn-ghost"><Download size={16}/> Download PDF</button>
+              {edit && <button onClick={saveMarks} disabled={busy === 'm'} className="btn-primary">{busy === 'm' ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>} Save marks</button>}
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="text-sm border-collapse">
