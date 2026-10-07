@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { SchoolOnly } from '../../common/decorators/access.decorator';
+import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
 import { schoolHeadInfo, schoolLetterheadHtml } from '../../common/school-letterhead';
 import { percentToLevelCode } from '../pdf/cbc-report.helper';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../../common/print-footer';
@@ -99,6 +99,105 @@ export class CatController {
     return { cats, assignments: await this.assignments(u), readOnlyAll: admin };
   }
 
+  // Parent view: only their own child's CAT results (linked by guardian email, as elsewhere).
+  @AllowRoles('parent')
+  @Get('child')
+  childReport(@Request() req: any, @Query() q: any) {
+    return this.childCats(req.user, q.learnerId, q.term);
+  }
+
+  @AllowRoles('parent')
+  @Get('child/sheet')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async childSheet(@Request() req: any, @Query() q: any) {
+    const r = await this.childCats(req.user, q.learnerId, q.term);
+    if (!r.chosen) throw new NotFoundException('No child linked to your account.');
+    const senior = SENIOR.includes(r.chosen.gradeLevel);
+    const blocks = r.cats.map((c: any) => `
+      <h3>${esc(c.subject)} — ${esc(c.title)}${c.catDate ? ` <span class="note">(${esc(c.catDate)})</span>` : ''}</h3>
+      <table><thead><tr><th>Strand</th><th>Marks</th><th>Level</th></tr></thead><tbody>
+        ${c.strands.map((s: any) => `<tr><td class="nm">${esc(s.name)}</td><td>${s.got} / ${s.max}</td><td><b>${s.level}</b></td></tr>`).join('')}
+        <tr class="sr"><td class="nm"><b>Total</b></td><td><b>${c.total} / ${c.max}</b> (${c.pct}%)</td><td><b>${c.level}</b></td></tr>
+      </tbody></table>
+      <p class="note">Class average: ${c.classAvgPct}% (${percentToLevelCode(Math.round(c.classAvgPct), senior)}).
+        ${c.practise.length ? `<b>Practise at home:</b> ${c.practise.map((x: any) => esc(x)).join(', ')}.` : 'Well done — no weak areas in this CAT.'}</p>`).join('');
+    const school = await schoolHeadInfo(this.ds, req.user.tenantId);
+    return `<!doctype html><html><head><meta charset="utf-8"><title>CAT report</title><style>
+      .cs{font-family:Arial,sans-serif;color:#111;padding:10px;font-size:10px;background:#fff}
+      .cs table{font-size:inherit;border-collapse:collapse;width:100%;margin-top:4px}.cs th,.cs td{border:1px solid #bbb;padding:2px 4px;text-align:center}
+      .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs td.nm{text-align:left}.cs tr.sr td{background:#fdf6e3}
+      .cs .meta{font-size:11px;margin:3px 0}.cs h3{margin:8px 0 2px;font-size:11px}.cs .note{font-size:10px;color:#444;margin:3px 0;font-weight:normal}
+      @page{size:A4 portrait;margin:10mm}${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
+    </style></head><body><div class="cs">
+      ${schoolLetterheadHtml(school, `CAT Report · ${r.chosen.name}`)}
+      <p class="meta"><b>Learner:</b> ${esc(r.chosen.name)} &nbsp; <b>Adm:</b> ${esc(r.chosen.admissionNumber)} &nbsp; <b>Class:</b> ${esc(r.chosen.streamName)}${q.term ? ` &nbsp; <b>Term:</b> ${esc(String(q.term).replace('term_', 'Term '))}` : ''}</p>
+      ${blocks || '<p class="meta">No CAT marks yet.</p>'}
+      <p class="note">CATs are continuous (formative) assessments to guide learning; they are not part of the report card.</p>
+      ${PRINT_FOOTER_HTML}
+    </div></body></html>`;
+  }
+
+  private async childCats(user: any, learnerId?: string, term?: string) {
+    const email = String(user.email || '').toLowerCase().trim();
+    const children = email ? await this.ds.query(
+      `SELECT l.id::text AS id, TRIM(l.first_name || ' ' || COALESCE(l.last_name,'')) AS name, l.admission_number AS "admissionNumber",
+              l.grade_level AS "gradeLevel", s.name AS "streamName"
+         FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
+        WHERE l.tenant_id::text = $1 AND LOWER(l.guardian_email) = $2 ORDER BY l.first_name`,
+      [user.tenantId, email]) : [];
+    if (learnerId && !children.some((c: any) => c.id === learnerId)) throw new ForbiddenException('This learner is not linked to your account.');
+    const chosen = children.find((c: any) => c.id === learnerId) || children[0] || null;
+    if (!chosen) return { children: [], chosen: null, cats: [] };
+    const senior = SENIOR.includes(chosen.gradeLevel);
+    const level = (pct: number) => percentToLevelCode(Math.round(pct), senior);
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+
+    const cats = await this.ds.query(
+      `SELECT c.id::text AS id, c.title, c.subject, c.term, c.cat_date::text AS "catDate"
+         FROM cats c
+        WHERE c.tenant_id::text = $1 AND c.deleted_at IS NULL AND c.subject IS NOT NULL
+          AND ($3::text IS NULL OR c.term = $3)
+          AND EXISTS (SELECT 1 FROM cat_scores x WHERE x.cat_id = c.id AND x.learner_id::text = $2)
+        ORDER BY c.cat_date DESC NULLS LAST, c.created_at DESC`,
+      [user.tenantId, chosen.id, term || null]);
+    if (!cats.length) return { children, chosen, cats: [] };
+    const ids = cats.map((c: any) => c.id);
+    const [questions, scores] = await Promise.all([
+      this.ds.query(`SELECT id::text AS id, cat_id::text AS "catId", number, max_marks::float AS "maxMarks", strand, sub_strand AS "subStrand"
+                       FROM cat_questions WHERE cat_id::text = ANY($1) ORDER BY number`, [ids]),
+      this.ds.query(`SELECT cat_id::text AS "catId", question_id::text AS "questionId", learner_id::text AS "learnerId", score::float AS score
+                       FROM cat_scores WHERE cat_id::text = ANY($1)`, [ids]),
+    ]);
+
+    return {
+      children, chosen,
+      cats: cats.map((c: any) => {
+        const qs = questions.filter((q: any) => q.catId === c.id);
+        const sc = scores.filter((s: any) => s.catId === c.id);
+        const mine = new Map<string, number>(sc.filter((s: any) => s.learnerId === chosen.id).map((s: any) => [s.questionId, s.score]));
+        const max = qs.reduce((a: number, q: any) => a + q.maxMarks, 0);
+        const total = qs.reduce((a: number, q: any) => a + (mine.get(q.id) ?? 0), 0);
+        const satCount = new Set(sc.map((s: any) => s.learnerId)).size;
+        const classAvg = satCount ? sc.reduce((a: number, s: any) => a + s.score, 0) / satCount : 0;
+        const strands: any[] = [];
+        for (const q of qs) {
+          const name = q.strand || 'Other';
+          let st = strands.find(x => x.name === name);
+          if (!st) strands.push(st = { name, got: 0, max: 0 });
+          st.got += mine.get(q.id) ?? 0; st.max += q.maxMarks;
+        }
+        return {
+          id: c.id, title: c.title, subject: c.subject, term: c.term, catDate: c.catDate,
+          total, max, pct: max ? r1((total / max) * 100) : 0, level: level(max ? (total / max) * 100 : 0),
+          classAvgPct: max ? r1((classAvg / max) * 100) : 0,
+          strands: strands.map(st => ({ ...st, level: level(st.max ? (st.got / st.max) * 100 : 0) })),
+          questions: qs.map((q: any) => ({ number: q.number, maxMarks: q.maxMarks, strand: q.strand, subStrand: q.subStrand, score: mine.get(q.id) ?? null })),
+          practise: Array.from(new Set(qs.filter((q: any) => (mine.get(q.id) ?? 0) < q.maxMarks / 2).map((q: any) => q.subStrand || q.strand || `Q${q.number}`))),
+        };
+      }),
+    };
+  }
+
   @Post()
   async create(@Request() req: any, @Body() dto: any) {
     const u = req.user;
@@ -149,10 +248,10 @@ export class CatController {
     const key = questions.map((q: any) => `<tr><td>Q${q.number}</td><td>${q.maxMarks}</td><td>${esc(q.strand)}</td><td>${esc(q.subStrand)}</td></tr>`).join('');
     const school = await schoolHeadInfo(this.ds, req.user.tenantId);
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cat.title)}</title><style>
-      .cs{font-family:Arial,sans-serif;color:#111;padding:16px;font-size:11px;background:#fff}
-      .cs table{border-collapse:collapse;width:100%;margin-top:8px}.cs th,.cs td{border:1px solid #bbb;padding:3px 4px;text-align:center}
+      .cs{font-family:Arial,sans-serif;color:#111;padding:10px;font-size:10px;background:#fff}
+      .cs table{font-size:inherit;border-collapse:collapse;width:100%;margin-top:8px}.cs th,.cs td{border:1px solid #bbb;padding:2px 3px;text-align:center}
       .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs th.st{background:#d4af37;color:#111}.cs td.nm{text-align:left;white-space:nowrap}
-      .cs .lv{font-size:9px;font-weight:bold;color:#1a2e5a}.cs .meta{font-size:12px;margin:4px 0}.cs h3{margin:14px 0 2px;font-size:12px}
+      .cs .lv{font-size:9px;font-weight:bold;color:#1a2e5a}.cs .meta{font-size:11px;margin:3px 0}.cs h3{margin:8px 0 2px;font-size:11px}
       @page{size:A4 landscape;margin:10mm}${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
     </style></head><body><div class="cs">
       ${schoolLetterheadHtml(school, `CAT Mark Sheet · ${cat.title}`)}
@@ -187,11 +286,11 @@ export class CatController {
     const lRows = a.learners.map((l: any, i: number) => `<tr><td>${i + 1}</td><td class="nm">${esc(l.name)}</td><td>${esc(l.admissionNumber)}</td><td>${l.total} / ${a.maxTotal}</td><td><b>${l.level}</b></td><td class="nm">${l.missed.map((m: any) => `Q${m.number}${m.subStrand ? ` · ${esc(m.subStrand)}` : ''}: ${m.score === null ? 'not marked' : `${m.score}/${m.maxMarks}`}`).join('; ') || 'None'}</td></tr>`).join('');
     const school = await schoolHeadInfo(this.ds, req.user.tenantId);
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cat.title)} — item analysis</title><style>
-      .cs{font-family:Arial,sans-serif;color:#111;padding:16px;font-size:11px;background:#fff}
-      .cs table{border-collapse:collapse;width:100%;margin-top:6px}.cs th,.cs td{border:1px solid #bbb;padding:3px 4px;text-align:center}
+      .cs{font-family:Arial,sans-serif;color:#111;padding:10px;font-size:10px;background:#fff}
+      .cs table{font-size:inherit;border-collapse:collapse;width:100%;margin-top:6px}.cs th,.cs td{border:1px solid #bbb;padding:2px 3px;text-align:center}
       .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs th.st{background:#d4af37;color:#111}.cs td.nm{text-align:left}
-      .cs tr.fl td{background:#fee2e2;color:#991b1b}.cs tr.sr td{background:#fdf6e3}.cs .meta{font-size:12px;margin:4px 0}
-      .cs h3{margin:14px 0 2px;font-size:12px}.cs .note{font-size:10px;color:#555;margin:2px 0}
+      .cs tr.fl td{background:#fee2e2;color:#991b1b}.cs tr.sr td{background:#fdf6e3}.cs .meta{font-size:11px;margin:3px 0}
+      .cs h3{margin:8px 0 2px;font-size:11px}.cs .note{font-size:10px;color:#555;margin:2px 0}
       @page{size:A4 landscape;margin:10mm}${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
     </style></head><body><div class="cs">
       ${schoolLetterheadHtml(school, `CAT Item Analysis · ${cat.title}`)}

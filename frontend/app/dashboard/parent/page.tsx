@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   User, DollarSign, FileText, MessageSquare, CheckCircle,
-  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play, Star, X, Bus,
+  TrendingUp, CreditCard, ChevronRight, Heart, Loader2, BookOpen, Sparkles, Play, Star, X, Bus, ClipboardList,
 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -423,6 +423,7 @@ export default function ParentPortalPage() {
                 <div className="flex flex-wrap gap-2 mt-4">
                   <Link href={`/dashboard/parent/analytics?child=${c.id}`} className="btn-primary flex-1 min-w-[45%] justify-center text-xs"><TrendingUp size={13}/> Performance</Link>
                   <button onClick={() => downloadChildReport(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><FileText size={13}/> Report Card</button>
+                  <Link href={`/dashboard/parent/cats?child=${c.id}`} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><ClipboardList size={13}/> CATs</Link>
                   <button onClick={() => openFees(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><CreditCard size={13}/> Fees</button>
                   <button onClick={() => openLibrary(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><BookOpen size={13}/> Library</button>
                   <button onClick={() => openTransport(c)} className="btn-ghost flex-1 min-w-[45%] justify-center text-xs"><Bus size={13}/> Transport</button>

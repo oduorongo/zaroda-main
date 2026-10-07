@@ -20,28 +20,38 @@ const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
   document.head.appendChild(el);
 });
 
-// Fetches the server-built mark sheet and saves it as a landscape A4 PDF; falls back to the print dialog.
-async function downloadSheet(path: string, filename: string) {
+// Fetches a server-built sheet and saves it as a compressed A4 PDF; falls back to the print dialog.
+export async function downloadSheet(path: string, filename: string, opts: { params?: any; portrait?: boolean } = {}) {
   const toastId = toast.loading('Preparing PDF…');
   let html = '';
   try {
-    html = (await apiClient.get(path, { responseType: 'text' })).data;
+    html = (await apiClient.get(path, { responseType: 'text', params: opts.params })).data;
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
     const html2canvas = (window as any).html2canvas, JsPDF = (window as any).jspdf?.jsPDF;
     if (!html2canvas || !JsPDF) throw new Error('pdf libs unavailable');
     const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-99999px;top:0;width:1100px;background:#fff';
+    holder.style.cssText = `position:fixed;left:-99999px;top:0;width:${opts.portrait ? 800 : 1100}px;background:#fff`;
     holder.innerHTML = html;
     document.body.appendChild(holder);
-    const canvas = await html2canvas(holder, { scale: 2, backgroundColor: '#ffffff' });
+    // Row bottoms (CSS px) — pages break only there, never through a row.
+    const top = holder.getBoundingClientRect().top;
+    const breaks = Array.from(holder.querySelectorAll('tr, h3, p')).map(el => el.getBoundingClientRect().bottom - top).concat(holder.scrollHeight);
+    const scale = 1.3;
+    const canvas = await html2canvas(holder, { scale, backgroundColor: '#ffffff' });
     document.body.removeChild(holder);
-    const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const pdf = new JsPDF({ orientation: opts.portrait ? 'portrait' : 'landscape', unit: 'pt', format: 'a4', compress: true });
     const M = 20, w = pdf.internal.pageSize.getWidth() - M * 2, usable = pdf.internal.pageSize.getHeight() - M * 2;
-    const h = (canvas.height * w) / canvas.width, img = canvas.toDataURL('image/png');
-    for (let off = 0; off < h; off += usable) {
-      if (off) pdf.addPage();
-      pdf.addImage(img, 'PNG', M, M - off, w, h);
+    const pagePx = (usable / w) * (canvas.width / scale);
+    for (let y = 0, first = true; y < canvas.height / scale - 1; first = false) {
+      const fit = breaks.filter(b => b > y + 1 && b <= y + pagePx);
+      const end = Math.min(fit.length ? Math.max(...fit) : y + pagePx, canvas.height / scale);
+      const part = document.createElement('canvas');
+      part.width = canvas.width; part.height = Math.ceil((end - y) * scale);
+      part.getContext('2d')!.drawImage(canvas, 0, y * scale, canvas.width, part.height, 0, 0, canvas.width, part.height);
+      if (!first) pdf.addPage();
+      pdf.addImage(part.toDataURL('image/jpeg', 0.7), 'JPEG', M, M, w, (part.height * w) / canvas.width, undefined, 'FAST');
+      y = end;
     }
     pdf.save(filename);
     toast.success('PDF downloaded', { id: toastId });
