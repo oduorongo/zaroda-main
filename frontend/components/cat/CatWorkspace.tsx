@@ -425,10 +425,10 @@ function ItemAnalysis({ id, grade, filename }: { id: string; grade: string; file
 
       <div className="card p-4 space-y-2">
         <h2 className="font-semibold text-theme-heading">Learner drill-down</h2>
-        <p className="text-xs text-theme-muted">Missed = scored below half the marks on that question.</p>
+        <p className="text-xs text-theme-muted">Questions where the learner scored less than half the marks (score / out of). &ldquo;Not marked&rdquo; = no mark entered for that question.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="text-left">{['Learner', 'Total', 'Level', 'Missed questions'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <thead><tr className="text-left">{['Learner', 'Total', 'Level', 'Questions scored below half'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
             <tbody>
               {a.learners.map((l: any) => (
                 <tr key={l.id} className="border-t border-theme align-top">
@@ -438,7 +438,7 @@ function ItemAnalysis({ id, grade, filename }: { id: string; grade: string; file
                   <td className="p-2">
                     {l.missed.length ? (
                       <div className="flex flex-wrap gap-1">
-                        {l.missed.map((m: any) => <span key={m.number} className="badge bg-red-100 text-red-700">Q{m.number} · {m.score ?? '–'}/{m.maxMarks}</span>)}
+                        {l.missed.map((m: any) => <span key={m.number} className="badge bg-red-100 text-red-700">Q{m.number}{m.subStrand ? ` · ${m.subStrand}` : ''}: {m.score === null ? 'not marked' : `${m.score}/${m.maxMarks}`}</span>)}
                       </div>
                     ) : <span className="text-xs text-green-700">None</span>}
                   </td>

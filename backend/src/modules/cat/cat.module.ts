@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SchoolOnly } from '../../common/decorators/access.decorator';
 import { schoolHeadInfo, schoolLetterheadHtml } from '../../common/school-letterhead';
 import { percentToLevelCode } from '../pdf/cbc-report.helper';
+import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../../common/print-footer';
 
 const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admin', 'dos'];
 const TEACHER_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher'];
@@ -152,7 +153,7 @@ export class CatController {
       .cs table{border-collapse:collapse;width:100%;margin-top:8px}.cs th,.cs td{border:1px solid #bbb;padding:3px 4px;text-align:center}
       .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs th.st{background:#d4af37;color:#111}.cs td.nm{text-align:left;white-space:nowrap}
       .cs .lv{font-size:9px;font-weight:bold;color:#1a2e5a}.cs .meta{font-size:12px;margin:4px 0}.cs h3{margin:14px 0 2px;font-size:12px}
-      @page{size:A4 landscape;margin:10mm}
+      @page{size:A4 landscape;margin:10mm}${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
     </style></head><body><div class="cs">
       ${schoolLetterheadHtml(school, `CAT Mark Sheet · ${cat.title}`)}
       <p class="meta"><b>Class:</b> ${esc(cat.streamName)} &nbsp; <b>Learning area:</b> ${esc(cat.subject)} &nbsp; <b>Term:</b> ${esc(String(cat.term).replace('term_', 'Term '))}${
@@ -160,6 +161,7 @@ export class CatController {
       <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th>${questions.map((q: any) => `<th>Q${q.number}<br>/${q.maxMarks}</th>`).join('')}${
         groups.map(g => `<th class="st">${esc(g.name)}<br>/${g.max}</th>`).join('')}<th class="st">Total<br>/${maxTotal}</th></tr></thead><tbody>${rows}</tbody></table>
       <h3>Question key</h3><table style="width:auto"><thead><tr><th>Q</th><th>Max</th><th>Strand</th><th>Sub-strand</th></tr></thead><tbody>${key}</tbody></table>
+      ${PRINT_FOOTER_HTML}
     </div></body></html>`;
   }
 
@@ -182,7 +184,7 @@ export class CatController {
       `<tr class="sr"><td class="nm"><b>${esc(s.name)}</b></td><td>${s.max}</td><td>${s.avg}</td><td>${s.avgPct}%</td><td><b>${s.level || '—'}</b></td><td>${s.flagged || '—'}</td>${counts(s.levelCounts)}</tr>`,
       ...s.subStrands.map((x: any) => `<tr><td class="nm" style="padding-left:14px">${esc(x.name)}</td><td>${x.max}</td><td>${x.avg}</td><td>${x.avgPct}%</td><td>${x.level || '—'}</td><td>${x.flagged || '—'}</td>${counts(x.levelCounts)}</tr>`),
     ].join('')).join('');
-    const lRows = a.learners.map((l: any, i: number) => `<tr><td>${i + 1}</td><td class="nm">${esc(l.name)}</td><td>${esc(l.admissionNumber)}</td><td>${l.total} / ${a.maxTotal}</td><td><b>${l.level}</b></td><td class="nm">${l.missed.map((m: any) => `Q${m.number} (${m.score ?? '–'}/${m.maxMarks})`).join(', ') || 'None'}</td></tr>`).join('');
+    const lRows = a.learners.map((l: any, i: number) => `<tr><td>${i + 1}</td><td class="nm">${esc(l.name)}</td><td>${esc(l.admissionNumber)}</td><td>${l.total} / ${a.maxTotal}</td><td><b>${l.level}</b></td><td class="nm">${l.missed.map((m: any) => `Q${m.number}${m.subStrand ? ` · ${esc(m.subStrand)}` : ''}: ${m.score === null ? 'not marked' : `${m.score}/${m.maxMarks}`}`).join('; ') || 'None'}</td></tr>`).join('');
     const school = await schoolHeadInfo(this.ds, req.user.tenantId);
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cat.title)} — item analysis</title><style>
       .cs{font-family:Arial,sans-serif;color:#111;padding:16px;font-size:11px;background:#fff}
@@ -190,7 +192,7 @@ export class CatController {
       .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs th.st{background:#d4af37;color:#111}.cs td.nm{text-align:left}
       .cs tr.fl td{background:#fee2e2;color:#991b1b}.cs tr.sr td{background:#fdf6e3}.cs .meta{font-size:12px;margin:4px 0}
       .cs h3{margin:14px 0 2px;font-size:12px}.cs .note{font-size:10px;color:#555;margin:2px 0}
-      @page{size:A4 landscape;margin:10mm}
+      @page{size:A4 landscape;margin:10mm}${PRINT_FOOTER_CSS}${PRINT_PAGE_CSS}
     </style></head><body><div class="cs">
       ${schoolLetterheadHtml(school, `CAT Item Analysis · ${cat.title}`)}
       <p class="meta"><b>Class:</b> ${esc(cat.streamName)} &nbsp; <b>Learning area:</b> ${esc(cat.subject)} &nbsp; <b>Term:</b> ${esc(String(cat.term).replace('term_', 'Term '))}${cat.catDate ? ` &nbsp; <b>Date:</b> ${esc(cat.catDate)}` : ''} &nbsp; <b>Teacher:</b> ${esc(cat.teacherName)}</p>
@@ -200,8 +202,9 @@ export class CatController {
       <table><thead><tr><th>Q</th><th>Strand › Sub-strand</th><th>Max</th><th>Class avg</th><th>Full</th><th>Partial</th><th>Zero</th><th>Below half</th></tr></thead><tbody>${qRows}</tbody></table>
       <h3>Strand performance</h3>
       <table><thead><tr><th>Strand / sub-strand</th><th>Max</th><th>Class avg</th><th>Avg %</th><th>Level</th><th>Flagged</th>${lvHead}</tr></thead><tbody>${sRows}</tbody></table>
-      <h3>Learner drill-down</h3><p class="note">Missed = scored below half the marks on that question.</p>
-      <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Total</th><th>Level</th><th>Missed questions</th></tr></thead><tbody>${lRows}</tbody></table>
+      <h3>Learner drill-down</h3><p class="note">Questions where the learner scored less than half the marks (score / out of). "Not marked" = no mark entered for that question.</p>
+      <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Total</th><th>Level</th><th>Questions scored below half</th></tr></thead><tbody>${lRows}</tbody></table>
+      ${PRINT_FOOTER_HTML}
     </div></body></html>`;
   }
 
@@ -262,7 +265,7 @@ export class CatController {
         id: l.id, name: `${l.firstName} ${l.lastName}`.trim(), admissionNumber: l.admissionNumber,
         total, pct: r1(pct), level: level(pct),
         missed: questions.filter((q: any) => got(l, q) < q.maxMarks / 2)
-          .map((q: any) => ({ number: q.number, score: score.get(`${l.id}:${q.id}`) ?? null, maxMarks: q.maxMarks })),
+          .map((q: any) => ({ number: q.number, subStrand: q.subStrand || q.strand || null, score: score.get(`${l.id}:${q.id}`) ?? null, maxMarks: q.maxMarks })),
       };
     }).sort((a: any, b: any) => b.total - a.total);
     const classAvg = n ? learnerRows.reduce((a: number, l: any) => a + l.total, 0) / n : 0;
