@@ -30,6 +30,7 @@ export default function AcademicPage() {
     { icon: FileText,   label: 'Term Report',   sub: 'Per-assessment levels', href: '/dashboard/academic/term-report', color: 'bg-[#1a2e5a]' },
     { icon: ClipboardList, label: 'Assessment Book', sub: 'KICD rubric per learner', href: '/dashboard/academic/assessment-book', color: 'bg-amber-600' },
     { icon: ClipboardList, label: 'Exams & CATs',sub: 'Assessments setup',  href: '/dashboard/academic/exams',       color: 'bg-indigo-600'},
+    { icon: ClipboardList, label: 'CATs',        sub: 'Question-level marks', href: '/dashboard/academic/cats', color: 'bg-teal-600' },
     { icon: UserCheck,  label: 'Allocation',    sub: 'Subjects & teachers', href: '/dashboard/academic/allocation',   color: 'bg-cyan-600'  },
     { icon: GraduationCap, label: 'Teachers',   sub: 'Onboard & subjects', href: '/dashboard/academic/teachers',     color: 'bg-emerald-600'},
   ];

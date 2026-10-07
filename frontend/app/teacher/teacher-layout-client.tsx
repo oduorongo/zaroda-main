@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
-  Sparkles, Menu, X, LogOut, Sun, Moon, UserPlus, ClipboardCheck, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
+  Sparkles, Menu, X, LogOut, Sun, Moon, UserPlus, ClipboardCheck, ClipboardList, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
   DollarSign, KeyRound,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
@@ -24,6 +24,7 @@ const TEACHER_NAV = [
   { href: '/teacher/enter-marks', icon: BarChart3,   label: 'Enter Marks' },
   { href: '/teacher/mark-list',  icon: ListChecks,  label: 'Class Mark List' },
   { href: '/teacher/analytics',  icon: TrendingUp,  label: 'Performance Analytics' },
+  { href: '/teacher/cats',       icon: ClipboardList, label: 'CATs' },
   { href: '/teacher/assessment', icon: ClipboardCheck, label: 'Assessment Rubric' },
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },

@@ -19,6 +19,7 @@ import { LocationModule }           from './modules/location/location.module';
 import { TeacherOnboardModule }     from './modules/onboarding/teacher-onboard.module';
 import { ProfessionalRecordsModule } from './modules/professional-records/professional-records.module';
 import { SeniorSelectionModule }    from './modules/senior-selection/senior-selection.module';
+import { CatModule }                from './modules/cat/cat.module';
 import { BillingModule }            from './modules/billing/billing.module';
 import { ComplianceModule }         from './modules/compliance/compliance.module';
 import { PiiAuditInterceptor }      from './common/pii-audit';
@@ -89,6 +90,7 @@ import { PiiAuditInterceptor }      from './common/pii-audit';
     TestimonialModule,
     TeacherOnboardModule,
     SeniorSelectionModule,
+    CatModule,
     BillingModule,
     ComplianceModule,
   ],
