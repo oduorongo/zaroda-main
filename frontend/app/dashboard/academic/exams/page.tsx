@@ -102,7 +102,7 @@ export default function ExamsPage() {
     <div className="space-y-5">
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-black text-theme-heading">Exams &amp; CATs</h1>
+          <h1 className="text-2xl font-black text-theme-heading">Exams</h1>
           <p className="text-sm text-theme-muted">Create assessments, then enter scores via the Mark List</p>
         </div>
         {isHoi(user?.role || '') && (
@@ -207,7 +207,7 @@ export default function ExamsPage() {
                 <div>
                   <label className="label">Type *</label>
                   <select value={form.examType} onChange={set('examType')} className="input">
-                    {EXAM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {EXAM_TYPES.filter(t => !t.value.startsWith('cat_')).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
                 <div>

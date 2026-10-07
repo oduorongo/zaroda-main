@@ -17,6 +17,7 @@ const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admi
 const TEACHER_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher'];
 const TERMS = ['term_1', 'term_2', 'term_3'];
 const SENIOR = ['grade_7', 'grade_8', 'grade_9', 'grade_10', 'grade_11', 'grade_12'];
+const LEVEL_CODES = { senior: ['EE1', 'EE2', 'ME1', 'ME2', 'AE1', 'AE2', 'BE1', 'BE2'], junior: ['EE', 'ME', 'AE', 'BE'] };
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 
 @Controller('cats')
@@ -165,7 +166,47 @@ export class CatController {
   // Item analysis over learners who sat (≥1 mark); a blank question counts as 0 for them.
   @Get(':id/analysis')
   async analysis(@Request() req: any, @Param('id') id: string) {
-    const { cat, questions, learners, scores } = await this.detail(req.user, id);
+    const { cat, ...rest } = await this.analyse(req.user, id);
+    return rest;
+  }
+
+  @Get(':id/analysis/sheet')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async analysisSheet(@Request() req: any, @Param('id') id: string) {
+    const a = await this.analyse(req.user, id);
+    const { cat } = a;
+    const counts = (c: Record<string, number>) => a.levelCodes.map((k: string) => `<td>${c[k] || 0}</td>`).join('');
+    const lvHead = a.levelCodes.map((k: string) => `<th class="st">${k}</th>`).join('');
+    const qRows = a.questions.map((q: any) => `<tr${q.flagged ? ' class="fl"' : ''}><td>${q.flagged ? '⚠ ' : ''}Q${q.number}</td><td class="nm">${esc([q.strand, q.subStrand].filter(Boolean).join(' › ') || '—')}</td><td>${q.maxMarks}</td><td>${q.avg} (${q.avgPct}%)</td><td>${q.fullPct}%</td><td>${q.partialPct}%</td><td>${q.zeroPct}%</td><td><b>${q.belowHalfPct}%</b></td></tr>`).join('');
+    const sRows = a.strands.map((s: any) => [
+      `<tr class="sr"><td class="nm"><b>${esc(s.name)}</b></td><td>${s.max}</td><td>${s.avg}</td><td>${s.avgPct}%</td><td><b>${s.level || '—'}</b></td><td>${s.flagged || '—'}</td>${counts(s.levelCounts)}</tr>`,
+      ...s.subStrands.map((x: any) => `<tr><td class="nm" style="padding-left:14px">${esc(x.name)}</td><td>${x.max}</td><td>${x.avg}</td><td>${x.avgPct}%</td><td>${x.level || '—'}</td><td>${x.flagged || '—'}</td>${counts(x.levelCounts)}</tr>`),
+    ].join('')).join('');
+    const lRows = a.learners.map((l: any, i: number) => `<tr><td>${i + 1}</td><td class="nm">${esc(l.name)}</td><td>${esc(l.admissionNumber)}</td><td>${l.total} / ${a.maxTotal}</td><td><b>${l.level}</b></td><td class="nm">${l.missed.map((m: any) => `Q${m.number} (${m.score ?? '–'}/${m.maxMarks})`).join(', ') || 'None'}</td></tr>`).join('');
+    const school = await schoolHeadInfo(this.ds, req.user.tenantId);
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cat.title)} — item analysis</title><style>
+      .cs{font-family:Arial,sans-serif;color:#111;padding:16px;font-size:11px;background:#fff}
+      .cs table{border-collapse:collapse;width:100%;margin-top:6px}.cs th,.cs td{border:1px solid #bbb;padding:3px 4px;text-align:center}
+      .cs th{background:#1a2e5a;color:#fff;font-size:10px}.cs th.st{background:#d4af37;color:#111}.cs td.nm{text-align:left}
+      .cs tr.fl td{background:#fee2e2;color:#991b1b}.cs tr.sr td{background:#fdf6e3}.cs .meta{font-size:12px;margin:4px 0}
+      .cs h3{margin:14px 0 2px;font-size:12px}.cs .note{font-size:10px;color:#555;margin:2px 0}
+      @page{size:A4 landscape;margin:10mm}
+    </style></head><body><div class="cs">
+      ${schoolLetterheadHtml(school, `CAT Item Analysis · ${cat.title}`)}
+      <p class="meta"><b>Class:</b> ${esc(cat.streamName)} &nbsp; <b>Learning area:</b> ${esc(cat.subject)} &nbsp; <b>Term:</b> ${esc(String(cat.term).replace('term_', 'Term '))}${cat.catDate ? ` &nbsp; <b>Date:</b> ${esc(cat.catDate)}` : ''} &nbsp; <b>Teacher:</b> ${esc(cat.teacherName)}</p>
+      <p class="meta"><b>Learners sat:</b> ${a.sat} / ${a.enrolled} &nbsp; <b>Class average:</b> ${a.classAvg} / ${a.maxTotal} (${a.classAvgPct}%, ${a.classLevel || '—'}) &nbsp; <b>Flagged questions:</b> ${a.questions.filter((q: any) => q.flagged).length}</p>
+      <h3>Learners per level (CAT total)</h3><table style="width:auto"><thead><tr>${lvHead}</tr></thead><tbody><tr>${counts(a.levelCounts)}</tr></tbody></table>
+      <h3>Per question</h3><p class="note">Shaded red: more than half the learners scored below half the marks.</p>
+      <table><thead><tr><th>Q</th><th>Strand › Sub-strand</th><th>Max</th><th>Class avg</th><th>Full</th><th>Partial</th><th>Zero</th><th>Below half</th></tr></thead><tbody>${qRows}</tbody></table>
+      <h3>Strand performance</h3>
+      <table><thead><tr><th>Strand / sub-strand</th><th>Max</th><th>Class avg</th><th>Avg %</th><th>Level</th><th>Flagged</th>${lvHead}</tr></thead><tbody>${sRows}</tbody></table>
+      <h3>Learner drill-down</h3><p class="note">Missed = scored below half the marks on that question.</p>
+      <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Total</th><th>Level</th><th>Missed questions</th></tr></thead><tbody>${lRows}</tbody></table>
+    </div></body></html>`;
+  }
+
+  private async analyse(user: any, id: string) {
+    const { cat, questions, learners, scores } = await this.detail(user, id);
     const senior = SENIOR.includes(cat.gradeLevel);
     const level = (pct: number) => percentToLevelCode(Math.round(pct), senior);
     const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -189,11 +230,17 @@ export class CatController {
       };
     });
 
+    const levelCodes = senior ? LEVEL_CODES.senior : LEVEL_CODES.junior;
+    const tally = (pcts: number[]) => pcts.reduce((c: Record<string, number>, p) => { const k = level(p); c[k] = (c[k] || 0) + 1; return c; }, {});
     const roll = (qs: any[]) => {
       const max = qs.reduce((a, q) => a + q.maxMarks, 0);
-      const avg = n ? sat.reduce((a: number, l: any) => a + qs.reduce((b, q) => b + got(l, q), 0), 0) / n : 0;
+      const sums = sat.map((l: any) => qs.reduce((b, q) => b + got(l, q), 0));
+      const avg = n ? sums.reduce((a: number, v: number) => a + v, 0) / n : 0;
       const avgPct = max ? r1((avg / max) * 100) : 0;
-      return { max, avg: r1(avg), avgPct, level: n ? level(avgPct) : null, flagged: qs.filter(q => q.flagged).length };
+      return {
+        max, avg: r1(avg), avgPct, level: n ? level(avgPct) : null, flagged: qs.filter(q => q.flagged).length,
+        levelCounts: max ? tally(sums.map((v: number) => (v / max) * 100)) : {},
+      };
     };
     const strands: any[] = [];
     for (const q of qStats) {
@@ -221,7 +268,8 @@ export class CatController {
     const classAvg = n ? learnerRows.reduce((a: number, l: any) => a + l.total, 0) / n : 0;
 
     return {
-      sat: n, enrolled: learners.length, maxTotal,
+      cat, sat: n, enrolled: learners.length, maxTotal, levelCodes,
+      levelCounts: maxTotal ? tally(learnerRows.map((l: any) => (l.total / maxTotal) * 100)) : {},
       classAvg: r1(classAvg), classAvgPct: maxTotal ? r1((classAvg / maxTotal) * 100) : 0,
       classLevel: n ? level(maxTotal ? (classAvg / maxTotal) * 100 : 0) : null,
       questions: qStats,

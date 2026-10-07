@@ -21,11 +21,11 @@ const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
 });
 
 // Fetches the server-built mark sheet and saves it as a landscape A4 PDF; falls back to the print dialog.
-async function downloadSheet(id: string, filename: string) {
+async function downloadSheet(path: string, filename: string) {
   const toastId = toast.loading('Preparing PDF…');
   let html = '';
   try {
-    html = (await apiClient.get(`/cats/${id}/sheet`, { responseType: 'text' })).data;
+    html = (await apiClient.get(path, { responseType: 'text' })).data;
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
     const html2canvas = (window as any).html2canvas, JsPDF = (window as any).jspdf?.jsPDF;
@@ -286,7 +286,7 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold text-theme-heading">Marks <span className="text-theme-muted font-normal text-sm">· {learners.length} learners</span></h2>
             <div className="flex gap-2">
-              <button onClick={() => downloadSheet(id, `${cat.title}-${cat.streamName}-${cat.subject}.pdf`.replace(/[^\w.-]+/g, '_'))} className="btn-ghost"><Download size={16}/> Download PDF</button>
+              <button onClick={() => downloadSheet(`/cats/${id}/sheet`, `${cat.title}-${cat.streamName}-${cat.subject}.pdf`.replace(/[^\w.-]+/g, '_'))} className="btn-ghost"><Download size={16}/> Download PDF</button>
               {edit && <button onClick={saveMarks} disabled={busy === 'm'} className="btn-primary">{busy === 'm' ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>} Save marks</button>}
             </div>
           </div>
@@ -322,7 +322,7 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
           </div>
         </div>
       )}
-      </>) : <ItemAnalysis id={id} grade={cat.gradeLevel}/>}
+      </>) : <ItemAnalysis id={id} grade={cat.gradeLevel} filename={`${cat.title}-${cat.streamName}-${cat.subject}-item-analysis.pdf`.replace(/[^\w.-]+/g, '_')}/>}
     </div>
   );
 }
@@ -332,7 +332,15 @@ function Lv({ code, grade }: { code: string | null; grade: string }) {
   return <span className="text-xs font-bold" style={{ color: levelsFor(grade).find(l => l.code === code)?.color }}>{code}</span>;
 }
 
-function ItemAnalysis({ id, grade }: { id: string; grade: string }) {
+function LevelCounts({ codes, counts, grade }: { codes: string[]; counts: Record<string, number>; grade: string }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {codes.map(k => <span key={k} className="text-[11px] px-1.5 py-0.5 rounded border border-theme whitespace-nowrap"><Lv code={k} grade={grade}/> {counts[k] || 0}</span>)}
+    </div>
+  );
+}
+
+function ItemAnalysis({ id, grade, filename }: { id: string; grade: string; filename: string }) {
   const [a, setA] = useState<any>(null);
   useEffect(() => {
     apiClient.get(`/cats/${id}/analysis`).then(r => setA(r.data)).catch(e => { err(e, 'Could not load item analysis'); setA({ sat: 0 }); });
@@ -345,10 +353,25 @@ function ItemAnalysis({ id, grade }: { id: string; grade: string }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <button onClick={() => downloadSheet(`/cats/${id}/analysis/sheet`, filename)} className="btn-ghost"><Download size={16}/> Download PDF</button>
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[['Learners sat', `${a.sat} / ${a.enrolled}`], ['Class average', `${a.classAvg} / ${a.maxTotal}`], ['Class average %', <>{a.classAvgPct}% <Lv code={a.classLevel} grade={grade}/></>], ['Flagged questions', flagged.length]].map(([k, v]: any) => (
           <div key={k} className="card p-3"><div className="text-xs text-theme-muted">{k}</div><div className={`text-lg font-bold ${k === 'Flagged questions' && v ? 'text-red-600' : 'text-theme-heading'}`}>{v}</div></div>
         ))}
+      </div>
+
+      <div className="card p-4 space-y-2">
+        <h2 className="font-semibold text-theme-heading">Learners per level <span className="text-theme-muted font-normal text-sm">· CAT total</span></h2>
+        <div className="flex flex-wrap gap-2">
+          {a.levelCodes.map((k: string) => (
+            <div key={k} className="rounded-lg border border-theme px-3 py-2 text-center min-w-[64px]">
+              <div className="text-xs font-bold" style={{ color: levelsFor(grade).find(l => l.code === k)?.color }}>{k}</div>
+              <div className="text-lg font-bold text-theme-heading">{a.levelCounts[k] || 0}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="card p-4 space-y-2">
@@ -379,17 +402,19 @@ function ItemAnalysis({ id, grade }: { id: string; grade: string }) {
         <h2 className="font-semibold text-theme-heading">Strand performance</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="text-left">{['Strand / sub-strand', 'Max', 'Class avg', 'Avg %', 'Level', 'Flagged'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <thead><tr className="text-left">{['Strand / sub-strand', 'Max', 'Class avg', 'Avg %', 'Level', 'Flagged', 'Learners per level'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
             <tbody>
               {a.strands.map((s: any) => [
                 <tr key={s.name} className="border-t border-theme bg-amber-50/60 font-semibold">
                   <td className="p-2">{s.name}</td><td className="p-2">{s.max}</td><td className="p-2">{s.avg}</td><td className="p-2">{s.avgPct}%</td>
                   <td className="p-2"><Lv code={s.level} grade={grade}/></td><td className={`p-2 ${s.flagged ? 'text-red-600' : ''}`}>{s.flagged || '—'}</td>
+                  <td className="p-2 font-normal"><LevelCounts codes={a.levelCodes} counts={s.levelCounts} grade={grade}/></td>
                 </tr>,
                 ...s.subStrands.map((ss: any) => (
                   <tr key={`${s.name}:${ss.name}`} className="border-t border-theme">
                     <td className="p-2 pl-6 text-theme-muted">{ss.name}</td><td className="p-2">{ss.max}</td><td className="p-2">{ss.avg}</td><td className="p-2">{ss.avgPct}%</td>
                     <td className="p-2"><Lv code={ss.level} grade={grade}/></td><td className={`p-2 ${ss.flagged ? 'text-red-600' : ''}`}>{ss.flagged || '—'}</td>
+                    <td className="p-2"><LevelCounts codes={a.levelCodes} counts={ss.levelCounts} grade={grade}/></td>
                   </tr>
                 )),
               ])}
