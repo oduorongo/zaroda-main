@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download, AlertTriangle, BarChart3 } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { percentToLevel, levelsFor } from '@/lib/cbc/constants';
@@ -247,10 +247,11 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
               : <span className="badge bg-blue-100 text-blue-700"><Eye size={12} className="mr-1"/> Read-only</span>}
       </div>
 
-      <div className="flex gap-1 border-b border-theme">
-        {([['marks', 'Questions & marks'], ['analysis', 'Item analysis']] as const).map(([k, label]) => (
-          <button key={k} onClick={() => setView(k)} className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px ${view === k ? 'border-[#d4af37] text-theme-heading' : 'border-transparent text-theme-muted'}`}>{label}</button>
-        ))}
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => setView('marks')}
+          className={`px-4 py-2 rounded-lg text-sm font-bold ${view === 'marks' ? 'bg-[#1a2e5a] text-white' : 'border border-theme text-theme-muted hover:text-theme-heading'}`}>Questions &amp; marks</button>
+        <button onClick={() => setView('analysis')}
+          className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1.5 bg-[#d4af37] text-[#1a2e5a] hover:brightness-95 ${view === 'analysis' ? 'ring-2 ring-offset-1 ring-[#1a2e5a]' : ''}`}><BarChart3 size={15}/> Item analysis</button>
       </div>
       {view === 'marks' ? (<>
       <div className="card p-4 space-y-3">
