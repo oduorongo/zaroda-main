@@ -712,9 +712,8 @@ export default function ProfessionalRecordsPage() {
         schemes.length === 0 ? (
           <EmptyState label="No schemes of work yet" cta={canGenerate ? { label: 'Generate First Scheme', onClick: openFreshGenerate } : undefined}/>
         ) : (
-          <div className="space-y-3">
-            {schemes.map((s: any) => (
-              <div key={s.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => openSchemeDetail(s.id)}>
+          <SplitByOwner items={schemes} userId={user?.id} split={hoi} render={(s: any, tone) => (
+              <div key={s.id} className={`card p-4 cursor-pointer hover:shadow-md ${tone ? TONE_CLASS[tone] : ''}`} onClick={() => openSchemeDetail(s.id)}>
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center flex-shrink-0">
                     <FileText size={18} className="text-[#d4af37]"/>
@@ -727,7 +726,7 @@ export default function ProfessionalRecordsPage() {
                     </div>
                     <p className="text-xs text-theme-muted mt-1">
                       {gradeLabel(s.gradeLevel)} · {s.term?.replace('_',' ')} · {s.academicYear}
-                      {hoi && s.submitterName && <> · Submitted by <b>{s.submitterName}</b></>}
+                      {tone === 'others' && s.submitterName && <> · Submitted by <b>{s.submitterName}</b></>}
                     </p>
                     {s.reviewComment && (
                       <p className="text-xs mt-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {s.reviewComment}</p>
@@ -736,14 +735,12 @@ export default function ProfessionalRecordsPage() {
                   <ChevronRight size={18} className="text-theme-muted flex-shrink-0 mt-2"/>
                 </div>
               </div>
-            ))}
-          </div>
+            )}/>
         )
       ) : tab === 'plans' ? (
         plans.length === 0 ? <EmptyState label="No lesson plans yet — generate one from a scheme week"/> : (
-          <div className="space-y-3">
-            {plans.map((p: any) => (
-              <div key={p.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => openPlanDetail(p)}>
+          <SplitByOwner items={plans} userId={user?.id} split={hoi} render={(p: any, tone) => (
+              <div key={p.id} className={`card p-4 cursor-pointer hover:shadow-md ${tone ? TONE_CLASS[tone] : ''}`} onClick={() => openPlanDetail(p)}>
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl bg-[#1a2e5a] flex items-center justify-center flex-shrink-0"><BookOpen size={18} className="text-[#d4af37]"/></div>
                   <div className="flex-1 min-w-0">
@@ -753,7 +750,7 @@ export default function ProfessionalRecordsPage() {
                     </div>
                     <p className="text-xs text-theme-muted mt-1">
                       {gradeLabel(p.gradeLevel)} · {p.durationMinutes} min{p.lessonDate ? ` · ${String(p.lessonDate).slice(0,10)}` : ''}
-                      {hoi && p.submitterName && <> · Submitted by <b>{p.submitterName}</b></>}
+                      {tone === 'others' && p.submitterName && <> · Submitted by <b>{p.submitterName}</b></>}
                     </p>
                     {p.reviewComment && <p className="text-xs mt-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded">HOI: {p.reviewComment}</p>}
                   </div>
@@ -769,14 +766,12 @@ export default function ProfessionalRecordsPage() {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            )}/>
         )
       ) : tab === 'notes' ? (
         notes.length === 0 ? <EmptyState label="No lesson notes yet — generate one from an approved lesson plan"/> : (
-          <div className="space-y-3">
-            {notes.map((n: any) => (
-              <div key={n.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => setOpenNotes(n)}>
+          <SplitByOwner items={notes} userId={user?.id} split={hoi} render={(n: any, tone) => (
+              <div key={n.id} className={`card p-4 cursor-pointer hover:shadow-md ${tone ? TONE_CLASS[tone] : ''}`} onClick={() => setOpenNotes(n)}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-theme-heading">{n.topic}</span>
                   {n.subTopic && <span className="text-xs text-theme-muted">— {n.subTopic}</span>}
@@ -784,11 +779,10 @@ export default function ProfessionalRecordsPage() {
                 </div>
                 <p className="text-xs text-theme-muted mt-1">
                   {gradeLabel(n.gradeLevel)} · {String(n.lessonDate).slice(0,10)}
-                  {hoi && n.submitterName && <> · Submitted by <b>{n.submitterName}</b></>}
+                  {tone === 'others' && n.submitterName && <> · Submitted by <b>{n.submitterName}</b></>}
                 </p>
               </div>
-            ))}
-          </div>
+            )}/>
         )
       ) : tab === 'pending' && hoi ? (
         <PendingApprovals pending={pending} onReviewScheme={reviewScheme} onReviewPlan={reviewLessonPlan} onOpenScheme={openSchemeDetail} onOpenPlan={openPlanDetail} onOpenNotes={setOpenNotes}/>
@@ -1301,6 +1295,30 @@ function EmptyState({ label, cta }: { label: string; cta?: { label: string; onCl
       <FileText size={36} className="mx-auto text-[#e2e6f0] mb-2"/>
       <p className="text-theme-muted font-medium">{label}</p>
       {cta && <button onClick={cta.onClick} className="btn-primary mt-4"><Sparkles size={16}/> {cta.label}</button>}
+    </div>
+  );
+}
+
+type OwnerTone = 'mine' | 'others' | null;
+const TONE_CLASS: Record<string, string> = { mine: 'border-l-4 border-l-[#d4af37]', others: 'border-l-4 border-l-blue-500' };
+
+// HOI-level users see every teacher's records; split their own from those sent to them.
+function SplitByOwner({ items, userId, split, render }: { items: any[]; userId?: string; split: boolean; render: (item: any, tone: OwnerTone) => React.ReactNode }) {
+  if (!split) return <div className="space-y-3">{items.map(i => render(i, null))}</div>;
+  const mine = items.filter(i => String(i.teacherId) === String(userId));
+  const others = items.filter(i => String(i.teacherId) !== String(userId));
+  const section = (label: string, dot: string, list: any[], tone: OwnerTone) => (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm font-semibold text-theme-heading">
+        <span className={`w-2.5 h-2.5 rounded-full ${dot}`}/> {label} <span className="text-theme-muted font-normal">({list.length})</span>
+      </div>
+      {list.length ? list.map(i => render(i, tone)) : <p className="text-xs text-theme-muted pl-4">None</p>}
+    </div>
+  );
+  return (
+    <div className="space-y-6">
+      {section('My documents', 'bg-[#d4af37]', mine, 'mine')}
+      {section('From teachers', 'bg-blue-500', others, 'others')}
     </div>
   );
 }
