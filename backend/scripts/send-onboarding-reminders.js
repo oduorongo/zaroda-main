@@ -12,22 +12,6 @@ const GRACE_DAYS = 2;       // don't nag a school in its first couple of days
 const REPEAT_DAYS = 4;      // wait this long between reminders to the same school
 const MAX_REMINDERS = 5;    // stop automated reminders after this many; owner can still send manually
 
-async function sendEmail(to, subject, html, text) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, detail: 'RESEND_API_KEY missing' };
-  const from = process.env.RESEND_FROM || 'ZARODA SMS <onboarding@resend.dev>';
-  try {
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ from, to, subject, html, text: text || html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }),
-    });
-    if (!resp.ok) return { ok: false, detail: `Resend error ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}` };
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, detail: err?.message || 'Email send failed.' };
-  }
-}
 
 function onboardingReminderEmail(adminFirstName, schoolName) {
   const text = `Dear ${adminFirstName},
@@ -121,27 +105,33 @@ async function main() {
   );
 
   console.log(`Found ${tenants.length} incomplete-setup school(s) due for a reminder.`);
-  let sent = 0, failed = 0;
-  for (const t of tenants) {
-    const adminFirstName = (t.adminName || '').trim().split(/\s+/)[0] || 'there';
-    const { html, text } = onboardingReminderEmail(adminFirstName, t.name);
-    const result = await sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, html, text);
-    if (result.ok) sent++; else { failed++; console.error(`Failed for ${t.name} (${t.adminEmail}): ${result.detail}`); }
-    await client.query(
-      `UPDATE tenants SET last_setup_reminder_at = NOW(), setup_reminder_count = setup_reminder_count + 1 WHERE id = $1`,
-      [t.id],
-    );
-  }
-
+  // Queued, not sent directly: the web service's email queue sends within the shared
+  // daily cap (EMAIL_QUEUE_DAILY_LIMIT), so these reminders and owner broadcasts
+  // together never exceed the email provider's daily limit.
+  let queued = 0;
   if (tenants.length) {
-    await client.query(
-      `INSERT INTO owner_broadcasts (audience, title, message, channel, recipient_count, sent, failed, sent_by, created_at)
-       VALUES ('incomplete', 'Automatic setup reminder', 'Daily automated reminder to incomplete-setup schools', 'email', $1, $2, $3, NULL, NOW())`,
-      [tenants.length, sent, failed],
-    ).catch(() => null);
+    const { rows: [b] } = await client.query(
+      `INSERT INTO owner_broadcasts (audience, title, message, channel, recipient_count, sent, failed, detail, sent_by, created_at)
+       VALUES ('incomplete', 'Automatic setup reminder', 'Daily automated reminder to incomplete-setup schools', 'email', $1, 0, 0, 'Queued', NULL, NOW())
+       RETURNING id`,
+      [tenants.length],
+    );
+    for (const t of tenants) {
+      const adminFirstName = (t.adminName || '').trim().split(/s+/)[0] || 'there';
+      const { html, text } = onboardingReminderEmail(adminFirstName, t.name);
+      await client.query(
+        `INSERT INTO owner_email_queue (broadcast_id, email, subject, html, text_body) VALUES ($1,$2,$3,$4,$5)`,
+        [b.id, t.adminEmail, `Finish setting up ${t.name} on ZARODA`.slice(0, 255), html, text],
+      );
+      await client.query(
+        `UPDATE tenants SET last_setup_reminder_at = NOW(), setup_reminder_count = setup_reminder_count + 1 WHERE id = $1`,
+        [t.id],
+      );
+      queued++;
+    }
   }
 
-  console.log(`Done — ${sent} sent, ${failed} failed.`);
+  console.log(`Done — ${queued} reminder(s) queued.`);
   await client.end();
 }
 

@@ -1,7 +1,7 @@
 // app/owner/schools/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
-import { Building2, Search, Loader2, ChevronRight } from 'lucide-react';
+import { Building2, Search, Loader2, ChevronRight, Copy, X } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 
 const LEVEL_TABS = [
@@ -15,6 +15,13 @@ export default function OwnerSchoolsPage() {
   const [search, setSearch]   = useState('');
   const [level, setLevel]     = useState('');
   const [loading, setLoading] = useState(true);
+  const [dups, setDups] = useState<any[] | null>(null);
+  const [showDups, setShowDups] = useState(false);
+  const openDups = () => {
+    setShowDups(true); setDups(null);
+    apiClient.get('/admin/duplicate-schools').then(r => setDups(r.data?.groups || [])).catch(() => setDups([]));
+  };
+  const day = (d: string | null) => d ? new Date(d).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
   const load = () => {
     setLoading(true);
@@ -38,10 +45,50 @@ export default function OwnerSchoolsPage() {
   return (
     <div className="p-4 sm:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
-        <div className="flex items-center gap-2">
-          <Building2 className="text-theme-muted" size={20}/>
-          <h1 className="text-xl font-black text-theme-heading">Schools</h1>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Building2 className="text-theme-muted" size={20}/>
+            <h1 className="text-xl font-black text-theme-heading">Schools</h1>
+          </div>
+          <button onClick={() => (showDups ? setShowDups(false) : openDups())}
+            className="px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1.5 bg-[#d4af37] text-[#1a2e5a] hover:brightness-95">
+            {showDups ? <X size={15}/> : <Copy size={15}/>} {showDups ? 'Close duplicates' : 'Possible duplicates'}
+          </button>
         </div>
+
+        {showDups && (
+          <div className="card p-4 space-y-3 border-l-4 border-l-[#d4af37]">
+            <div>
+              <h2 className="font-semibold text-theme-heading">Schools that may be registered twice</h2>
+              <p className="text-xs text-theme-muted">Grouped by similar name (same rules as the sign-up check). Different schools can share a name — compare the county, KNEC code and who is actually using each account before contacting them.</p>
+            </div>
+            {!dups ? <div className="flex justify-center py-6"><Loader2 className="animate-spin text-theme-muted" size={20}/></div>
+              : !dups.length ? <p className="text-sm text-theme-muted py-4 text-center">No likely duplicates found.</p>
+              : dups.map((g: any[], gi: number) => (
+                <div key={gi} className="rounded-xl border border-theme overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs text-theme-muted bg-surface-2">
+                      {['School', 'KNEC', 'Location', 'Registered', 'Users', 'Learners', 'Last marks', 'Admin'].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {g.map((s: any) => (
+                        <tr key={s.id} className="border-t border-theme align-top">
+                          <td className="p-2 font-semibold text-theme-heading">{s.name}<div><span className={`badge ${badge(s.status)}`}>{s.status}</span></div></td>
+                          <td className="p-2 text-theme-muted">{s.knecCode || '—'}</td>
+                          <td className="p-2 text-theme-muted">{[s.subCounty, s.county].filter(Boolean).join(', ') || '—'}</td>
+                          <td className="p-2 text-theme-muted whitespace-nowrap">{day(s.createdAt)}</td>
+                          <td className="p-2">{s.users}</td>
+                          <td className="p-2">{s.learners}</td>
+                          <td className="p-2 text-theme-muted whitespace-nowrap">{day(s.lastMarkAt)}</td>
+                          <td className="p-2 text-xs text-theme-muted">{s.adminName && <div className="text-theme-heading font-medium">{s.adminName}</div>}{s.adminPhone && <div>{s.adminPhone}</div>}{s.adminEmail && <div>{s.adminEmail}</div>}{!s.adminName && !s.adminPhone && !s.adminEmail && '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+          </div>
+        )}
 
         <div className="card p-4">
           <div className="flex items-center gap-2 mb-3">

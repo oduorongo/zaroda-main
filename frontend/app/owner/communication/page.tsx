@@ -8,12 +8,20 @@
 // backend, so this is a straightforward flip back on once that's resolved.
 'use client';
 import { useState, useEffect } from 'react';
-import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle, History, X, Trash2 } from 'lucide-react';
+import { Megaphone, Loader2, MessageCircle, Mail, Phone, Copy, Check, Send, AlertTriangle, History, X, Trash2, Clock, RotateCcw, Ban } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
 export default function OwnerCommunicationPage() {
-  const [audience, setAudience] = useState<'admins' | 'all' | 'school' | 'individual' | 'incomplete'>('admins');
+  const [audience, setAudience] = useState<'admins' | 'all' | 'school' | 'individual' | 'inactive' | 'incomplete'>('admins');
+  const [queue, setQueue] = useState<any>(null);
+  const loadQueue = () => apiClient.get('/admin/email-queue').then(r => setQueue(r.data)).catch(() => setQueue(null));
+  useEffect(() => { loadQueue(); }, []);
+  const queueAction = async (id: string, action: 'cancel' | 'retry-failed') => {
+    if (action === 'cancel' && !confirm('Stop sending the emails still waiting for this message?')) return;
+    try { const { data } = await apiClient.post(`/admin/email-queue/${id}/${action}`); toast.success(data.message || 'Done'); loadQueue(); }
+    catch { toast.error('Could not update the queue.'); }
+  };
   const [data, setData]         = useState<any>(null);
   const [incomplete, setIncomplete] = useState<any>(null);
   const [loading, setLoading]   = useState(false);
@@ -52,7 +60,7 @@ export default function OwnerCommunicationPage() {
   };
 
   const deleteBroadcast = async (id: string) => {
-    if (!confirm('Delete this from history? The message already sent can\'t be unsent.')) return;
+    if (!confirm('Delete this from history? Emails already sent can\'t be unsent, and any still waiting in the queue will be cancelled.')) return;
     try {
       await apiClient.delete(`/admin/broadcast-history/${id}`);
       toast.success('Deleted.');
@@ -105,8 +113,10 @@ export default function OwnerCommunicationPage() {
       if (!message.trim()) { toast.error('Write a message first'); return; }
     }
     const recipientCount = emails.length;
+    const perDay = queue?.perDay || 90;
     const ok = window.confirm(
-      `Send this email to ${recipientCount} recipient${recipientCount === 1 ? '' : 's'}?\n\nThis cannot be undone.`,
+      `Send this email to ${recipientCount} recipient${recipientCount === 1 ? '' : 's'}?\n\n` +
+      `Emails go out up to ${perDay} per day, so a large list is sent automatically over several days. You can cancel what is still waiting.`,
     );
     if (!ok) return;
     setSending(channel);
@@ -117,8 +127,12 @@ export default function OwnerCommunicationPage() {
       if (result?.error) { toast.error(result.error); return; }
       const stats = result[channel];
       if (!stats) { toast.error('No response for this channel.'); return; }
-      toast.success(`Sent ${stats.sent}/${stats.attempted} via email.`);
-      if (stats.failed > 0 && stats.detail) toast.error(`Email: ${stats.detail}`, { duration: 8000 });
+      const waiting = stats.queued - stats.sentNow;
+      toast.success(waiting > 0
+        ? `${stats.queued} queued — ${stats.sentNow} sent now, ${waiting} will go out automatically (up to ${stats.perDay}/day).`
+        : `Sent ${stats.sentNow}/${stats.queued} via email.`, { duration: 8000 });
+      if (stats.detail) toast.error(`Email: ${stats.detail}`, { duration: 8000 });
+      loadQueue();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || `Could not send ${channel}.`);
     } finally {
@@ -173,17 +187,54 @@ export default function OwnerCommunicationPage() {
           )}
         </div>
 
+        {/* Email queue — bulk email is drip-sent to stay inside the daily email cap */}
+        {queue && !queue.error && (
+          <div className="card p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-theme-heading flex items-center gap-1.5"><Clock size={15}/> Email queue</span>
+              <span className="text-xs text-theme-muted">{queue.sentLast24h}/{queue.perDay} sent in the last 24 h · <b className="text-theme-heading">{queue.pending}</b> waiting{queue.pending ? ` · about ${queue.estimatedDays} day${queue.estimatedDays === 1 ? '' : 's'} to finish` : ''}</span>
+            </div>
+            <p className="text-[11px] text-theme-muted">Up to {queue.perDay} emails go out per 24 hours (the rest of your provider&apos;s daily allowance is kept for password resets and invoices). The queue is checked every 30 minutes and continues automatically until everyone is reached.</p>
+            {queue.batches.length > 0 && (
+              <div className="divide-y divide-theme">
+                {queue.batches.map((b: any) => (
+                  <div key={b.id} className="py-2 text-sm space-y-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-medium text-theme-heading">{b.title || '(no title)'} <span className="text-[10px] uppercase text-theme-muted ml-1">{b.audience}</span></span>
+                      <div className="flex gap-2">
+                        {b.failed > 0 && <button onClick={() => queueAction(b.id, 'retry-failed')} className="text-xs text-[#1a2e5a] hover:underline flex items-center gap-1"><RotateCcw size={12}/> Retry failed</button>}
+                        {b.pending > 0 && <button onClick={() => queueAction(b.id, 'cancel')} className="text-xs text-red-600 hover:underline flex items-center gap-1"><Ban size={12}/> Cancel waiting</button>}
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden flex">
+                      <div className="bg-green-500" style={{ width: `${(b.sent / Math.max(1, b.total)) * 100}%` }}/>
+                      <div className="bg-red-400" style={{ width: `${(b.failed / Math.max(1, b.total)) * 100}%` }}/>
+                    </div>
+                    <div className="text-xs text-theme-muted">
+                      {b.sent} sent · {b.pending} waiting{b.failed ? ` · ${b.failed} failed` : ''}{b.cancelled ? ` · ${b.cancelled} cancelled` : ''} · of {b.total}
+                      {b.failed > 0 && b.lastError && <span className="text-red-600"> — {b.lastError}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Audience */}
         <div className="card p-4 space-y-3">
           <label className="label">Audience</label>
           <div className="flex flex-wrap gap-1">
-            {([['admins','School admins'],['school','School users'],['individual','Individual accounts'],['all','All users'],['incomplete','Incomplete setup']] as const).map(([v,label]) => (
+            {([['admins','School admins'],['school','School users'],['individual','Individual accounts'],['all','All users'],['inactive','Inactive schools'],['incomplete','Incomplete setup']] as const).map(([v,label]) => (
               <button key={v} onClick={() => setAudience(v)}
                 className={`flex-1 min-w-[110px] px-3 py-2 rounded-lg text-sm font-medium ${audience===v ? 'bg-[#1a2e5a] text-white' : 'bg-surface-2 text-theme-muted'}`}>
                 {label}
               </button>
             ))}
           </div>
+          {audience === 'inactive' && (
+            <p className="text-xs text-theme-muted">HOIs, deputies, school admins and owners of schools that have entered <b>no marks in the last 30 days</b> (the same rule as the Engagement page).</p>
+          )}
           {loading ? (
             <div className="flex justify-center py-3"><Loader2 className="animate-spin text-theme-muted" size={18}/></div>
           ) : audience === 'incomplete' ? (
@@ -263,7 +314,7 @@ export default function OwnerCommunicationPage() {
           <p className="text-[11px] text-theme-muted">
             {audience === 'incomplete'
               ? 'Email goes only to admins of schools with incomplete setup — not the full recipient list. (SMS — coming soon.)'
-              : 'Email sends for real to every recipient in this audience. WhatsApp has no automated sender — it opens a chat with the message ready to forward manually. (SMS — coming soon.)'}
+              : 'Email goes to every recipient in this audience through the email queue (see above). WhatsApp has no automated sender — it opens a chat with the message ready to forward manually. (SMS — coming soon.)'}
           </p>
         </div>
 

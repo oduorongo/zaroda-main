@@ -19,6 +19,8 @@ import { feeStructureTableHtml } from '../common/fee-structure-table';
 import { schoolHeadInfo, schoolLetterheadHtml } from '../common/school-letterhead';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
 import { linkedChildIds } from '../common/parent-children';
+import { enqueueEmails, processEmailQueue, emailQueueDailyLimit, sentInLast24h, EmailQueueService } from '../common/email-queue';
+import { schoolNameSimilarity } from '../common/school-similarity';
 import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
 import { safeEqual, escapeHtml, encryptSecret, decryptSecret, generateTempPassword, safeImageSrc } from '../common/security';
@@ -7630,8 +7632,22 @@ class AdminController {
   //                  one-person tenant, so this is the only way to reach just
   //                  them without also messaging every school's staff/parents
   //   'all'        — every active user platform-wide (admins + school + individual)
+  //   'inactive'   — admins of schools with no marks entered in the last 30 days
+  //                  (the Engagement page's "inactive" rule)
   private broadcastWhere(audience: string): { where: string; params: any[] } {
     const adminRoles = ['tenant_owner', 'school_admin', 'hoi', 'dhois'];
+    if (audience === 'inactive') {
+      return {
+        where: `COALESCE(u.is_active, true) = true AND u.role = ANY($1)
+                 AND u.tenant_id::text IN (
+                   SELECT t.id::text FROM tenants t
+                    WHERE COALESCE(t.account_type, 'school') = 'school'
+                      AND NOT EXISTS (SELECT 1 FROM assessment_results ar
+                                       WHERE ar.tenant_id::text = t.id::text AND ar.deleted_at IS NULL
+                                         AND ar.created_at > NOW() - INTERVAL '30 days'))`,
+        params: [adminRoles],
+      };
+    }
     if (audience === 'individual') {
       return {
         where: `COALESCE(u.is_active, true) = true AND u.tenant_id IN (SELECT id FROM tenants WHERE account_type = 'individual')`,
@@ -7659,7 +7675,7 @@ class AdminController {
   @Get('broadcast/recipients')
   async broadcastRecipients(@Request() req: any, @Query() q: any) {
     if (!this.isOwner(req)) return { error: 'forbidden', recipients: [] };
-    const audience = ['all', 'individual', 'school'].includes(q.audience) ? q.audience : 'admins';
+    const audience = ['all', 'individual', 'school', 'inactive'].includes(q.audience) ? q.audience : 'admins';
     const { where, params } = this.broadcastWhere(audience);
     const rows = await this.ds.query(
       `SELECT u.first_name AS "firstName", u.last_name AS "lastName", u.email, u.phone, u.role,
@@ -7716,7 +7732,7 @@ class AdminController {
   @Post('broadcast')
   async sendBroadcast(@Request() req: any, @Body() dto: any) {
     if (!this.isOwner(req)) return { error: 'forbidden' };
-    const audience = ['all', 'individual', 'school'].includes(dto?.audience) ? dto.audience : 'admins';
+    const audience = ['all', 'individual', 'school', 'inactive'].includes(dto?.audience) ? dto.audience : 'admins';
     const title = String(dto?.title || '').trim();
     const message = String(dto?.message || '').trim();
     if (!title || !message) return { error: 'Title and message are required.' };
@@ -7768,28 +7784,9 @@ class AdminController {
     }
 
     if (channels.includes('email')) {
-      const withEmail = recipients.filter((r: any) => r.email);
       const html = `<p>${message.replace(/\n/g, '<br/>')}</p>`;
-      // Resend's plan here allows 10 requests/second — firing all recipients at once
-      // (Promise.allSettled over the full list) blew past that. Send in small batches
-      // with a pause between them instead.
-      const BATCH = 8;
-      const outcomes: any[] = [];
-      for (let i = 0; i < withEmail.length; i += BATCH) {
-        const batch = withEmail.slice(i, i + BATCH);
-        const batchResults = await Promise.allSettled(
-          batch.map((r: any) => sendEmail(r.email, title, html, message)),
-        );
-        outcomes.push(...batchResults);
-        if (i + BATCH < withEmail.length) await new Promise(res => setTimeout(res, 1100));
-      }
-      const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
-      const firstFailure = outcomes.find(o => o.status === 'fulfilled' && !(o.value as any).ok) as any;
-      result.email = {
-        attempted: withEmail.length, sent, failed: withEmail.length - sent,
-        detail: firstFailure?.value?.detail,
-      };
-      await this.recordBroadcast(req.user.id, audience, title, message, 'email', withEmail.length, sent, withEmail.length - sent, [], result.email.detail);
+      result.email = await this.queueEmails(req.user.id, audience, title, message,
+        recipients.filter((r: any) => r.email).map((r: any) => ({ email: r.email, subject: title, html, text: message })));
     }
 
     return result;
@@ -7798,12 +7795,101 @@ class AdminController {
   private async recordBroadcast(
     sentBy: string, audience: string, title: string, message: string, channel: 'sms' | 'email',
     recipientCount: number, sent: number, failed: number, failedNumbers: string[], detail?: string,
-  ) {
-    await this.ds.query(
+  ): Promise<string | null> {
+    const rows = await this.ds.query(
       `INSERT INTO owner_broadcasts (audience, title, message, channel, recipient_count, sent, failed, failed_numbers, detail, sent_by, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()) RETURNING id::text AS id`,
       [audience, title, message, channel, recipientCount, sent, failed, failedNumbers, detail || null, sentBy],
-    ).catch(() => null);
+    ).catch(() => []);
+    return rows[0]?.id || null;
+  }
+
+  // Bulk email never goes out all at once: it is queued, the first batch is sent now and
+  // a background job sends the rest within the daily allowance (see common/email-queue.ts).
+  private async queueEmails(sentBy: string, audience: string, title: string, message: string,
+    items: { email: string; subject: string; html: string; text?: string }[]) {
+    const perDay = emailQueueDailyLimit();
+    const broadcastId = await this.recordBroadcast(sentBy, audience, title, message, 'email', 0, 0, 0, [], `Queued — up to ${perDay} emails per day`);
+    const queued = await enqueueEmails(this.ds, broadcastId, items);
+    await this.ds.query(`UPDATE owner_broadcasts SET recipient_count = $2 WHERE id::text = $1`, [broadcastId, queued]).catch(() => null);
+    const first = await processEmailQueue(this.ds);
+    const pending = (await this.ds.query(`SELECT COUNT(*)::int AS n FROM owner_email_queue WHERE status = 'pending'`))[0]?.n || 0;
+    return {
+      queued, perDay, sentNow: first.sent, pendingTotal: pending,
+      estimatedDays: Math.ceil(pending / perDay),
+      detail: first.stopped && first.stopped !== 'already running' ? first.stopped : undefined,
+    };
+  }
+
+  // Queue status for the Communication page.
+  @Get('email-queue')
+  async emailQueueStatus(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const perDay = emailQueueDailyLimit();
+    const sent24h = await sentInLast24h(this.ds);
+    const batches = await this.ds.query(
+      `SELECT b.id::text AS id, b.title, b.audience, b.created_at AS "createdAt",
+              COUNT(q.id)::int AS total,
+              COUNT(*) FILTER (WHERE q.status = 'sent')::int      AS sent,
+              COUNT(*) FILTER (WHERE q.status IN ('pending','sending'))::int AS pending,
+              COUNT(*) FILTER (WHERE q.status = 'failed')::int    AS failed,
+              COUNT(*) FILTER (WHERE q.status = 'cancelled')::int AS cancelled,
+              MAX(q.detail) FILTER (WHERE q.status = 'failed')   AS "lastError"
+         FROM owner_broadcasts b JOIN owner_email_queue q ON q.broadcast_id = b.id
+        GROUP BY b.id ORDER BY b.created_at DESC LIMIT 20`,
+    ).catch(() => []);
+    const pending = batches.reduce((a: number, b: any) => a + b.pending, 0);
+    return { perDay, sentLast24h: sent24h, remainingNow: Math.max(0, perDay - sent24h), pending, estimatedDays: Math.ceil(pending / perDay), batches };
+  }
+
+  @Post('email-queue/:id/cancel')
+  async cancelQueued(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const r = await this.ds.query(`UPDATE owner_email_queue SET status = 'cancelled' WHERE broadcast_id::text = $1 AND status = 'pending'`, [id]);
+    return { message: `Cancelled ${r[1] ?? 0} unsent email(s).` };
+  }
+
+  @Post('email-queue/:id/retry-failed')
+  async retryQueued(@Request() req: any, @Param('id') id: string) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const r = await this.ds.query(`UPDATE owner_email_queue SET status = 'pending', attempts = 0 WHERE broadcast_id::text = $1 AND status = 'failed'`, [id]);
+    processEmailQueue(this.ds).catch(() => null);
+    return { message: `${r[1] ?? 0} failed email(s) put back in the queue.` };
+  }
+
+  // Schools that are probably the same school registered twice (similar names),
+  // grouped, with enough detail to decide which account to keep.
+  @Get('duplicate-schools')
+  async duplicateSchools(@Request() req: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', groups: [] };
+    const rows = await this.ds.query(
+      `SELECT t.id::text AS id, t.name, t.knec_code AS "knecCode", t.county, t.sub_county AS "subCounty",
+              t.status, t.created_at AS "createdAt",
+              (SELECT COUNT(*) FROM users u WHERE u.tenant_id::text = t.id::text)::int AS users,
+              (SELECT COUNT(*) FROM learners l WHERE l.tenant_id::text = t.id::text AND l.is_active = true)::int AS learners,
+              (SELECT MAX(ar.created_at) FROM assessment_results ar WHERE ar.tenant_id::text = t.id::text AND ar.deleted_at IS NULL) AS "lastMarkAt",
+              admin.name AS "adminName", admin.email AS "adminEmail", admin.phone AS "adminPhone"
+         FROM tenants t
+         LEFT JOIN LATERAL (
+           SELECT TRIM(u.first_name || ' ' || COALESCE(u.last_name,'')) AS name, u.email, u.phone FROM users u
+            WHERE u.tenant_id::text = t.id::text AND u.role IN ('hoi','tenant_owner','school_admin')
+            ORDER BY CASE u.role WHEN 'hoi' THEN 0 WHEN 'tenant_owner' THEN 1 ELSE 2 END LIMIT 1
+         ) admin ON true
+        WHERE COALESCE(t.account_type, 'school') = 'school'`,
+    ).catch(() => []);
+    // Union-find over similar pairs, so A~B and B~C land in one group.
+    const parent = rows.map((_: any, i: number) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < rows.length; i++)
+      for (let j = i + 1; j < rows.length; j++)
+        if (schoolNameSimilarity(rows[i].name, rows[j].name) > 0) parent[find(i)] = find(j);
+    const groups = new Map<number, any[]>();
+    rows.forEach((r: any, i: number) => { const k = find(i); groups.set(k, [...(groups.get(k) || []), r]); });
+    return {
+      groups: [...groups.values()].filter(g => g.length > 1)
+        .map(g => g.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()))
+        .sort((a, b) => b.length - a.length),
+    };
   }
 
   // Read-only history of everything sent from the owner Communication page.
@@ -7969,28 +8055,12 @@ class AdminController {
     }
 
     if (channels.includes('email')) {
-      const withEmail = tenants.filter((t: any) => t.adminEmail);
-      const BATCH = 8;
-      const outcomes: any[] = [];
-      for (let i = 0; i < withEmail.length; i += BATCH) {
-        const batch = withEmail.slice(i, i + BATCH);
-        const batchResults = await Promise.allSettled(
-          batch.map((t: any) => {
-            const html = customMessage ? `<p>${customMessage.replace(/\n/g, '<br/>')}</p>` : defaultEmailHtml(t.adminName, t.name);
-            const text = customMessage || defaultMessage(t.name);
-            return sendEmail(t.adminEmail, `Finish setting up ${t.name} on ZARODA`, html, text);
-          }),
-        );
-        outcomes.push(...batchResults);
-        if (i + BATCH < withEmail.length) await new Promise(res => setTimeout(res, 1100));
-      }
-      const sent = outcomes.filter(o => o.status === 'fulfilled' && (o.value as any).ok).length;
-      const firstFailure = outcomes.find(o => o.status === 'fulfilled' && !(o.value as any).ok) as any;
-      result.email = {
-        attempted: withEmail.length, sent, failed: withEmail.length - sent,
-        detail: firstFailure?.value?.detail,
-      };
-      await this.recordBroadcast(req.user.id, 'incomplete', 'Setup reminder', customMessage || '(default per-school reminder)', 'email', withEmail.length, sent, withEmail.length - sent, [], result.email.detail);
+      result.email = await this.queueEmails(req.user.id, 'incomplete', 'Setup reminder', customMessage || '(default per-school reminder)',
+        tenants.filter((t: any) => t.adminEmail).map((t: any) => ({
+          email: t.adminEmail, subject: `Finish setting up ${t.name} on ZARODA`,
+          html: customMessage ? `<p>${customMessage.replace(/\n/g, '<br/>')}</p>` : defaultEmailHtml(t.adminName, t.name),
+          text: customMessage || defaultMessage(t.name),
+        })));
     }
 
     return result;
@@ -8195,7 +8265,7 @@ class AdminController {
   }
 }
 
-@Module({ controllers: [AdminController] })
+@Module({ controllers: [AdminController], providers: [EmailQueueService] })
 export class AdminModule {}
 
 // ── RETOOLING: platform-wide professional-development articles ───────────────
