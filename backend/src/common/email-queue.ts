@@ -10,13 +10,25 @@ export const emailQueueDailyLimit = () => Math.max(1, Number(process.env.EMAIL_Q
 
 export interface QueuedEmail { email: string; subject: string; html: string; text?: string }
 
-/** Adds one row per distinct address (case-insensitive). Returns how many were queued. */
+// The same subject to the same address within 7 days is treated as a duplicate (e.g. Send clicked twice).
+const dupKey = (email: string, subject: string) => `${String(email).trim().toLowerCase()}|${subject}`;
+async function recentKeys(ds: DataSource, emails: string[], statuses: string[]): Promise<Set<string>> {
+  if (!emails.length) return new Set();
+  const rows = await ds.query(
+    `SELECT LOWER(email) AS email, subject FROM owner_email_queue
+      WHERE LOWER(email) = ANY($1) AND status = ANY($2) AND created_at > NOW() - INTERVAL '7 days'`,
+    [emails.map(e => String(e).trim().toLowerCase()), statuses],
+  ).catch(() => []);
+  return new Set(rows.map((r: any) => dupKey(r.email, r.subject)));
+}
+
+/** Adds one row per distinct address, skipping one already queued or sent with this subject. Returns how many were queued. */
 export async function enqueueEmails(ds: DataSource, broadcastId: string | null, items: QueuedEmail[]): Promise<number> {
-  const seen = new Set<string>();
+  const seen = await recentKeys(ds, items.map(i => i.email).filter(Boolean), ['pending', 'sending', 'sent']);
   let n = 0;
   for (const it of items) {
     const email = String(it.email || '').trim();
-    const key = email.toLowerCase();
+    const key = dupKey(email, it.subject.slice(0, 255));
     if (!email || seen.has(key)) continue;
     seen.add(key);
     await ds.query(
@@ -45,12 +57,24 @@ export async function processEmailQueue(ds: DataSource): Promise<{ sent: number;
     await ds.query(`UPDATE owner_email_queue SET status = 'pending' WHERE status = 'sending'`).catch(() => null);
     const allowance = emailQueueDailyLimit() - (await sentInLast24h(ds));
     if (allowance <= 0) return { sent, failed, stopped: 'daily limit reached' };
-    const rows = await ds.query(
+    // TypeORM returns [rows, affectedCount] for UPDATE ... RETURNING.
+    const claimed = await ds.query(
       `UPDATE owner_email_queue SET status = 'sending'
         WHERE id IN (SELECT id FROM owner_email_queue WHERE status = 'pending' ORDER BY created_at, id LIMIT $1 FOR UPDATE SKIP LOCKED)
         RETURNING id, broadcast_id::text AS "broadcastId", email, subject, html, text_body AS "text", attempts`,
       [allowance],
     );
+    const all: any[] = Array.isArray(claimed?.[0]) ? claimed[0] : claimed;
+    // Drop duplicates (same subject already sent to this address, or twice in this run).
+    const sentKeys = await recentKeys(ds, all.map(r => r.email), ['sent']);
+    const rows: any[] = [], dupIds: string[] = [];
+    for (const r of all) {
+      const k = dupKey(r.email, r.subject);
+      if (sentKeys.has(k)) dupIds.push(r.id); else { sentKeys.add(k); rows.push(r); }
+    }
+    if (dupIds.length) {
+      await ds.query(`UPDATE owner_email_queue SET status = 'cancelled', detail = 'Duplicate: already sent to this address' WHERE id = ANY($1)`, [dupIds]);
+    }
     const BATCH = 8;   // Resend allows ~10 requests/second
     for (let i = 0; i < rows.length; i += BATCH) {
       const batch = rows.slice(i, i + BATCH);

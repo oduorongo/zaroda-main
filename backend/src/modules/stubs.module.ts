@@ -7812,7 +7812,7 @@ class AdminController {
     const broadcastId = await this.recordBroadcast(sentBy, audience, title, message, 'email', 0, 0, 0, [], `Queued — up to ${perDay} emails per day`);
     const queued = await enqueueEmails(this.ds, broadcastId, items);
     await this.ds.query(`UPDATE owner_broadcasts SET recipient_count = $2 WHERE id::text = $1`, [broadcastId, queued]).catch(() => null);
-    const first = await processEmailQueue(this.ds);
+    const first = await processEmailQueue(this.ds).catch((e: any) => ({ sent: 0, failed: 0, stopped: e?.message || 'queue error' }));
     const pending = (await this.ds.query(`SELECT COUNT(*)::int AS n FROM owner_email_queue WHERE status = 'pending'`))[0]?.n || 0;
     return {
       queued, perDay, sentNow: first.sent, pendingTotal: pending,
