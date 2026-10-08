@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { SignupDto, SignupIndividualDto, LoginDto, UpgradeToSchoolDto, ChangePasswordDto } from './dto';
+import { SignupDto, SignupIndividualDto, LoginDto, UpgradeToSchoolDto, ChangePasswordDto, SimilarSchoolsDto } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AllowRoles, AllowDuringPasswordChange } from '../../common/decorators/access.decorator';
@@ -28,6 +28,15 @@ export class AuthController {
   @perMinute(5)
   signup(@Body() dto: SignupDto) {
     return this.authService.signup(dto);
+  }
+
+  // Signup warning: existing schools whose name looks like the one being registered.
+  @Post('similar-schools')
+  @UseGuards(ThrottlerGuard)
+  @perMinute(20)
+  @HttpCode(HttpStatus.OK)
+  async similarSchools(@Body() dto: SimilarSchoolsDto) {
+    return { matches: await this.authService.similarSchools(dto.schoolName, dto.county) };
   }
 
   // Teacher whose school isn't a ZARODA tenant — Professional Records only.

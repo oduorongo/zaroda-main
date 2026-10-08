@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsArray } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsArray, IsBoolean } from 'class-validator';
 
 export class SignupDto {
   @IsString()  schoolName:      string;
@@ -22,6 +22,9 @@ export class SignupDto {
   // 'public' | 'private' — private schools may onboard a non-teaching School Owner
   // account; defaults to 'public' if not sent (older clients, KNEC-registry schools).
   @IsOptional() @IsString() ownership?: string;
+
+  // Set once the person has seen the similar-name warning and confirmed it's a different school.
+  @IsOptional() @IsBoolean() confirmNewSchool?: boolean;
 }
 
 // Lightweight signup for a teacher whose school isn't a ZARODA tenant — no
@@ -67,4 +70,10 @@ export class UpgradeToSchoolDto {
 
   @IsOptional() @IsArray()  schoolLevels?: string[];
   @IsOptional() @IsString() ownership?:    string;
+  @IsOptional() @IsBoolean() confirmNewSchool?: boolean;
+}
+
+export class SimilarSchoolsDto {
+  @IsString() schoolName: string;
+  @IsOptional() @IsString() county?: string;
 }

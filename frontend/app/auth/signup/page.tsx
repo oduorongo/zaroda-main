@@ -4,6 +4,7 @@ import { useRouter }           from 'next/navigation';
 import Link                    from 'next/link';
 import { Loader2, MapPin, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import toast                   from 'react-hot-toast';
+import { SimilarSchoolsWarning, checkSimilarSchools, SimilarSchool } from '@/components/SimilarSchoolsWarning';
 
 // Backend API base — signup runs before login so it can't use the authed client,
 // but it MUST hit the backend origin (not the frontend), so use the same base URL.
@@ -49,6 +50,8 @@ const NAIROBI_SUB_COUNTIES = [
 export default function SignupPage() {
   const router  = useRouter();
   const [step,     setStep]    = useState(1);
+  const [similar,  setSimilar] = useState<SimilarSchool[]>([]);
+  const [confirmedNew, setConfirmedNew] = useState(false);
   const [loading,  setLoading] = useState(false);
   const [show,     setShow]    = useState(false);
 
@@ -165,7 +168,7 @@ export default function SignupPage() {
     }
   };
 
-  const nextStep = (e: React.FormEvent) => {
+  const nextStep = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.password !== form.confirmPassword) {
       toast.error('Passwords do not match'); return;
@@ -179,6 +182,10 @@ export default function SignupPage() {
     if (!ownership) {
       toast.error('Select whether the school is public or private'); return;
     }
+    if (!confirmedNew) {
+      const m = await checkSimilarSchools(form.schoolName, location.county);
+      if (m.length) { setSimilar(m); return; }
+    }
     setStep(2);
   };
 
@@ -191,12 +198,13 @@ export default function SignupPage() {
       const res = await fetch(`${API}/auth/signup`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...form, ...location, schoolLevels, ownership }),
+        body:    JSON.stringify({ ...form, ...location, schoolLevels, ownership, confirmNewSchool: confirmedNew }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        if (data.code === 'SIMILAR_SCHOOL') setSimilar(data.matches || []);
         toast.error(data.message || 'Signup failed');
         setLoading(false);
         return;
@@ -283,7 +291,7 @@ export default function SignupPage() {
             </div>
             <div>
               <label className="label">School Name *</label>
-              <input required value={form.schoolName} onChange={set('schoolName')}
+              <input required value={form.schoolName} onChange={e => { set('schoolName')(e); setConfirmedNew(false); setSimilar([]); }}
                 placeholder="Starlight Primary School"
                 className={`input ${schoolAutoFilled ? 'bg-green-50 border-green-200 text-[#1a2e5a]' : ''}`}/>
             </div>
@@ -365,6 +373,13 @@ export default function SignupPage() {
               Next: Location <ChevronRight size={16}/>
             </button>
           </form>
+        )}
+
+        {similar.length > 0 && (
+          <div className="mt-4">
+            <SimilarSchoolsWarning matches={similar} showLogin={true}
+              onConfirm={() => { setConfirmedNew(true); setSimilar([]); if (step === 1) setStep(2); }}/>
+          </div>
         )}
 
         {/* ── STEP 2: Location ── */}

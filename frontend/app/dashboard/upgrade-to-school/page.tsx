@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, MapPin, ChevronRight, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api/client';
+import { SimilarSchoolsWarning, checkSimilarSchools, SimilarSchool } from '@/components/SimilarSchoolsWarning';
 import { useAuth, isIndividualAccount } from '@/lib/hooks/useAuth';
 
 const API = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/v1`;
@@ -65,6 +66,8 @@ export default function UpgradeToSchoolPage() {
   const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({ knecCode: '', schoolName: '', phone: '' });
+  const [similar, setSimilar] = useState<SimilarSchool[]>([]);
+  const [confirmedNew, setConfirmedNew] = useState(false);
   const [schoolLevels, setSchoolLevels] = useState<string[]>([]);
   const [ownership,    setOwnership]    = useState<'public'|'private'|''>('');
   const [knecStatus,   setKnecStatus]   = useState<'idle'|'searching'|'found'|'notfound'>('idle');
@@ -152,10 +155,14 @@ export default function UpgradeToSchoolPage() {
     }
   };
 
-  const nextStep = (e: React.FormEvent) => {
+  const nextStep = async (e: React.FormEvent) => {
     e.preventDefault();
     if (schoolLevels.length === 0) { toast.error('Select which school level(s) you run'); return; }
     if (!ownership) { toast.error('Select whether the school is public or private'); return; }
+    if (!confirmedNew) {
+      const m = await checkSimilarSchools(form.schoolName, location.county);
+      if (m.length) { setSimilar(m); return; }
+    }
     setStep(2);
   };
 
@@ -166,7 +173,7 @@ export default function UpgradeToSchoolPage() {
     setLoading(true);
     try {
       const { data } = await apiClient.post('/auth/upgrade-to-school', {
-        ...form, ...location, schoolLevels, ownership,
+        ...form, ...location, schoolLevels, ownership, confirmNewSchool: confirmedNew,
       });
       // The upgrade changes the user's role, which is baked into the JWT — swap in
       // the re-issued pair before navigating, or the school UI stays locked.
@@ -176,6 +183,7 @@ export default function UpgradeToSchoolPage() {
       toast.success('School account created! Welcome to ZARODA.');
       router.replace('/dashboard');
     } catch (err: any) {
+      if (err?.response?.data?.code === 'SIMILAR_SCHOOL') setSimilar(err.response.data.matches || []);
       toast.error(err?.response?.data?.message || 'Could not set up your school account');
       setLoading(false);
     }
@@ -242,7 +250,7 @@ export default function UpgradeToSchoolPage() {
             </div>
             <div>
               <label className="label">School Name *</label>
-              <input required value={form.schoolName} onChange={set('schoolName')}
+              <input required value={form.schoolName} onChange={e => { set('schoolName')(e); setConfirmedNew(false); setSimilar([]); }}
                 placeholder="Starlight Primary School"
                 className={`input ${schoolAutoFilled ? 'bg-green-50 border-green-200 text-[#1a2e5a]' : ''}`}/>
             </div>
@@ -291,6 +299,13 @@ export default function UpgradeToSchoolPage() {
               Next: Location <ChevronRight size={16}/>
             </button>
           </form>
+        )}
+
+        {similar.length > 0 && (
+          <div className="mt-4">
+            <SimilarSchoolsWarning matches={similar} showLogin={false}
+              onConfirm={() => { setConfirmedNew(true); setSimilar([]); if (step === 1) setStep(2); }}/>
+          </div>
         )}
 
         {/* ── STEP 2: Location ── */}

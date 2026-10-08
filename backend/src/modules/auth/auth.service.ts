@@ -17,6 +17,7 @@ import { freePeriodEndForSignup, freePeriodEndTimestamp, longDay } from '../../c
 import { escapeHtml, isUuid, jwtSecret, jwtRefreshSecret } from '../../common/security';
 import { revokeSessions } from '../../common/sessions';
 import { tokenMatchesUser } from './jwt.strategy';
+import { findSimilarSchools } from '../../common/school-similarity';
 
 // Hosts a password-reset link may point at. A client-supplied appUrl outside this
 // list is ignored, so a reset email can never carry the token to someone else's site.
@@ -174,6 +175,22 @@ export class AuthService {
   }
 
   // ── Signup ──────────────────────────────────────────────
+  // Same school signing up twice under another KNEC code: warn until the person confirms.
+  private async assertNotDuplicateSchool(dto: { schoolName: string; county?: string; confirmNewSchool?: boolean }, excludeTenantId?: string) {
+    if (dto.confirmNewSchool) return;
+    const matches = await findSimilarSchools(this.dataSource, dto.schoolName, { county: dto.county, excludeTenantId });
+    if (matches.length) {
+      throw new ConflictException({
+        statusCode: 409, code: 'SIMILAR_SCHOOL', matches,
+        message: 'A school with a similar name is already on ZARODA. If it is yours, ask its administrator to add you instead of signing up again.',
+      });
+    }
+  }
+
+  similarSchools(schoolName: string, county?: string) {
+    return findSimilarSchools(this.dataSource, schoolName, { county });
+  }
+
   async signup(dto: SignupDto) {
     const existing = await this.findUserByEmail(dto.email);
     if (existing) {
@@ -204,6 +221,7 @@ export class AuthService {
           throw new ConflictException('A school with this KNEC code is already registered on ZARODA');
         }
       }
+      await this.assertNotDuplicateSchool(dto);
 
       const tenant = this.tenantRepo.create({
         name:          dto.schoolName,
@@ -413,6 +431,7 @@ export class AuthService {
         throw new ConflictException('A school with this KNEC code is already registered on ZARODA');
       }
     }
+    await this.assertNotDuplicateSchool(dto, tenant.id);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
