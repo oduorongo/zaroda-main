@@ -18,6 +18,7 @@ import { requireProPlan } from '../common/plan';
 import { feeStructureTableHtml } from '../common/fee-structure-table';
 import { schoolHeadInfo, schoolLetterheadHtml } from '../common/school-letterhead';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../common/print-footer';
+import { linkedChildIds } from '../common/parent-children';
 import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
 import { safeEqual, escapeHtml, encryptSecret, decryptSecret, generateTempPassword, safeImageSrc } from '../common/security';
@@ -1566,8 +1567,8 @@ class FinanceController {
     if (req.user.role === 'parent') {
       const ok = await this.ds.query(
         `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id = $2
-            AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
-        [learnerId, tenantId, String(req.user.email || '')],
+            AND id::text = ANY($3::text[]) LIMIT 1`,
+        [learnerId, tenantId, await linkedChildIds(this.ds, req.user)],
       ).catch(() => []);
       if (!ok.length) throw new BadRequestException('You can only view your own child’s account.');
     }
@@ -3417,8 +3418,8 @@ class TransportController {
     if (req.user.role === 'parent') {
       const ok = await this.ds.query(
         `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id = $2
-            AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
-        [learnerId, tenantId, String(req.user.email || '')],
+            AND id::text = ANY($3::text[]) LIMIT 1`,
+        [learnerId, tenantId, await linkedChildIds(this.ds, req.user)],
       ).catch(() => []);
       if (!ok.length) throw new BadRequestException('You can only view your own child’s transport details.');
     } else {
@@ -4393,8 +4394,8 @@ class LibraryController {
     const tenantId = req.user.tenantId;
     const owns = await this.ds.query(
       `SELECT id, (first_name || ' ' || COALESCE(last_name,'')) AS name FROM learners
-        WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
-      [learnerId, tenantId, req.user.email || ''],
+        WHERE id::text = $1 AND tenant_id::text = $2 AND id::text = ANY($3::text[]) LIMIT 1`,
+      [learnerId, tenantId, await linkedChildIds(this.ds, req.user)],
     ).catch(() => []);
     if (!owns.length) throw new BadRequestException('This learner is not linked to your account.');
 
@@ -6884,8 +6885,8 @@ class PdfController {
       if (req.user?.role === 'parent') {
         const ok = await this.ds.query(
           `SELECT 1 FROM learners WHERE id::text = $1 AND tenant_id::text = $2
-              AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
-          [learnerId, req.user.tenantId, String(req.user.email || '')],
+              AND id::text = ANY($3::text[]) LIMIT 1`,
+          [learnerId, req.user.tenantId, await linkedChildIds(this.ds, req.user)],
         ).catch(() => []);
         if (!ok.length) { res.status(403).send('<p style="font-family:sans-serif">You can only view your own child\'s report card.</p>'); return; }
       }
@@ -8342,8 +8343,8 @@ class TestimonialController {
       if (u.role !== 'parent') return { error: 'Only a parent account can submit a testimonial on behalf of a learner.' };
       const learner = (await this.ds.query(
         `SELECT first_name AS "firstName", last_name AS "lastName" FROM learners
-          WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = $3`,
-        [onBehalfOfLearnerId, req.user.tenantId, String(u.email || '').toLowerCase().trim()],
+          WHERE id::text = $1 AND tenant_id::text = $2 AND id::text = ANY($3::text[])`,
+        [onBehalfOfLearnerId, req.user.tenantId, await linkedChildIds(this.ds, req.user)],
       ).catch(() => []))[0];
       if (!learner) return { error: 'Learner not found on your account.' };
       authorName = `${learner.firstName || ''} ${learner.lastName || ''}`.trim() || 'A Zaroda learner';

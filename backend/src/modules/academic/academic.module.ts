@@ -13,6 +13,7 @@ import { PdfExportService } from '../../common/pdf-export.service';
 import { assertStreamsWritable } from '../../common/subscription';
 import { normalisePhone } from '../../common/messaging';
 import { revokeSessions } from '../../common/sessions';
+import { linkedChildIds } from '../../common/parent-children';
 import { generateTempPassword, escapeHtml } from '../../common/security';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -1104,17 +1105,14 @@ export class AcademicService {
   // average — WITHOUT exposing any other named learner.
   async getParentAnalytics(user: any, learnerId?: string, term?: string) {
     const tenantId = user.tenantId;
-    const email = String(user.email || '').toLowerCase().trim();
-
-    // Find this parent's children by guardian email (the established linkage), scoped to
-    // the parent's tenant.
+    // This parent's children (guardian email or phone), scoped to the parent's tenant.
     const children = await this.dataSource.query(
       `SELECT id::text AS id, first_name AS "firstName", last_name AS "lastName",
               stream_id::text AS "streamId", grade_level AS "gradeLevel"
          FROM learners
-        WHERE tenant_id::text = $1 AND LOWER(guardian_email) = $2
+        WHERE tenant_id::text = $1 AND id::text = ANY($2::text[])
         ORDER BY first_name`,
-      [tenantId, email],
+      [tenantId, await linkedChildIds(this.dataSource, user)],
     ).catch(() => []);
 
     if (!children.length) {
@@ -1234,17 +1232,17 @@ export class AcademicService {
   // endpoint the parent portal uses to show the child cards.
   async getMyChildren(user: any) {
     const tenantId = user.tenantId;
-    const email = String(user.email || '').toLowerCase().trim();
-    if (!email) return [];
+    const ids = await linkedChildIds(this.dataSource, user);
+    if (!ids.length) return [];
     const rows = await this.dataSource.query(
       `SELECT l.id::text AS id, l.first_name AS "firstName", l.last_name AS "lastName",
               l.admission_number AS "admissionNumber", l.grade_level AS "gradeLevel",
               s.name AS "streamName", s.id::text AS "streamId"
          FROM learners l
          LEFT JOIN streams s ON s.id::text = l.stream_id::text
-        WHERE l.tenant_id::text = $1 AND LOWER(l.guardian_email) = $2
+        WHERE l.tenant_id::text = $1 AND l.id::text = ANY($2::text[])
         ORDER BY l.first_name`,
-      [tenantId, email],
+      [tenantId, ids],
     ).catch(() => []);
 
     // Attach a current performance level (overall average → CBC level) per child.

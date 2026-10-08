@@ -14,6 +14,7 @@ import {
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
+import { linkedChildIds } from '../../common/parent-children';
 
 const VIEW_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher', 'hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admin'];
 const PATHWAYS = [
@@ -75,8 +76,8 @@ export class SeniorSelectionController {
   async myChildren(@Request() req: any) {
     await this.ensureTable();
     const tenantId = req.user.tenantId;
-    const email = String(req.user.email || '').toLowerCase().trim();
-    if (!email) return [];
+    const ids = await linkedChildIds(this.ds, req.user);
+    if (!ids.length) return [];
 
     const school = await this.ds.query(
       `SELECT name FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId],
@@ -90,9 +91,9 @@ export class SeniorSelectionController {
               l.guardian_relation AS "guardianRelation", l.guardian_id_no AS "guardianIdNo",
               l.residence AS "residence"
          FROM learners l
-        WHERE l.tenant_id::text = $1 AND LOWER(l.guardian_email) = $2 AND l.grade_level = 'grade_9'
+        WHERE l.tenant_id::text = $1 AND l.id::text = ANY($2::text[]) AND l.grade_level = 'grade_9'
         ORDER BY l.first_name`,
-      [tenantId, email],
+      [tenantId, ids],
     ).catch(() => []);
 
     const out = [];
@@ -137,12 +138,10 @@ export class SeniorSelectionController {
     }
     await this.ensureTable();
     const tenantId = req.user.tenantId;
-    const email = String(req.user.email || '').toLowerCase().trim();
-
     const learner = await this.ds.query(
       `SELECT id::text AS id, grade_level AS "gradeLevel"
-         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = $3`,
-      [learnerId, tenantId, email],
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 AND id::text = ANY($3::text[])`,
+      [learnerId, tenantId, await linkedChildIds(this.ds, req.user)],
     ).catch(() => []);
     if (!learner.length) throw new NotFoundException('Learner not found for this parent account.');
 

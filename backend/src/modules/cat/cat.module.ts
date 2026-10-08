@@ -13,11 +13,16 @@ import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator
 import { schoolHeadInfo, schoolLetterheadHtml } from '../../common/school-letterhead';
 import { percentToLevelCode } from '../pdf/cbc-report.helper';
 import { PRINT_FOOTER_CSS, PRINT_FOOTER_HTML, PRINT_PAGE_CSS } from '../../common/print-footer';
+import { linkedChildIds } from '../../common/parent-children';
 
 const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admin', 'dos'];
 const TEACHER_ROLES = ['class_teacher', 'subject_teacher', 'overall_class_teacher'];
 const TERMS = ['term_1', 'term_2', 'term_3'];
 const SENIOR = ['grade_7', 'grade_8', 'grade_9', 'grade_10', 'grade_11', 'grade_12'];
+const CAUSES: Record<string, string> = {
+  concept_not_understood: 'Concept not understood', misread_question: 'Misread the question',
+  could_not_apply: 'Could not apply the concept', lack_of_practice: 'Lack of practice',
+};
 const LEVEL_CODES = { senior: ['EE1', 'EE2', 'ME1', 'ME2', 'AE1', 'AE2', 'BE1', 'BE2'], junior: ['EE', 'ME', 'AE', 'BE'] };
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 
@@ -46,7 +51,7 @@ export class CatController {
   private async load(user: any, id: string) {
     this.allow(user);
     const rows = await this.ds.query(
-      `SELECT c.id, c.teacher_id::text AS "teacherId", c.stream_id::text AS "streamId", c.subject, c.title,
+      `SELECT c.id, c.tenant_id::text AS "tenantId", c.teacher_id::text AS "teacherId", c.stream_id::text AS "streamId", c.subject, c.title,
               c.term, c.academic_year AS "academicYear", c.cat_date::text AS "catDate",
               s.name AS "streamName", s.grade_level AS "gradeLevel",
               TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS "teacherName"
@@ -80,7 +85,7 @@ export class CatController {
     this.allow(u);
     const admin = ADMIN_ROLES.includes(u.role);
     const cats = await this.ds.query(
-      `SELECT c.id, c.teacher_id::text AS "teacherId", c.stream_id::text AS "streamId", c.subject, c.title,
+      `SELECT c.id, c.tenant_id::text AS "tenantId", c.teacher_id::text AS "teacherId", c.stream_id::text AS "streamId", c.subject, c.title,
               c.term, c.cat_date::text AS "catDate", s.name AS "streamName",
               TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS "teacherName",
               (SELECT COUNT(*)::int FROM cat_questions q WHERE q.cat_id = c.id) AS "questionCount",
@@ -97,6 +102,61 @@ export class CatController {
       [u.tenantId, admin, u.id, q.streamId || null, q.term || null],
     );
     return { cats, assignments: await this.assignments(u), readOnlyAll: admin };
+  }
+
+  // HOI view: every teacher's flagged questions with their causes and planned actions. Read-only.
+  @Get('reflections')
+  async reflectionsOverview(@Request() req: any, @Query() q: any) {
+    const u = req.user;
+    if (!ADMIN_ROLES.includes(u.role)) throw new ForbiddenException('Only school administrators can view all reflections.');
+    const cats = await this.ds.query(
+      `SELECT c.id::text AS id, c.title, c.subject, c.term, c.cat_date::text AS "catDate", c.teacher_id::text AS "teacherId",
+              s.name AS "streamName", TRIM(COALESCE(t.first_name,'') || ' ' || COALESCE(t.last_name,'')) AS "teacherName"
+         FROM cats c
+         LEFT JOIN streams s ON s.id::text = c.stream_id::text
+         LEFT JOIN users t ON t.id::text = c.teacher_id::text
+        WHERE c.tenant_id::text = $1 AND c.deleted_at IS NULL AND c.subject IS NOT NULL AND ($2::text IS NULL OR c.term = $2)
+        ORDER BY c.cat_date DESC NULLS LAST, c.created_at DESC`,
+      [u.tenantId, q.term || null]);
+    if (!cats.length) return { teachers: [], causes: CAUSES };
+    const ids = cats.map((c: any) => c.id);
+    const [questions, scores, refl] = await Promise.all([
+      this.ds.query(`SELECT id::text AS id, cat_id::text AS "catId", number, max_marks::float AS "maxMarks", strand, sub_strand AS "subStrand"
+                       FROM cat_questions WHERE cat_id::text = ANY($1) ORDER BY number`, [ids]),
+      this.ds.query(`SELECT sc.cat_id::text AS "catId", sc.question_id::text AS "questionId", sc.learner_id::text AS "learnerId", sc.score::float AS score
+                       FROM cat_scores sc JOIN cats c ON c.id = sc.cat_id
+                       JOIN learners l ON l.id::text = sc.learner_id::text AND l.stream_id::text = c.stream_id::text AND l.is_active = true
+                      WHERE sc.cat_id::text = ANY($1)`, [ids]),
+      this.ds.query(`SELECT question_id::text AS "questionId", cause, next_action AS "nextAction", video_url AS "videoUrl", updated_at AS "updatedAt"
+                       FROM cat_reflections WHERE tenant_id::text = $1 AND cat_id::text = ANY($2)`, [u.tenantId, ids]),
+    ]);
+    const reflBy = new Map<string, any>(refl.map((r: any) => [r.questionId, r]));
+    const teachers = new Map<string, any>();
+    for (const c of cats) {
+      const sc = scores.filter((x: any) => x.catId === c.id);
+      const sat = new Set<string>(sc.map((x: any) => x.learnerId));
+      if (!sat.size) continue;
+      const got = new Map<string, number>(sc.map((x: any) => [`${x.learnerId}:${x.questionId}`, x.score]));
+      for (const qn of questions.filter((x: any) => x.catId === c.id)) {
+        const below = [...sat].filter(l => (got.get(`${l}:${qn.id}`) ?? 0) < qn.maxMarks / 2).length;
+        const belowHalfPct = Math.round((below / sat.size) * 1000) / 10;
+        if (belowHalfPct <= 50) continue;
+        const t = teachers.get(c.teacherId) || { teacherId: c.teacherId, teacherName: c.teacherName || 'Teacher', items: [] };
+        teachers.set(c.teacherId, t);
+        const r = reflBy.get(qn.id);
+        t.items.push({
+          catId: c.id, catTitle: c.title, subject: c.subject, streamName: c.streamName, term: c.term, catDate: c.catDate,
+          number: qn.number, strand: qn.strand, subStrand: qn.subStrand, belowHalfPct,
+          cause: r?.cause || null, causeLabel: r ? CAUSES[r.cause] : null, nextAction: r?.nextAction || null,
+          videoUrl: r?.videoUrl || null, updatedAt: r?.updatedAt || null,
+        });
+      }
+    }
+    return {
+      causes: CAUSES,
+      teachers: [...teachers.values()].map(t => ({ ...t, pending: t.items.filter((i: any) => !i.cause).length }))
+        .sort((a, b) => b.pending - a.pending || a.teacherName.localeCompare(b.teacherName)),
+    };
   }
 
   // Parent view: only their own child's CAT results (linked by guardian email, as elsewhere).
@@ -138,13 +198,13 @@ export class CatController {
   }
 
   private async childCats(user: any, learnerId?: string, term?: string) {
-    const email = String(user.email || '').toLowerCase().trim();
-    const children = email ? await this.ds.query(
+    const childIds = await linkedChildIds(this.ds, user);
+    const children = childIds.length ? await this.ds.query(
       `SELECT l.id::text AS id, TRIM(l.first_name || ' ' || COALESCE(l.last_name,'')) AS name, l.admission_number AS "admissionNumber",
               l.grade_level AS "gradeLevel", s.name AS "streamName"
          FROM learners l LEFT JOIN streams s ON s.id::text = l.stream_id::text
-        WHERE l.tenant_id::text = $1 AND LOWER(l.guardian_email) = $2 ORDER BY l.first_name`,
-      [user.tenantId, email]) : [];
+        WHERE l.tenant_id::text = $1 AND l.id::text = ANY($2::text[]) ORDER BY l.first_name`,
+      [user.tenantId, childIds]) : [];
     if (learnerId && !children.some((c: any) => c.id === learnerId)) throw new ForbiddenException('This learner is not linked to your account.');
     const chosen = children.find((c: any) => c.id === learnerId) || children[0] || null;
     if (!chosen) return { children: [], chosen: null, cats: [] };
@@ -301,10 +361,36 @@ export class CatController {
       <table><thead><tr><th>Q</th><th>Strand › Sub-strand</th><th>Max</th><th>Class avg</th><th>Full</th><th>Partial</th><th>Zero</th><th>Below half</th></tr></thead><tbody>${qRows}</tbody></table>
       <h3>Strand performance</h3>
       <table><thead><tr><th>Strand / sub-strand</th><th>Max</th><th>Class avg</th><th>Avg %</th><th>Level</th><th>Flagged</th>${lvHead}</tr></thead><tbody>${sRows}</tbody></table>
+      ${a.questions.some((q: any) => q.flagged) ? `<h3>Reflection on flagged questions</h3>
+      <table><thead><tr><th>Q</th><th>Sub-strand</th><th>Below half</th><th>Cause</th><th>Next lesson action</th><th>Video</th></tr></thead><tbody>${
+        a.questions.filter((q: any) => q.flagged).map((q: any) => `<tr><td>Q${q.number}</td><td class="nm">${esc(q.subStrand || q.strand || '—')}</td><td>${q.belowHalfPct}%</td><td class="nm">${
+          q.reflection ? esc(q.reflection.causeLabel) : '<i>Pending</i>'}</td><td class="nm">${q.reflection ? esc(q.reflection.nextAction) : ''}</td><td class="nm">${
+          q.reflection?.videoUrl ? esc(q.reflection.videoUrl) : ''}</td></tr>`).join('')}</tbody></table>` : ''}
       <h3>Learner drill-down</h3><p class="note">Questions where the learner scored less than half the marks (score / out of). "Not marked" = no mark entered for that question.</p>
       <table><thead><tr><th>#</th><th>Learner</th><th>Adm</th><th>Total</th><th>Level</th><th>Questions scored below half</th></tr></thead><tbody>${lRows}</tbody></table>
       ${PRINT_FOOTER_HTML}
     </div></body></html>`;
+  }
+
+  // Adds each flagged question's reflection and the rubric videos for its sub-strand.
+  private async withReflections(cat: any, qStats: any[]) {
+    const refl = await this.ds.query(
+      `SELECT question_id::text AS "questionId", cause, next_action AS "nextAction", video_url AS "videoUrl", updated_at AS "updatedAt"
+         FROM cat_reflections WHERE cat_id::text = $1`, [cat.id]).catch(() => []);
+    const reflBy = new Map<string, any>(refl.map((r: any) => [r.questionId, r]));
+    const subs = qStats.some(q => q.flagged) ? await this.ds.query(
+      `SELECT ss.id::text AS id, LOWER(ss.name) AS name, ss.youtube_urls AS urls
+         FROM assessment_substrands ss
+         JOIN assessment_strands st ON st.id = ss.strand_id
+         JOIN assessment_templates t ON t.id = st.template_id
+        WHERE t.grade_level = $1 AND LOWER(t.learning_area) = LOWER($2) AND (t.tenant_id IS NULL OR t.tenant_id::text = $3)`,
+      [cat.gradeLevel, cat.subject, cat.tenantId]).catch(() => []) : [];
+    return qStats.map(q => {
+      if (!q.flagged) return { ...q, reflection: null, videos: [] };
+      const sub = subs.find((x: any) => (q.substrandId && x.id === String(q.substrandId)) || (q.subStrand && x.name === String(q.subStrand).toLowerCase()));
+      const r = reflBy.get(String(q.id));
+      return { ...q, reflection: r ? { ...r, causeLabel: CAUSES[r.cause] } : null, videos: (sub?.urls || []).filter(Boolean) };
+    });
   }
 
   private async analyse(user: any, id: string) {
@@ -323,7 +409,7 @@ export class CatController {
       const avg = n ? vals.reduce((a: number, v: number) => a + v, 0) / n : 0;
       const belowHalf = pctOf(vals.filter((v: number) => v < q.maxMarks / 2).length);
       return {
-        id: q.id, number: q.number, maxMarks: q.maxMarks, strand: q.strand, subStrand: q.subStrand,
+        id: q.id, number: q.number, maxMarks: q.maxMarks, strand: q.strand, subStrand: q.subStrand, substrandId: q.substrandId,
         fullPct: pctOf(vals.filter((v: number) => v >= q.maxMarks).length),
         partialPct: pctOf(vals.filter((v: number) => v > 0 && v < q.maxMarks).length),
         zeroPct: pctOf(vals.filter((v: number) => v === 0).length),
@@ -374,7 +460,7 @@ export class CatController {
       levelCounts: maxTotal ? tally(learnerRows.map((l: any) => (l.total / maxTotal) * 100)) : {},
       classAvg: r1(classAvg), classAvgPct: maxTotal ? r1((classAvg / maxTotal) * 100) : 0,
       classLevel: n ? level(maxTotal ? (classAvg / maxTotal) * 100 : 0) : null,
-      questions: qStats,
+      questions: await this.withReflections(cat, qStats),
       strands: strands.map(s => ({ name: s.name, ...roll(s.qs), subStrands: s.subs.map((x: any) => ({ name: x.name, ...roll(x.qs) })) })),
       learners: learnerRows,
     };
@@ -493,6 +579,35 @@ export class CatController {
       }
     });
     return { message: 'Marks saved' };
+  }
+
+  @Put(':id/reflections/:questionId')
+  async saveReflection(@Request() req: any, @Param('id') id: string, @Param('questionId') questionId: string, @Body() dto: any) {
+    const u = req.user;
+    await this.loadForEdit(u, id);
+    const q = (await this.analyse(u, id)).questions.find((x: any) => String(x.id) === questionId);
+    if (!q) throw new NotFoundException('Question not found in this CAT.');
+    if (!q.flagged) throw new BadRequestException('Reflections are only for flagged questions.');
+    if (!CAUSES[dto.cause]) throw new BadRequestException('Pick one cause.');
+    const nextAction = String(dto.nextAction || '').trim();
+    if (!nextAction) throw new BadRequestException('Write the next lesson action.');
+    if (nextAction.length > 300) throw new BadRequestException('Keep the next lesson action under 300 characters.');
+    const videoUrl = dto.videoUrl ? String(dto.videoUrl) : null;
+    if (videoUrl && !q.videos.includes(videoUrl)) throw new BadRequestException('Attach one of the rubric videos for this sub-strand.');
+    await this.ds.query(
+      `INSERT INTO cat_reflections (tenant_id, cat_id, question_id, teacher_id, cause, next_action, video_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (question_id) DO UPDATE SET cause = EXCLUDED.cause, next_action = EXCLUDED.next_action,
+         video_url = EXCLUDED.video_url, updated_at = NOW()`,
+      [u.tenantId, id, questionId, u.id, dto.cause, nextAction, videoUrl]);
+    return { message: 'Reflection saved' };
+  }
+
+  @Delete(':id/reflections/:questionId')
+  async removeReflection(@Request() req: any, @Param('id') id: string, @Param('questionId') questionId: string) {
+    await this.loadForEdit(req.user, id);
+    await this.ds.query(`DELETE FROM cat_reflections WHERE cat_id::text = $1 AND question_id::text = $2`, [id, questionId]);
+    return { message: 'Reflection removed' };
   }
 
   @Delete(':id/scores')

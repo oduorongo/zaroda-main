@@ -4,6 +4,7 @@ import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
+import { linkedChildIds } from '../../common/parent-children';
 import { assertStreamsWritable } from '../../common/subscription';
 
 // ── Entities ───────────────────────────────────────────────
@@ -188,11 +189,11 @@ export class AssessmentService {
 
   // Parent view: a child's rubric (formative levels per sub-strand) WITH video links for
   // home-learning extension. Guardian-verified. Returns per learning area.
-  async getChildRubric(tenantId: string, parentEmail: string, learnerId: string, term: string) {
+  async getChildRubric(tenantId: string, parent: any, learnerId: string, term: string) {
     const own = await this.dataSource.query(
       `SELECT id, grade_level AS "gradeLevel", (first_name||' '||COALESCE(last_name,'')) AS name
-         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 AND LOWER(guardian_email) = LOWER($3) LIMIT 1`,
-      [learnerId, tenantId, parentEmail || ''],
+         FROM learners WHERE id::text = $1 AND tenant_id::text = $2 AND id::text = ANY($3::text[]) LIMIT 1`,
+      [learnerId, tenantId, await linkedChildIds(this.dataSource, parent)],
     ).catch(() => []);
     if (!own.length) throw new BadRequestException('This learner is not linked to your account.');
     const learner = own[0];
@@ -721,7 +722,7 @@ export class AssessmentController {
   @AllowRoles('parent')
   @Get('child-rubric/:learnerId')
   getChildRubric(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
-    return this.svc.getChildRubric(req.user.tenantId, req.user.email || '', learnerId, q.term || 'term_1');
+    return this.svc.getChildRubric(req.user.tenantId, req.user, learnerId, q.term || 'term_1');
   }
 
   @Get('scores')

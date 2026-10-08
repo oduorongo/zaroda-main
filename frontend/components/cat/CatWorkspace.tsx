@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download, AlertTriangle, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Lock, Loader2, Plus, Save, Trash2, ClipboardList, Eye, Download, AlertTriangle, BarChart3, MessageSquare, PlayCircle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { percentToLevel, levelsFor } from '@/lib/cbc/constants';
@@ -63,6 +63,11 @@ export async function downloadSheet(path: string, filename: string, opts: { para
   }
 }
 
+const CAUSES: [string, string][] = [
+  ['concept_not_understood', 'Concept not understood'], ['misread_question', 'Misread the question'],
+  ['could_not_apply', 'Could not apply the concept'], ['lack_of_practice', 'Lack of practice'],
+];
+
 const err = (e: any, fallback: string) => toast.error(e?.response?.data?.message || fallback);
 
 export function CatWorkspace() {
@@ -77,6 +82,7 @@ function CatList({ onOpen }: { onOpen: (id: string) => void }) {
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ title: '', assignment: '', term: 'term_1', catDate: '' });
   const [saving, setSaving] = useState(false);
+  const [showRefl, setShowRefl] = useState(false);
 
   const load = () => apiClient.get('/cats', { params: { term: term || undefined } })
     .then(r => setData(r.data)).catch(e => { err(e, 'Could not load CATs'); setData({ cats: [], assignments: [] }); });
@@ -94,6 +100,7 @@ function CatList({ onOpen }: { onOpen: (id: string) => void }) {
   };
 
   if (!data) return <div className="card p-10 text-center text-theme-muted"><Loader2 className="animate-spin mx-auto"/></div>;
+  if (showRefl) return <ReflectionOverview initialTerm={term} onBack={() => setShowRefl(false)} onOpen={onOpen}/>;
   const canCreate = data.assignments.length > 0;
 
   return (
@@ -108,6 +115,7 @@ function CatList({ onOpen }: { onOpen: (id: string) => void }) {
             <option value="">All terms</option>
             {TERMS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
           </select>
+          {data.readOnlyAll && <button onClick={() => setShowRefl(true)} className="px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1.5 bg-[#d4af37] text-[#1a2e5a] hover:brightness-95"><MessageSquare size={15}/> Reflections</button>}
           {canCreate && <button onClick={() => setShowNew(s => !s)} className="btn-primary"><Plus size={16}/> New CAT</button>}
         </div>
       </div>
@@ -333,7 +341,7 @@ function CatDetail({ id, onBack }: { id: string; onBack: () => void }) {
           </div>
         </div>
       )}
-      </>) : <ItemAnalysis id={id} grade={cat.gradeLevel} filename={`${cat.title}-${cat.streamName}-${cat.subject}-item-analysis.pdf`.replace(/[^\w.-]+/g, '_')}/>}
+      </>) : <ItemAnalysis id={id} grade={cat.gradeLevel} canEdit={edit} filename={`${cat.title}-${cat.streamName}-${cat.subject}-item-analysis.pdf`.replace(/[^\w.-]+/g, '_')}/>}
     </div>
   );
 }
@@ -351,11 +359,10 @@ function LevelCounts({ codes, counts, grade }: { codes: string[]; counts: Record
   );
 }
 
-function ItemAnalysis({ id, grade, filename }: { id: string; grade: string; filename: string }) {
+function ItemAnalysis({ id, grade, filename, canEdit }: { id: string; grade: string; filename: string; canEdit: boolean }) {
   const [a, setA] = useState<any>(null);
-  useEffect(() => {
-    apiClient.get(`/cats/${id}/analysis`).then(r => setA(r.data)).catch(e => { err(e, 'Could not load item analysis'); setA({ sat: 0 }); });
-  }, [id]);
+  const load = () => apiClient.get(`/cats/${id}/analysis`).then(r => setA(r.data)).catch(e => { err(e, 'Could not load item analysis'); setA({ sat: 0 }); });
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
   if (!a) return <div className="card p-10 text-center text-theme-muted"><Loader2 className="animate-spin mx-auto"/></div>;
   if (!a.sat) return <div className="card p-10 text-center text-theme-muted">No marks entered yet — item analysis appears once learners have marks.</div>;
 
@@ -409,6 +416,16 @@ function ItemAnalysis({ id, grade, filename }: { id: string; grade: string; file
         </div>
       </div>
 
+      {flagged.length > 0 && (
+        <div className="card p-4 space-y-3 border-l-4 border-l-red-500">
+          <div>
+            <h2 className="font-semibold text-theme-heading">Reflection on flagged questions</h2>
+            <p className="text-xs text-theme-muted">{canEdit ? 'For each red question, pick the main cause and plan what you will do in the next lesson.' : 'The teacher’s diagnosis and next-lesson plan for each red question.'}</p>
+          </div>
+          {flagged.map((q: any) => <ReflectionForm key={q.id} catId={id} q={q} canEdit={canEdit} onSaved={load}/>)}
+        </div>
+      )}
+
       <div className="card p-4 space-y-2">
         <h2 className="font-semibold text-theme-heading">Strand performance</h2>
         <div className="overflow-x-auto">
@@ -459,6 +476,112 @@ function ItemAnalysis({ id, grade, filename }: { id: string; grade: string; file
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReflectionForm({ catId, q, canEdit, onSaved }: { catId: string; q: any; canEdit: boolean; onSaved: () => void }) {
+  const r = q.reflection;
+  const [cause, setCause] = useState(r?.cause || '');
+  const [nextAction, setNextAction] = useState(r?.nextAction || '');
+  const [videoUrl, setVideoUrl] = useState(r?.videoUrl || '');
+  const [saving, setSaving] = useState(false);
+  const title = <div className="text-sm font-semibold text-red-700">Q{q.number}{q.subStrand ? ` · ${q.subStrand}` : ''} <span className="font-normal text-theme-muted">— {q.belowHalfPct}% scored below half</span></div>;
+
+  if (!canEdit) return (
+    <div className="border-t border-theme pt-3 space-y-1">
+      {title}
+      {r ? (
+        <div className="text-sm space-y-0.5">
+          <div><b>Cause:</b> {r.causeLabel}</div>
+          <div><b>Next lesson:</b> {r.nextAction}</div>
+          {r.videoUrl && <a href={r.videoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline inline-flex items-center gap-1"><PlayCircle size={13}/> Rubric video</a>}
+        </div>
+      ) : <div className="text-xs italic text-amber-700">Pending — no reflection yet.</div>}
+    </div>
+  );
+
+  const save = async () => {
+    if (!cause) { toast.error('Pick one cause'); return; }
+    if (!nextAction.trim()) { toast.error('Write the next lesson action'); return; }
+    setSaving(true);
+    try { await apiClient.put(`/cats/${catId}/reflections/${q.id}`, { cause, nextAction, videoUrl: videoUrl || null }); toast.success(`Q${q.number} reflection saved`); onSaved(); }
+    catch (e) { err(e, 'Could not save reflection'); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="border-t border-theme pt-3 space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">{title}{r && <span className="badge bg-green-100 text-green-700">Saved</span>}</div>
+      <div className="flex flex-wrap gap-2">
+        {CAUSES.map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setCause(k)}
+            className={`text-xs px-3 py-1.5 rounded-full border ${cause === k ? 'bg-[#1a2e5a] text-white border-[#1a2e5a]' : 'border-theme text-theme-muted hover:text-theme-heading'}`}>{label}</button>
+        ))}
+      </div>
+      <textarea className="input w-full text-sm" rows={2} maxLength={300} placeholder="Next lesson action, e.g. Re-teach angles with a protractor demo, then 5 practice items"
+        value={nextAction} onChange={e => setNextAction(e.target.value)}/>
+      <div className="flex items-center gap-2 flex-wrap">
+        {q.videos.length > 0 ? (
+          <select className="input text-sm flex-1 min-w-[200px]" value={videoUrl} onChange={e => setVideoUrl(e.target.value)}>
+            <option value="">No rubric video</option>
+            {q.videos.map((v: string, i: number) => <option key={v} value={v}>Rubric video {i + 1}: {v}</option>)}
+          </select>
+        ) : <span className="text-xs text-theme-muted flex-1">No rubric video linked to this sub-strand.</span>}
+        <span className="text-[10px] text-theme-muted">{nextAction.length}/300</span>
+        <button onClick={save} disabled={saving} className="btn-primary text-sm">{saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Save</button>
+      </div>
+    </div>
+  );
+}
+
+function ReflectionOverview({ initialTerm, onBack, onOpen }: { initialTerm: string; onBack: () => void; onOpen: (id: string) => void }) {
+  const [term, setTerm] = useState(initialTerm);
+  const [data, setData] = useState<any>(null);
+  useEffect(() => {
+    apiClient.get('/cats/reflections', { params: { term: term || undefined } }).then(r => setData(r.data))
+      .catch(e => { err(e, 'Could not load reflections'); setData({ teachers: [] }); });
+  }, [term]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <button onClick={onBack} className="text-sm text-theme-muted flex items-center gap-1 mb-1"><ArrowLeft size={14}/> All CATs</button>
+          <h1 className="text-xl font-bold text-theme-heading">CAT Reflections</h1>
+          <p className="text-sm text-theme-muted">Per teacher: flagged questions, the cause they identified and their next-lesson plan. Read-only.</p>
+        </div>
+        <select value={term} onChange={e => setTerm(e.target.value)} className="input">
+          <option value="">All terms</option>
+          {TERMS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+        </select>
+      </div>
+      {!data ? <div className="card p-10 text-center text-theme-muted"><Loader2 className="animate-spin mx-auto"/></div>
+        : !data.teachers.length ? <div className="card p-10 text-center text-theme-muted">No flagged questions{term ? ' this term' : ''} — no reflections needed.</div>
+        : data.teachers.map((t: any) => (
+          <div key={t.teacherId} className="card p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h2 className="font-semibold text-theme-heading">{t.teacherName}</h2>
+              <span className={`badge ${t.pending ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-700'}`}>{t.items.length} flagged · {t.pending ? `${t.pending} pending` : 'all reflected'}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-xs text-theme-muted">{['CAT', 'Q', 'Sub-strand', 'Below half', 'Cause', 'Next lesson action'].map(h => <th key={h} className="p-2">{h}</th>)}</tr></thead>
+                <tbody>
+                  {t.items.map((i: any) => (
+                    <tr key={`${i.catId}:${i.number}`} className="border-t border-theme align-top">
+                      <td className="p-2"><button onClick={() => onOpen(i.catId)} className="text-left text-blue-600 hover:underline">{i.catTitle}</button><div className="text-[10px] text-theme-muted">{i.streamName} · {i.subject}</div></td>
+                      <td className="p-2 font-semibold">Q{i.number}</td>
+                      <td className="p-2">{i.subStrand || i.strand || '—'}</td>
+                      <td className="p-2 text-red-600 font-semibold">{i.belowHalfPct}%</td>
+                      <td className="p-2">{i.causeLabel || <span className="italic text-amber-700">Pending</span>}</td>
+                      <td className="p-2">{i.nextAction || '—'}{i.videoUrl && <a href={i.videoUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-600 inline-flex items-center"><PlayCircle size={13}/></a>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
     </div>
   );
 }
