@@ -373,7 +373,7 @@ async function bootstrap() {
   });
 
   httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'email-queue-fix-2026-10-08', features: ['email-queue', 'inactive-audience', 'duplicate-schools', 'signup-similar-name', 'cat-question-marks', 'cat-parent-report', 'cat-reflections', 'parent-phone-link', 'cat-sheet-pdf', 'cat-item-analysis', 'cat-analysis-pdf', 'mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'zaroda-sms-api', build: 'signup-owner-notify-2026-10-08', features: ['signup-owner-notify', 'email-queue', 'inactive-audience', 'duplicate-schools', 'signup-similar-name', 'cat-question-marks', 'cat-parent-report', 'cat-reflections', 'parent-phone-link', 'cat-sheet-pdf', 'cat-item-analysis', 'cat-analysis-pdf', 'mark-list-readonly', 'creative-arts-normalize', 'stream-grade-trust', 'dashboard-top-classes', 'assessment-progress', 'parent-analytics', 'enrollment-trend'], timestamp: new Date().toISOString() });
   });
 
   // Read-only data census — confirms whether data exists, viewable from a browser.

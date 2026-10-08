@@ -18,6 +18,7 @@ import { escapeHtml, isUuid, jwtSecret, jwtRefreshSecret } from '../../common/se
 import { revokeSessions } from '../../common/sessions';
 import { tokenMatchesUser } from './jwt.strategy';
 import { findSimilarSchools } from '../../common/school-similarity';
+import { notifyOwner } from '../../common/owner-notify';
 
 // Hosts a password-reset link may point at. A client-supplied appUrl outside this
 // list is ignored, so a reset email can never carry the token to someone else's site.
@@ -187,6 +188,25 @@ export class AuthService {
     }
   }
 
+  // Tells the platform owner a school joined; flags look-alike schools if the person
+  // went past the similar-name warning. Fire-and-forget.
+  private async notifyNewSchool(kind: string, tenantId: string, dto: any, admin: { name: string; email?: string; phone?: string }) {
+    const levels = (Array.isArray(dto.schoolLevels) ? dto.schoolLevels : [])
+      .map((l: string) => (l === 'senior' ? 'Senior School' : 'Primary / Junior School')).join(' + ');
+    const similar = dto.confirmNewSchool
+      ? await findSimilarSchools(this.dataSource, dto.schoolName, { county: dto.county, excludeTenantId: tenantId }).catch(() => [])
+      : [];
+    const warn = similar.length
+      ? `<p style="color:#b45309"><b>⚠ Possible duplicate.</b> They confirmed this is a different school from:</p><ul>${similar
+          .map(m => `<li>${escapeHtml(m.name)} — ${escapeHtml([m.subCounty, m.county].filter(Boolean).join(', ') || 'no location')}${m.knecHint ? ` (KNEC ${escapeHtml(m.knecHint)})` : ''}</li>`).join('')}</ul>`
+      : '';
+    await notifyOwner(this.dataSource, `${kind}: ${dto.schoolName}`, [
+      ['School', dto.schoolName], ['KNEC code', dto.knecCode], ['Location', [dto.zone, dto.subCounty, dto.county].filter(Boolean).join(', ')],
+      ['Levels', levels], ['Type', dto.ownership === 'private' ? 'Private' : 'Public'],
+      ['Admin', admin.name], ['Email', admin.email], ['Phone', admin.phone || dto.phone],
+    ], warn);
+  }
+
   similarSchools(schoolName: string, county?: string) {
     return findSimilarSchools(this.dataSource, schoolName, { county });
   }
@@ -270,6 +290,9 @@ export class AuthService {
       const savedUser = await queryRunner.manager.save(User, user);
 
       await queryRunner.commitTransaction();
+
+      this.notifyNewSchool('New school signed up', savedTenant.id, dto,
+        { name: `${dto.adminFirstName} ${dto.adminLastName}`.trim(), email: savedUser.email, phone: dto.phone }).catch(() => null);
 
       // Fire-and-forget: sendEmail fails soft and must never block or fail signup.
       const appUrl = process.env.APP_URL || 'https://app.zarodasolutions.app';
@@ -371,6 +394,10 @@ export class AuthService {
       const savedUser = await queryRunner.manager.save(User, user);
 
       await queryRunner.commitTransaction();
+
+      notifyOwner(this.dataSource, `New individual teacher: ${displayName}`, [
+        ['Teacher', displayName], ['Email', savedUser.email], ['Phone', dto.phone], ['Referred', referredBy ? 'Yes, by another teacher' : null],
+      ]).catch(() => null);
 
       const tokens = await this.generateTokens(savedUser);
       return {
@@ -484,6 +511,9 @@ export class AuthService {
     } finally {
       await queryRunner.release();
     }
+
+    this.notifyNewSchool('Teacher upgraded to a school', tenant.id, dto,
+      { name: `${user.firstName} ${user.lastName}`.trim(), email: user.email, phone: user.phone }).catch(() => null);
 
     const appUrl = process.env.APP_URL || 'https://app.zarodasolutions.app';
     sendEmail(
