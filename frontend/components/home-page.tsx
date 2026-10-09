@@ -6,6 +6,7 @@ import {
   BookOpen, DollarSign, MessageSquare, FileText, Library,
   Trophy, Scale, Zap, Sparkles, ShieldCheck, MapPin,
   ArrowRight, Check, Phone, PlayCircle, Quote, Star, GraduationCap,
+  Receipt, Smartphone, Landmark, Wallet, ListChecks, Users,
 } from 'lucide-react';
 import { useAuth, homePathForRole } from '@/lib/hooks/useAuth';
 import apiClient from '@/lib/api/client';
@@ -13,13 +14,91 @@ import apiClient from '@/lib/api/client';
 const MODULES = [
   { icon: BookOpen,      title: 'Academic Core',        desc: 'Teachers enter marks online — mark lists and CBC report cards generate automatically, with real-time analytics. Learners, streams, attendance, and the KICD-compliant timetable generator across all grade bands.', color: 'bg-[#1a2e5a]' },
   { icon: PlayCircle,    title: 'Rubric Learning Videos', desc: 'Selected CBC sub-strands in the digital assessment books link to matching learning videos — accessed from the assessment books themselves — giving teachers and learners targeted teaching and learning materials.', color: 'bg-rose-600' },
-  { icon: DollarSign,    title: 'Finance & Fees',       desc: 'M-Pesa STK push collection, auto-reconciliation, FPE/FDJSE/FDSSE fund tracking, and payroll with statutory deductions.', color: 'bg-green-600' },
+  { icon: DollarSign,    title: 'Finance & Fees',       desc: 'Fee structures by vote head, invoices and receipts, M-Pesa collection with auto-reconciliation, a full cash book and ledger, expenses, and payroll with statutory deductions. See everything below.', color: 'bg-green-600' },
   { icon: Sparkles,      title: 'AI Professional Records', desc: 'Generate KICD-aligned Schemes of Work, Lesson Plans, and Lesson Notes in seconds, powered by ZARODA AI. HOI approval built in.', color: 'bg-purple-600' },
   { icon: MessageSquare, title: 'Communication',        desc: 'SMS via Africa\'s Talking, email, WhatsApp, and push notifications. Personalised bulk fee reminders to parents.', color: 'bg-blue-600' },
   { icon: Library,       title: 'Library',              desc: 'Full catalogue with barcode borrowing and returns.', color: 'bg-cyan-600' },
   { icon: Trophy,        title: 'Sports & Championships', desc: 'School teams, AI talent analytics, and a bridge to ZARODA Sports for cross-school championships — free.', color: 'bg-amber-500' },
   { icon: Scale,         title: 'Discipline & Guidance', desc: 'Incident recording, confidential counselling, behaviour assessments, and QASO-ready reports.', color: 'bg-red-500' },
   { icon: Zap,           title: 'Easy Self-Onboarding', desc: 'No IT team needed — a class teacher can onboard a single stream and start enjoying the service in minutes. The rest of the school follows at its own pace.', color: 'bg-[#f5820a]' },
+];
+
+// Everything the Finance module does, grouped the way a bursar works.
+// `pro` marks the one part that needs the Pro plan (see PLAN_FEATURES below).
+const FINANCE_CAPABILITIES = [
+  {
+    icon: ListChecks, color: 'bg-green-600', title: 'Fee structures & vote heads',
+    points: [
+      'Set fees per grade: tuition, transport, boarding, meals and activity',
+      'Put vote heads in payment-priority order, so each payment fills them in the order you choose',
+      'Print the fee structure for parents or the board',
+    ],
+  },
+  {
+    icon: Receipt, color: 'bg-[#1a2e5a]', title: 'Invoices & fee statements',
+    points: [
+      'An invoice for every learner, or print a whole class at once',
+      'Download all invoices shown as a single PDF',
+      'Live totals: billed, collected, outstanding, fully paid and unpaid',
+      'A fee statement for each learner showing their full account',
+    ],
+  },
+  {
+    icon: Wallet, color: 'bg-[#f5820a]', title: 'Recording payments & receipts',
+    points: [
+      'Record cash, M-Pesa and bank or cheque payments, by term or not term-specific',
+      'Each payment is split across vote heads automatically, or adjust the split by hand',
+      'Overpayments are kept as credit on the learner\'s account',
+      'Numbered, printable receipts, plus edit or remove a payment with its history kept',
+    ],
+  },
+  {
+    icon: Smartphone, color: 'bg-emerald-600', title: 'M-Pesa collection',
+    points: [
+      'Send an M-Pesa prompt (STK push) straight to a parent\'s phone',
+      'Connect your own paybill through Safaricom Daraja, or use Tuma',
+      'Paybill payments are recorded automatically as parents pay',
+      'Anything that can\'t be matched to a learner goes to an Unmatched list for you to assign',
+      'An activity log of every M-Pesa transaction',
+    ],
+  },
+  {
+    icon: Landmark, color: 'bg-indigo-600', title: 'Accounting & reports',
+    points: [
+      'Analysed cash book: receipts and payments, cash versus bank, by vote head',
+      'Vote head ledger: voted, spent and balance for each',
+      'Trial balance, cash flow statement, and income & expenditure',
+      'Financial years with opening balances, carried forward at year end',
+      'One-click fix for payments that weren\'t applied to the right vote head',
+    ],
+  },
+  {
+    icon: FileText, color: 'bg-rose-600', title: 'Expenses',
+    points: [
+      'Record school spending by category',
+      'Charge each expense to a vote head, so the ledger shows what\'s left in every vote head',
+    ],
+  },
+  {
+    icon: Users, color: 'bg-purple-600', title: 'Payroll', pro: true,
+    points: [
+      'Monthly payroll runs for every school-paid staff member',
+      'PAYE, NSSF, SHA and Housing Levy calculated for you',
+      'Staff loans and advances deducted automatically',
+      'Remedial lesson pay included in the month\'s run',
+      'Printable payslips, and an annual PAYE summary per staff member (P9-style)',
+    ],
+  },
+  {
+    icon: ShieldCheck, color: 'bg-amber-500', title: 'Access control & parents',
+    points: [
+      'Only the right people collect fees and see reports: HOI, bursar and accounts staff in public schools; owner and bursar in private schools',
+      'Public schools can allow class teachers to collect fees for their own class only',
+      'Private-school owners decide whether the HOI can view finance reports',
+      'Parents see their child\'s fee balance and payments in the parent portal',
+      'Email fee reminders to every parent with an outstanding balance',
+    ],
+  },
 ];
 
 const PRICING = [
@@ -32,13 +111,14 @@ const PRICING = [
 // the deeper, admin-facing modules.
 const PLAN_FEATURES = {
   essential: [
-    'Fee structures, invoices & M-Pesa collection',
+    'Fee structures, invoices, receipts & M-Pesa collection',
+    'Accounting: cash book, vote head ledger, trial balance & expenses',
     'Academic: marks, report cards & mark lists',
     'Detailed school-wide analytics & reports',
     'Communication, Library, Sports & Discipline',
   ],
   proOnly: [
-    'Payroll — PAYE, NSSF, SHA, Housing Levy & payslips',
+    'Payroll — PAYE, NSSF, SHA, Housing Levy, staff loans, payslips & P9-style summary',
     'HR — staff records, appraisals & recruitment',
     'Student Transport — routes, vehicles & fee billing',
   ],
@@ -78,6 +158,7 @@ export default function HomePage() {
           </div>
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-[#4a5278]">
             <a href="#features" className="hover:text-[#1a2e5a]">Features</a>
+            <a href="#finance"  className="hover:text-[#1a2e5a]">Finance</a>
             <a href="#pricing"  className="hover:text-[#1a2e5a]">Pricing</a>
             <Link href="/retooling" className="hover:text-[#1a2e5a]">Retooling</Link>
             <a href="#contact"  className="hover:text-[#1a2e5a]">Contact</a>
@@ -182,6 +263,50 @@ export default function HomePage() {
               </div>
             );
           })}
+        </div>
+      </section>
+
+      {/* ───── Finance in depth ───── */}
+      <section id="finance" className="bg-[#f4f6fb] py-20">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <p className="text-[#f5820a] font-bold text-sm uppercase tracking-widest mb-2">Finance &amp; Fees</p>
+            <h2 className="text-3xl md:text-4xl font-black text-[#1a2e5a]">From fee structure to financial statements</h2>
+            <p className="text-[#7a82a8] mt-3 max-w-2xl mx-auto">
+              Everything a bursar needs, in one place: set the fees, collect through M-Pesa, issue receipts, keep the books, and pay your staff. Fee collection and accounting are included in every school&apos;s plan; payroll is part of Pro.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {FINANCE_CAPABILITIES.map(c => {
+              const Icon = c.icon;
+              return (
+                <div key={c.title} className="card bg-white p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className={`w-11 h-11 rounded-2xl ${c.color} flex items-center justify-center flex-shrink-0`}>
+                      <Icon size={20} className="text-white"/>
+                    </div>
+                    <h3 className="font-bold text-[#1a2e5a] text-lg">{c.title}</h3>
+                    {c.pro && <span className="ml-auto text-[10px] font-black bg-[#d4af37] text-[#0f1c38] px-2 py-0.5 rounded-full">PRO</span>}
+                  </div>
+                  <ul className="space-y-2">
+                    {c.points.map(p => (
+                      <li key={p} className="flex items-start gap-2.5 text-sm text-[#4a5278]">
+                        <span className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Check size={12} className="text-green-600"/>
+                        </span>
+                        {p}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-center text-xs text-[#7a82a8] mt-8">
+            Statutory payroll rates follow current KRA, NSSF and SHA guidance and are updated when the government changes them.
+          </p>
         </div>
       </section>
 
