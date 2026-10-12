@@ -901,14 +901,21 @@ class FinanceController {
               COUNT(DISTINCT payment_id) AS "paymentCount"
          FROM payment_allocations
         WHERE tenant_id = $1
-          AND ($2::text IS NULL OR term = $2)
+          AND ($2::text IS NULL OR term = $2 OR ($2 = 'none' AND term IS NULL))
           AND ($3::text IS NULL OR academic_year = $3)
         GROUP BY vote_head
         ORDER BY "totalReceived" DESC`,
       [tenantId, q.term || null, q.academicYear || null],
     ).catch(() => []);
     const totalReceived = (rows as any[]).reduce((s, r) => s + Number(r.totalReceived || 0), 0);
-    return { voteHeads: rows, totalReceived };
+    // The academic years that have payments, so the page can offer them as a filter.
+    const academicYears = await this.ds.query(
+      `SELECT DISTINCT academic_year AS y FROM payment_allocations
+        WHERE tenant_id = $1 AND academic_year IS NOT NULL AND academic_year <> ''
+        ORDER BY y DESC`,
+      [tenantId],
+    ).then((r: any[]) => r.map((x) => x.y)).catch(() => []);
+    return { voteHeads: rows, totalReceived, academicYears };
   }
 
   // The vote heads that apply to a learner (their class's fee items), each with billed amount,
