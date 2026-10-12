@@ -24,6 +24,10 @@ function AccountingContent() {
   const [voteHeads, setVoteHeads] = useState<any[]>([]);
   const [totalReceived, setTotalReceived] = useState(0);
   const [loadingVoteHeads, setLoadingVoteHeads] = useState(true);
+  // Filters for the vote-head totals: which term, and which academic year (blank = all).
+  const [vhTerm, setVhTerm] = useState('');
+  const [vhYear, setVhYear] = useState('');
+  const [vhYears, setVhYears] = useState<string[]>([]);
   const [reconciling, setReconciling] = useState(false);
 
   // ── Financial years & opening balances ──
@@ -106,12 +110,17 @@ function AccountingContent() {
 
   const loadVoteHeads = () => {
     setLoadingVoteHeads(true);
-    apiClient.get('/finance/vote-heads/summary')
-      .then(r => { setVoteHeads(r.data?.voteHeads || []); setTotalReceived(Number(r.data?.totalReceived || 0)); })
+    apiClient.get('/finance/vote-heads/summary', { params: { ...(vhTerm ? { term: vhTerm } : {}), ...(vhYear ? { academicYear: vhYear } : {}) } })
+      .then(r => {
+        setVoteHeads(r.data?.voteHeads || []);
+        setTotalReceived(Number(r.data?.totalReceived || 0));
+        if (Array.isArray(r.data?.academicYears)) setVhYears(r.data.academicYears);
+      })
       .catch(() => toast.error('Could not load vote head totals'))
       .finally(() => setLoadingVoteHeads(false));
   };
-  useEffect(loadVoteHeads, []);
+  // Reload whenever the term or academic year filter changes.
+  useEffect(loadVoteHeads, [vhTerm, vhYear]);
 
   // One-time repair for payments that were mis-split before a term-matching fix: money that
   // fell into an unattributed "Credit / Overpayment" bucket instead of paying down a learner's
@@ -297,16 +306,36 @@ function AccountingContent() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Landmark size={18} className="text-[#d4af37]"/>
-            <div className="font-bold text-theme-heading">Total Received per Vote Head</div>
+            <div className="font-bold text-theme-heading">
+              Total Received per Vote Head
+              {(vhTerm || vhYear) && (
+                <span className="ml-2 text-xs font-medium text-theme-muted">
+                  {[vhTerm === 'none' ? 'Not term-specific' : vhTerm ? vhTerm.replace('term_', 'Term ') : '', vhYear].filter(Boolean).join(' · ')}
+                </span>
+              )}
+            </div>
           </div>
-          <button onClick={reconcile} disabled={reconciling} className="btn-ghost text-xs" title="Fix payments that were recorded but not applied to the correct vote head">
-            {reconciling ? <Loader2 size={13} className="animate-spin"/> : <Wrench size={13}/>} Reconcile balances
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={vhTerm} onChange={e => setVhTerm(e.target.value)} className="input text-xs py-1.5" aria-label="Filter by term">
+              <option value="">All terms</option>
+              <option value="term_1">Term 1</option>
+              <option value="term_2">Term 2</option>
+              <option value="term_3">Term 3</option>
+              <option value="none">Not term-specific</option>
+            </select>
+            <select value={vhYear} onChange={e => setVhYear(e.target.value)} className="input text-xs py-1.5" aria-label="Filter by academic year">
+              <option value="">All years</option>
+              {vhYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={reconcile} disabled={reconciling} className="btn-ghost text-xs" title="Fix payments that were recorded but not applied to the correct vote head">
+              {reconciling ? <Loader2 size={13} className="animate-spin"/> : <Wrench size={13}/>} Reconcile balances
+            </button>
+          </div>
         </div>
         {loadingVoteHeads ? (
           <div className="h-32 shimmer rounded-xl"/>
         ) : voteHeads.length === 0 ? (
-          <div className="text-sm text-theme-muted">No payments recorded yet</div>
+          <div className="text-sm text-theme-muted">{vhTerm || vhYear ? 'No payments recorded for this selection' : 'No payments recorded yet'}</div>
         ) : (
           <div className="overflow-auto">
             <table className="w-full text-sm">
