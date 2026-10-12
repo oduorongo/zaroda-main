@@ -760,7 +760,45 @@ class FinanceController {
       [tenantId],
     ).catch(() => []);
     const retagged = Number((retaggedRows as any[])[0]?.n || 0);
-    return { reconciled, stillCredited, retagged, total: (shortfalls as any[]).length };
+
+    // The opposite fault to a shortfall: a payment split across vote heads for MORE than was received
+    // (for instance a payment edited down after it had been allocated). The receipt is the real money,
+    // so the excess is taken back off the shares that were filled last - an overpayment credit first,
+    // then the lowest-priority fee - until the split equals the payment again. This is what leaves the
+    // Trial Balance out by the same amount and no shortfall top-up can ever clear.
+    const overs = await this.ds.query(
+      `SELECT p.id, p.amount, SUM(a.amount) AS allocated
+         FROM payments p JOIN payment_allocations a ON a.payment_id::text = p.id::text
+        WHERE p.tenant_id = $1 AND a.tenant_id = $1
+        GROUP BY p.id, p.amount
+       HAVING SUM(a.amount) > p.amount + 0.01`,
+      [tenantId],
+    ).catch(() => []);
+    let trimmed = 0;
+    let trimmedAmount = 0;
+    for (const o of (overs as any[])) {
+      let excess = Number(o.allocated) - Number(o.amount);
+      const shares = await this.ds.query(
+        `SELECT a.id, a.amount FROM payment_allocations a
+           LEFT JOIN fee_items fi ON fi.id::text = a.fee_item_id::text
+          WHERE a.payment_id::text = $1 AND a.tenant_id = $2
+          ORDER BY (a.fee_item_id IS NULL) DESC, COALESCE(fi.priority, 100) DESC, a.created_at DESC NULLS LAST`,
+        [String(o.id), tenantId],
+      ).catch(() => []);
+      for (const sh of (shares as any[])) {
+        if (excess <= 0.004) break;
+        const cut = Math.min(excess, Number(sh.amount));
+        if (cut >= Number(sh.amount) - 0.004) {
+          await this.ds.query(`DELETE FROM payment_allocations WHERE id::text = $1 AND tenant_id = $2`, [String(sh.id), tenantId]);
+        } else {
+          await this.ds.query(`UPDATE payment_allocations SET amount = amount - $3 WHERE id::text = $1 AND tenant_id = $2`, [String(sh.id), tenantId, cut]);
+        }
+        excess -= cut;
+        trimmedAmount += cut;
+      }
+      trimmed++;
+    }
+    return { reconciled, stillCredited, retagged, trimmed, trimmedAmount: Math.round(trimmedAmount * 100) / 100, total: (shortfalls as any[]).length };
   }
 
   // ── Financial years & opening balances ──────────────────────
@@ -1387,6 +1425,18 @@ class FinanceController {
     const allocatedTotal = (allocRows as any[]).reduce((s, r) => s + Number(r.amount || 0), 0);
     const unallocated = totalIn - allocatedTotal;
 
+    // A payment split across vote heads for MORE than it was worth (say, edited down after it was
+    // allocated) is what turns "unallocated" negative and leaves the trial balance out by that amount.
+    // Name those payments, so the books explain themselves rather than print a negative figure.
+    const overSplit = (payments as any[])
+      .map((p) => ({ p, split: Object.values(allocByPayment.get(String(p.id)) || {}).reduce((s, v) => s + v, 0) }))
+      .filter((x) => x.split > Number(x.p.amount || 0) + 0.01);
+    const overSplitNote = overSplit.length
+      ? `<p style="font-size:11px;color:#a00"><strong>${overSplit.length} payment(s) are split across vote heads for more than was received:</strong> ${
+          overSplit.slice(0, 8).map((x) => `${esc(x.p.receipt_number || 'receipt')} (${esc(x.p.learner_name || 'learner')}) received ${ksh(x.p.amount)}, split ${ksh(x.split)}`).join('; ')
+        }${overSplit.length > 8 ? '; …' : ''}. Use <strong>Reconcile balances</strong> on the Accounting page to bring each split back to what was received.</p>`
+      : '';
+
     let receiptsCash = 0, receiptsBank = 0;
     for (const p of payments as any[]) {
       if (isCashMethod(p.method)) receiptsCash += Number(p.amount || 0);
@@ -1545,7 +1595,7 @@ class FinanceController {
             ? ` Opening balances ${esc(year.opening_source || 'as recorded')}.`
             : ' No opening balance has been set for this year — the book runs from nil.')
           : ' No financial year has been set up, so this covers every transaction recorded.'}</p>
-        ${unallocated ? `<p style="font-size:11px;color:#a00">${ksh(unallocated)} of receipts is not analysed to any vote head. Use <strong>Reconcile balances</strong> on the Accounting page to attribute it.</p>` : ''}`;
+        ${unallocated > 0.005 ? `<p style="font-size:11px;color:#a00">${ksh(unallocated)} of receipts is not analysed to any vote head. Use <strong>Reconcile balances</strong> on the Accounting page to attribute it.</p>` : ''}${overSplitNote}`;
     } else if (key === 'cash_flow') {
       inner = `<table><tbody>
           <tr><td>Opening cash in hand</td><td class="n">${ksh(openingCash)}</td></tr>
@@ -1606,10 +1656,12 @@ class FinanceController {
           <tr><td>Closing cash at bank</td><td class="n">${ksh(closingBank)}</td><td class="n"></td></tr>
         </tbody>
         <tfoot><tr><td>Totals</td><td class="n">${ksh(totalDr)}</td><td class="n">${ksh(totalCr)}</td></tr></tfoot></table>
-        ${diff === 0
+        ${Math.abs(diff) < 0.005
           ? '<p style="font-size:12px;color:#0a7">The books balance.</p>'
           : `<p style="font-size:12px;color:#a00"><strong>Out of balance by ${ksh(Math.abs(diff))}.</strong> `
-            + `${unallocated ? `${ksh(unallocated)} of receipts has not been analysed to a vote head — run <strong>Reconcile balances</strong> on the Accounting page.` : 'Check that every receipt and expense carries a vote head.'}</p>`}`;
+            + `${unallocated > 0.005 ? `${ksh(unallocated)} of receipts has not been analysed to a vote head — run <strong>Reconcile balances</strong> on the Accounting page.`
+              : overSplit.length ? 'More has been split across vote heads than was actually received - see the payment(s) listed below.'
+              : 'Check that every receipt and expense carries a vote head.'}</p>${overSplitNote}`}`;
     } else if (key === 'ledger') {
       // One account per vote head, in the workbook convention: receipts credit a
       // head (funds voted), payments debit it (funds spent), so an unspent vote
