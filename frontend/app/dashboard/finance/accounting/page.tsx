@@ -135,7 +135,8 @@ function AccountingContent() {
       const { data } = await apiClient.post('/finance/vote-heads/reconcile');
       toast.success(
         `Reconciled ${data.reconciled} of ${data.total} unattributed payment(s)` +
-        (data.retagged ? `; moved ${data.retagged} payment share(s) to the term of the fee they paid` : ''),
+        (data.retagged ? `; moved ${data.retagged} payment share(s) to the term of the fee they paid` : '') +
+        (data.trimmed ? `; corrected ${data.trimmed} payment(s) that were split for more than was received (${ksh(data.trimmedAmount)} taken back)` : ''),
       );
       loadVoteHeads();
     } catch (e: any) {
