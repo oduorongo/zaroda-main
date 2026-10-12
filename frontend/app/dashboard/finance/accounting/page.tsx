@@ -24,10 +24,13 @@ function AccountingContent() {
   const [voteHeads, setVoteHeads] = useState<any[]>([]);
   const [totalReceived, setTotalReceived] = useState(0);
   const [loadingVoteHeads, setLoadingVoteHeads] = useState(true);
-  // Filters for the vote-head totals: which term, and which academic year (blank = all).
-  const [vhTerm, setVhTerm] = useState('');
-  const [vhYear, setVhYear] = useState('');
-  const [vhYears, setVhYears] = useState<string[]>([]);
+  // One filter for the whole page (blank = everything): which term, and which academic year. It
+  // narrows the vote-head totals and every report below - see each report for exactly how.
+  const [termFilter, setTermFilter] = useState('');
+  const [academicYearFilter, setAcademicYearFilter] = useState('');
+  const [academicYears, setAcademicYears] = useState<string[]>([]);
+  // Money received with no term recorded: left out of any single term, so we say how much.
+  const [untaggedTotal, setUntaggedTotal] = useState(0);
   const [reconciling, setReconciling] = useState(false);
 
   // ── Financial years & opening balances ──
@@ -110,17 +113,18 @@ function AccountingContent() {
 
   const loadVoteHeads = () => {
     setLoadingVoteHeads(true);
-    apiClient.get('/finance/vote-heads/summary', { params: { ...(vhTerm ? { term: vhTerm } : {}), ...(vhYear ? { academicYear: vhYear } : {}) } })
+    apiClient.get('/finance/vote-heads/summary', { params: { ...(termFilter ? { term: termFilter } : {}), ...(academicYearFilter ? { academicYear: academicYearFilter } : {}) } })
       .then(r => {
         setVoteHeads(r.data?.voteHeads || []);
         setTotalReceived(Number(r.data?.totalReceived || 0));
-        if (Array.isArray(r.data?.academicYears)) setVhYears(r.data.academicYears);
+        setUntaggedTotal(Number(r.data?.untaggedTotal || 0));
+        if (Array.isArray(r.data?.academicYears)) setAcademicYears(r.data.academicYears);
       })
       .catch(() => toast.error('Could not load vote head totals'))
       .finally(() => setLoadingVoteHeads(false));
   };
   // Reload whenever the term or academic year filter changes.
-  useEffect(loadVoteHeads, [vhTerm, vhYear]);
+  useEffect(loadVoteHeads, [termFilter, academicYearFilter]);
 
   // One-time repair for payments that were mis-split before a term-matching fix: money that
   // fell into an unattributed "Credit / Overpayment" bucket instead of paying down a learner's
@@ -139,6 +143,14 @@ function AccountingContent() {
   // The backend renders each report as printable HTML (with its own "Print / Save as PDF"
   // button), not CSV — open it in a new tab rather than downloading the markup as a
   // mislabeled .csv file (which showed raw tags and garbled encoding when opened in Excel).
+  // The page-wide term filter. Every report takes the term (the books use the school's Term Dates inside
+  // the financial year; fee statements use each fee's and payment's own term). Only fee statements
+  // also take the academic year, since the books run over the financial year chosen above.
+  const periodParams = (key: string) => ({
+    ...(termFilter ? { term: termFilter } : {}),
+    ...(key === 'fee_statement' && academicYearFilter ? { academicYear: academicYearFilter } : {}),
+  });
+
   const generate = async (key: string, label: string) => {
     setGenerating(key);
     try {
@@ -146,6 +158,7 @@ function AccountingContent() {
         responseType: 'text',
         params: {
           ...(yearId ? { yearId } : {}),
+          ...periodParams(key),
           // Only the fee statement is per-learner, so only it takes a class filter.
           ...(key === 'fee_statement' && feeFilter.gradeLevel ? { gradeLevel: feeFilter.gradeLevel } : {}),
           ...(key === 'fee_statement' && feeFilter.streamId ? { streamId: feeFilter.streamId } : {}),
@@ -176,14 +189,22 @@ function AccountingContent() {
         params: {
           format: 'pdf',
           ...(yearId ? { yearId } : {}),
+          ...periodParams(key),
           ...(key === 'fee_statement' && feeFilter.gradeLevel ? { gradeLevel: feeFilter.gradeLevel } : {}),
           ...(key === 'fee_statement' && feeFilter.streamId ? { streamId: feeFilter.streamId } : {}),
         },
       });
-      const name = `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${selectedYear?.yearLabel || 'all'}.pdf`;
+      const name = `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${selectedYear?.yearLabel || 'all'}${termFilter ? `-${termFilter.replace('_', '')}` : ''}.pdf`;
       saveBlob(res.data, name);
-    } catch {
-      toast.error(`Could not download ${label}`);
+    } catch (e: any) {
+      // A PDF request fails with the reason as a blob; read it so a missing term date says so,
+      // instead of a bare "could not download".
+      let message = `Could not download ${label}`;
+      try {
+        const text = String(await (e?.response?.data as Blob)?.text?.() ?? '').replace(/<[^>]+>/g, '').trim();
+        if (text && text.length < 400) message = text;
+      } catch { /* keep the generic message */ }
+      toast.error(message);
     } finally { setDownloading(''); }
   };
 
@@ -302,40 +323,54 @@ function AccountingContent() {
         )}
       </div>
 
+      {/* One filter for the totals and every report below it. */}
+      <div className="card p-5">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="label" htmlFor="term-filter">Term</label>
+            <select id="term-filter" value={termFilter} onChange={e => setTermFilter(e.target.value)} className="input">
+              <option value="">All terms</option>
+              <option value="term_1">Term 1</option>
+              <option value="term_2">Term 2</option>
+              <option value="term_3">Term 3</option>
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="academic-year-filter">Academic year</label>
+            <select id="academic-year-filter" value={academicYearFilter} onChange={e => setAcademicYearFilter(e.target.value)} className="input">
+              <option value="">All years</option>
+              {academicYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <p className="min-w-[240px] flex-1 text-xs text-theme-muted">
+            Applies to the vote head totals and to the reports below. The cash book, ledger, trial balance, cash flow and
+            income &amp; expenditure show the chosen term of the financial year above, using the closing dates in
+            Settings → Term Dates. Fee statements use each learner&apos;s fees and payments for that term and academic year.
+          </p>
+        </div>
+      </div>
+
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Landmark size={18} className="text-[#d4af37]"/>
             <div className="font-bold text-theme-heading">
               Total Received per Vote Head
-              {(vhTerm || vhYear) && (
+              {(termFilter || academicYearFilter) && (
                 <span className="ml-2 text-xs font-medium text-theme-muted">
-                  {[vhTerm === 'none' ? 'Not term-specific' : vhTerm ? vhTerm.replace('term_', 'Term ') : '', vhYear].filter(Boolean).join(' · ')}
+                  {[termFilter ? termFilter.replace('term_', 'Term ') : '', academicYearFilter].filter(Boolean).join(' · ')}
                 </span>
               )}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select value={vhTerm} onChange={e => setVhTerm(e.target.value)} className="input text-xs py-1.5" aria-label="Filter by term">
-              <option value="">All terms</option>
-              <option value="term_1">Term 1</option>
-              <option value="term_2">Term 2</option>
-              <option value="term_3">Term 3</option>
-              <option value="none">Not term-specific</option>
-            </select>
-            <select value={vhYear} onChange={e => setVhYear(e.target.value)} className="input text-xs py-1.5" aria-label="Filter by academic year">
-              <option value="">All years</option>
-              {vhYears.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={reconcile} disabled={reconciling} className="btn-ghost text-xs" title="Fix payments that were recorded but not applied to the correct vote head">
-              {reconciling ? <Loader2 size={13} className="animate-spin"/> : <Wrench size={13}/>} Reconcile balances
-            </button>
-          </div>
+          <button onClick={reconcile} disabled={reconciling} className="btn-ghost text-xs" title="Fix payments that were recorded but not applied to the correct vote head">
+            {reconciling ? <Loader2 size={13} className="animate-spin"/> : <Wrench size={13}/>} Reconcile balances
+          </button>
         </div>
         {loadingVoteHeads ? (
           <div className="h-32 shimmer rounded-xl"/>
         ) : voteHeads.length === 0 ? (
-          <div className="text-sm text-theme-muted">{vhTerm || vhYear ? 'No payments recorded for this selection' : 'No payments recorded yet'}</div>
+          <div className="text-sm text-theme-muted">{termFilter || academicYearFilter ? 'No payments recorded for this selection' : 'No payments recorded yet'}</div>
         ) : (
           <div className="overflow-auto">
             <table className="w-full text-sm">
@@ -363,6 +398,11 @@ function AccountingContent() {
                 </tr>
               </tfoot>
             </table>
+            {termFilter && untaggedTotal > 0 && (
+              <p className="mt-3 text-xs text-theme-muted">
+                {ksh(untaggedTotal)} was recorded without a term, so it is not part of any single term&apos;s total above.
+              </p>
+            )}
           </div>
         )}
       </div>

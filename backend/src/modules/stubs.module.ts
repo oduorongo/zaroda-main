@@ -25,6 +25,7 @@ import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
 import { safeEqual, escapeHtml, encryptSecret, decryptSecret, generateTempPassword, safeImageSrc } from '../common/security';
 import { revokeSessions } from '../common/sessions';
+import { isTermKey, termLabel, termWindow, TermKey } from './finance-term-window';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
 // UserInBlacklist, statusCode 406) so a future send can warn in-app before trying
@@ -901,7 +902,7 @@ class FinanceController {
               COUNT(DISTINCT payment_id) AS "paymentCount"
          FROM payment_allocations
         WHERE tenant_id = $1
-          AND ($2::text IS NULL OR term = $2 OR ($2 = 'none' AND term IS NULL))
+          AND ($2::text IS NULL OR term = $2)
           AND ($3::text IS NULL OR academic_year = $3)
         GROUP BY vote_head
         ORDER BY "totalReceived" DESC`,
@@ -915,7 +916,16 @@ class FinanceController {
         ORDER BY y DESC`,
       [tenantId],
     ).then((r: any[]) => r.map((x) => x.y)).catch(() => []);
-    return { voteHeads: rows, totalReceived, academicYears };
+    // Payments recorded without a term can never appear under a single term, so when a term is
+    // chosen say how much is left out - otherwise the term totals look short against "All terms".
+    const untaggedTotal = q.term
+      ? await this.ds.query(
+          `SELECT COALESCE(SUM(amount),0) AS t FROM payment_allocations
+            WHERE tenant_id = $1 AND term IS NULL AND ($2::text IS NULL OR academic_year = $2)`,
+          [tenantId, q.academicYear || null],
+        ).then((r: any[]) => Number(r[0]?.t || 0)).catch(() => 0)
+      : 0;
+    return { voteHeads: rows, totalReceived, academicYears, untaggedTotal };
   }
 
   // The vote heads that apply to a learner (their class's fee items), each with billed amount,
@@ -1258,12 +1268,38 @@ class FinanceController {
     const from = year?.start_date || '1900-01-01';
     const to   = year?.end_date   || '2999-12-31';
 
+    // Optionally narrow the books to ONE TERM of the financial year. Receipts record their term but
+    // expenses do not, so the books are cut by date using the school's own term closing dates
+    // (Settings -> Term Dates) - see finance-term-window.ts. Fee statements are per learner and
+    // already filter by the term of each fee and payment, so they skip this.
+    const termKey: TermKey | null = isTermKey(q.term) ? q.term : null;
+    let pFrom: any = from;
+    let pTo: any = to;
+    let termNote = '';
+    let termExplain = '';
+    if (termKey && key !== 'fee_statement') {
+      const fail = (m: string) => res.status(400).set('Content-Type', 'text/html').send(`<p style="font-family:sans-serif;max-width:640px;margin:40px auto;line-height:1.5">${esc(m)}</p>`);
+      if (!year) { fail('Reports by term need a financial year. Create one on the Accounting page first.'); return; }
+      const tdRows = await this.ds.query(
+        `SELECT settings->'termDates' AS td FROM schools WHERE tenant_id::text = $1 LIMIT 1`, [tenantId],
+      ).catch(() => []);
+      // (typed loosely: this project does not compile with strict null checks, so the result's
+      // ok/not-ok union does not narrow on its own)
+      const w: any = termWindow(termKey, (tdRows as any[])[0]?.td, dmy(from), dmy(to));
+      if (!w.ok) { fail(String(w.message)); return; }
+      pFrom = w.window.from;
+      pTo = w.window.to;
+      termNote = ` · ${termLabel(termKey)} (${pFrom} to ${pTo})`;
+      termExplain = `<p style="font-size:11px;color:#666;margin:0 0 8px">This report covers ${esc(termLabel(termKey))} only, from ${esc(pFrom)} to ${esc(pTo)}, taken from your school's term dates (Settings → Term Dates).${
+        termKey !== 'term_1' ? ' The balance brought forward includes everything that happened earlier in the financial year.' : ''}</p>`;
+    }
+
     const payments = await this.ds.query(
       `SELECT id, receipt_number, learner_name, admission_number, amount, method, reference,
               COALESCE(paid_on, created_at::date) AS d
          FROM payments WHERE tenant_id = $1
           AND COALESCE(paid_on, created_at::date) BETWEEN $2::date AND $3::date
-        ORDER BY d ASC`, [tenantId, from, to],
+        ORDER BY d ASC`, [tenantId, pFrom, pTo],
     ).catch(() => []);
     const expenses = await this.ds.query(
       // Analysed by the vote head it was charged to, falling back to category for
@@ -1275,9 +1311,9 @@ class FinanceController {
               COALESCE(spent_on, created_at::date) AS d
          FROM expenses WHERE tenant_id = $1
           AND COALESCE(spent_on, created_at::date) BETWEEN $2::date AND $3::date
-        ORDER BY d ASC`, [tenantId, from, to],
+        ORDER BY d ASC`, [tenantId, pFrom, pTo],
     ).catch(() => []);
-    const totalIn = (payments as any[]).reduce((s, p) => s + Number(p.amount || 0), 0);
+    const totalIn =(payments as any[]).reduce((s, p) => s + Number(p.amount || 0), 0);
     const totalOut = (expenses as any[]).reduce((s, e) => s + Number(e.amount || 0), 0);
 
     // ── Final books: shared groundwork ──────────────────────────
@@ -1292,7 +1328,7 @@ class FinanceController {
          JOIN payments p ON p.id::text = a.payment_id::text
         WHERE a.tenant_id = $1
           AND COALESCE(p.paid_on, p.created_at::date) BETWEEN $2::date AND $3::date
-        GROUP BY a.payment_id, a.vote_head`, [tenantId, from, to],
+        GROUP BY a.payment_id, a.vote_head`, [tenantId, pFrom, pTo],
     ).catch(() => []);
 
     // payment id -> { head: amount }, so each cash-book row can be analysed.
@@ -1330,8 +1366,28 @@ class FinanceController {
       if (isCashMethod(e.payment_method)) paymentsCash += Number(e.amount || 0);
       else paymentsBank += Number(e.amount || 0);
     }
-    const openingCash = Number(year?.opening_cash || 0);
-    const openingBank = Number(year?.opening_bank || 0);
+    let openingCash = Number(year?.opening_cash || 0);
+    let openingBank = Number(year?.opening_bank || 0);
+    if (termKey && key !== 'fee_statement' && year && dmy(pFrom) > dmy(from)) {
+      // A term after the first: the balance brought forward is the year's opening balance plus
+      // everything that moved from the start of the year up to the day before this term began.
+      const [priorIn] = await this.ds.query(
+        `SELECT COALESCE(SUM(CASE WHEN lower(COALESCE(method,'')) = 'cash' THEN amount ELSE 0 END),0) AS cash,
+                COALESCE(SUM(CASE WHEN lower(COALESCE(method,'')) <> 'cash' THEN amount ELSE 0 END),0) AS bank
+           FROM payments WHERE tenant_id::text = $1
+            AND COALESCE(paid_on, created_at::date) >= $2::date AND COALESCE(paid_on, created_at::date) < $3::date`,
+        [tenantId, from, pFrom],
+      ).catch(() => [{ cash: 0, bank: 0 }]);
+      const [priorOut] = await this.ds.query(
+        `SELECT COALESCE(SUM(CASE WHEN lower(COALESCE(payment_method,'')) = 'cash' THEN amount ELSE 0 END),0) AS cash,
+                COALESCE(SUM(CASE WHEN lower(COALESCE(payment_method,'')) <> 'cash' THEN amount ELSE 0 END),0) AS bank
+           FROM expenses WHERE tenant_id::text = $1
+            AND COALESCE(spent_on, created_at::date) >= $2::date AND COALESCE(spent_on, created_at::date) < $3::date`,
+        [tenantId, from, pFrom],
+      ).catch(() => [{ cash: 0, bank: 0 }]);
+      openingCash += Number(priorIn?.cash || 0) - Number(priorOut?.cash || 0);
+      openingBank += Number(priorIn?.bank || 0) - Number(priorOut?.bank || 0);
+    }
     const closingCash = openingCash + receiptsCash - paymentsCash;
     const closingBank = openingBank + receiptsBank - paymentsBank;
 
@@ -1367,8 +1423,9 @@ class FinanceController {
       </style></head><body>
       <div class="head"><h1>${esc(school)}</h1><h2>${esc(title)}${
         year ? ` · ${esc(year.year_label)} (${esc(dmy(year.start_date))} to ${esc(dmy(year.end_date))})` : ''
-      } · printed ${esc(today)}</h2></div>
+      }${esc(termNote)} · printed ${esc(today)}</h2></div>
       <div class="print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+      ${termExplain}
       ${inner}
       ${PRINT_FOOTER_HTML}</body></html>`;
 
@@ -1470,17 +1527,19 @@ class FinanceController {
         <tfoot><tr><td>Closing balance</td><td class="n">${ksh(closingCash + closingBank)}</td></tr></tfoot></table>`;
     } else if (key === 'income') {
       // Income statement: revenue by vote head − expenses by category.
-      const rev = await this.ds.query(
-        `SELECT COALESCE(vote_head,'Unallocated') AS head, COALESCE(SUM(amount),0) AS total
-           FROM payment_allocations WHERE tenant_id = $1 GROUP BY vote_head ORDER BY total DESC`, [tenantId],
-      ).catch(() => []);
-      const exp = await this.ds.query(
-        `SELECT COALESCE(NULLIF(vote_head,''), NULLIF(category,''), 'Other') AS cat,
-                COALESCE(SUM(amount),0) AS total
-           FROM expenses WHERE tenant_id = $1
-          GROUP BY COALESCE(NULLIF(vote_head,''), NULLIF(category,''), 'Other')
-          ORDER BY total DESC`, [tenantId],
-      ).catch(() => []);
+      // Both sides cover exactly the period being reported (the financial year, or one term of it) -
+      // the same receipts and expenses the totals below are built from, so the lines add up to them.
+      const revByHead: Record<string, number> = {};
+      for (const r of allocRows as any[]) revByHead[String(r.head)] = (revByHead[String(r.head)] || 0) + Number(r.amount || 0);
+      const rev = Object.entries(revByHead).map(([head, total]) => ({ head, total })).sort((a, b) => b.total - a.total);
+      // Receipts not yet analysed to a vote head still count as revenue; show them rather than leave the lines short.
+      if (unallocated > 0) rev.push({ head: 'Not yet analysed to a vote head', total: unallocated });
+      const expByCat: Record<string, number> = {};
+      for (const e of expenses as any[]) {
+        const cat = String(e.vote_head || '').trim() || String(e.category || '').trim() || 'Other';
+        expByCat[cat] = (expByCat[cat] || 0) + Number(e.amount || 0);
+      }
+      const exp = Object.entries(expByCat).map(([cat, total]) => ({ cat, total })).sort((a, b) => b.total - a.total);
       const revRows = (rev as any[]).map(r => `<tr><td>${esc(r.head)}</td><td class="n">${ksh(r.total)}</td></tr>`).join('') || '<tr><td>No revenue recorded</td><td class="n">KES 0</td></tr>';
       const expRows = (exp as any[]).map(r => `<tr><td>${esc(r.cat)}</td><td class="n">${ksh(r.total)}</td></tr>`).join('') || '<tr><td>No expenses recorded</td><td class="n">KES 0</td></tr>';
       inner = `<h3>Revenue (Fee Collections by Vote Head)</h3>
@@ -1548,6 +1607,9 @@ class FinanceController {
         q.gradeLevel ? String(q.gradeLevel).replace(/_/g, ' ') : '',
         streamName,
         q.search ? `matching “${q.search}”` : '',
+        // Billed and paid below are for this term / academic year only - say so on the page.
+        termKey ? termLabel(termKey) : '',
+        q.academicYear ? String(q.academicYear) : '',
       ].filter(Boolean).join(' · ');
       inner = `<p style="font-size:12px;margin:0 0 6px"><strong>${esc(scope || 'All classes')}</strong> — ${(invoices as any[]).length} learner(s)</p>
         <table><thead><tr><th>Adm No</th><th>Learner</th><th>Class</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Balance</th></tr></thead>
@@ -1560,7 +1622,7 @@ class FinanceController {
       ledger:'Vote Head Ledger', cash_flow:'Cash Flow Statement', fee_statement:'Fee Statements' } as any)[key] || 'Report';
     await this.sendDocument(res, wrap(title, inner), {
       asPdf: String(q.format) === 'pdf',
-      filename: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${year?.year_label || 'all'}.pdf`,
+      filename: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${year?.year_label || 'all'}${termKey ? `-${termKey.replace('_', '')}` : ''}.pdf`,
       landscape,
     });
   }
