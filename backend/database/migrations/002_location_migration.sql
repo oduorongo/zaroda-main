@@ -31,6 +31,21 @@ CREATE TABLE IF NOT EXISTS ke_zones (
   UNIQUE(sub_county_id, name)
 );
 
+-- Repair the id counters. These ids are SMALLSERIAL (largest value 32767), and an
+-- "ON CONFLICT DO NOTHING" insert still uses up one counter value for every row it skips - so
+-- every re-run of the seeds used the counters up, until inserts failed with "reached maximum
+-- value of sequence". Set each counter back to the largest id really in use. Safe to repeat.
+DO $$
+DECLARE
+  t text;
+  m bigint;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['ke_counties', 'ke_sub_counties', 'ke_zones'] LOOP
+    EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I', t) INTO m;
+    PERFORM setval(pg_get_serial_sequence(t, 'id'), GREATEST(m, 1), m > 0);
+  END LOOP;
+END $$;
+
 -- ============================================================
 -- 2. ADD LOCATION COLUMNS TO TENANTS
 -- ============================================================
@@ -131,7 +146,10 @@ DO $$ BEGIN IF to_regclass('public.invite_signups') IS NOT NULL THEN EXECUTE 'CR
 -- 7. SEED: All 47 Kenya Counties
 -- ============================================================
 
-INSERT INTO ke_counties (code, name, region) VALUES
+-- INSERT ... SELECT ... WHERE NOT EXISTS (not ON CONFLICT DO NOTHING) so rows that already exist
+-- are filtered out BEFORE a counter value is drawn for them.
+INSERT INTO ke_counties (code, name, region)
+SELECT v.code, v.name, v.region FROM (VALUES
 ('001','Mombasa',       'Coast'),
 ('002','Kwale',         'Coast'),
 ('003','Kilifi',        'Coast'),
@@ -179,7 +197,8 @@ INSERT INTO ke_counties (code, name, region) VALUES
 ('045','Kisii',         'Nyanza'),
 ('046','Nyamira',       'Nyanza'),
 ('047','Nairobi',       'Nairobi')
-ON CONFLICT DO NOTHING;
+) AS v(code, name, region)
+WHERE NOT EXISTS (SELECT 1 FROM ke_counties k WHERE k.code = v.code OR k.name = v.name);
 
 -- ============================================================
 -- 8. SEED: Nairobi Sub-Counties (complete example)
@@ -196,7 +215,7 @@ CROSS JOIN (VALUES
   ('Makadara'),('Kamukunji'),('Starehe'),('Mathare')
 ) AS sc(name)
 WHERE c.name = 'Nairobi'
-ON CONFLICT DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM ke_sub_counties x WHERE x.county_id = c.id AND x.name = sc.name);
 
 -- ============================================================
 -- 9. SEED: Sample zones (Westlands example)
@@ -210,4 +229,4 @@ CROSS JOIN (VALUES
 ) AS z(name)
 WHERE sc.name = 'Westlands'
   AND sc.county_id = (SELECT id FROM ke_counties WHERE name = 'Nairobi')
-ON CONFLICT DO NOTHING;
+  AND NOT EXISTS (SELECT 1 FROM ke_zones x WHERE x.sub_county_id = sc.id AND x.name = z.name);

@@ -1,16 +1,13 @@
 -- ============================================================
--- Prevent double-generating a Lesson Plan or Lesson Notes for the same
--- lesson — the app already checks before generating, these are the
--- race-safe backstop against two near-simultaneous requests.
+-- (Retired - intentionally does nothing.)
+--
+-- This migration used to add "one Lesson Plan / Lesson Notes per scheme WEEK" as a race-safe
+-- backstop. Migration 051 then replaced that with "one per LESSON" (lesson_slot), because a week
+-- can legitimately hold several lessons. Once weeks with more than one lesson existed this rule
+-- could not be created any more ("could not create unique index"), so it failed on every start
+-- and was never recorded as applied, while 051 - which runs next and drops these two names
+-- anyway - provides the protection that matters: lesson_plans_one_per_lesson and
+-- lesson_notes_one_per_lesson.
+-- Kept as an empty step so the numbering stays intact and a fresh database ends in the same state.
 -- ============================================================
-DO $$ BEGIN
-  ALTER TABLE lesson_plans ADD CONSTRAINT lesson_plans_one_per_week
-    UNIQUE (tenant_id, teacher_id, scheme_id, scheme_week_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-
--- Partial index (not a table constraint) since scheme_week_id can be null
--- on very old rows predating this column.
-CREATE UNIQUE INDEX IF NOT EXISTS lesson_notes_one_per_week
-  ON lesson_notes (tenant_id, teacher_id, scheme_week_id)
-  WHERE scheme_week_id IS NOT NULL;
+SELECT 1;
