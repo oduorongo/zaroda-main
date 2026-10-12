@@ -660,6 +660,23 @@ class FinanceController {
     }
   }
 
+  /**
+   * The term each given fee item belongs to (only fees that have one). A share of a payment is tagged
+   * with the term of the FEE it pays, not the term the payment itself was recorded under: money paid
+   * towards a Term 3-only fee is Term 3 money whatever the cashier ticked on the payment form. The
+   * payment's own term is only the fallback for fees that apply in every term.
+   */
+  private async feeTermMap(tenantId: string, feeItemIds: (string | null | undefined)[]): Promise<Record<string, string>> {
+    const ids = [...new Set(feeItemIds.filter(Boolean) as string[])];
+    if (!ids.length) return {};
+    const rows = await this.ds.query(
+      `SELECT id::text AS id, term FROM fee_items
+        WHERE tenant_id = $1 AND id::text = ANY($2::text[]) AND term IS NOT NULL AND term <> ''`,
+      [tenantId, ids],
+    ).catch(() => []);
+    return Object.fromEntries((rows as any[]).map((r) => [r.id, r.term]));
+  }
+
   // One-time repair for payments whose full amount never made it into payment_allocations —
   // either because a term-agnostic fee item was wrongly excluded once the payment had a
   // specific term (now fixed below), or because the resulting "Credit / Overpayment" insert
@@ -716,17 +733,34 @@ class FinanceController {
         remaining -= put;
       }
       if (remaining > 0) { fills.push({ feeItemId: null, name: 'Credit / Overpayment', amount: remaining }); stillCredited++; }
+      const termByFee = await this.feeTermMap(tenantId, fills.map((f) => f.feeItemId));
       for (const f of fills) {
         await this.ds.query(
           `INSERT INTO payment_allocations
              (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [tenantId, s.id, s.learnerId, f.feeItemId, f.name, f.amount, s.term, s.academicYear],
+          [tenantId, s.id, s.learnerId, f.feeItemId, f.name, f.amount, (f.feeItemId && termByFee[f.feeItemId]) || s.term, s.academicYear],
         );
       }
       reconciled++;
     }
-    return { reconciled, stillCredited, total: (shortfalls as any[]).length };
+    // Shares recorded before this fix carry the PAYMENT's term, so money paid towards a one-term fee
+    // (a Term 3 feeding fee, say) could have no term or another term and drop out of that term's totals
+    // and fee statements. Re-tag each share with its own fee's term. Safe to run repeatedly.
+    const retaggedRows = await this.ds.query(
+      `WITH fixed AS (
+         UPDATE payment_allocations a SET term = fi.term
+           FROM fee_items fi
+          WHERE a.tenant_id = $1 AND fi.tenant_id = $1
+            AND a.fee_item_id::text = fi.id::text
+            AND fi.term IS NOT NULL AND fi.term <> ''
+            AND a.term IS DISTINCT FROM fi.term
+         RETURNING a.id
+       ) SELECT count(*)::int AS n FROM fixed`,
+      [tenantId],
+    ).catch(() => []);
+    const retagged = Number((retaggedRows as any[])[0]?.n || 0);
+    return { reconciled, stillCredited, retagged, total: (shortfalls as any[]).length };
   }
 
   // ── Financial years & opening balances ──────────────────────
@@ -1751,12 +1785,13 @@ class FinanceController {
           }
           if (remaining > 0) allocations.push({ feeItemId: '', name: 'Credit / Overpayment', amount: remaining });
         }
+        const termByFee = await this.feeTermMap(req.user.tenantId, allocations.map((a) => a.feeItemId));
         for (const a of allocations) {
           await this.ds.query(
             `INSERT INTO payment_allocations
                (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [req.user.tenantId, id, payment.learnerId, a.feeItemId || null, a.name, a.amount, term, academicYear],
+            [req.user.tenantId, id, payment.learnerId, a.feeItemId || null, a.name, a.amount, (a.feeItemId && termByFee[a.feeItemId]) || term, academicYear],
           ).catch(() => null);
         }
         return { ...payment, allocations };
@@ -1907,12 +1942,13 @@ class FinanceController {
         if (remaining > 0) allocations.push({ feeItemId: '', name: 'Credit / Overpayment', amount: remaining });
       }
 
+      const termByFee = await this.feeTermMap(tenantId, allocations.map((a) => a.feeItemId));
       for (const a of allocations) {
         await this.ds.query(
           `INSERT INTO payment_allocations
              (tenant_id, payment_id, learner_id, fee_item_id, vote_head, amount, term, academic_year)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [tenantId, payment.id, dto.learnerId, a.feeItemId || null, a.name, a.amount, dto.term || null, dto.academicYear || null],
+          [tenantId, payment.id, dto.learnerId, a.feeItemId || null, a.name, a.amount, (a.feeItemId && termByFee[a.feeItemId]) || dto.term || null, dto.academicYear || null],
         ).catch(() => null);
       }
 
