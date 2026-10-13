@@ -2004,6 +2004,17 @@ export class AcademicService {
     if (dto.role !== undefined && privilegedRoles.includes(dto.role) && !['hoi', 'tenant_owner', 'school_admin', 'super_admin'].includes(actorRole)) {
       throw new BadRequestException('Only the HOI or school owner can grant another owner/administrator account.');
     }
+    // The Head of Institution's role can only move by transferring it to someone else (transferHoi),
+    // which promotes the new HOI as it demotes the old one. Editing the HOI's own role here would
+    // leave the school with no HOI at all.
+    if (dto.role !== undefined && dto.role !== 'hoi') {
+      const target = await this.dataSource.query(
+        `SELECT role FROM users WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`, [teacherId, tenantId],
+      ).catch(() => []);
+      if (target[0]?.role === 'hoi') {
+        throw new BadRequestException('The Head of Institution role cannot be changed here. Use "Make HOI" on another staff member to transfer it, otherwise the school would have no HOI.');
+      }
+    }
     if (dto.role === 'tenant_owner') {
       const t = await this.dataSource.query(
         `SELECT ownership FROM tenants WHERE id::text = $1 LIMIT 1`, [tenantId],
