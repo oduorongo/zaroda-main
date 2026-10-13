@@ -245,6 +245,10 @@ export default function OwnerCommunicationPage() {
                 <span><Mail size={11} className="inline"/> {incompleteTenants.filter((t:any)=>t.adminEmail).length} with email</span>
               </div>
             )
+          ) : data && (data.error || typeof data.count !== 'number') ? (
+            <div className="text-xs text-red-600">
+              Could not load the recipients{data.error ? ` (${data.error})` : " (the server sent back something unexpected)"}. Refresh the page; if it keeps happening, sign out and back in.
+            </div>
           ) : data && (
             <div className="text-xs text-theme-muted flex gap-4">
               <span><b className="text-theme-heading">{data.count}</b> recipients</span>
