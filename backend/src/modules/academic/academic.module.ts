@@ -1448,7 +1448,7 @@ export class AcademicService {
       const valid = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6','grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'];
       if (!valid.includes(dto.gradeLevel)) throw new BadRequestException('Invalid grade level');
       newGrade = dto.gradeLevel;
-      sets.push(`grade_level = ${i++}`); vals.push(newGrade);
+      sets.push(`grade_level = $${i++}`); vals.push(newGrade);
     }
     if (!sets.length) return { message: 'Nothing to update' };
     vals.push(streamId, tenantId);
