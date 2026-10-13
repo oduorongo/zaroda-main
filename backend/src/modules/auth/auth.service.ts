@@ -111,16 +111,24 @@ export class AuthService {
     const columns = ['id','email','passwordHash','firstName','lastName','role','tenantId','schoolId','streamId','streamName','subjects','isActive','mustChangePassword'];
     // When an email has more than one account, sign in to the first (school accounts first)
     // whose password matches - so each account stays reachable with its own password.
+    // A phone keyboard's suggestion bar or a copy-paste from a message often adds a space before or
+    // after the password, which is not part of it. Try it exactly as typed first, then without that
+    // padding, so the person is not locked out by an invisible space.
+    const attempts = password.trim() !== password && password.trim() ? [password, password.trim()] : [password];
+    const passwordMatches = async (hash: string) => {
+      for (const attempt of attempts) if (await bcrypt.compare(attempt, hash)) return true;
+      return false;
+    };
     let user = null;
     for (const candidate of await this.findUsersByEmail(identifier, columns)) {
-      if (candidate.isActive && (await bcrypt.compare(password, candidate.passwordHash))) {
+      if (candidate.isActive && (await passwordMatches(candidate.passwordHash))) {
         user = candidate;
         break;
       }
     }
     if (!user) {
       const byPhone = await this.findUserByPhone(identifier, columns);
-      if (byPhone?.isActive && (await bcrypt.compare(password, byPhone.passwordHash))) user = byPhone;
+      if (byPhone?.isActive && (await passwordMatches(byPhone.passwordHash))) user = byPhone;
     }
 
     // One message for every failure, so the response can't be used to find out

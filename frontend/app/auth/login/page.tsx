@@ -54,6 +54,7 @@ export default function LoginPage() {
             <label className="label">Email or phone number</label>
             <input
               type="text" required value={email}
+              autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username"
               onChange={e => setEmail(e.target.value)}
               placeholder="principal@school.ac.ke or 07XXXXXXXX"
               className="input"
@@ -68,6 +69,7 @@ export default function LoginPage() {
             <div className="relative">
               <input
                 type={show ? 'text' : 'password'} required value={password}
+                autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="current-password"
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Your password"
                 className="input pr-10"
