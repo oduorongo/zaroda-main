@@ -225,3 +225,15 @@
   .h-screen { height: auto !important; }
   .overflow-hidden, .overflow-y-auto { overflow: visible !important; }
 }
+
+
+/* The Powered by ribbon frames every page: the page sits above it and scrolls inside the frame, and
+   screens that used to fill the whole window now fill the space above the ribbon. */
+.zs-frame { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.zs-screen { flex: 1 1 auto; min-height: 0; overflow: auto; }
+#zs-screen .h-screen { height: 100%; }
+#zs-screen .min-h-screen { min-height: 100%; }
+@media print {
+  .zs-frame { display: block; height: auto; }
+  .zs-screen { overflow: visible; }
+}
