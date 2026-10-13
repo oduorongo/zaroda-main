@@ -6,6 +6,7 @@ import { Inter } from 'next/font/google';
 import '@/styles/globals.css';
 import { Toaster } from 'react-hot-toast';
 import InstallPrompt from '@/components/install-prompt';
+import PoweredByRibbon from '@/components/powered-by-ribbon';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
@@ -32,7 +33,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: noFlash }} />
       </head>
       <body>
-        {children}
+        <div className="zs-frame">
+          <div id="zs-screen" className="zs-screen">{children}</div>
+          <PoweredByRibbon />
+        </div>
         <InstallPrompt />
         <Toaster
           position="top-right"
