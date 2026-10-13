@@ -66,7 +66,10 @@ export const useAuth = create<AuthState>()(
           set({ user: data.user, loading: false });
         } catch (err: any) {
           set({ loading: false });
-          throw new Error(err?.response?.data?.message || 'Invalid email or password');
+          if (err?.response?.status === 429) {
+            throw new Error('Too many sign-in attempts from this connection. Please wait a minute and try again.');
+          }
+          throw new Error(err?.response?.data?.message || 'Could not reach the server. Check your internet connection and try again.');
         }
       },
 
