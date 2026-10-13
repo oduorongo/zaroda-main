@@ -534,7 +534,8 @@ export default function TeachersPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Role</label>
-                  <select value={editTeacher.role} onChange={e=>setEditTeacher({...editTeacher, role:e.target.value})} className="input">
+                  <select value={editTeacher.role} onChange={e=>setEditTeacher({...editTeacher, role:e.target.value})} className="input" disabled={editTeacher.role==='hoi'}>
+                    {editTeacher.role==='hoi' && <option value="hoi">Head of Institution (HOI)</option>}
                     <option value="subject_teacher">Subject Teacher</option>
                     <option value="class_teacher">Class Teacher</option>
                     <option value="overall_class_teacher">Overall Class Teacher</option>
