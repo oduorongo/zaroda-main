@@ -1441,12 +1441,27 @@ export class AcademicService {
         sets.push(`class_teacher_name = NULL`);
       }
     }
+    // Correcting a mislabelled class (e.g. "Grade 4 Blue" saved as grade_3): the grade decides which
+    // learning areas the mark list, report cards and Enter Marks show. Label only - marks are untouched.
+    let newGrade: string | null = null;
+    if (dto.gradeLevel !== undefined && dto.gradeLevel !== null && dto.gradeLevel !== '') {
+      const valid = ['playgroup','pp1','pp2','grade_1','grade_2','grade_3','grade_4','grade_5','grade_6','grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'];
+      if (!valid.includes(dto.gradeLevel)) throw new BadRequestException('Invalid grade level');
+      newGrade = dto.gradeLevel;
+      sets.push(`grade_level = ${i++}`); vals.push(newGrade);
+    }
     if (!sets.length) return { message: 'Nothing to update' };
     vals.push(streamId, tenantId);
     await this.dataSource.query(
       `UPDATE streams SET ${sets.join(', ')} WHERE id::text = $${i++} AND tenant_id::text = $${i}`,
       vals,
     ).catch((e: any) => { throw new BadRequestException(e.message); });
+    if (newGrade) {
+      await this.dataSource.query(
+        `UPDATE learners SET grade_level = $1 WHERE stream_id::text = $2 AND tenant_id::text = $3`,
+        [newGrade, streamId, tenantId],
+      ).catch(() => null);
+    }
     return { message: 'Stream updated', id: streamId };
   }
 

@@ -47,6 +47,7 @@ export default function StreamsPage() {
       await apiClient.patch(`/academic/streams/${editStream.id}`, {
         name: editStream.name.trim(),
         classTeacherId: editStream.classTeacherId || null,
+        gradeLevel: editStream.gradeLevel || undefined,
       });
       toast.success('Stream updated');
       setEditStream(null);
@@ -178,7 +179,7 @@ export default function StreamsPage() {
                   {isHoi(user?.role || '') && (
                     <>
                       <button
-                        onClick={() => setEditStream({ id: s.id, name: s.name, classTeacherId: s.classTeacherId || '' })}
+                        onClick={() => setEditStream({ id: s.id, name: s.name, classTeacherId: s.classTeacherId || '', gradeLevel: s.gradeLevel || '' })}
                         className="btn-ghost p-1.5" title="Rename / set class teacher"
                       ><Pencil size={14}/></button>
                       <button
@@ -376,6 +377,13 @@ export default function StreamsPage() {
                 <input value={editStream.name} onChange={e=>setEditStream({...editStream, name:e.target.value})}
                   className="input" placeholder="e.g. Grade 7 Blue"/>
                 <p className="text-xs text-theme-muted mt-1">Tip: give each stream a distinct name like "Grade 7 Blue" or "Grade 7 Red".</p>
+              </div>
+              <div>
+                <label className="label">Grade level</label>
+                <select value={editStream.gradeLevel} onChange={e=>setEditStream({...editStream, gradeLevel:e.target.value})} className="input">
+                  {GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                </select>
+                <p className="text-xs text-theme-muted mt-1">This decides which learning areas the class shows. Fix it here if a class shows the wrong subjects (e.g. a Grade 4 class set to Grade 3). Marks already entered are not changed.</p>
               </div>
               <div>
                 <label className="label">Class Teacher</label>
