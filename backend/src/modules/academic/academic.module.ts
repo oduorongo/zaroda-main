@@ -243,7 +243,7 @@ export class AcademicService {
       `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        WHERE grade_level = $1 AND tenant_id::text = $2`,
       [gradeLevel, tenantId],
     ).catch(() => []);
     const out: Record<string, { paperCount: number; paper1Max?: number; paper2Max?: number }> = {};
@@ -757,7 +757,7 @@ export class AcademicService {
       `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        WHERE grade_level = $1 AND tenant_id::text = $2`,
       [gradeLevel, tenantId],
     ).catch(() => []);
     const subjectCombinedMax: Record<string, number> = {};
@@ -865,7 +865,7 @@ export class AcademicService {
       `SELECT grade_level AS "gradeLevel", learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE tenant_id IS NULL OR tenant_id::text = $1`,
+        WHERE tenant_id::text = $1`,
       [tenantId],
     ).catch(() => []);
     const subjectCombinedMax: Record<string, number> = {};
@@ -1040,7 +1040,7 @@ export class AcademicService {
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
         WHERE learning_area = $1 AND grade_level = ANY($2::text[])
-          AND (tenant_id IS NULL OR tenant_id::text = $3)`,
+          AND tenant_id::text = $3`,
       [chosen, gradeLevelsHere, tenantId],
     ).catch(() => []) : [];
     const combinedMaxByGrade: Record<string, number> = {};
@@ -1132,7 +1132,7 @@ export class AcademicService {
       `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        WHERE grade_level = $1 AND tenant_id::text = $2`,
       [chosen.gradeLevel || '', tenantId],
     ).catch(() => []);
     const subjectCombinedMax: Record<string, number> = {};
@@ -2441,7 +2441,7 @@ export class AcademicService {
       `SELECT grade_level AS "gradeLevel", learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE tenant_id IS NULL OR tenant_id::text = $1`,
+        WHERE tenant_id::text = $1`,
       [tenantId],
     ).catch(() => []);
     const topClassCombinedMax: Record<string, number> = {};

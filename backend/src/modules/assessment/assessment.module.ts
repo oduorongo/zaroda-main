@@ -612,7 +612,7 @@ export class AssessmentService {
       `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        WHERE grade_level = $1 AND tenant_id::text = $2`,
       [gradeLevel, tenantId],
     ).catch(() => []);
     const subjectCombinedMax: Record<string, number> = {};

@@ -6450,7 +6450,7 @@ class PdfController {
       const paperCfgRows = await this.ds.query(
         `SELECT paper_count AS "paperCount", paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
            FROM subject_paper_config
-          WHERE grade_level = $1 AND learning_area = $2 AND (tenant_id IS NULL OR tenant_id::text = $3)`,
+          WHERE grade_level = $1 AND learning_area = $2 AND tenant_id::text = $3`,
         [stream.gradeLevel || '', subject, tenantId],
       ).catch(() => []);
       const cfg = paperCfgRows.find((r: any) => r.tenantId) || paperCfgRows.find((r: any) => !r.tenantId);
@@ -6558,7 +6558,7 @@ class PdfController {
         `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
                 paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
            FROM subject_paper_config
-          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+          WHERE grade_level = $1 AND tenant_id::text = $2`,
         [stream.gradeLevel, tenantId],
       ).catch(() => []);
       const subjectCombinedMax: Record<string, number> = {};
@@ -6740,7 +6740,7 @@ class PdfController {
         `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
                 paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
            FROM subject_paper_config
-          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+          WHERE grade_level = $1 AND tenant_id::text = $2`,
         [gradeLevel, tenantId],
       ).catch(() => []);
       const subjectCombinedMax: Record<string, number> = {};
@@ -6902,7 +6902,7 @@ class PdfController {
         `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
                 paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
            FROM subject_paper_config
-          WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+          WHERE grade_level = $1 AND tenant_id::text = $2`,
         [stream.gradeLevel, tenantId],
       ).catch(() => []);
       const subjectCombinedMax: Record<string, number> = {};
@@ -7230,7 +7230,7 @@ class PdfController {
       `SELECT learning_area AS "learningArea", paper_count AS "paperCount",
               paper1_max AS "paper1Max", paper2_max AS "paper2Max", tenant_id AS "tenantId"
          FROM subject_paper_config
-        WHERE grade_level = $1 AND (tenant_id IS NULL OR tenant_id::text = $2)`,
+        WHERE grade_level = $1 AND tenant_id::text = $2`,
       [lr.gradeLevel || '', tenantId],
     ).catch(() => []);
     const subjectCombinedMax: Record<string, number> = {};
