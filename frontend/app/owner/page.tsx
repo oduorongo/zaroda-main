@@ -526,7 +526,7 @@ export default function OwnerDashboard() {
                         {/* The login username. Shown because a wrong address here — not a
                             forgotten password — is the usual reason a user "can't log in". */}
                         <div className="flex items-center gap-2 text-xs text-theme-muted">
-                          <span className="truncate" title={u.email || ''}>{u.email || <span className="text-red-600">no email — cannot log in</span>}</span>
+                          <span className="truncate" title={u.email || ''}>{u.email || (u.phone ? <span className="text-theme-muted">signs in with phone {u.phone}</span> : <span className="text-red-600">no email or phone — cannot log in</span>)}</span>
                           <button
                             disabled={acting}
                             onClick={() => changeEmail(u.id, `${u.firstName} ${u.lastName}`, u.email)}

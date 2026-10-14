@@ -7552,7 +7552,7 @@ class AdminController {
     if (!rows.length) return { error: 'not found' };
     // The school's users (no password hashes)
     const users = await this.ds.query(
-      `SELECT id, first_name AS "firstName", last_name AS "lastName", email, role, is_active AS "isActive"
+      `SELECT id, first_name AS "firstName", last_name AS "lastName", email, phone, role, is_active AS "isActive"
          FROM users WHERE tenant_id = $1 ORDER BY role, first_name`,
       [id],
     ).catch(() => []);

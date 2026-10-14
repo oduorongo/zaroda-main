@@ -90,17 +90,37 @@ export class AuthService {
     return users;
   }
 
-  /** Find a user by phone (normalised to +254… before comparing), for parents who log in
-   *  without an email — see findUserByEmail's normalisation note; phone gets the same
-   *  as-typed tolerance (spaces, a leading 0 instead of +254, etc). */
-  private async findUserByPhone(phone: string, columns?: string[]) {
-    const cleaned = normalisePhone(phone || '');
-    if (!cleaned) return null;
-    const qb = this.userRepo.createQueryBuilder('u')
-      .where('u.phone = :phone', { phone: cleaned })
-      .limit(1);
-    if (columns) qb.select(columns.map(c => `u.${c}`));
-    return qb.getOne();
+  /**
+   * Every account whose phone number is this one, best first (parents, then the most recently used).
+   *
+   * Numbers were entered free-form over the years - "0712 345 678", "0712345678", "254712345678",
+   * "+254712345678" - and only the newest rows were saved in the +254 form. Comparing the typed number to
+   * the stored text exactly therefore locked out every parent whose number was saved any other way, even with
+   * the right password. So both sides are reduced to their last 9 digits (the same rule the parent-to-child
+   * link already uses): the same Kenyan number matches however it was typed or stored.
+   *
+   * More than one account can share a number (the same parent in two schools, say), so this returns a few and
+   * login signs in to whichever one the password belongs to - like email does.
+   */
+  private async findUsersByPhone(phone: string, columns?: string[]) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length < 9) return [];
+    const last9 = digits.slice(-9);
+    const ids: { id: string }[] = await this.dataSource.query(
+      `SELECT u.id FROM users u
+        WHERE u.phone IS NOT NULL
+          AND RIGHT(regexp_replace(u.phone, '\\D', '', 'g'), 9) = $1
+        ORDER BY (u.role = 'parent') DESC, u.last_login_at DESC NULLS LAST, u.created_at
+        LIMIT 5`, [last9],
+    );
+    const users = [];
+    for (const { id } of ids) {
+      const qb = this.userRepo.createQueryBuilder('u').where('u.id = :id', { id });
+      if (columns) qb.select(columns.map(c => `u.${c}`));
+      const user = await qb.getOne();
+      if (user) users.push(user);
+    }
+    return users;
   }
 
   // ── Login ───────────────────────────────────────────────
@@ -126,9 +146,14 @@ export class AuthService {
         break;
       }
     }
-    if (!user) {
-      const byPhone = await this.findUserByPhone(identifier, columns);
-      if (byPhone?.isActive && (await passwordMatches(byPhone.passwordHash))) user = byPhone;
+    // Something with an "@" is an email, never a phone number.
+    if (!user && !String(identifier || '').includes('@')) {
+      for (const candidate of await this.findUsersByPhone(identifier, columns)) {
+        if (candidate.isActive && (await passwordMatches(candidate.passwordHash))) {
+          user = candidate;
+          break;
+        }
+      }
     }
 
     // One message for every failure, so the response can't be used to find out
