@@ -20,11 +20,12 @@ export default function RubricEditor({ school = false }: { school?: boolean }) {
   const [custom, setCustom] = useState(false);
   const [hasShared, setHasShared] = useState(false);
   const [customising, setCustomising] = useState(false);
-  const canEdit = !school || custom;
   const [grade, setGrade]   = useState('grade_7');
   const [term, setTerm]     = useState('term_1');
   const [areas, setAreas]   = useState<string[]>([]);
   const [area, setArea]     = useState('');
+  // A school may build a brand-new area of its own; otherwise it must customise first.
+  const canEdit = !school || custom || (!!area && !areas.includes(area));
   const [strands, setStrands] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [editFor, setEditFor] = useState<any>(null);
@@ -256,7 +257,7 @@ export default function RubricEditor({ school = false }: { school?: boolean }) {
               <select value={areas.includes(area)?area:''} onChange={e => setArea(e.target.value)} className="input w-48">
                 {areas.length === 0 && <option value="">No areas yet</option>}
                 {areas.map((a: any) => { const name = typeof a === 'string' ? a : (a.learningArea || a.name); return <option key={name} value={name}>{name}</option>; })}
-                {!school && <option value="__new__">➕ Type a new area…</option>}
+                <option value="__new__">➕ Add a new learning area…</option>
               </select>
             </div>
             {(area === '__new__' || (!areas.includes(area) && area)) && (
