@@ -268,7 +268,8 @@ export class AssessmentService {
     ).catch(() => []))[0];
   }
 
-  private async templateId(gradeLevel: string, learningArea: string, tenantId: string): Promise<string> {
+  private async templateId(gradeLevel: string, learningArea: string, tenantId: string, createForTenant = false): Promise<string> {
+    const ownerTenant = createForTenant ? tenantId : null;
     let tpl = await this.dataSource.query(
       `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2
          AND (tenant_id IS NULL OR tenant_id::text = $3)
@@ -276,9 +277,10 @@ export class AssessmentService {
       [gradeLevel, learningArea, String(tenantId)],
     ).catch(() => []);
     if (tpl.length) return tpl[0].id;
+    // A school owner's brand-new area belongs to that school only; the platform owner's is shared.
     const c = await this.dataSource.query(
-      `INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,NULL) RETURNING id`,
-      [gradeLevel, learningArea],
+      `INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,$3) RETURNING id`,
+      [gradeLevel, learningArea, ownerTenant],
     );
     return c[0].id;
   }
@@ -291,8 +293,9 @@ export class AssessmentService {
     // columns stay uniform across schools.
     const typed = String(dto.learningArea).trim().replace(/\s+/g, ' ');
     const known = await this.dataSource.query(
-      `SELECT learning_area AS "learningArea" FROM assessment_templates WHERE grade_level = $1 AND lower(learning_area) = lower($2) ORDER BY tenant_id NULLS FIRST LIMIT 1`,
-      [dto.gradeLevel, typed],
+      `SELECT learning_area AS "learningArea" FROM assessment_templates WHERE grade_level = $1 AND lower(learning_area) = lower($2)
+         AND (tenant_id IS NULL OR tenant_id::text = $3) ORDER BY tenant_id NULLS FIRST LIMIT 1`,
+      [dto.gradeLevel, typed, String(user.tenantId)],
     ).catch(() => []);
     dto.learningArea = known[0]?.learningArea
       || typed.replace(/\b([a-z])([a-z']*)/gi, (_m: string, a: string, b: string) => a.toUpperCase() + b.toLowerCase());
@@ -303,8 +306,10 @@ export class AssessmentService {
        ORDER BY (tenant_id::text = $3) DESC NULLS LAST, tenant_id NULLS FIRST LIMIT 1`,
       [dto.gradeLevel, dto.learningArea, String(user.tenantId)],
     ).catch(() => []))[0];
-    this.assertCanEditTemplate(user, existingTpl || { tenantId: null });
-    const tid = await this.templateId(dto.gradeLevel, dto.learningArea, user.tenantId);
+    const isPlatform = user.role === 'super_admin';
+    // No template yet: the platform owner creates a shared one; a school creates its own.
+    if (existingTpl || isPlatform) this.assertCanEditTemplate(user, existingTpl || { tenantId: null });
+    const tid = await this.templateId(dto.gradeLevel, dto.learningArea, user.tenantId, !isPlatform);
     const posRow = await this.dataSource.query(`SELECT COALESCE(MAX(position),0)+1 AS p FROM assessment_strands WHERE template_id = $1 AND term = $2`, [tid, dto.term]).catch(() => [{ p: 1 }]);
     const r = await this.dataSource.query(
       `INSERT INTO assessment_strands (template_id, position, name, term) VALUES ($1,$2,$3,$4) RETURNING id, name, position`,
