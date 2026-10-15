@@ -312,3 +312,12 @@ export function matchLearningArea(saved: string, columns: string[]): string | nu
   if (exact) return exact;
   return columns.find(c => learningAreaMatches(c, saved)) || null;
 }
+
+/** Built-in areas for a grade plus any extra rubric areas (e.g. one a school added itself). */
+export function mergeRubricAreas(base: string[], rubric: string[]): string[] {
+  const out = [...base];
+  for (const r of rubric) {
+    if (r && !/indigenous/i.test(r) && !matchLearningArea(r, out)) out.push(r);
+  }
+  return out;
+}

@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Calculator, User, BookOpen, Download, Printer } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { percentToLevel, learningAreasFor, levelsFor, isSeniorScale, matchLearningArea } from '@/lib/cbc/constants';
+import { percentToLevel, learningAreasFor, mergeRubricAreas, levelsFor, isSeniorScale, matchLearningArea } from '@/lib/cbc/constants';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import toast from 'react-hot-toast';
 
@@ -88,7 +88,15 @@ export default function AdminEnterMarksPage() {
     }).then(loadPaperConfig).catch(() => {});
   };
 
-  const areas = useMemo(() => stream ? learningAreasFor(stream.gradeLevel) : [], [stream]);
+  // Built-in list plus any area the school (or platform) added to the rubric for this grade.
+  const [rubricAreas, setRubricAreas] = useState<string[]>([]);
+  useEffect(() => {
+    if (!stream?.gradeLevel) { setRubricAreas([]); return; }
+    apiClient.get('/assessment/learning-areas', { params: { gradeLevel: stream.gradeLevel } })
+      .then(r => setRubricAreas((Array.isArray(r.data) ? r.data : []).map((x: any) => x.learningArea).filter(Boolean)))
+      .catch(() => setRubricAreas([]));
+  }, [stream?.gradeLevel]);
+  const areas = useMemo(() => stream ? mergeRubricAreas(learningAreasFor(stream.gradeLevel), rubricAreas) : [], [stream, rubricAreas]);
   const termExams = exams.filter(e =>
     (!term || e.term === term) &&
     (!e.gradeLevels?.length || !stream?.gradeLevel || e.gradeLevels.includes(stream.gradeLevel)));
