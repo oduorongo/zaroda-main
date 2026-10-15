@@ -148,13 +148,13 @@ export class AssessmentService {
   // Full book for a grade + learning area: strands -> sub-strands (+ resource link)
   async getBook(tenantId: string, gradeLevel: string, learningArea: string, term?: string) {
     const tpl = await this.dataSource.query(
-      `SELECT id FROM assessment_templates
+      `SELECT id, tenant_id AS "tenantId" FROM assessment_templates
        WHERE grade_level = $1 AND learning_area = $2
          AND (tenant_id::text = $3 OR tenant_id IS NULL)
        ORDER BY tenant_id NULLS LAST LIMIT 1`,
       [gradeLevel, learningArea, tenantId],
     ).catch(() => []);
-    if (!tpl.length) return { templateId: null, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), strands: [] };
+    if (!tpl.length) return { templateId: null, custom: false, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), strands: [] };
     const templateId = tpl[0].id;
     // Normalise term to the stored form (term_1|term_2|term_3). Accepts 'Term One' etc.
     const termKey = this.normaliseTerm(term);
@@ -174,7 +174,7 @@ export class AssessmentService {
       const urls: string[] = r.youtubeUrls || [];
       byStrand[r.strandId].substrands.push({ id: r.substrandId, name: r.subName, position: r.subPos, youtubeUrls: urls, youtubeUrl: urls[0] || null });
     }
-    return { templateId, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), term: termKey, strands: Object.values(byStrand) };
+    return { templateId, custom: !!tpl[0].tenantId, structure: this.structureFor(gradeLevel), scale: this.scaleFor(gradeLevel), term: termKey, strands: Object.values(byStrand) };
   }
 
   // Accepts 'Term One'/'term_1'/'1' etc → 'term_1'. Returns null if unrecognised (no filter).
@@ -270,8 +270,10 @@ export class AssessmentService {
 
   private async templateId(gradeLevel: string, learningArea: string, tenantId: string): Promise<string> {
     let tpl = await this.dataSource.query(
-      `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
-      [gradeLevel, learningArea],
+      `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2
+         AND (tenant_id IS NULL OR tenant_id::text = $3)
+       ORDER BY (tenant_id::text = $3) DESC NULLS LAST, tenant_id NULLS FIRST LIMIT 1`,
+      [gradeLevel, learningArea, String(tenantId)],
     ).catch(() => []);
     if (tpl.length) return tpl[0].id;
     const c = await this.dataSource.query(
@@ -284,10 +286,22 @@ export class AssessmentService {
   async addStrand(user: any, dto: any) {
     if (!this.isOwner(user.role)) throw new BadRequestException('Only the system owner can edit rubrics.');
     if (!dto?.gradeLevel || !dto?.learningArea || !dto?.term || !dto?.name?.trim()) throw new BadRequestException('Need gradeLevel, learningArea, term and name.');
+    // Reuse an existing area's spelling regardless of case ("kiswahili activities" ->
+    // "Kiswahili Activities"), otherwise Title-Case a brand-new name so marklist
+    // columns stay uniform across schools.
+    const typed = String(dto.learningArea).trim().replace(/\s+/g, ' ');
+    const known = await this.dataSource.query(
+      `SELECT learning_area AS "learningArea" FROM assessment_templates WHERE grade_level = $1 AND lower(learning_area) = lower($2) ORDER BY tenant_id NULLS FIRST LIMIT 1`,
+      [dto.gradeLevel, typed],
+    ).catch(() => []);
+    dto.learningArea = known[0]?.learningArea
+      || typed.replace(/\b([a-z])([a-z']*)/gi, (_m: string, a: string, b: string) => a.toUpperCase() + b.toLowerCase());
     // templateId() resolves to (or creates) the shared template, so check first.
     const existingTpl = (await this.dataSource.query(
-      `SELECT tenant_id AS "tenantId" FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 ORDER BY tenant_id NULLS FIRST LIMIT 1`,
-      [dto.gradeLevel, dto.learningArea],
+      `SELECT tenant_id AS "tenantId" FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2
+         AND (tenant_id IS NULL OR tenant_id::text = $3)
+       ORDER BY (tenant_id::text = $3) DESC NULLS LAST, tenant_id NULLS FIRST LIMIT 1`,
+      [dto.gradeLevel, dto.learningArea, String(user.tenantId)],
     ).catch(() => []))[0];
     this.assertCanEditTemplate(user, existingTpl || { tenantId: null });
     const tid = await this.templateId(dto.gradeLevel, dto.learningArea, user.tenantId);
@@ -296,7 +310,7 @@ export class AssessmentService {
       `INSERT INTO assessment_strands (template_id, position, name, term) VALUES ($1,$2,$3,$4) RETURNING id, name, position`,
       [tid, posRow[0].p, dto.name.trim(), dto.term],
     );
-    return { id: r[0].id, name: r[0].name, position: r[0].position, substrands: [] };
+    return { id: r[0].id, name: r[0].name, position: r[0].position, substrands: [], learningArea: dto.learningArea };
   }
 
   async renameStrand(user: any, strandId: string, name: string) {
@@ -340,6 +354,46 @@ export class AssessmentService {
     this.assertCanEditTemplate(user, await this.templateOfSubstrand(substrandId));
     await this.dataSource.query(`DELETE FROM assessment_substrands WHERE id = $1`, [substrandId]).catch(() => null);
     return { deleted: true };
+  }
+
+  // "Customise for my school": copy the shared rubric for one grade + learning area (every
+  // term, with video links) into a template owned by this school. getBook() already prefers
+  // the school's own template, so from then on the school edits its copy and the shared
+  // rubric is untouched. The school's saved scores are re-pointed at the copied sub-strands
+  // so nothing already assessed is lost.
+  async customiseArea(user: any, gradeLevel: string, learningArea: string) {
+    if (!this.isOwner(user.role) || user.role === 'super_admin' || !user.tenantId) {
+      throw new BadRequestException('Only a school owner or head of institution can customise the rubric for their school.');
+    }
+    if (!gradeLevel || !learningArea) throw new BadRequestException('Need gradeLevel and learningArea.');
+    const tenant = String(user.tenantId);
+    return this.dataSource.transaction(async (m) => {
+      const own = await m.query(
+        `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 AND tenant_id::text = $3 LIMIT 1`,
+        [gradeLevel, learningArea, tenant]);
+      if (own.length) return { templateId: own[0].id, alreadyCustom: true };
+      const shared = await m.query(
+        `SELECT id FROM assessment_templates WHERE grade_level = $1 AND learning_area = $2 AND tenant_id IS NULL LIMIT 1`,
+        [gradeLevel, learningArea]);
+      if (!shared.length) throw new BadRequestException('There is no shared rubric to copy for this learning area.');
+      const tid = (await m.query(
+        `INSERT INTO assessment_templates (grade_level, learning_area, tenant_id) VALUES ($1,$2,$3) RETURNING id`,
+        [gradeLevel, learningArea, tenant]))[0].id;
+      const strands = await m.query(`SELECT id, position, name, term FROM assessment_strands WHERE template_id = $1 ORDER BY position`, [shared[0].id]);
+      for (const st of strands) {
+        const nsid = (await m.query(
+          `INSERT INTO assessment_strands (template_id, position, name, term) VALUES ($1,$2,$3,$4) RETURNING id`,
+          [tid, st.position, st.name, st.term]))[0].id;
+        const subs = await m.query(`SELECT id, position, name, youtube_urls FROM assessment_substrands WHERE strand_id = $1 ORDER BY position`, [st.id]);
+        for (const ss of subs) {
+          const nss = (await m.query(
+            `INSERT INTO assessment_substrands (strand_id, position, name, youtube_urls) VALUES ($1,$2,$3,$4) RETURNING id`,
+            [nsid, ss.position, ss.name, ss.youtube_urls || []]))[0].id;
+          await m.query(`UPDATE assessment_scores SET substrand_id = $1 WHERE substrand_id = $2 AND tenant_id::text = $3`, [nss, ss.id, tenant]);
+        }
+      }
+      return { templateId: tid, alreadyCustom: false };
+    });
   }
 
   // Delete a WHOLE learning area for a grade (its template + every strand + sub-strand, all terms).
@@ -780,6 +834,9 @@ export class AssessmentController {
 
   @Delete('substrand/:id')
   deleteSubstrand(@Request() req: any, @Param('id') id: string) { return this.svc.deleteSubstrand(req.user, id); }
+
+  @Post('area/customise')
+  customiseArea(@Request() req: any, @Body() dto: any) { return this.svc.customiseArea(req.user, dto.gradeLevel, dto.learningArea); }
 
   @Delete('area')
   deleteArea(@Request() req: any, @Query() q: any) { return this.svc.deleteArea(req.user, q.gradeLevel, q.learningArea); }
