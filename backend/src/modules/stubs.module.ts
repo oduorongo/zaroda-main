@@ -10,7 +10,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AllowRoles, SchoolOnly } from '../common/decorators/access.decorator';
-import { getGradeLearningAreas, resolveLearningArea } from './pdf/learning-area.util';
+import { getGradeLearningAreas, resolveLearningArea, isIndigenousLanguage } from './pdf/learning-area.util';
 import { learningAreaMeanFooter } from './pdf/learning-area-means';
 import { sendSms, sendEmail, smsSegmentCount, normalisePhone } from '../common/messaging';
 import { initiateStkPush, parseTumaCallback, normalisePhoneForTuma, withCallbackToken, callbackTokenValid, confirmTumaPayment, amountMismatch } from '../common/tuma';
@@ -8238,6 +8238,57 @@ class AdminController {
         ORDER BY p.created_at DESC`,
     ).catch(() => []);
     return { payments: rows };
+  }
+
+  // ── MARKS DIAGNOSTIC (owner) ────────────────────────────────────────────────
+  // For one school: every saved mark group (stream × term × exam × subject) with the stream's
+  // current grade, the grade tagged on the marks, and whether the subject resolves to a
+  // learning area of the stream's grade. Marks that do NOT resolve are dropped by the mark list.
+  @Get('marks-diagnose')
+  async marksDiagnose(@Request() req: any, @Query() q: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', groups: [] };
+    const tenantId = String(q.tenantId || '');
+    if (!tenantId) return { error: 'tenantId required', groups: [] };
+    const rows = await this.ds.query(
+      `SELECT ar.stream_id::text AS "streamId", s.name AS "streamName", s.grade_level AS "streamGrade",
+              ar.grade_level AS "markGrade", ar.term, ar.exam_id::text AS "examId", e.name AS "examName",
+              ar.subject, count(*)::int AS marks, count(DISTINCT ar.learner_id)::int AS learners
+         FROM assessment_results ar
+         LEFT JOIN streams s ON s.id::text = ar.stream_id::text
+         LEFT JOIN exams e ON e.id::text = ar.exam_id::text
+        WHERE ar.tenant_id::text = $1 AND ar.deleted_at IS NULL
+          AND ($2::text IS NULL OR s.grade_level = $2 OR ar.grade_level = $2)
+        GROUP BY 1,2,3,4,5,6,7,8
+        ORDER BY s.name, ar.term, e.name, ar.subject`,
+      [tenantId, q.gradeLevel || null],
+    ).catch((e: any) => { throw new Error(e.message); });
+    const areaCache: Record<string, string[]> = {};
+    const groups: any[] = [];
+    for (const r of rows) {
+      const g = r.streamGrade || '';
+      areaCache[g] ||= await getGradeLearningAreas(this.ds, g, tenantId);
+      const matched = resolveLearningArea(r.subject, areaCache[g]) || null;
+      groups.push({ ...r, matchedArea: matched, orphaned: !matched && !isIndigenousLanguage(r.subject) });
+    }
+    return { groups, areasByGrade: areaCache };
+  }
+
+  // Fix one orphaned group: rename the subject (and optionally re-point the grade tag).
+  // Scoped tightly to tenant + stream + term + exam + exact old subject.
+  @Post('marks-diagnose/rename')
+  async marksRename(@Request() req: any, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const { tenantId, streamId, term, examId, from, to } = dto || {};
+    if (!tenantId || !streamId || !from || !to || String(to).trim() === '') return { error: 'tenantId, streamId, from and to are required' };
+    const st = (await this.ds.query(`SELECT grade_level FROM streams WHERE id::text = $1 AND tenant_id::text = $2`, [streamId, String(tenantId)]).catch(() => []))[0];
+    if (!st) return { error: 'Stream not found for that school.' };
+    const res = await this.ds.query(
+      `UPDATE assessment_results SET subject = $1, grade_level = $2
+        WHERE tenant_id::text = $3 AND stream_id::text = $4 AND subject = $5
+          AND term IS NOT DISTINCT FROM $6 AND exam_id::text IS NOT DISTINCT FROM $7 AND deleted_at IS NULL`,
+      [String(to).trim(), st.grade_level, String(tenantId), String(streamId), from, term ?? null, examId ?? null],
+    );
+    return { message: 'Renamed', updated: Array.isArray(res) ? (res[1] ?? 0) : 0 };
   }
 
   // ── STREAM GRADE-LEVEL REPAIR (owner) ───────────────────────────────────────

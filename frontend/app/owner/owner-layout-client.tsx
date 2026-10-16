@@ -13,6 +13,7 @@ const NAV = [
   { href: '/owner/schools',       label: 'Schools',       icon: Building2 },
   { href: '/owner/engagement',    label: 'Engagement',    icon: Activity },
   { href: '/owner/rubrics',       label: 'Rubrics',       icon: BookOpen },
+  { href: '/owner/marks-check',   label: 'Marks check',   icon: ShieldCheck },
   { href: '/owner/communication', label: 'Communication', icon: Megaphone },
   { href: '/owner/billing',       label: 'Billing',       icon: Receipt },
   { href: '/owner/retooling',     label: 'Retooling',     icon: GraduationCap },

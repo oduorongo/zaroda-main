@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Save, Loader2, Calculator, User, BookOpen, Printer, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { percentToLevel, learningAreasFor, levelsFor, isSeniorScale } from '@/lib/cbc/constants';
+import { percentToLevel, learningAreasFor, mergeRubricAreas, matchLearningArea, levelsFor, isSeniorScale } from '@/lib/cbc/constants';
 import { LearnerSearch, matchesLearner } from '@/components/LearnerSearch';
 import toast from 'react-hot-toast';
 
@@ -88,7 +88,15 @@ export default function AdminEnterMarksPage() {
     }).then(loadPaperConfig).catch(() => {});
   };
 
-  const areas = useMemo(() => stream ? learningAreasFor(stream.gradeLevel) : [], [stream]);
+  // Built-in list plus any area the school (or platform) added to the rubric for this grade.
+  const [rubricAreas, setRubricAreas] = useState<string[]>([]);
+  useEffect(() => {
+    if (!stream?.gradeLevel) { setRubricAreas([]); return; }
+    apiClient.get('/assessment/learning-areas', { params: { gradeLevel: stream.gradeLevel } })
+      .then(r => setRubricAreas((Array.isArray(r.data) ? r.data : []).map((x: any) => x.learningArea).filter(Boolean)))
+      .catch(() => setRubricAreas([]));
+  }, [stream?.gradeLevel]);
+  const areas = useMemo(() => stream ? mergeRubricAreas(learningAreasFor(stream.gradeLevel), rubricAreas) : [], [stream, rubricAreas]);
   const termExams = exams.filter(e =>
     (!term || e.term === term) &&
     (!e.gradeLevels?.length || !stream?.gradeLevel || e.gradeLevels.includes(stream.gradeLevel)));
@@ -169,7 +177,7 @@ export default function AdminEnterMarksPage() {
       const p1: Record<string, string> = {}; const p2: Record<string, string> = {};
       let maxP1 = ''; let maxP2 = '';
       for (const [lid, subs] of Object.entries(savedPaperMap)) {
-        const key = Object.keys(subs).find(s => s === area.toLowerCase());
+        const key = matchLearningArea(area, Object.keys(subs));
         if (!key) continue;
         const entry = subs[key];
         if (entry.p1) { p1[lid] = entry.p1.raw; if (!maxP1) maxP1 = entry.p1.max; }
@@ -180,8 +188,8 @@ export default function AdminEnterMarksPage() {
     } else {
       const next: Record<string, string> = {};
       for (const [lid, subs] of Object.entries(savedMap)) {
-        const hit = Object.entries(subs).find(([s]) => s.toLowerCase() === area.toLowerCase());
-        if (hit) next[lid] = hit[1];
+        const k = matchLearningArea(area, Object.keys(subs));
+        if (k) next[lid] = subs[k];
       }
       setAreaScores(next); setAreaScoresP2({});
     }
@@ -195,14 +203,14 @@ export default function AdminEnterMarksPage() {
     const lpm: Record<string, { p1: string; p2: string }> = {};
     for (const a of areas) {
       if (hasPapers(a)) {
-        const key = Object.keys(paperSaved).find(s => s === a.toLowerCase());
+        const key = matchLearningArea(a, Object.keys(paperSaved));
         const entry = key ? paperSaved[key] : undefined;
         if (entry?.p1) ls[a] = entry.p1.raw;
         if (entry?.p2) ls2[a] = entry.p2.raw;
         lpm[a] = { p1: entry?.p1?.max || '', p2: entry?.p2?.max || '' };
       } else {
-        const hit = Object.entries(flatSaved).find(([s]) => s.toLowerCase() === a.toLowerCase());
-        if (hit) ls[a] = hit[1];
+        const k = matchLearningArea(a, Object.keys(flatSaved));
+        if (k) ls[a] = flatSaved[k];
       }
     }
     setLearnerScores(ls); setLearnerScoresP2(ls2); setLearnerPaperMax(lpm);
