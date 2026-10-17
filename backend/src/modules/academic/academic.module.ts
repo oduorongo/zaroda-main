@@ -410,12 +410,17 @@ export class AcademicService {
       // Matching on `paper` too means saving Paper 1 never wipes out an already-saved Paper 2
       // (and vice-versa) for the same learning area.
       const paper = r.paper != null ? String(r.paper) : null;
+      // Scoped to the exam itself: two exams in one term commonly share an exam_type (the
+      // create form defaults to 'end_term'), so matching on type alone let saving one
+      // assessment silently delete another's marks. Legacy rows with no exam_id still match
+      // on type so re-saving them replaces rather than duplicates.
       await this.dataSource.query(
         `DELETE FROM assessment_results
          WHERE tenant_id::text = $1 AND learner_id::text = $2 AND subject = $3
            AND COALESCE(term,'') = COALESCE($4,'') AND COALESCE(exam_type,'') = COALESCE($5,'')
-           AND COALESCE(paper,'') = COALESCE($6,'')`,
-        [tenantId, r.learnerId, r.subject, r.term || null, r.examType || null, paper],
+           AND COALESCE(paper,'') = COALESCE($6,'')
+           AND ($7::text IS NULL OR exam_id IS NULL OR exam_id::text = $7)`,
+        [tenantId, r.learnerId, r.subject, r.term || null, r.examType || null, paper, r.examId || null],
       ).catch(() => null);
 
       await this.dataSource.query(

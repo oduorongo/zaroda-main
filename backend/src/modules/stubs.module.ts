@@ -8291,6 +8291,84 @@ class AdminController {
     return { message: 'Renamed', updated: Array.isArray(res) ? (res[1] ?? 0) : 0 };
   }
 
+  // Exams in the same school + term + year that share an exam_type. Before the save fix,
+  // saving marks for one of these deleted the other's marks for the same learner/subject.
+  // `subjectsMissing` = stream/subject pairs this exam has no marks for although a sibling
+  // exam does — the likely overwrites.
+  @Get('exam-type-clashes')
+  async examTypeClashes(@Request() req: any, @Query() q: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden', clashes: [] };
+    const tenantId = q.tenantId ? String(q.tenantId) : null;
+    const rows = await this.ds.query(
+      `SELECT e.tenant_id::text AS "tenantId",
+              (SELECT name FROM schools WHERE tenant_id::text = e.tenant_id::text LIMIT 1) AS "school",
+              e.id::text AS "examId", e.name, e.term, e.academic_year AS "academicYear", e.exam_type AS "examType",
+              (SELECT count(*)::int FROM assessment_results ar WHERE ar.exam_id::text = e.id::text AND ar.deleted_at IS NULL) AS marks,
+              COALESCE((SELECT array_agg(DISTINCT ar.stream_id::text || '|' || ar.subject)
+                          FROM assessment_results ar WHERE ar.exam_id::text = e.id::text AND ar.deleted_at IS NULL), '{}') AS keys
+         FROM exams e
+        WHERE e.deleted_at IS NULL AND ($1::text IS NULL OR e.tenant_id::text = $1)
+          AND (SELECT count(*) FROM exams o WHERE o.deleted_at IS NULL AND o.tenant_id::text = e.tenant_id::text
+                  AND o.term IS NOT DISTINCT FROM e.term AND o.academic_year IS NOT DISTINCT FROM e.academic_year
+                  AND COALESCE(o.exam_type,'') = COALESCE(e.exam_type,'')) > 1
+        ORDER BY 2, e.academic_year, e.term, e.name`,
+      [tenantId],
+    ).catch((e: any) => { throw new Error(e.message); });
+    const sets: Record<string, any[]> = {};
+    for (const r of rows) (sets[[r.tenantId, r.term, r.academicYear, r.examType].join('|')] ||= []).push(r);
+    const clashes = Object.values(sets).map(exams => {
+      const union = new Set<string>(exams.flatMap(x => x.keys));
+      return {
+        school: exams[0].school, tenantId: exams[0].tenantId, term: exams[0].term,
+        academicYear: exams[0].academicYear, examType: exams[0].examType,
+        exams: exams.map(x => ({
+          examId: x.examId, name: x.name, marks: x.marks,
+          subjectsMissing: [...union].filter(k => !x.keys.includes(k)).length,
+        })),
+      };
+    });
+    return { clashes };
+  }
+
+  // Give clashing exams a distinct exam_type inferred from their name (mid/end/cat/mock),
+  // on the exam and on its saved marks (reports read exam_type from the marks). Exams whose
+  // name doesn't say which kind they are are left alone and reported back.
+  @Post('exam-type-clashes/fix')
+  async examTypeClashesFix(@Request() req: any, @Body() dto: any) {
+    if (!this.isOwner(req)) return { error: 'forbidden' };
+    const tenantId = dto?.tenantId ? String(dto.tenantId) : null;
+    const rows = await this.ds.query(
+      `SELECT e.id::text AS id, e.name, e.exam_type AS "examType"
+         FROM exams e
+        WHERE e.deleted_at IS NULL AND ($1::text IS NULL OR e.tenant_id::text = $1)
+          AND (SELECT count(*) FROM exams o WHERE o.deleted_at IS NULL AND o.tenant_id::text = e.tenant_id::text
+                  AND o.term IS NOT DISTINCT FROM e.term AND o.academic_year IS NOT DISTINCT FROM e.academic_year
+                  AND COALESCE(o.exam_type,'') = COALESCE(e.exam_type,'')) > 1`,
+      [tenantId],
+    );
+    const infer = (n: string): string | null => {
+      const s = String(n || '').toLowerCase();
+      const hits = [
+        /\bmid[\s_-]*term|\bmid\b/.test(s) && 'mid_term',
+        /\bend[\s_-]*(of[\s_-]*)?term|\bend\b/.test(s) && 'end_term',
+        /\bcat[\s_-]*1\b/.test(s) && 'cat_1',
+        /\bcat[\s_-]*2\b/.test(s) && 'cat_2',
+        /\bmock\b/.test(s) && 'mock',
+      ].filter(Boolean) as string[];
+      return hits.length === 1 ? hits[0] : null;
+    };
+    let fixed = 0; const skipped: string[] = [];
+    for (const r of rows) {
+      const t = infer(r.name);
+      if (!t) { skipped.push(r.name); continue; }
+      if (t === r.examType) continue;
+      await this.ds.query(`UPDATE exams SET exam_type = $1 WHERE id::text = $2`, [t, r.id]);
+      await this.ds.query(`UPDATE assessment_results SET exam_type = $1 WHERE exam_id::text = $2`, [t, r.id]);
+      fixed++;
+    }
+    return { message: `Updated ${fixed} exam(s)`, fixed, skipped };
+  }
+
   // ── STREAM GRADE-LEVEL REPAIR (owner) ───────────────────────────────────────
   // Lists every stream with its grade level, across schools, so a mislabeled class
   // (e.g. a Grade 5 stream saved as grade_7, which makes the rubric show the wrong
