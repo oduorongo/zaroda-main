@@ -8321,10 +8321,16 @@ class AdminController {
       return {
         school: exams[0].school, tenantId: exams[0].tenantId, term: exams[0].term,
         academicYear: exams[0].academicYear, examType: exams[0].examType,
-        exams: exams.map(x => ({
-          examId: x.examId, name: x.name, marks: x.marks,
-          subjectsMissing: [...union].filter(k => !x.keys.includes(k)).length,
-        })),
+        // Only compare within the classes (streams) this exam actually has marks for, so an
+        // exam sat by Grade 7 isn't flagged for Grade 9 subjects it never covered. An exam with
+        // no marks at all has no classes to compare, so it reports 0 missing.
+        exams: exams.map(x => {
+          const myStreams = new Set<string>(x.keys.map((k: string) => k.split('|')[0]));
+          return {
+            examId: x.examId, name: x.name, marks: x.marks,
+            subjectsMissing: [...union].filter(k => myStreams.has(k.split('|')[0]) && !x.keys.includes(k)).length,
+          };
+        }),
       };
     });
     return { clashes };
