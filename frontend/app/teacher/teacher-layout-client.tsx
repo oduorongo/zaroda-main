@@ -12,6 +12,7 @@ import { ShareZaroda } from '@/components/ShareZaroda';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useTheme } from '@/lib/hooks/useTheme';
 import apiClient from '@/lib/api/client';
+import MobileDrawer from '@/components/ui/MobileDrawer';
 import toast from 'react-hot-toast';
 
 // Teacher-only navigation — nothing admin here
@@ -173,15 +174,9 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
         {Sidebar()}
       </aside>
 
-      {sidebarOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}/>
-          <aside className="relative z-10 flex flex-col w-72 h-full max-h-[100dvh] overflow-y-auto overscroll-contain" style={{ background: 'var(--sidebar)' }}>
-            <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white"><X size={20}/></button>
-            {Sidebar()}
-          </aside>
-        </div>
-      )}
+      <MobileDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+        {Sidebar()}
+      </MobileDrawer>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface" style={{ borderBottom: '1px solid var(--border)' }}>

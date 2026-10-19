@@ -15,6 +15,7 @@ import { useTheme } from '@/lib/hooks/useTheme';
 import { ShareZaroda } from '@/components/ShareZaroda';
 import { NotificationBell } from '@/components/NotificationBell';
 import { SubscriptionNotice, BILLING_ROLES } from '@/components/SubscriptionNotice';
+import MobileDrawer from '@/components/ui/MobileDrawer';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 
@@ -276,18 +277,9 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       </aside>
 
       {/* ── Mobile sidebar overlay ────────────────────────── */}
-      {sidebarOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}/>
-          <aside className="relative z-10 flex flex-col w-72 h-full max-h-[100dvh] overflow-y-auto overscroll-contain shadow-2xl" style={{ background: 'var(--sidebar)' }}>
-            <button onClick={() => setSidebarOpen(false)}
-              className="absolute top-4 right-4 text-white/50 hover:text-white">
-              <X size={20}/>
-            </button>
-            {SidebarContent()}
-          </aside>
-        </div>
-      )}
+      <MobileDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+        {SidebarContent()}
+      </MobileDrawer>
 
       {/* ── Main content ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
