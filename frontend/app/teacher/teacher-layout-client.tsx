@@ -170,15 +170,15 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
       <aside className="hidden lg:flex flex-col w-64 flex-shrink-0" style={{ background: 'var(--sidebar)' }}>
-        <Sidebar/>
+        {Sidebar()}
       </aside>
 
       {sidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}/>
-          <aside className="relative z-10 flex flex-col w-72 h-full overflow-y-auto overscroll-contain" style={{ background: 'var(--sidebar)' }}>
+          <aside className="relative z-10 flex flex-col w-72 h-full max-h-[100dvh] overflow-y-auto overscroll-contain" style={{ background: 'var(--sidebar)' }}>
             <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white"><X size={20}/></button>
-            <Sidebar/>
+            {Sidebar()}
           </aside>
         </div>
       )}
