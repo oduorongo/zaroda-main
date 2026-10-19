@@ -113,7 +113,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
           <div className="font-black text-[#fdba74] leading-tight text-[11px]">MANAGEMENT SYSTEM</div>
         </div>
       </div>
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto max-lg:flex-none max-lg:overflow-visible">
         {navItems.map(n => {
           const Icon = n.icon;
           const blocked = isIndividualAccount(user?.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(n.href);
@@ -176,7 +176,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
       {sidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}/>
-          <aside className="relative z-10 flex flex-col w-72 h-full" style={{ background: 'var(--sidebar)' }}>
+          <aside className="relative z-10 flex flex-col w-72 h-full overflow-y-auto overscroll-contain" style={{ background: 'var(--sidebar)' }}>
             <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white"><X size={20}/></button>
             <Sidebar/>
           </aside>

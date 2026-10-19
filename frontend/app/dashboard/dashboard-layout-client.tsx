@@ -177,7 +177,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto max-lg:flex-none max-lg:overflow-visible">
         {navItems.map(item => {
           const Icon   = item.icon;
           const active = isActive(item.href, (item as any).match);
@@ -279,7 +279,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       {sidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}/>
-          <aside className="relative z-10 flex flex-col w-72 h-full shadow-2xl" style={{ background: 'var(--sidebar)' }}>
+          <aside className="relative z-10 flex flex-col w-72 h-full overflow-y-auto overscroll-contain shadow-2xl" style={{ background: 'var(--sidebar)' }}>
             <button onClick={() => setSidebarOpen(false)}
               className="absolute top-4 right-4 text-white/50 hover:text-white">
               <X size={20}/>
