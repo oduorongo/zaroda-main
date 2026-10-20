@@ -26,21 +26,14 @@ export default function MobileDrawer({ open, onClose, children }: {
     <div className="lg:hidden fixed inset-0 z-[110] no-print">
       <div className="absolute inset-0 bg-black/50" style={{ touchAction: 'none' }} onClick={onClose}/>
       <aside
-        className="absolute top-0 bottom-0 left-0 w-72 max-w-[85vw] overflow-y-auto shadow-2xl"
-        style={{
-          background: 'var(--sidebar)',
-          touchAction: 'pan-y',
-          overscrollBehavior: 'contain',
-          WebkitOverflowScrolling: 'touch',
-        }}
+        className="absolute top-0 bottom-0 left-0 w-72 max-w-[85vw] flex flex-col overflow-hidden shadow-2xl"
+        style={{ background: 'var(--sidebar)' }}
       >
-        <div className="relative flex flex-col min-h-full">
-          <button onClick={onClose} aria-label="Close menu"
-            className="absolute top-4 right-4 z-10 text-white/50 hover:text-white">
-            <X size={20}/>
-          </button>
-          {children}
-        </div>
+        <button onClick={onClose} aria-label="Close menu"
+          className="absolute top-4 right-4 z-10 text-white/50 hover:text-white">
+          <X size={20}/>
+        </button>
+        {children}
       </aside>
     </div>,
     document.body,

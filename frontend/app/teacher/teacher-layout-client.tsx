@@ -114,7 +114,9 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
           <div className="font-black text-[#fdba74] leading-tight text-[11px]">MANAGEMENT SYSTEM</div>
         </div>
       </div>
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto max-lg:flex-none max-lg:overflow-visible">
+      {/* Phones: menu and bottom links scroll together; desktop: wrapper vanishes (lg:contents). */}
+      <div className="flex-1 min-h-0 overflow-y-auto lg:contents">
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {navItems.map(n => {
           const Icon = n.icon;
           const blocked = isIndividualAccount(user?.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(n.href);
@@ -164,6 +166,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
           className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-white/65 hover:bg-white/10 hover:text-white w-full">
           <LogOut size={18}/> Sign out
         </button>
+      </div>
       </div>
     </>
   );
