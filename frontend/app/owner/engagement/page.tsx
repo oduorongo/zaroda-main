@@ -1,6 +1,6 @@
 // app/owner/engagement/page.tsx
-// Which schools are actually using the system, judged by how full their mark lists
-// are: per learning area, the share of learners with a mark, averaged across areas.
+// Which schools are actually using the system, judged by how complete their mark lists are:
+// each class is measured against its own grade's learning areas (see getEngagement on the API).
 'use client';
 import { useState, useEffect, Fragment } from 'react';
 import { Activity, Search, Loader2, ChevronRight, ChevronDown } from 'lucide-react';
@@ -28,7 +28,9 @@ const BADGE: Record<string, string> = {
 const LABEL: Record<string, string> = { active: 'Active', low: 'Low activity', inactive: 'Inactive' };
 const RANK: Record<string, number> = { active: 0, low: 1, inactive: 2 };
 
-const barColor = (pct: number) => pct >= 50 ? 'bg-green-500' : pct > 0 ? 'bg-amber-500' : 'bg-red-400';
+const barColor = (pct: number) => pct >= 75 ? 'bg-green-500' : pct > 0 ? 'bg-amber-500' : 'bg-red-400';
+
+const GRADE = (g: string) => (g || '').replace('grade_', 'Grade ').replace(/^pp(d)$/i, 'PP$1');
 
 export default function OwnerEngagementPage() {
   const [days, setDays]       = useState(30);
@@ -60,8 +62,8 @@ export default function OwnerEngagementPage() {
   };
 
   const CARDS = [
-    { key: 'active',   value: summary.active,   color: 'text-green-600', hint: '≥ 50% of learners marked per learning area' },
-    { key: 'low',      value: summary.low,      color: 'text-amber-600', hint: 'Some marks, but mark lists mostly empty' },
+    { key: 'active',   value: summary.active,   color: 'text-green-600', hint: '≥ 75% of expected marks entered' },
+    { key: 'low',      value: summary.low,      color: 'text-amber-600', hint: 'Some marks, but many still missing' },
     { key: 'inactive', value: summary.inactive, color: 'text-red-600',   hint: 'No marks entered in this window' },
   ];
 
@@ -78,8 +80,10 @@ export default function OwnerEngagementPage() {
           </select>
         </div>
         <p className="text-sm text-theme-muted">
-          Activity is measured from the mark list. For every learning area a school entered marks for, we take the share of its
-          learners who have a mark, then average across learning areas. That average is the school&apos;s <b>coverage</b>.
+          Activity is measured from the mark list. Each class is checked against its own grade&apos;s learning areas: for every
+          area, the share of <b>that class&apos;s</b> learners who have a mark. A class&apos;s average is averaged across the classes
+          that have marks in this window to give the school&apos;s <b>coverage</b>. Grades 10–12 are checked only on the areas a class
+          has started, since learners choose electives.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -120,8 +124,8 @@ export default function OwnerEngagementPage() {
                     <th className="py-2 pr-3 font-medium">School</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
                     <th className="py-2 pr-3 font-medium min-w-[140px]">Coverage</th>
-                    <th className="py-2 pr-3 font-medium text-right">Learning areas</th>
-                    <th className="py-2 pr-3 font-medium text-right">Avg learners / area</th>
+                    <th className="py-2 pr-3 font-medium text-right">Classes marked</th>
+                    <th className="py-2 pr-3 font-medium text-right">Gaps</th>
                     <th className="py-2 pr-3 font-medium text-right">Learners</th>
                     <th className="py-2 pr-3 font-medium">Last mark entry</th>
                   </tr>
@@ -158,28 +162,46 @@ export default function OwnerEngagementPage() {
                               </div>
                             )}
                           </td>
-                          <td className="py-2.5 pr-3 text-right">{s.learningAreas}</td>
-                          <td className="py-2.5 pr-3 text-right">{s.avgLearnersPerArea ?? '—'}</td>
+                          <td className="py-2.5 pr-3 text-right">{s.classesMeasured}/{s.classesTotal}</td>
+                          <td className="py-2.5 pr-3 text-right">{s.gaps}</td>
                           <td className="py-2.5 pr-3 text-right">{s.learnerCount}</td>
                           <td className="py-2.5 pr-3 text-theme-muted whitespace-nowrap">{lastSeen(s.lastMarkAt)}</td>
                         </tr>
                         {expanded && (
                           <tr className="border-b border-theme/50 bg-surface-2">
                             <td colSpan={7} className="px-4 py-3">
-                              <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">Mark list by learning area</div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
-                                {s.breakdown.map((b: any) => {
-                                  const pct = s.learnerCount > 0 ? Math.min(100, Math.round((b.learners / s.learnerCount) * 100)) : 0;
-                                  return (
-                                    <div key={b.subject} className="flex items-center gap-2 text-xs">
-                                      <span className="w-40 truncate text-theme-heading" title={b.subject}>{b.subject}</span>
-                                      <div className="flex-1 h-1.5 rounded-full bg-surface overflow-hidden">
-                                        <div className={`h-full ${barColor(pct)}`} style={{ width: `${pct}%` }}/>
-                                      </div>
-                                      <span className="w-24 text-right text-theme-muted">{b.learners}/{s.learnerCount} · {pct}%</span>
+                              <div className="text-xs font-semibold text-theme-muted uppercase tracking-wide mb-2">
+                                Mark list by class — missing or partly entered areas first
+                              </div>
+                              <div className="space-y-4">
+                                {s.breakdown.map((c: any) => (
+                                  <div key={c.streamId}>
+                                    <div className="flex items-center gap-2 text-xs mb-1.5">
+                                      <span className="font-semibold text-theme-heading">{c.stream}</span>
+                                      <span className="text-theme-muted">{GRADE(c.gradeLevel)} · {c.learners} learners</span>
+                                      <span className="font-semibold text-theme-heading">{c.coverage}%</span>
                                     </div>
-                                  );
-                                })}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+                                      {c.areas.map((b: any) => {
+                                        const pct = c.learners > 0 ? Math.min(100, Math.round((b.learners / c.learners) * 100)) : 0;
+                                        return (
+                                          <div key={b.area} className="flex items-center gap-2 text-xs">
+                                            <span className={`w-40 truncate ${b.learners === 0 ? 'text-red-600 font-semibold' : 'text-theme-heading'}`} title={b.area}>{b.area}</span>
+                                            <div className="flex-1 h-1.5 rounded-full bg-surface overflow-hidden">
+                                              <div className={`h-full ${barColor(pct)}`} style={{ width: `${pct}%` }}/>
+                                            </div>
+                                            <span className="w-24 text-right text-theme-muted">{b.learners === 0 ? 'none entered' : `${b.learners}/${c.learners} · ${pct}%`}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    {c.unmatched?.length > 0 && (
+                                      <div className="text-[11px] text-amber-700 mt-1">
+                                        Subject names not recognised as a learning area: {c.unmatched.join(', ')}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                             </td>
                           </tr>
@@ -191,7 +213,7 @@ export default function OwnerEngagementPage() {
               </table>
             </div>
           )}
-          <p className="text-[11px] text-theme-muted mt-3">Click a school to see how full its mark list is in each learning area. Individual teacher accounts are excluded.</p>
+          <p className="text-[11px] text-theme-muted mt-3">Click a school to see each class and which learning areas are missing. Classes with no marks in this window aren&apos;t counted against a school. Individual teacher accounts are excluded.</p>
         </div>
       </div>
     </div>
