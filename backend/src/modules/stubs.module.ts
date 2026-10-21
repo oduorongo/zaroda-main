@@ -7582,75 +7582,138 @@ class AdminController {
     return r[0] || {};
   }
 
-  // Which schools are actually using the system, judged by mark-list activity.
-  // For each learning area a school entered marks for within the window, count the
-  // distinct learners who have a mark; average that across its learning areas and
-  // divide by active learners → "coverage" (how full the average mark list is).
-  //   active   — coverage >= 50%
-  //   low      — some marks in the window, but coverage below 50%
+  // Which schools are actually using the system, judged by how complete their mark lists are.
+  // Each class (stream) is measured against its own grade's learning areas: for every expected
+  // area, the share of THAT CLASS's learners who have a mark in the window; a class's coverage is
+  // the average across its areas, and a school's coverage is the learner-weighted average over
+  // the classes that have any marks in the window. So a school missing one subject in one grade
+  // scores high, instead of being divided by every learner in the school.
+  //   active   — coverage >= ACTIVE_AT (75%)
+  //   low      — some marks in the window, but coverage below that
   //   inactive — no marks entered in the window
-  // Saving marks deletes + re-inserts the row with created_at = NOW(), so created_at
-  // is the time a mark was last entered/edited. Subjects are grouped case/space-
-  // insensitively. tenant_id/learner_id are compared as text since the table may
-  // have been created by TypeORM synchronize (varchar) rather than migration 013 (uuid).
+  // Grades 10–12 only expect the areas a class has started (learners pick their electives).
+  // Subject spellings are merged into canonical learning areas (same matcher as the mark list).
+  // Saving marks deletes + re-inserts the row with created_at = NOW(), so created_at is the time
+  // a mark was last entered/edited. IDs are compared as text since the tables may have been
+  // created by TypeORM synchronize (varchar) rather than a migration (uuid).
   @Get('engagement')
   async getEngagement(@Request() req: any, @Query('days') daysQ: string) {
     if (!this.isOwner(req)) return { error: 'forbidden', data: [] };
     const days = Math.min(365, Math.max(7, parseInt(daysQ, 10) || 30));
-    const rows = await this.ds.query(
-      `WITH la AS (
-         SELECT ar.tenant_id::text AS tenant_id,
-                MIN(TRIM(ar.subject))              AS subject,
-                COUNT(*)::int                      AS marks,
-                COUNT(DISTINCT ar.learner_id)::int AS learners,
-                MAX(ar.created_at)                 AS last_at
-           FROM assessment_results ar
-          WHERE ar.deleted_at IS NULL
-            AND ar.subject IS NOT NULL AND TRIM(ar.subject) <> ''
-            AND ar.created_at > NOW() - make_interval(days => $1)
-          GROUP BY ar.tenant_id::text, LOWER(TRIM(ar.subject))
-       ),
-       per_tenant AS (
-         SELECT tenant_id,
-                COUNT(*)::int        AS learning_areas,
-                SUM(marks)::int      AS marks,
-                AVG(learners)::float AS avg_learners_per_la,
-                json_agg(json_build_object('subject', subject, 'marks', marks, 'learners', learners)
-                         ORDER BY learners DESC, subject) AS breakdown
-           FROM la GROUP BY tenant_id
-       ),
-       last_mark AS (
+    const fail = (what: string) => (e: any) => { console.error(`engagement ${what} query failed:`, e.message); return [] as any[]; };
+
+    // Every class that has learners, with its grade and head-count.
+    const streams = await this.ds.query(
+      `SELECT s.tenant_id::text AS "tenantId", s.id::text AS "streamId", s.name, s.grade_level AS "gradeLevel",
+              (SELECT COUNT(*) FROM learners l WHERE l.stream_id::text = s.id::text AND l.is_active = true)::int AS learners
+         FROM streams s`,
+    ).catch(fail('streams'));
+
+    // Marks in the window, per class and subject. A mark with no class on it is placed in the
+    // class its learner is in. Subject is grouped case/space-insensitively here and merged into
+    // canonical learning areas below.
+    const marks = await this.ds.query(
+      `SELECT ar.tenant_id::text AS "tenantId",
+              COALESCE(ar.stream_id::text, l.stream_id::text) AS "streamId",
+              MIN(TRIM(ar.subject))              AS subject,
+              COUNT(*)::int                      AS marks,
+              COUNT(DISTINCT ar.learner_id)::int AS learners
+         FROM assessment_results ar
+         LEFT JOIN learners l ON l.id::text = ar.learner_id::text
+        WHERE ar.deleted_at IS NULL
+          AND ar.subject IS NOT NULL AND TRIM(ar.subject) <> ''
+          AND ar.created_at > NOW() - make_interval(days => $1)
+        GROUP BY ar.tenant_id::text, COALESCE(ar.stream_id::text, l.stream_id::text), LOWER(TRIM(ar.subject))`,
+      [days],
+    ).catch(fail('marks'));
+
+    const schools = await this.ds.query(
+      `WITH last_mark AS (
          SELECT tenant_id::text AS tenant_id, MAX(created_at) AS last_at
            FROM assessment_results WHERE deleted_at IS NULL GROUP BY tenant_id::text
        )
-       SELECT t.id, t.name, t.status, t.county, t.sub_county AS "subCounty",
+       SELECT t.id::text AS id, t.name, t.status, t.county, t.sub_county AS "subCounty",
               t.school_levels AS "schoolLevels",
               (SELECT COUNT(*) FROM learners l WHERE l.tenant_id::text = t.id::text AND l.is_active = true)::int AS "learnerCount",
-              COALESCE(p.learning_areas, 0) AS "learningAreas",
-              COALESCE(p.marks, 0)          AS "marks",
-              p.avg_learners_per_la         AS "avgLearnersPerArea",
-              COALESCE(p.breakdown, '[]'::json) AS "breakdown",
-              lm.last_at                    AS "lastMarkAt"
+              lm.last_at AS "lastMarkAt"
          FROM tenants t
-         LEFT JOIN per_tenant p ON p.tenant_id = t.id::text
          LEFT JOIN last_mark lm ON lm.tenant_id = t.id::text
         WHERE COALESCE(t.account_type, 'school') = 'school'`,
-      [days],
-    ).catch((e: any) => { console.error('engagement query failed:', e.message); return []; });
+    ).catch(fail('schools'));
 
-    const data = rows.map((r: any) => {
-      const learners = Number(r.learnerCount) || 0;
-      const avg = r.avgLearnersPerArea == null ? null : Number(r.avgLearnersPerArea);
-      const coverage = avg != null && learners > 0 ? Math.min(100, Math.round((avg / learners) * 100)) : null;
-      const engagement = r.marks === 0 ? 'inactive' : (coverage != null && coverage >= 50 ? 'active' : 'low');
-      return { ...r, avgLearnersPerArea: avg == null ? null : Math.round(avg * 10) / 10, coverage, engagement };
-    });
+    const streamsByTenant = new Map<string, any[]>();
+    for (const s of streams) (streamsByTenant.get(s.tenantId) || streamsByTenant.set(s.tenantId, []).get(s.tenantId)!).push(s);
+    const marksByTenant = new Map<string, any[]>();
+    for (const m of marks) (marksByTenant.get(m.tenantId) || marksByTenant.set(m.tenantId, []).get(m.tenantId)!).push(m);
+
+    const areaCache = new Map<string, string[]>();
+    const areasFor = async (grade: string, tenantId: string) => {
+      const k = `${tenantId}|${grade}`;
+      if (!areaCache.has(k)) areaCache.set(k, await getGradeLearningAreas(this.ds, grade, tenantId));
+      return areaCache.get(k)!;
+    };
+    // Senior School learners choose their own electives, so for Grades 10–12 only the
+    // learning areas a class has actually started are expected of it; every other grade is
+    // expected to cover its full learning-area list.
+    const SENIOR = ['grade_10', 'grade_11', 'grade_12'];
+    const ACTIVE_AT = 75; // % of expected mark-list cells filled for a school to count as Active
+
+    const data: any[] = [];
+    for (const sch of schools) {
+      const sRows = streamsByTenant.get(sch.id) || [];
+      const classes = sRows.filter(s => s.learners > 0);
+      const byStream = new Map<string, any[]>();
+      let totalMarks = 0;
+      for (const m of marksByTenant.get(sch.id) || []) {
+        totalMarks += m.marks;
+        if (m.streamId) (byStream.get(m.streamId) || byStream.set(m.streamId, []).get(m.streamId)!).push(m);
+      }
+
+      const breakdown: any[] = [];
+      let weighted = 0, weight = 0, gaps = 0;
+      for (const cls of classes) {
+        const rows = byStream.get(cls.streamId);
+        if (!rows) continue; // no marks in this class in the window — not measured
+        const canon = await areasFor(cls.gradeLevel || '', sch.id);
+        const got = new Map<string, number>();
+        const unmatched: string[] = [];
+        for (const r of rows) {
+          if (isIndigenousLanguage(r.subject)) continue;
+          const area = resolveLearningArea(r.subject, canon);
+          if (!area) { unmatched.push(r.subject); continue; }
+          // Spelling variants of one area: keep the largest head-count rather than adding them,
+          // so a learner marked under two spellings is not counted twice.
+          got.set(area, Math.max(got.get(area) || 0, r.learners));
+        }
+        const expected = SENIOR.includes(cls.gradeLevel || '') || canon.length === 0 ? [...got.keys()] : canon;
+        if (expected.length === 0) continue;
+        const areas = expected.map(a => ({ area: a, learners: Math.min(cls.learners, got.get(a) || 0) }))
+          .sort((a, b) => a.learners - b.learners || a.area.localeCompare(b.area));
+        const coverage = areas.reduce((n, a) => n + a.learners / cls.learners, 0) / areas.length;
+        gaps += areas.filter(a => a.learners < cls.learners).length;
+        weighted += coverage * cls.learners; weight += cls.learners;
+        breakdown.push({
+          streamId: cls.streamId, stream: cls.name, gradeLevel: cls.gradeLevel, learners: cls.learners,
+          coverage: Math.round(coverage * 100), areas, unmatched,
+        });
+      }
+      breakdown.sort((a, b) => a.coverage - b.coverage || String(a.stream).localeCompare(String(b.stream)));
+
+      const coverage = weight > 0 ? Math.round((weighted / weight) * 100) : null;
+      const engagement = totalMarks === 0 ? 'inactive' : (coverage != null && coverage >= ACTIVE_AT ? 'active' : 'low');
+      data.push({
+        id: sch.id, name: sch.name, status: sch.status, county: sch.county, subCounty: sch.subCounty,
+        schoolLevels: sch.schoolLevels, learnerCount: sch.learnerCount, lastMarkAt: sch.lastMarkAt,
+        marks: totalMarks, coverage, engagement,
+        classesMeasured: breakdown.length, classesTotal: classes.length, gaps, breakdown,
+      });
+    }
     const summary = {
       active:   data.filter((d: any) => d.engagement === 'active').length,
       low:      data.filter((d: any) => d.engagement === 'low').length,
       inactive: data.filter((d: any) => d.engagement === 'inactive').length,
     };
-    return { days, summary, data };
+    return { days, summary, activeAt: ACTIVE_AT, data };
   }
 
   // Professional Records: real AI spend vs wallet revenue collected, platform-wide.
