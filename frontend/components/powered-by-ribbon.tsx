@@ -4,7 +4,7 @@ export default function PoweredByRibbon() {
   return (
     <footer
       className="no-print flex-shrink-0 px-2 py-1.5 text-center text-[0.68rem] leading-snug text-white/80 sm:px-4 sm:py-2.5 sm:text-[0.8rem]"
-      style={{ background: '#0a1633', boxShadow: '0 -2px 10px rgba(5,12,35,0.25)' }}
+      style={{ background: '#0a1633', boxShadow: '0 -2px 10px rgba(5,12,35,0.25)', borderTop: '3px solid #d4af37' }}
     >
       <span className="hidden sm:inline">Powered by </span>
       <strong className="text-white">ZARODA SOLUTIONS</strong>
