@@ -4,7 +4,7 @@ import Link from 'next/link';
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-screen bg-white text-[#1b2333]">
-      <header className="bg-[#0f1c38] text-white/70">
+      <header className="bg-[#0f1c38] text-white/70" style={{ borderBottom: '3px solid #d4af37' }}>
         <div className="max-w-3xl mx-auto px-5 py-5 flex items-center justify-between gap-6 flex-wrap">
           <Link href="/" className="flex items-center gap-2.5 no-underline">
             <img src="/zaroda-logo.png" alt="" className="w-8 h-8 rounded-lg object-cover"/>

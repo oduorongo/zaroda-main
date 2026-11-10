@@ -289,7 +289,7 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       {/* ── Main content ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
-        <header className="no-print flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface border-theme" style={{ borderBottom: '1px solid var(--border)' }}>
+        <header className="no-print flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface border-theme" style={{ borderBottom: '3px solid #d4af37' }}>
           <div className="flex items-center gap-3">
             <button onClick={() => setSidebarOpen(true)}
               className="lg:hidden p-1.5 rounded-lg text-theme-heading hover:bg-surface-2">

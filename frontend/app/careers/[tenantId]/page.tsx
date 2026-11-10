@@ -51,7 +51,7 @@ export default function PublicCareersPage() {
 
   return (
     <div style={{ background: '#f7f8fb', minHeight: '100vh', color: '#1a2e5a' }}>
-      <header style={{ background: '#0f1c38' }} className="px-4 sm:px-8 py-4 flex items-center gap-3">
+      <header style={{ background: '#0f1c38', borderBottom: '3px solid #d4af37' }} className="px-4 sm:px-8 py-4 flex items-center gap-3">
         <Link href="/" className="text-white/80 hover:text-white flex items-center gap-1.5 text-sm">
           <ArrowLeft size={15}/> ZARODA
         </Link>
