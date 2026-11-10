@@ -40,7 +40,7 @@ export default function OwnerLayoutClient({ children }: { children: React.ReactN
   return (
     <div className="min-h-screen bg-surface-2">
       {/* Mobile top bar */}
-      <div className="lg:hidden sticky top-0 z-40 flex items-center gap-2 bg-[#1a2e5a] text-white px-4 py-3" style={{ borderBottom: '3px solid #d4af37' }}>
+      <div className="lg:hidden sticky top-0 z-40 flex items-center gap-2 bg-[#1a2e5a] text-white px-4 py-3" style={{ borderBottom: '2px solid #d4af37' }}>
         <button onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22}/></button>
         <span className="font-black text-sm">ZARODA Owner</span>
       </div>

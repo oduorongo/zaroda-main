@@ -67,7 +67,7 @@ export default function SuperAdminPage() {
   return (
     <div className="min-h-screen bg-surface-2">
       {/* Top bar */}
-      <header className="bg-[#0f1c38] text-white" style={{ borderBottom: '3px solid #d4af37' }}>
+      <header className="bg-[#0f1c38] text-white" style={{ borderBottom: '2px solid #d4af37' }}>
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 bg-[#d4af37] rounded-xl flex items-center justify-center font-black text-lg text-[#0f1c38]">Z</div>

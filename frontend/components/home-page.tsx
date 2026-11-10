@@ -147,7 +147,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-white">
       {/* ───── Nav ───── */}
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur" style={{ borderBottom: '3px solid #d4af37' }}>
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur" style={{ borderBottom: '2px solid #d4af37' }}>
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img src="/zaroda-logo.png" alt="ZARODA" className="w-10 h-10 rounded-xl object-cover"/>
