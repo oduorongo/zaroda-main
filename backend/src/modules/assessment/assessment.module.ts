@@ -1,11 +1,12 @@
 import { Module, Injectable, Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, BadRequestException } from '@nestjs/common';
 import { TypeOrmModule, InjectRepository } from '@nestjs/typeorm';
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AllowRoles, SchoolOnly } from '../../common/decorators/access.decorator';
 import { linkedChildIds } from '../../common/parent-children';
 import { assertStreamsWritable } from '../../common/subscription';
+import { schoolYearOr } from '../../common/school-year';
 
 // ── Entities ───────────────────────────────────────────────
 @Entity('assessment_templates')
@@ -17,6 +18,7 @@ export class AssessmentTemplate {
 }
 
 @Entity('assessment_scores')
+@Index('uq_ascore_learner_sub_term_year', ['learnerId', 'substrandId', 'term', 'schoolYear'], { unique: true })
 export class AssessmentScore {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ name: 'tenant_id' }) tenantId: string;
@@ -33,6 +35,7 @@ export class AssessmentScore {
   @Column({ name: 'max_score', type: 'float', nullable: true }) maxScore: number;
   @Column({ name: 'band_score', type: 'float', nullable: true }) bandScore: number;
   @Column({ name: 'recorded_by', nullable: true }) recordedBy: string;
+  @Column({ name: 'school_year', type: 'int', nullable: true }) schoolYear: number;
 }
 
 // ── Service ────────────────────────────────────────────────
@@ -189,7 +192,7 @@ export class AssessmentService {
 
   // Parent view: a child's rubric (formative levels per sub-strand) WITH video links for
   // home-learning extension. Guardian-verified. Returns per learning area.
-  async getChildRubric(tenantId: string, parent: any, learnerId: string, term: string) {
+  async getChildRubric(tenantId: string, parent: any, learnerId: string, term: string, rawYear?: any) {
     const own = await this.dataSource.query(
       `SELECT id, grade_level AS "gradeLevel", (first_name||' '||COALESCE(last_name,'')) AS name
          FROM learners WHERE id::text = $1 AND tenant_id::text = $2 AND id::text = ANY($3::text[]) LIMIT 1`,
@@ -202,8 +205,8 @@ export class AssessmentService {
     // The child's saved levels by sub-strand.
     const scoreRows = await this.dataSource.query(
       `SELECT substrand_id AS "substrandId", level FROM assessment_scores
-        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3`,
-      [tenantId, learnerId, termKey],
+        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3 AND school_year = $4`,
+      [tenantId, learnerId, termKey, schoolYearOr(rawYear)],
     ).catch(() => []);
     const levelBy: Record<string, string> = {};
     for (const r of scoreRows) levelBy[r.substrandId] = r.level;
@@ -426,13 +429,14 @@ export class AssessmentService {
   }
 
   // A learner's saved formative levels for a learning area + term
-  async getScores(tenantId: string, learnerId: string, rawTerm: string, learningArea?: string) {
+  async getScores(tenantId: string, learnerId: string, rawTerm: string, learningArea?: string, rawYear?: any) {
     const term = this.normaliseTerm(rawTerm) || rawTerm;
+    const year = schoolYearOr(rawYear);
     const rows = await this.dataSource.query(
       `SELECT substrand_id AS "substrandId", level
        FROM assessment_scores
-       WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3`,
-      [tenantId, learnerId, term],
+       WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3 AND school_year = $4`,
+      [tenantId, learnerId, term, year],
     ).catch(() => []);
     const map: Record<string, any> = {};
     for (const r of rows) map[r.substrandId] = { level: r.level };
@@ -440,8 +444,9 @@ export class AssessmentService {
     if (learningArea) {
       const cr = await this.dataSource.query(
         `SELECT comment FROM assessment_comments
-         WHERE tenant_id::text = $1 AND learner_id::text = $2 AND learning_area = $3 AND term = $4 LIMIT 1`,
-        [tenantId, learnerId, learningArea, term],
+         WHERE tenant_id::text = $1 AND learner_id::text = $2 AND learning_area = $3 AND term = $4
+           AND school_year = $5 LIMIT 1`,
+        [tenantId, learnerId, learningArea, term, year],
       ).catch(() => []);
       comment = cr[0]?.comment || '';
     }
@@ -485,27 +490,28 @@ export class AssessmentService {
     // FORMATIVE rubric: a performance level (EE/ME/AE/BE) per sub-strand.
     // No numeric scores here — CATs/End-Term are summative and entered separately.
     let saved = 0;
+    const year = schoolYearOr(dto.year);
     for (const [substrandId, raw] of Object.entries(scores || {})) {
       const v: any = raw;
       const level = (typeof v === 'object' && v !== null) ? v.level : v;
       if (!level) continue;
       await this.dataSource.query(
         `INSERT INTO assessment_scores
-           (tenant_id, learner_id, stream_id, grade_level, learning_area, substrand_id, term, level, recorded_by, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-         ON CONFLICT (learner_id, substrand_id, term)
+           (tenant_id, learner_id, stream_id, grade_level, learning_area, substrand_id, term, level, recorded_by, school_year, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+         ON CONFLICT (learner_id, substrand_id, term, school_year)
          DO UPDATE SET level = EXCLUDED.level, recorded_by = EXCLUDED.recorded_by, updated_at = NOW()`,
-        [user.tenantId, learnerId, streamId || null, gradeLevel || null, learningArea, substrandId, term, level, user.id],
+        [user.tenantId, learnerId, streamId || null, gradeLevel || null, learningArea, substrandId, term, level, user.id, year],
       ).then(() => { saved++; }).catch(() => null);
     }
-    // Teacher comment for this learning area + term (optional)
+    // Teacher comment for this learning area + term + year (optional)
     if (dto.comment !== undefined) {
       await this.dataSource.query(
-        `INSERT INTO assessment_comments (tenant_id, learner_id, learning_area, term, comment, recorded_by, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,NOW())
-         ON CONFLICT (learner_id, learning_area, term)
+        `INSERT INTO assessment_comments (tenant_id, learner_id, learning_area, term, comment, recorded_by, school_year, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+         ON CONFLICT (learner_id, learning_area, term, school_year)
          DO UPDATE SET comment = EXCLUDED.comment, recorded_by = EXCLUDED.recorded_by, updated_at = NOW()`,
-        [user.tenantId, learnerId, learningArea, term, dto.comment || null, user.id],
+        [user.tenantId, learnerId, learningArea, term, dto.comment || null, user.id, year],
       ).catch(() => null);
     }
     return { message: 'Assessment saved', saved };
@@ -632,7 +638,8 @@ export class AssessmentService {
     ).catch(() => []);
   }
 
-  async getReportCard(tenantId: string, learnerId: string, term: string) {
+  async getReportCard(tenantId: string, learnerId: string, term: string, rawYear?: any) {
+    const year = schoolYearOr(rawYear);
     // Learner + class context
     const lr = await this.dataSource.query(
       `SELECT l.id, l.first_name AS "firstName", l.last_name AS "lastName",
@@ -643,19 +650,21 @@ export class AssessmentService {
       [learnerId, tenantId],
     ).catch(() => []);
     const learner = lr[0] || null;
-    const gradeLevel = learner?.gradeLevel || '';
-    const usePoints = this.isSenior(gradeLevel);
 
-    // The report reads from Enter Marks (assessment_results). End-Term is the
-    // determining result per learning area; CATs are shown alongside for reference.
+    // The report reads from Enter Marks (assessment_results) for one term of one school year.
+    // End-Term is the determining result per learning area; CATs are shown alongside.
     const allRows = await this.dataSource.query(
       `SELECT subject AS "learningArea", exam_type AS "examType", percent, level,
-              raw_score AS "score", max_score AS "maxScore"
+              raw_score AS "score", max_score AS "maxScore", grade_level AS "gradeLevel"
        FROM assessment_results
        WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3
-         AND deleted_at IS NULL`,
-      [tenantId, learnerId, this.markTerm(term)],
+         AND school_year = $4 AND deleted_at IS NULL`,
+      [tenantId, learnerId, this.markTerm(term), year],
     ).catch(() => []);
+    // A past year's report is graded as the grade the learner was in then, not the one they are in now.
+    const gradeLevel = allRows.find((r: any) => r.gradeLevel)?.gradeLevel || learner?.gradeLevel || '';
+    if (learner) learner.gradeLevel = gradeLevel;
+    const usePoints = this.isSenior(gradeLevel);
 
     // Distinct CAT exam types present (cat_1, cat_2, …) for column labels
     const catTypes = Array.from(new Set(
@@ -726,8 +735,8 @@ export class AssessmentService {
     const comments = await this.dataSource.query(
       `SELECT learning_area AS "learningArea", comment
        FROM assessment_comments
-       WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3`,
-      [tenantId, learnerId, term],
+       WHERE tenant_id::text = $1 AND learner_id::text = $2 AND term = $3 AND school_year = $4`,
+      [tenantId, learnerId, term, year],
     ).catch(() => []);
     const commentMap: Record<string, string> = {};
     for (const c of comments) commentMap[c.learningArea] = c.comment;
@@ -781,12 +790,12 @@ export class AssessmentController {
   @AllowRoles('parent')
   @Get('child-rubric/:learnerId')
   getChildRubric(@Request() req: any, @Param('learnerId') learnerId: string, @Query() q: any) {
-    return this.svc.getChildRubric(req.user.tenantId, req.user, learnerId, q.term || 'term_1');
+    return this.svc.getChildRubric(req.user.tenantId, req.user, learnerId, q.term || 'term_1', q.year);
   }
 
   @Get('scores')
   getScores(@Request() req: any, @Query() q: any) {
-    return this.svc.getScores(req.user.tenantId, q.learnerId, q.term, q.learningArea);
+    return this.svc.getScores(req.user.tenantId, q.learnerId, q.term, q.learningArea, q.year);
   }
 
   @Post('scores')
@@ -848,7 +857,7 @@ export class AssessmentController {
 
   @Get('report-card')
   getReportCard(@Request() req: any, @Query() q: any) {
-    return this.svc.getReportCard(req.user.tenantId, q.learnerId, q.term);
+    return this.svc.getReportCard(req.user.tenantId, q.learnerId, q.term, q.year);
   }
 
   @Get('exams')
