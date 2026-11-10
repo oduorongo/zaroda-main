@@ -25,6 +25,7 @@ import { PdfExportService } from '../common/pdf-export.service';
 import { assertStreamsWritable } from '../common/subscription';
 import { safeEqual, escapeHtml, encryptSecret, decryptSecret, generateTempPassword, safeImageSrc } from '../common/security';
 import { revokeSessions } from '../common/sessions';
+import { schoolYearOr } from '../common/school-year';
 import { isTermKey, termLabel, termWindow, TermKey } from './finance-term-window';
 
 // Persists numbers Africa's Talking has told us are opted-out recipients (status
@@ -6435,8 +6436,9 @@ class PdfController {
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2 AND ar.subject = $3
             AND ($4::text IS NULL OR ar.term = $4)
             AND ($5::text IS NULL OR ar.exam_id::text = $5)
+            AND ($6::int IS NULL OR ar.school_year = $6)
             AND ar.deleted_at IS NULL`,
-        [tenantId, streamId, subject, term || null, examId || null],
+        [tenantId, streamId, subject, term || null, examId || null, examId ? null : schoolYearOr(q.year)],
       ).catch(() => []);
 
       const senior = ['grade_7','grade_8','grade_9','grade_10','grade_11','grade_12'].includes(stream.gradeLevel || '');
@@ -6545,9 +6547,10 @@ class PdfController {
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
             AND ($3::text IS NULL OR ar.term = $3)
             AND ($4::text IS NULL OR ar.exam_id::text = $4)
+            AND ($5::int IS NULL OR ar.school_year = $5)
             AND ar.deleted_at IS NULL
           ORDER BY l.first_name`,
-        [tenantId, streamId, term || null, examId || null],
+        [tenantId, streamId, term || null, examId || null, examId ? null : schoolYearOr(q.year)],
       ).catch(() => []);
 
       // Paper 1 & 2 combined totals (e.g. 40 + 60 = 100), configured via the Enter Marks
@@ -6732,8 +6735,9 @@ class PdfController {
           WHERE ar.tenant_id::text = $1 AND s.grade_level = $2
             AND ($3::text IS NULL OR ar.term = $3)
             AND ($4::text IS NULL OR ar.exam_id::text = $4)
+            AND ($5::int IS NULL OR ar.school_year = $5)
             AND ar.deleted_at IS NULL`,
-        [tenantId, gradeLevel, term || null, examId || null],
+        [tenantId, gradeLevel, term || null, examId || null, examId ? null : schoolYearOr(q.year)],
       ).catch(() => []);
 
       const paperCfgRows = await this.ds.query(
@@ -6894,8 +6898,9 @@ class PdfController {
            LEFT JOIN learners l ON l.id::text = ar.learner_id::text
           WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
             AND ($3::text IS NULL OR ar.term = $3)
+            AND ar.school_year = $4
             AND ar.deleted_at IS NULL`,
-        [tenantId, streamId, term || null],
+        [tenantId, streamId, term || null, schoolYearOr(q.year)],
       ).catch(() => []);
 
       const paperCfgRows = await this.ds.query(
@@ -7158,6 +7163,7 @@ class PdfController {
   // Builds one learner's report-card HTML. `standalone` wraps it as a full printable
   // document; otherwise returns just the card block (for bulk).
   private async buildReportCardHtml(tenantId: string, learnerId: string, term: string, academicYear: string, standalone: boolean): Promise<string> {
+    const schoolYear = schoolYearOr(academicYear);
     const lr = (await this.ds.query(
       `SELECT l.first_name AS "firstName", l.last_name AS "lastName", l.admission_number AS "adm",
               COALESCE(NULLIF(l.grade_level, ''), s.grade_level) AS "gradeLevel",
@@ -7203,17 +7209,18 @@ class PdfController {
          FROM exams e
         WHERE e.tenant_id::text = $1 AND ($2::text IS NULL OR e.term = $2)
           AND e.deleted_at IS NULL
+          AND EXTRACT(YEAR FROM COALESCE(e.start_date::timestamp, e.created_at AT TIME ZONE 'Africa/Nairobi'))::int = $3
         ORDER BY e.created_at ASC`,
-      [tenantId, term || null],
+      [tenantId, term || null, schoolYear],
     ).catch(() => []);
 
-    // Per learning area, the percent for each assessment + overall average.
+    // Per learning area, the percent for each assessment + overall average (this school year only).
     const rows = await this.ds.query(
       `SELECT subject, exam_id AS "examId", raw_score AS "rawScore", max_score AS "maxScore", percent
          FROM assessment_results
         WHERE tenant_id::text = $1 AND learner_id::text = $2 AND ($3::text IS NULL OR term = $3)
-          AND deleted_at IS NULL`,
-      [tenantId, learnerId, term || null],
+          AND school_year = $4 AND deleted_at IS NULL`,
+      [tenantId, learnerId, term || null, schoolYear],
     ).catch(() => []);
 
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c] as string));

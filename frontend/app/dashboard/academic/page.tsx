@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Users, Grid, CheckSquare, FileText, Calendar, Search, Plus, ChevronRight, BarChart3, ClipboardList, UserPlus, UserCheck, GraduationCap, Calculator, FileStack } from 'lucide-react';
+import { Users, Grid, CheckSquare, FileText, Calendar, Search, Plus, ChevronRight, BarChart3, ClipboardList, UserPlus, UserCheck, GraduationCap, Calculator, FileStack, ArrowUpCircle } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -33,6 +33,7 @@ export default function AcademicPage() {
     { icon: ClipboardList, label: 'Exams',     sub: 'Assessments setup',  href: '/dashboard/academic/exams',       color: 'bg-indigo-600'},
     { icon: ClipboardList, label: 'CATs',        sub: 'Question-level marks', href: '/dashboard/academic/cats', color: 'bg-teal-600' },
     { icon: UserCheck,  label: 'Allocation',    sub: 'Subjects & teachers', href: '/dashboard/academic/allocation',   color: 'bg-cyan-600'  },
+    ...(isHoi(user?.role || '') ? [{ icon: ArrowUpCircle, label: 'Promote Learners', sub: 'End of year: next grade', href: '/dashboard/academic/promote', color: 'bg-[#1a2e5a]' }] : []),
     { icon: GraduationCap, label: 'Teachers',   sub: 'Onboard & subjects', href: '/dashboard/academic/teachers',     color: 'bg-emerald-600'},
   ];
 

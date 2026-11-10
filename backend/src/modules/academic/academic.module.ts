@@ -15,6 +15,7 @@ import { normalisePhone } from '../../common/messaging';
 import { revokeSessions } from '../../common/sessions';
 import { linkedChildIds } from '../../common/parent-children';
 import { generateTempPassword, escapeHtml } from '../../common/security';
+import { schoolYearOr } from '../../common/school-year';
 import { Injectable }     from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -25,6 +26,7 @@ import {
   TIMETABLING_COMMITTEE_ROLES,
 } from './kicd-timetable.constants';
 import { AutoTimetabler } from './auto-timetabler';
+import { PromotionController, PromotionService } from './promotion';
 import { getGradeLearningAreas, resolveLearningArea } from '../pdf/learning-area.util';
 import { percentToPoints as cbcPercentToPoints, percentToLevelCode as cbcPercentToLevelCode } from '../pdf/cbc-report.helper';
 import {
@@ -119,6 +121,7 @@ export class AssessmentResult {
   @Column({ name: 'class_teacher_comment', nullable: true }) classTeacherComment: string;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @Column({ name: 'deleted_at', type: 'timestamp', nullable: true }) deletedAt: Date;
+  @Column({ name: 'school_year', type: 'int', nullable: true }) schoolYear: number;
 }
 
 // ── Service ───────────────────────────────────────────────
@@ -295,6 +298,19 @@ export class AcademicService {
     const admin = this.isHoiRole(user.role);
     let mySubjects: string[] = [];
     let classTeacherStreams: string[] = [];
+    // The school year each mark belongs to: its exam's year, else the current one.
+    const examYears: Record<string, number> = {};
+    const yearFor = async (r: any): Promise<number> => {
+      if (!r.examId) return schoolYearOr(r.year);
+      if (examYears[r.examId] === undefined) {
+        const e = await this.dataSource.query(
+          `SELECT EXTRACT(YEAR FROM COALESCE(start_date::timestamp, created_at AT TIME ZONE 'Africa/Nairobi'))::int AS y
+             FROM exams WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`, [r.examId, tenantId],
+        ).catch(() => []);
+        examYears[r.examId] = schoolYearOr(e[0]?.y);
+      }
+      return examYears[r.examId];
+    };
     // Per-stream assignments: { streamId -> Set(subject) }. A subject teacher may only
     // save marks for a learning area IN A STREAM they're actually assigned to teach it.
     const streamSubjectMap: Record<string, string[]> = {};
@@ -410,6 +426,7 @@ export class AcademicService {
       // Matching on `paper` too means saving Paper 1 never wipes out an already-saved Paper 2
       // (and vice-versa) for the same learning area.
       const paper = r.paper != null ? String(r.paper) : null;
+      const year = await yearFor(r);
       // Scoped to the exam itself: two exams in one term commonly share an exam_type (the
       // create form defaults to 'end_term'), so matching on type alone let saving one
       // assessment silently delete another's marks. Legacy rows with no exam_id still match
@@ -419,20 +436,21 @@ export class AcademicService {
          WHERE tenant_id::text = $1 AND learner_id::text = $2 AND subject = $3
            AND COALESCE(term,'') = COALESCE($4,'') AND COALESCE(exam_type,'') = COALESCE($5,'')
            AND COALESCE(paper,'') = COALESCE($6,'')
-           AND ($7::text IS NULL OR exam_id IS NULL OR exam_id::text = $7)`,
-        [tenantId, r.learnerId, r.subject, r.term || null, r.examType || null, paper, r.examId || null],
+           AND ($7::text IS NULL OR exam_id IS NULL OR exam_id::text = $7)
+           AND (school_year IS NULL OR school_year = $8)`,
+        [tenantId, r.learnerId, r.subject, r.term || null, r.examType || null, paper, r.examId || null, year],
       ).catch(() => null);
 
       await this.dataSource.query(
         `INSERT INTO assessment_results
            (tenant_id, learner_id, stream_id, grade_level, subject, raw_score, max_score, percent,
-            level, exam_type, exam_id, term, academic_year, paper, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())`,
+            level, exam_type, exam_id, term, academic_year, paper, school_year, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())`,
         [
           tenantId, r.learnerId, streamId, gradeLevel, r.subject,
           r.rawScore ?? null, r.maxScore ?? null, r.percent ?? null,
           r.level || null, r.examType || null, r.examId || null,
-          r.term || null, r.academicYear || null, paper,
+          r.term || null, r.academicYear || null, paper, year,
         ],
       ).then(() => { saved++; }).catch((e: any) => {
         lastError = e.message || String(e);
@@ -502,7 +520,8 @@ export class AcademicService {
    * areas at 8 pts), and a term average across the assessments. This drives both the
    * per-assessment mark lists and the multi-column report card.
    */
-  async getTermMarkSheet(tenantId: string, streamId: string, term: string) {
+  async getTermMarkSheet(tenantId: string, streamId: string, term: string, rawYear?: any) {
+    const year = schoolYearOr(rawYear);
     const sgrade = await this.dataSource.query(
       `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
     ).catch(() => []);
@@ -516,11 +535,12 @@ export class AcademicService {
          FROM exams e
         WHERE e.tenant_id::text = $1 AND ($2::text IS NULL OR e.term = $2)
           AND e.deleted_at IS NULL
+          AND EXTRACT(YEAR FROM COALESCE(e.start_date::timestamp, e.created_at AT TIME ZONE 'Africa/Nairobi'))::int = $3
         ORDER BY e.created_at ASC`,
-      [tenantId, term || null],
+      [tenantId, term || null, year],
     ).catch(() => []);
 
-    // All results for this stream+term (optionally scoped to those assessments).
+    // All results for this stream+term+year (optionally scoped to those assessments).
     const rows = await this.dataSource.query(
       `SELECT ar.learner_id AS "learnerId", ar.exam_id AS "examId",
               l.first_name AS "firstName", l.last_name AS "lastName",
@@ -530,9 +550,10 @@ export class AcademicService {
          LEFT JOIN learners l ON l.id::text = ar.learner_id::text
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
           AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.school_year = $4
           AND ar.deleted_at IS NULL
         ORDER BY l.first_name`,
-      [tenantId, streamId, term || null],
+      [tenantId, streamId, term || null, year],
     ).catch(() => []);
 
     // Canonical rubric for this grade, so a spelling variant ("Creative Arts" vs the
@@ -582,7 +603,9 @@ export class AcademicService {
   // Un-aggregated marks: one row per learner/subject/paper, exactly as saved (no summing).
   // Enter Marks uses this to re-open a saved entry — Paper 1 and Paper 2 must reload into
   // their OWN boxes with their OWN "out of", not the mark list's combined total.
-  async getRawResults(tenantId: string, streamId: string, term?: string, examId?: string) {
+  async getRawResults(tenantId: string, streamId: string, term?: string, examId?: string, rawYear?: any) {
+    // A chosen exam already belongs to one year; otherwise this year's (or the asked-for year's) marks.
+    const year = examId ? null : schoolYearOr(rawYear);
     return this.dataSource.query(
       `SELECT ar.learner_id AS "learnerId", ar.subject, ar.paper,
               ar.raw_score AS "rawScore", ar.max_score AS "maxScore"
@@ -590,13 +613,15 @@ export class AcademicService {
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
           AND ($3::text IS NULL OR ar.term = $3)
           AND ($4::text IS NULL OR ar.exam_id::text = $4)
+          AND ($5::int IS NULL OR ar.school_year = $5)
           AND ar.deleted_at IS NULL`,
-      [tenantId, streamId, term || null, examId || null],
+      [tenantId, streamId, term || null, examId || null, year],
     ).catch(() => []);
   }
 
   // Class mark list: every learner × every subject for a stream/term, with totals & rank
-  async getMarkList(tenantId: string, streamId: string, term?: string, examType?: string, examId?: string) {
+  async getMarkList(tenantId: string, streamId: string, term?: string, examType?: string, examId?: string, rawYear?: any) {
+    const year = examId ? null : schoolYearOr(rawYear);
     // Grade of the stream — decides whether points apply
     const sgrade = await this.dataSource.query(
       `SELECT grade_level FROM streams WHERE id::text = $1 LIMIT 1`, [streamId],
@@ -622,9 +647,10 @@ export class AcademicService {
          AND ($3::text IS NULL OR ar.term = $3)
          AND ($4::text IS NULL OR ar.exam_type = $4)
          AND ($5::text IS NULL OR ar.exam_id::text = $5)
+         AND ($6::int IS NULL OR ar.school_year = $6)
          AND ar.deleted_at IS NULL
        ORDER BY l.first_name`,
-      [tenantId, streamId, term || null, examType || null, examId || null],
+      [tenantId, streamId, term || null, examType || null, examId || null, year],
     ).catch(() => []);
 
     // If the rubric has no areas seeded, derive the area set from the marks present.
@@ -730,8 +756,9 @@ export class AcademicService {
   // Aggregates assessment_results for one stream into: per-learning-area averages,
   // CBC performance-level distribution, term-over-term trend, and learner ranking.
   // Permission: admin/HOI, or the class teacher who owns the stream.
-  async getStreamAnalytics(user: any, streamId: string, term?: string) {
+  async getStreamAnalytics(user: any, streamId: string, term?: string, rawYear?: any) {
     const tenantId = user.tenantId;
+    const year = schoolYearOr(rawYear);
     const owns = await this.actorOwnsStream(tenantId, user, streamId);
     if (!owns) throw new BadRequestException('You can only view analytics for your own class.');
 
@@ -750,8 +777,9 @@ export class AcademicService {
          LEFT JOIN learners l ON l.id::text = ar.learner_id::text
         WHERE ar.tenant_id::text = $1 AND ar.stream_id::text = $2
           AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.school_year = $4
           AND ar.deleted_at IS NULL`,
-      [tenantId, streamId, term || null],
+      [tenantId, streamId, term || null, year],
     ).catch(() => []);
 
     // Paper 1 & 2 combined totals — a subject with two rows for the same learner+exam
@@ -842,11 +870,12 @@ export class AcademicService {
   // Aggregates every mark in the school into: per-grade averages, per-learning-area
   // averages school-wide, whole-school CBC level distribution, term trend, and a
   // stream leaderboard (each class's average). Optionally filter by grade and/or term.
-  async getSchoolAnalytics(user: any, gradeLevel?: string, term?: string) {
+  async getSchoolAnalytics(user: any, gradeLevel?: string, term?: string, rawYear?: any) {
     if (!this.isHoiRole(user.role)) {
       throw new BadRequestException('School analytics are available to administrators only.');
     }
     const tenantId = user.tenantId;
+    const year = schoolYearOr(rawYear);
 
     const rows = await this.dataSource.query(
       `SELECT ar.subject, ar.raw_score AS "rawScore", ar.max_score AS "maxScore", ar.exam_id AS "examId",
@@ -857,8 +886,9 @@ export class AcademicService {
         WHERE ar.tenant_id::text = $1
           AND ($2::text IS NULL OR s.grade_level = $2)
           AND ($3::text IS NULL OR ar.term = $3)
+          AND ar.school_year = $4
           AND ar.deleted_at IS NULL`,
-      [tenantId, gradeLevel || null, term || null],
+      [tenantId, gradeLevel || null, term || null, year],
     ).catch(() => []);
 
     const isSeniorGrade = (g: string) => this.isSenior(g);
@@ -994,8 +1024,9 @@ export class AcademicService {
   // the classes they teach it in. Returns, per subject: class-by-class averages, the level
   // distribution for that subject, term trend, and an overall average. Scoped strictly to
   // the teacher's own (stream, subject) assignments.
-  async getSubjectTeacherAnalytics(user: any, subjectFilter?: string, term?: string) {
+  async getSubjectTeacherAnalytics(user: any, subjectFilter?: string, term?: string, rawYear?: any) {
     const tenantId = user.tenantId;
+    const year = schoolYearOr(rawYear);
 
     // The teacher's exact (stream, subject) assignments.
     const ssRows = await this.dataSource.query(
@@ -1032,8 +1063,9 @@ export class AcademicService {
         WHERE ar.tenant_id::text = $1 AND ar.subject = $2
           AND ar.stream_id::text = ANY($3::text[])
           AND ($4::text IS NULL OR ar.term = $4)
+          AND ar.school_year = $5
           AND ar.deleted_at IS NULL`,
-      [tenantId, chosen, streamIds, term || null],
+      [tenantId, chosen, streamIds, term || null, year],
     ).catch(() => []);
 
     // Paper 1 & 2 combined totals — this subject may have two rows per learner+exam
@@ -1108,8 +1140,9 @@ export class AcademicService {
   // account email), and for a chosen child returns per-learning-area performance, level,
   // term trend, the child's overall average, and how the child compares to their class
   // average — WITHOUT exposing any other named learner.
-  async getParentAnalytics(user: any, learnerId?: string, term?: string) {
+  async getParentAnalytics(user: any, learnerId?: string, term?: string, rawYear?: any) {
     const tenantId = user.tenantId;
+    const year = schoolYearOr(rawYear);
     // This parent's children (guardian email or phone), scoped to the parent's tenant.
     const children = await this.dataSource.query(
       `SELECT id::text AS id, first_name AS "firstName", last_name AS "lastName",
@@ -1167,8 +1200,9 @@ export class AcademicService {
          FROM assessment_results
         WHERE tenant_id::text = $1 AND learner_id::text = $2
           AND ($3::text IS NULL OR term = $3)
+          AND school_year = $4
           AND deleted_at IS NULL`,
-      [tenantId, chosen.id, term || null],
+      [tenantId, chosen.id, term || null, year],
     ).catch(() => []);
     const myRows = combineByLearnerSubjectExam(myRawRows);
 
@@ -1180,8 +1214,9 @@ export class AcademicService {
          FROM assessment_results
         WHERE tenant_id::text = $1 AND stream_id::text = $2
           AND ($3::text IS NULL OR term = $3)
+          AND school_year = $4
           AND deleted_at IS NULL`,
-      [tenantId, chosen.streamId, term || null],
+      [tenantId, chosen.streamId, term || null, year],
     ).catch(() => []);
     const classMarks = combineByLearnerSubjectExam(classRawRows);
     const classAgg: Record<string, { sum: number; n: number }> = {};
@@ -3023,7 +3058,7 @@ export class AcademicController {
 
   @Get('mark-list')
   getMarkList(@Request() req: any, @Query() q: any) {
-    return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType, q.examId);
+    return this.academicService.getMarkList(req.user.tenantId, q.streamId, q.term, q.examType, q.examId, q.year);
   }
 
   // Un-aggregated marks (one row per learner/subject/paper) — used by Enter Marks to
@@ -3031,7 +3066,7 @@ export class AcademicController {
   // the mark list's summed total (which is display-only, not what was actually typed).
   @Get('assessment-results/raw')
   getRawResults(@Request() req: any, @Query() q: any) {
-    return this.academicService.getRawResults(req.user.tenantId, q.streamId, q.term, q.examId);
+    return this.academicService.getRawResults(req.user.tenantId, q.streamId, q.term, q.examId, q.year);
   }
 
   // Which learning areas at a grade level are split into Paper 1 / Paper 2.
@@ -3048,12 +3083,12 @@ export class AcademicController {
 
   @Get('analytics/stream')
   getStreamAnalytics(@Request() req: any, @Query() q: any) {
-    return this.academicService.getStreamAnalytics(req.user, q.streamId, q.term);
+    return this.academicService.getStreamAnalytics(req.user, q.streamId, q.term, q.year);
   }
 
   @Get('analytics/school')
   getSchoolAnalytics(@Request() req: any, @Query() q: any) {
-    return this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term);
+    return this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term, q.year);
   }
 
   // Downloadable PDF of the same report — tables only (no interactive charts),
@@ -3061,7 +3096,7 @@ export class AcademicController {
   // reliance on the browser's own print dialog.
   @Get('analytics/school/pdf')
   async getSchoolAnalyticsPdf(@Request() req: any, @Query() q: any, @Res() res: any) {
-    const data = await this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term);
+    const data = await this.academicService.getSchoolAnalytics(req.user, q.gradeLevel, q.term, q.year);
     const gradeLabel = (g: string) => g.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
     const termLabel = (t: string) => t === 'all' ? 'All terms' : t.replace('term_', 'Term ');
 
@@ -3109,13 +3144,13 @@ export class AcademicController {
 
   @Get('analytics/subject')
   getSubjectTeacherAnalytics(@Request() req: any, @Query() q: any) {
-    return this.academicService.getSubjectTeacherAnalytics(req.user, q.subject, q.term);
+    return this.academicService.getSubjectTeacherAnalytics(req.user, q.subject, q.term, q.year);
   }
 
   @AllowRoles('parent')
   @Get('analytics/parent')
   getParentAnalytics(@Request() req: any, @Query() q: any) {
-    return this.academicService.getParentAnalytics(req.user, q.learnerId, q.term);
+    return this.academicService.getParentAnalytics(req.user, q.learnerId, q.term, q.year);
   }
 
   @AllowRoles('parent')
@@ -3131,7 +3166,7 @@ export class AcademicController {
 
   @Get('term-mark-sheet')
   getTermMarkSheet(@Request() req: any, @Query() q: any) {
-    return this.academicService.getTermMarkSheet(req.user.tenantId, q.streamId, q.term);
+    return this.academicService.getTermMarkSheet(req.user.tenantId, q.streamId, q.term, q.year);
   }
 
   @Get('exams')
@@ -3330,8 +3365,8 @@ export class AcademicController {
 // ── Module ───────────────────────────────────────────────
 @Module({
   imports: [TypeOrmModule.forFeature([Stream, Learner, Attendance, AssessmentResult])],
-  controllers: [AcademicController],
-  providers:   [AcademicService, PdfExportService],
+  controllers: [AcademicController, PromotionController],
+  providers:   [AcademicService, PdfExportService, PromotionService],
   exports:     [AcademicService],
 })
 export class AcademicModule {}
