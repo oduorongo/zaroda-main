@@ -22,6 +22,16 @@ const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admi
 const ACTIONS = ['promote', 'repeat', 'transfer', 'complete'] as const;
 type Action = typeof ACTIONS[number];
 const UNDO_DAYS = 30;
+type Queryable = { query: (sql: string, params?: any[]) => Promise<any> };
+
+/**
+ * True when learner `l` was already moved into the class it is in now during school year $2 (promoted in from the grade
+ * below, or kept back to repeat). Those learners are done for the year: they are not offered for promotion again, and they
+ * do not hold up the class below from moving in. Everyone else in a class is still waiting to move up.
+ */
+const MOVED_IN_THIS_YEAR = `EXISTS (SELECT 1 FROM learner_promotions p
+   WHERE p.tenant_id::text = l.tenant_id::text AND p.learner_id::text = l.id::text AND p.school_year = $2
+     AND p.undone_at IS NULL AND p.to_stream_id::text = l.stream_id::text)`;
 
 @Injectable()
 export class PromotionService {
@@ -35,21 +45,62 @@ export class PromotionService {
     return r[0] as { id: string; name: string; gradeLevel: string };
   }
 
-  /** One class: its active learners, the grade they go up to, and the classes in that grade (with the matching one suggested). */
+  /** Each class's active learners and how many are still waiting to move up this year. */
+  private async waitingCounts(q: Queryable, tenantId: string, streamIds?: string[]) {
+    const rows = await q.query(
+      `SELECT s.id::text AS id, s.name, s.grade_level AS "gradeLevel",
+              COUNT(l.id)::int AS learners,
+              COUNT(l.id) FILTER (WHERE NOT ${MOVED_IN_THIS_YEAR})::int AS waiting
+         FROM streams s
+         LEFT JOIN learners l ON l.stream_id::text = s.id::text AND l.tenant_id::text = s.tenant_id::text AND l.is_active = true
+        WHERE s.tenant_id::text = $1 ${streamIds ? 'AND s.id::text = ANY($3::text[])' : ''}
+        GROUP BY s.id, s.name, s.grade_level`,
+      streamIds ? [tenantId, currentSchoolYear(), streamIds] : [tenantId, currentSchoolYear()]);
+    return rows as { id: string; name: string; gradeLevel: string; learners: number; waiting: number }[];
+  }
+
+  /**
+   * Every class, top grade first: the order promotion has to go in. A class can only move up into a class that has
+   * already moved its own learners on, or Grade 2 arriving in Grade 3 would sit alongside the Grade 3s still there.
+   */
+  async classes(tenantId: string) {
+    const rank = (g: string) => { const i = GRADE_ORDER.indexOf(g); return i < 0 ? -1 : i; };
+    return (await this.waitingCounts(this.ds, tenantId))
+      .sort((a, b) => rank(b.gradeLevel) - rank(a.gradeLevel) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }
+
+  /** The class(es) in the way: learners still in `targetId` from this year who have not been moved on yet. */
+  private async blockedBy(q: Queryable, tenantId: string, targetId: string) {
+    const [t] = await this.waitingCounts(q, tenantId, [targetId]);
+    return t && t.waiting > 0
+      ? `${t.name} still has ${t.waiting} learner${t.waiting === 1 ? '' : 's'} from this year. Promote ${t.name} first (work from the top grade down), then come back to this class.`
+      : null;
+  }
+
+  /** One class: the learners still to move up this year, the grade they go up to, and the classes in that grade (with the matching one suggested). */
   async preview(tenantId: string, streamId: string) {
     const from = await this.stream(tenantId, streamId);
     const to = nextGrade(from.gradeLevel);
+    const year = currentSchoolYear();
     const learners = await this.ds.query(
-      `SELECT id::text AS id, TRIM(first_name || ' ' || COALESCE(last_name, '')) AS name,
-              admission_number AS "admissionNumber", gender
-         FROM learners WHERE tenant_id::text = $1 AND stream_id::text = $2 AND is_active = true
-        ORDER BY first_name, last_name`, [tenantId, streamId]);
-    const targets = to ? await this.ds.query(
-      `SELECT id::text AS id, name FROM streams WHERE tenant_id::text = $1 AND grade_level = $2 ORDER BY name`,
-      [tenantId, to]) : [];
+      `SELECT l.id::text AS id, TRIM(l.first_name || ' ' || COALESCE(l.last_name, '')) AS name,
+              l.admission_number AS "admissionNumber", l.gender
+         FROM learners l WHERE l.tenant_id::text = $1 AND l.stream_id::text = $3 AND l.is_active = true
+          AND NOT ${MOVED_IN_THIS_YEAR}
+        ORDER BY l.first_name, l.last_name`, [tenantId, year, streamId]);
+    // Learners who arrived (or were kept back) this year: already done, so not offered again.
+    const [{ count: alreadyMoved }] = await this.ds.query(
+      `SELECT COUNT(*)::int AS count FROM learners l
+        WHERE l.tenant_id::text = $1 AND l.stream_id::text = $3 AND l.is_active = true AND ${MOVED_IN_THIS_YEAR}`,
+      [tenantId, year, streamId]);
+    const targets = to ? (await this.waitingCounts(this.ds, tenantId))
+      .filter(t => t.gradeLevel === to)
+      .map(t => ({ id: t.id, name: t.name, waiting: t.waiting }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) : [];
     const suffix = streamSuffix(from.name).toLowerCase();
     const suggested = targets.find((t: any) => streamSuffix(t.name).toLowerCase() === suffix) || (targets.length === 1 ? targets[0] : null);
     return {
+      alreadyMoved,
       stream: { ...from, gradeName: gradeLabel(from.gradeLevel) },
       nextGrade: to, nextGradeName: to ? gradeLabel(to) : null,
       // The top class completes school; Grade 9 moving to Senior School also needs a pathway and electives.
@@ -104,11 +155,18 @@ export class PromotionService {
            VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id::text AS id`,
           [tenantId, school[0]?.id || null, target.name, to, String(year + 1)]))[0].id;
       }
+      // Never move a class in on top of learners who are still there from this year.
+      if (target) {
+        const blocked = await this.blockedBy(m, tenantId, target.id);
+        if (blocked) throw new BadRequestException(blocked);
+      }
       const ids = decisions.map(d => d.learnerId);
+      // Only learners still waiting this year: ones who arrived from the grade below are not promoted a second time.
       const rows = await m.query(
-        `SELECT id::text AS id, grade_level AS "gradeLevel", stream_id::text AS "streamId", status
-           FROM learners WHERE tenant_id::text = $1 AND id::text = ANY($2::text[]) AND stream_id::text = $3 AND is_active = true
-           FOR UPDATE`, [tenantId, ids, from.id]);
+        `SELECT l.id::text AS id, l.grade_level AS "gradeLevel", l.stream_id::text AS "streamId", l.status
+           FROM learners l WHERE l.tenant_id::text = $1 AND l.stream_id::text = $3 AND l.is_active = true
+            AND l.id::text = ANY($4::text[]) AND NOT ${MOVED_IN_THIS_YEAR}
+           FOR UPDATE`, [tenantId, year, from.id, ids]);
       const byId = new Map(rows.map((r: any) => [r.id, r]));
       for (const d of decisions) {
         const l: any = byId.get(d.learnerId);
@@ -201,6 +259,12 @@ export class PromotionController {
   preview(@Request() req: any, @Query('streamId') streamId: string) {
     this.adminOnly(req);
     return this.svc.preview(req.user.tenantId, streamId);
+  }
+
+  @Get('classes')
+  classes(@Request() req: any) {
+    this.adminOnly(req);
+    return this.svc.classes(req.user.tenantId);
   }
 
   @Get('batches')

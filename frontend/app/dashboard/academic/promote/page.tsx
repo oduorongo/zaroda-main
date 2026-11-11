@@ -27,8 +27,10 @@ export default function PromoteLearnersPage() {
   const [batches, setBatches] = useState<any[]>([]);
 
   const loadBatches = () => apiClient.get('/academic/promotion/batches').then(r => setBatches(r.data || [])).catch(() => setBatches([]));
+  // Top grade first, with how many learners each class still has to move this year.
+  const loadClasses = () => apiClient.get('/academic/promotion/classes').then(r => setStreams(r.data || [])).catch(() => setStreams([]));
   useEffect(() => {
-    apiClient.get('/academic/streams').then(r => setStreams(r.data || [])).catch(() => setStreams([]));
+    loadClasses();
     loadBatches();
   }, []);
 
@@ -55,12 +57,17 @@ export default function PromoteLearnersPage() {
     return c;
   }, [actions]);
 
+  // The chosen class to move into still holds this year's learners: it has to be promoted first.
+  const blockingTarget = preview && counts.promote > 0 && targetId && targetId !== '__new'
+    ? preview.targets.find((t: any) => t.id === targetId && t.waiting > 0) : null;
+
   const setAll = (a: Action) => setActions(Object.fromEntries(Object.keys(actions).map(id => [id, a])));
 
   const submit = async () => {
     if (!preview) return;
     if (counts.promote && !targetId) { toast.error(`Choose the ${preview.nextGradeName} class`); return; }
     if (counts.promote && targetId === '__new' && !newName.trim()) { toast.error('Name the new class'); return; }
+    if (blockingTarget) { toast.error(`Promote ${blockingTarget.name} first`); return; }
     setSaving(true);
     try {
       const r = await apiClient.post('/academic/promotion', {
@@ -72,7 +79,7 @@ export default function PromoteLearnersPage() {
       const c = r.data.counts;
       toast.success(`${preview.stream.name}: ${c.promote} promoted${r.data.toStream ? ` to ${r.data.toStream}` : ''}, ${c.repeat} repeating, ${c.transfer} transferred, ${c.complete} completed`);
       setStreamId(''); setPreview(null); setConfirming(false);
-      apiClient.get('/academic/streams').then(x => setStreams(x.data || [])).catch(() => null);
+      loadClasses();
       loadBatches();
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Could not promote this class');
@@ -85,7 +92,7 @@ export default function PromoteLearnersPage() {
       const r = await apiClient.post(`/academic/promotion/${b.batchId}/undo`);
       toast.success(`${r.data.restored} learner(s) moved back${r.data.skipped ? `; ${r.data.skipped} had been moved again since and were left as they are` : ''}`);
       loadBatches();
-      apiClient.get('/academic/streams').then(x => setStreams(x.data || [])).catch(() => null);
+      loadClasses();
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not undo'); }
   };
 
@@ -105,9 +112,14 @@ export default function PromoteLearnersPage() {
 
       <div className="card p-5 space-y-3">
         <label className="block text-sm font-semibold text-theme-heading">1. Choose a class</label>
+        <p className="text-xs text-theme-muted">Work from the top grade down: a class can only move into a class that has already moved up, so Grade 3 goes before Grade 2.</p>
         <select className="input w-full sm:max-w-sm" value={streamId} onChange={e => setStreamId(e.target.value)}>
           <option value="">Select a class…</option>
-          {streams.map(s => <option key={s.id} value={s.id}>{s.name} ({s.learnersCount || 0} learners)</option>)}
+          {streams.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.name} — {s.waiting > 0 ? `${s.waiting} to move` : s.learners > 0 ? 'done ✓' : 'empty'}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -134,11 +146,25 @@ export default function PromoteLearnersPage() {
                 <label className="block text-sm font-semibold text-theme-heading">2. {preview.nextGradeName} class they move into</label>
                 <select className="input w-full sm:max-w-sm" value={targetId} onChange={e => setTargetId(e.target.value)}>
                   <option value="">Select…</option>
-                  {preview.targets.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {preview.targets.map((t: any) => (
+                    <option key={t.id} value={t.id}>{t.name}{t.waiting > 0 ? ` — not promoted yet (${t.waiting} still there)` : ''}</option>
+                  ))}
                   <option value="__new">+ Create a new {preview.nextGradeName} class</option>
                 </select>
                 {targetId === '__new' && (
                   <input className="input w-full sm:max-w-sm" value={newName} onChange={e => setNewName(e.target.value)} placeholder={`e.g. ${preview.suggestedNewName}`} />
+                )}
+                {blockingTarget && (
+                  <div className="flex flex-wrap items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                    <span className="flex-1 min-w-[12rem]">
+                      {blockingTarget.name} still has {blockingTarget.waiting} learner{blockingTarget.waiting === 1 ? '' : 's'} from this year.
+                      Promote {blockingTarget.name} first, then come back to {preview.stream.name}, so the two classes don&apos;t get mixed up.
+                    </span>
+                    <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={() => setStreamId(blockingTarget.id)}>
+                      Go to {blockingTarget.name}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -154,7 +180,11 @@ export default function PromoteLearnersPage() {
                 </div>
               </div>
               {preview.learners.length === 0 ? (
-                <p className="text-sm text-theme-muted">No active learners in this class.</p>
+                <p className="text-sm text-theme-muted">
+                  {preview.alreadyMoved > 0
+                    ? `Nothing left to do here this year: the ${preview.alreadyMoved} learner(s) in ${preview.stream.name} have already moved in or are repeating.`
+                    : 'No active learners in this class.'}
+                </p>
               ) : (
                 <div className="divide-y rounded-lg" style={{ border: '1px solid var(--border)' }}>
                   {preview.learners.map((l: any) => (
@@ -176,7 +206,7 @@ export default function PromoteLearnersPage() {
 
             {preview.learners.length > 0 && (
               !confirming ? (
-                <button className="btn-primary" onClick={() => setConfirming(true)}>Review and confirm</button>
+                <button className="btn-primary" disabled={!!blockingTarget} onClick={() => setConfirming(true)}>Review and confirm</button>
               ) : (
                 <div className="rounded-lg bg-surface-2 p-4 space-y-3">
                   <p className="text-sm text-theme-heading">
