@@ -50,6 +50,12 @@ export default function KjseaAnalysis() {
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
+  const [schoolName, setSchoolName] = useState('');
+  useEffect(() => {
+    apiClient.get('/schools/settings').then(r => setSchoolName(r.data?.schoolName || '')).catch(() => {});
+  }, []);
+  // On every printed and downloaded page, as on the school's own analysis sheet.
+  const pageTitle = `${schoolName ? `${schoolName.toUpperCase()} — ` : ''}KJSEA ${year} RESULTS ANALYSIS`;
 
   /**
    * A real PDF file of the analysis. Only the sections marked data-pdf-section are drawn, so nothing from
@@ -70,10 +76,19 @@ export default function KjseaAnalysis() {
 
       const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
       const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), M = 24;
-      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14);
-      pdf.text(`KJSEA ${year} RESULTS ANALYSIS`, pageW / 2, M + 10, { align: 'center' });
-      let y = M + 26;
+      const TOP = M + 30;                // content starts below the page title
+      const BOTTOM = pageH - M - 16;     // and ends above the footer
       const SCALE = 2;
+      // The title at the top of every page.
+      const pageHeader = () => {
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13); pdf.setTextColor(26, 46, 90);
+        pdf.text(pageTitle, pageW / 2, M + 10, { align: 'center' });
+        pdf.setDrawColor(212, 175, 55); pdf.setLineWidth(1); pdf.line(M, M + 18, pageW - M, M + 18);
+        pdf.setTextColor(0, 0, 0);
+      };
+      const newPage = () => { pdf.addPage(); pageHeader(); return TOP; };
+      pageHeader();
+      let y = TOP;
 
       for (const sec of Array.from(root.querySelectorAll<HTMLElement>('[data-pdf-section]'))) {
         const width = Math.max(sec.scrollWidth, sec.offsetWidth);
@@ -91,24 +106,46 @@ export default function KjseaAnalysis() {
         const fit = Math.min(1, (pageW - 2 * M) / (canvas.width / SCALE * 0.75));
         const ptPerPx = (0.75 / SCALE) * fit;                 // canvas px -> PDF points
         const fullH = canvas.height * ptPerPx;
-        if (y + fullH > pageH - M && y > M + 30) { pdf.addPage(); y = M; }
+        // The table's column headings (canvas px), repeated at the top of each page a long table runs onto.
+        const head = sec.querySelector('thead');
+        const headTop = head ? (head.getBoundingClientRect().top - top) * SCALE : 0;
+        const headBottom = head ? (head.getBoundingClientRect().bottom - top) * SCALE : 0;
+        const draw = (from: number, to: number) => {
+          const slice = document.createElement('canvas');
+          slice.width = canvas.width; slice.height = Math.max(1, Math.ceil(to - from));
+          slice.getContext('2d')!.drawImage(canvas, 0, from, canvas.width, to - from, 0, 0, canvas.width, to - from);
+          pdf.addImage(slice.toDataURL('image/png'), 'PNG', M, y, canvas.width * ptPerPx, (to - from) * ptPerPx);
+          y += (to - from) * ptPerPx;
+        };
+        if (y + fullH > BOTTOM && y > TOP) y = newPage();
 
         let start = 0;
         while (start < canvas.height - 1) {
-          const room = (pageH - M - y) / ptPerPx;
+          if (start > 0 && head) draw(headTop, headBottom);   // headings again on a continued table
+          const room = (BOTTOM - y) / ptPerPx;
           let end = Math.min(canvas.height, start + room);
           if (end < canvas.height) {
             const row = cuts.filter(c => c > start + 40 && c <= end).pop();
             if (row) end = row;
           }
-          const slice = document.createElement('canvas');
-          slice.width = canvas.width; slice.height = Math.ceil(end - start);
-          slice.getContext('2d')!.drawImage(canvas, 0, start, canvas.width, end - start, 0, 0, canvas.width, end - start);
-          pdf.addImage(slice.toDataURL('image/png'), 'PNG', M, y, canvas.width * ptPerPx, (end - start) * ptPerPx);
-          y += (end - start) * ptPerPx + 12;
+          draw(start, end);
+          y += 12;
           start = end;
-          if (start < canvas.height - 1) { pdf.addPage(); y = M; }
+          if (start < canvas.height - 1) y = newPage();
         }
+      }
+      // The Zaroda footer and page number on every page.
+      const pages = pdf.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        pdf.setPage(i);
+        pdf.setDrawColor(212, 175, 55); pdf.setLineWidth(1); pdf.line(M, pageH - M - 8, pageW - M, pageH - M - 8);
+        pdf.setFontSize(8); pdf.setTextColor(10, 22, 51);
+        const parts: [string, string][] = [['Powered by ', 'normal'], ['ZARODA SOLUTIONS', 'bold'], [' - Innovative. Reliable. Forward.', 'normal']];
+        const widths = parts.map(([t, f]) => { pdf.setFont('helvetica', f); return pdf.getTextWidth(t); });
+        let x = pageW / 2 - widths.reduce((a, b) => a + b, 0) / 2;
+        parts.forEach(([t, f], k) => { pdf.setFont('helvetica', f); pdf.text(t, x, pageH - M + 4); x += widths[k]; });
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`Page ${i} of ${pages}`, pageW - M, pageH - M + 4, { align: 'right' });
       }
       pdf.save(`KJSEA-${year}-results-analysis.pdf`);
       toast.success('PDF downloaded', { id: toastId });
@@ -274,7 +311,12 @@ export default function KjseaAnalysis() {
           )}
         </div>
       </div>
-      <h1 className="hidden print:block text-xl font-black text-center">KJSEA {year} RESULTS ANALYSIS</h1>
+      {/* On paper the browser repeats this table's head and foot on every page: the title at the top,
+          the Zaroda line at the bottom. On screen the head and foot are hidden and it lays out like a div. */}
+      <table className="kjsea-shell">
+        <thead><tr><td><div className="kjsea-page-title">{pageTitle}</div></td></tr></thead>
+        <tfoot><tr><td><div className="kjsea-page-footer">Powered by <b>ZARODA SOLUTIONS</b> - Innovative. Reliable. Forward.</div></td></tr></tfoot>
+        <tbody><tr><td><div className="space-y-6">
 
       {loading ? (
         <div className="card p-8 flex justify-center"><Loader2 className="animate-spin text-theme-muted" /></div>
@@ -493,6 +535,8 @@ export default function KjseaAnalysis() {
           </div>
         </>
       )}
+        </div></td></tr></tbody>
+      </table>
     </div>
   );
 }
