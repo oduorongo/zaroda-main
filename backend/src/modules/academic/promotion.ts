@@ -22,6 +22,8 @@ const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner', 'super_admi
 const ACTIONS = ['promote', 'repeat', 'transfer', 'complete'] as const;
 type Action = typeof ACTIONS[number];
 const UNDO_DAYS = 30;
+/** The last Junior School grade. Grade 10 onwards is Senior School, usually another school. */
+const JUNIOR_END = 'grade_9';
 type Queryable = { query: (sql: string, params?: any[]) => Promise<any> };
 
 /**
@@ -99,12 +101,21 @@ export class PromotionService {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) : [];
     const suffix = streamSuffix(from.name).toLowerCase();
     const suggested = targets.find((t: any) => streamSuffix(t.name).toLowerCase() === suffix) || (targets.length === 1 ? targets[0] : null);
+    // Grade 9 ends Junior School: learners leave for a senior school through placement. Only a school that already
+    // runs Grade 10 classes can keep them, and even then most leave, so completing is the default.
+    const endsJunior = from.gradeLevel === JUNIOR_END;
+    const canPromote = !!to && (!endsJunior || targets.length > 0);
+    const actions: Action[] = !canPromote ? ['complete', 'repeat', 'transfer']
+      : endsJunior ? ['complete', 'promote', 'repeat', 'transfer'] : ['promote', 'repeat', 'transfer'];
     return {
       alreadyMoved,
       stream: { ...from, gradeName: gradeLabel(from.gradeLevel) },
       nextGrade: to, nextGradeName: to ? gradeLabel(to) : null,
-      // The top class completes school; Grade 9 moving to Senior School also needs a pathway and electives.
-      isFinalGrade: !to, needsPathway: to === 'grade_10',
+      actions, defaultAction: actions[0],
+      completeLabel: endsJunior ? 'Completed Junior School' : 'Completed school',
+      // A new Grade 10 class can't be made here: Senior School is set up on purpose, not by promoting Grade 9.
+      canCreateTarget: !endsJunior,
+      isFinalGrade: !canPromote, needsPathway: canPromote && to === 'grade_10',
       targets, suggestedTargetId: suggested?.id || null,
       suggestedNewName: to ? `${gradeLabel(to)}${suffix ? ' ' + streamSuffix(from.name) : ''}` : null,
       learners, schoolYear: currentSchoolYear(),
@@ -133,6 +144,9 @@ export class PromotionService {
         const t = await this.stream(tenantId, dto.targetStreamId);
         if (t.gradeLevel !== to) throw new BadRequestException(`Choose a ${gradeLabel(to!)} class to promote into.`);
         target = t;
+      } else if (from.gradeLevel === JUNIOR_END) {
+        throw new BadRequestException(
+          'Grade 10 is Senior School. Mark these learners as Completed Junior School; only a school that already has Grade 10 classes can keep them.');
       } else if (String(dto.newStreamName || '').trim()) {
         target = { id: '', name: String(dto.newStreamName).trim() };
       } else {
