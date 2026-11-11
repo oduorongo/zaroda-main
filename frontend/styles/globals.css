@@ -251,3 +251,14 @@ body::after {
 @media print {
   body::after { display: none; }
 }
+
+/* KJSEA analysis on paper: black on white whatever the screen theme, and wide tables shrink to fit
+   the page instead of being cut off at the scroll edge. */
+@media print {
+  .kjsea-print, .kjsea-print * { color: #000 !important; background: #fff !important; box-shadow: none !important; }
+  .kjsea-print .overflow-x-auto { overflow: visible !important; }
+  .kjsea-print table { font-size: 9px; }
+  .kjsea-print th, .kjsea-print td { padding: 2px 3px !important; border-color: #999 !important; }
+  .kjsea-print [data-pdf-section] { break-inside: avoid-page; }
+  .kjsea-print tr { break-inside: avoid; }
+}

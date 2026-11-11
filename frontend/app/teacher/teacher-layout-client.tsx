@@ -174,7 +174,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
-      <aside className="hidden lg:flex flex-col w-64 flex-shrink-0" style={{ background: 'var(--sidebar)' }}>
+      <aside className="no-print hidden lg:flex flex-col w-64 flex-shrink-0" style={{ background: 'var(--sidebar)' }}>
         {Sidebar()}
       </aside>
 
@@ -183,7 +183,7 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
       </MobileDrawer>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface" style={{ borderBottom: '2px solid #d4af37' }}>
+        <header className="no-print flex-shrink-0 h-14 px-4 flex items-center justify-between bg-surface" style={{ borderBottom: '2px solid #d4af37' }}>
           <div className="flex items-center gap-3">
             <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg text-theme-heading hover:bg-surface-2"><Menu size={20}/></button>
             {pathname !== '/teacher' && (

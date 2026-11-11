@@ -1,6 +1,6 @@
 'use client';
-import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Loader2, Printer, Save, Pencil, X } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, Printer, Save, Pencil, X, Download } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
@@ -31,6 +31,12 @@ const LEVELS = [
 /** Overall performance level (1-8) from the percentage, on KNEC's 8-level bands. */
 const plFromPercent = (p: number) => p >= 90 ? 8 : p >= 75 ? 7 : p >= 58 ? 6 : p >= 41 ? 5 : p >= 31 ? 4 : p >= 21 ? 3 : p >= 11 ? 2 : p > 0 ? 1 : 0;
 const isBoy = (g: string) => ['male', 'm', 'boy'].includes(String(g || '').toLowerCase());
+const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+  if (document.querySelector(`script[src="${src}"]`)) return resolve();
+  const s = document.createElement('script');
+  s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('PDF tools could not load'));
+  document.head.appendChild(s);
+});
 const fmt = (n: number | null, d = 2) => n === null || Number.isNaN(n) ? '—' : n.toFixed(d).replace(/\.?0+$/, '');
 
 export default function KjseaAnalysis() {
@@ -42,6 +48,74 @@ export default function KjseaAnalysis() {
   const [draft, setDraft] = useState<Record<string, Record<string, number | ''>>>({});
   const [reCode, setReCode] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * A real PDF file of the analysis. Only the sections marked data-pdf-section are drawn, so nothing from
+   * the app around the page (menu, header, subscription notice) can end up in it. Each section is rendered
+   * in the light theme, kept whole where it fits, and long tables are split between rows.
+   */
+  const downloadPdf = async () => {
+    const root = reportRef.current;
+    if (!root) return;
+    setPdfBusy(true);
+    const toastId = toast.loading('Preparing PDF…');
+    try {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const html2canvas = (window as any).html2canvas;
+      const JsPDF = (window as any).jspdf?.jsPDF;
+      if (!html2canvas || !JsPDF) throw new Error('PDF tools could not load');
+
+      const pdf = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), M = 24;
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14);
+      pdf.text(`KJSEA ${year} RESULTS ANALYSIS`, pageW / 2, M + 10, { align: 'center' });
+      let y = M + 26;
+      const SCALE = 2;
+
+      for (const sec of Array.from(root.querySelectorAll<HTMLElement>('[data-pdf-section]'))) {
+        const width = Math.max(sec.scrollWidth, sec.offsetWidth);
+        const canvas: HTMLCanvasElement = await html2canvas(sec, {
+          scale: SCALE, backgroundColor: '#ffffff', useCORS: true, width, windowWidth: Math.max(1280, width + 64),
+          ignoreElements: (el: Element) => el.hasAttribute?.('data-pdf-ignore'),
+          onclone: (doc: Document, el: HTMLElement) => {
+            doc.documentElement.classList.remove('dark');      // always print light
+            el.style.overflow = 'visible'; el.style.width = `${width}px`; el.style.boxShadow = 'none';
+          },
+        });
+        // Where rows start (canvas pixels), so a long table is split between rows, never through one.
+        const top = sec.getBoundingClientRect().top;
+        const cuts = Array.from(sec.querySelectorAll('tr')).map(tr => (tr.getBoundingClientRect().top - top) * SCALE);
+        const fit = Math.min(1, (pageW - 2 * M) / (canvas.width / SCALE * 0.75));
+        const ptPerPx = (0.75 / SCALE) * fit;                 // canvas px -> PDF points
+        const fullH = canvas.height * ptPerPx;
+        if (y + fullH > pageH - M && y > M + 30) { pdf.addPage(); y = M; }
+
+        let start = 0;
+        while (start < canvas.height - 1) {
+          const room = (pageH - M - y) / ptPerPx;
+          let end = Math.min(canvas.height, start + room);
+          if (end < canvas.height) {
+            const row = cuts.filter(c => c > start + 40 && c <= end).pop();
+            if (row) end = row;
+          }
+          const slice = document.createElement('canvas');
+          slice.width = canvas.width; slice.height = Math.ceil(end - start);
+          slice.getContext('2d')!.drawImage(canvas, 0, start, canvas.width, end - start, 0, 0, canvas.width, end - start);
+          pdf.addImage(slice.toDataURL('image/png'), 'PNG', M, y, canvas.width * ptPerPx, (end - start) * ptPerPx);
+          y += (end - start) * ptPerPx + 12;
+          start = end;
+          if (start < canvas.height - 1) { pdf.addPage(); y = M; }
+        }
+      }
+      pdf.save(`KJSEA-${year}-results-analysis.pdf`);
+      toast.success('PDF downloaded', { id: toastId });
+    } catch (e: any) {
+      toast.error(`${e?.message || 'Could not make the PDF'}. Use Print and choose "Save as PDF" instead.`, { id: toastId });
+    } finally { setPdfBusy(false); }
+  };
 
   const load = () => {
     setLoading(true);
@@ -173,7 +247,7 @@ export default function KjseaAnalysis() {
   const td = 'px-2 py-1.5 whitespace-nowrap';
 
   return (
-    <div className="space-y-6 kjsea-print">
+    <div className="space-y-6 kjsea-print" ref={reportRef}>
       <div className="page-header print:hidden">
         <div>
           <h1 className="text-2xl font-black text-theme-heading">KJSEA {year} Results Analysis</h1>
@@ -185,6 +259,11 @@ export default function KjseaAnalysis() {
           <select className="input py-1.5" value={year} onChange={e => setYear(Number(e.target.value))} disabled={editing}>
             {[thisYear, thisYear - 1, thisYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
+          {!editing && learners.length > 0 && (
+            <button className="btn-ghost" disabled={pdfBusy} onClick={downloadPdf}>
+              {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Download PDF
+            </button>
+          )}
           {!editing && <button className="btn-ghost" onClick={() => window.print()}><Printer size={16} /> Print</button>}
           {data?.canEdit && !editing && learners.length > 0 && <button className="btn-primary" onClick={startEdit}><Pencil size={16} /> Enter points</button>}
           {editing && (
@@ -204,7 +283,7 @@ export default function KjseaAnalysis() {
       ) : (
         <>
           {/* Summary */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-pdf-section>
             {[
               ['Candidates', `${sat.length}${sat.length !== learners.length ? ` of ${learners.length}` : ''}`],
               ['School mean', schoolMean === null ? '—' : `${fmt(schoolMean, 4)} / 8`],
@@ -219,7 +298,7 @@ export default function KjseaAnalysis() {
           </div>
 
           {/* Mark list */}
-          <div className="card p-0 overflow-x-auto">
+          <div className="card p-0 overflow-x-auto" data-pdf-section>
             <table className="w-full text-sm">
               <thead className="bg-surface-2">
                 <tr>
@@ -281,6 +360,17 @@ export default function KjseaAnalysis() {
                   <td className={td}></td>
                   <td className={`${td} text-center`}>{fmt(schoolMean, 4)}</td>
                 </tr>
+                {/* Subject names under the totals, as on the KJSEA analysis sheet. */}
+                <tr style={{ borderTop: '1px solid var(--border)' }}>
+                  <td className={`${td} text-xs text-theme-muted`} colSpan={4}>Subject</td>
+                  {columns.map(c => (
+                    <td key={c.key} className="px-1 py-1.5 text-center text-[11px] font-medium leading-tight text-theme-heading whitespace-normal min-w-[3.5rem]">{c.name}</td>
+                  ))}
+                  <td className="px-1 py-1.5 text-center text-[11px] font-medium text-theme-heading">Total</td>
+                  <td className="px-1 py-1.5 text-center text-[11px] font-medium text-theme-heading">School %</td>
+                  <td className={td}></td>
+                  <td className="px-1 py-1.5 text-center text-[11px] font-medium text-theme-heading">School mean</td>
+                </tr>
               </tfoot>
             </table>
             {results.some(r => r.count && r.count < 9) && (
@@ -289,7 +379,7 @@ export default function KjseaAnalysis() {
           </div>
 
           {/* Learning areas ranked by mean */}
-          <div className="card p-5">
+          <div className="card p-5" data-pdf-section>
             <h2 className="text-sm font-semibold text-theme-heading mb-3">Learning areas by mean</h2>
             <div className="space-y-1.5">
               {[...subjectStats].filter(s => s.entries).sort((a, b) => (b.mean || 0) - (a.mean || 0)).map((s, i) => (
@@ -305,7 +395,7 @@ export default function KjseaAnalysis() {
           </div>
 
           {/* Level distribution per learning area */}
-          <div className="card p-0 overflow-x-auto">
+          <div className="card p-0 overflow-x-auto" data-pdf-section>
             <h2 className="text-sm font-semibold text-theme-heading px-4 pt-4 pb-2">Level distribution per learning area</h2>
             <table className="w-full text-sm">
               <thead className="bg-surface-2">
@@ -326,7 +416,7 @@ export default function KjseaAnalysis() {
           </div>
 
           {/* Overall performance level by gender */}
-          <div className="card p-0 overflow-x-auto">
+          <div className="card p-0 overflow-x-auto" data-pdf-section>
             <h2 className="text-sm font-semibold text-theme-heading px-4 pt-4 pb-2">Overall performance level by gender</h2>
             <table className="w-full text-sm sm:max-w-md">
               <thead className="bg-surface-2"><tr><th className={th}>Level</th><th className={`${th} text-center`}>Boys</th><th className={`${th} text-center`}>Girls</th><th className={`${th} text-center`}>Total</th></tr></thead>
@@ -345,7 +435,7 @@ export default function KjseaAnalysis() {
           </div>
 
           {/* Levels per gender per learning area */}
-          <div className="card p-0 overflow-x-auto">
+          <div className="card p-0 overflow-x-auto" data-pdf-section>
             <h2 className="text-sm font-semibold text-theme-heading px-4 pt-4 pb-2">Levels by gender per learning area</h2>
             <table className="w-full text-sm">
               <thead className="bg-surface-2">
@@ -393,12 +483,14 @@ export default function KjseaAnalysis() {
             </table>
           </div>
 
-          <p className="text-xs text-theme-muted">
-            Subjects: {subjects.map(s => `${s.code} ${ABBR[s.code] || ''} = ${s.name}`).join(' · ')}.
-          </p>
-          <p className="text-xs text-theme-muted">
-            Levels: {LEVELS.map(l => `${l.code} = ${l.pts}`).join(' · ')}. Overall PL from the percentage: 90+ = 8, 75–89 = 7, 58–74 = 6, 41–57 = 5, 31–40 = 4, 21–30 = 3, 11–20 = 2, below = 1.
-          </p>
+          <div className="space-y-1 bg-surface py-1" data-pdf-section>
+            <p className="text-xs text-theme-muted">
+              Subjects: {subjects.map(s => `${s.code} ${ABBR[s.code] || ''} = ${s.name}`).join(' · ')}.
+            </p>
+            <p className="text-xs text-theme-muted">
+              Levels: {LEVELS.map(l => `${l.code} = ${l.pts}`).join(' · ')}. Overall PL from the percentage: 90+ = 8, 75–89 = 7, 58–74 = 6, 41–57 = 5, 31–40 = 4, 21–30 = 3, 11–20 = 2, below = 1.
+            </p>
+          </div>
         </>
       )}
     </div>
