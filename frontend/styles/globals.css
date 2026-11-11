@@ -252,13 +252,26 @@ body::after {
   body::after { display: none; }
 }
 
-/* KJSEA analysis on paper: black on white whatever the screen theme, and wide tables shrink to fit
-   the page instead of being cut off at the scroll edge. */
+/* KJSEA analysis. On screen the page shell lays out like plain blocks, without its print title and footer. */
+.kjsea-shell, .kjsea-shell > tbody, .kjsea-shell > tbody > tr, .kjsea-shell > tbody > tr > td { display: block; width: 100%; }
+.kjsea-shell > thead, .kjsea-shell > tfoot { display: none; }
+
+/* On paper: black on white whatever the screen theme; the shell's head and foot repeat on every page
+   (title at the top, Zaroda line at the bottom); wide tables shrink to fit instead of being cut off; a long
+   table runs on from page to page, breaking between rows. */
 @media print {
   .kjsea-print, .kjsea-print * { color: #000 !important; background: #fff !important; box-shadow: none !important; }
+  .kjsea-shell { display: table; width: 100%; border-collapse: collapse; }
+  .kjsea-shell > thead { display: table-header-group; }
+  .kjsea-shell > tfoot { display: table-footer-group; }
+  .kjsea-shell > tbody { display: table-row-group; }
+  .kjsea-shell > tbody > tr { display: table-row; }
+  .kjsea-shell > tbody > tr > td { display: table-cell; }
+  .kjsea-page-title { text-align: center; font-weight: 800; font-size: 13px; padding-bottom: 4px; margin-bottom: 8px; border-bottom: 1.5px solid #d4af37; }
+  .kjsea-page-footer { text-align: center; font-size: 9px; padding-top: 4px; margin-top: 8px; border-top: 1.5px solid #d4af37; color: #0a1633 !important; }
   .kjsea-print .overflow-x-auto { overflow: visible !important; }
-  .kjsea-print table { font-size: 9px; }
-  .kjsea-print th, .kjsea-print td { padding: 2px 3px !important; border-color: #999 !important; }
-  .kjsea-print [data-pdf-section] { break-inside: avoid-page; }
-  .kjsea-print tr { break-inside: avoid; }
+  .kjsea-shell td table { font-size: 9px; width: 100%; }
+  .kjsea-shell td table thead { display: table-header-group; }
+  .kjsea-shell td td, .kjsea-shell td th { padding: 2px 3px !important; border-color: #999 !important; }
+  .kjsea-shell td tr { break-inside: avoid; }
 }
