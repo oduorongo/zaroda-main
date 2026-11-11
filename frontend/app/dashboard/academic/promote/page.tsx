@@ -42,9 +42,9 @@ export default function PromoteLearnersPage() {
       .then(r => {
         const p = r.data;
         setPreview(p);
-        const def: Action = p.isFinalGrade ? 'complete' : 'promote';
+        const def: Action = p.defaultAction || (p.isFinalGrade ? 'complete' : 'promote');
         setActions(Object.fromEntries(p.learners.map((l: any) => [l.id, def])));
-        setTargetId(p.suggestedTargetId || (p.targets.length ? '' : '__new'));
+        setTargetId(p.suggestedTargetId || (p.targets.length || p.canCreateTarget === false ? '' : '__new'));
         setNewName(p.suggestedNewName || '');
       })
       .catch((e: any) => toast.error(e?.response?.data?.message || 'Could not load this class'))
@@ -60,6 +60,9 @@ export default function PromoteLearnersPage() {
   // The chosen class to move into still holds this year's learners: it has to be promoted first.
   const blockingTarget = preview && counts.promote > 0 && targetId && targetId !== '__new'
     ? preview.targets.find((t: any) => t.id === targetId && t.waiting > 0) : null;
+
+  // Grade 9 learners finish Junior School rather than 'completing school'.
+  const label = (a: Action) => (a === 'complete' && preview?.completeLabel) || ACTION_LABEL[a];
 
   const setAll = (a: Action) => setActions(Object.fromEntries(Object.keys(actions).map(id => [id, a])));
 
@@ -131,10 +134,19 @@ export default function PromoteLearnersPage() {
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-bold text-theme-heading">{preview.stream.name}</span>
               <ArrowRight size={16} className="text-theme-muted" />
-              <span className="font-bold text-theme-heading">{preview.isFinalGrade ? 'Completes school' : preview.nextGradeName}</span>
+              <span className="font-bold text-theme-heading">{preview.isFinalGrade ? (preview.completeLabel === 'Completed Junior School' ? 'Completes Junior School' : 'Completes school')
+                : preview.defaultAction === 'complete' ? `Completes Junior School (or ${preview.nextGradeName})` : preview.nextGradeName}</span>
               <span className="text-theme-muted">· end of {preview.schoolYear}</span>
             </div>
-            {preview.needsPathway && (
+            {preview.completeLabel === 'Completed Junior School' && (
+              <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                {preview.isFinalGrade
+                  ? "Grade 9 is the end of Junior School. Learners go on to Senior School through placement, so they are marked Completed Junior School and leave this school's class lists. Their marks and report cards are kept."
+                  : "Grade 9 is the end of Junior School. Most learners leave for Senior School through placement: keep them as Completed Junior School, and choose Promote only for those staying in this school's Grade 10."}
+              </p>
+            )}
+            {preview.needsPathway && counts.promote > 0 && (
               <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                 Grade 10 is Senior School: after promoting, set each learner&apos;s pathway and electives under Senior Selection.
@@ -149,7 +161,7 @@ export default function PromoteLearnersPage() {
                   {preview.targets.map((t: any) => (
                     <option key={t.id} value={t.id}>{t.name}{t.waiting > 0 ? ` — not promoted yet (${t.waiting} still there)` : ''}</option>
                   ))}
-                  <option value="__new">+ Create a new {preview.nextGradeName} class</option>
+                  {preview.canCreateTarget !== false && <option value="__new">+ Create a new {preview.nextGradeName} class</option>}
                 </select>
                 {targetId === '__new' && (
                   <input className="input w-full sm:max-w-sm" value={newName} onChange={e => setNewName(e.target.value)} placeholder={`e.g. ${preview.suggestedNewName}`} />
@@ -171,11 +183,11 @@ export default function PromoteLearnersPage() {
 
             <div>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <label className="text-sm font-semibold text-theme-heading">{preview.isFinalGrade ? '2' : '3'}. Each learner ({preview.learners.length})</label>
+                <label className="text-sm font-semibold text-theme-heading">{!preview.isFinalGrade && counts.promote > 0 ? '3' : '2'}. Each learner ({preview.learners.length})</label>
                 <div className="flex flex-wrap gap-1 text-xs">
                   <span className="text-theme-muted self-center">Set all:</span>
-                  {(preview.isFinalGrade ? ['complete', 'repeat'] : ['promote', 'repeat']).map((a: any) => (
-                    <button key={a} type="button" onClick={() => setAll(a)} className="btn-ghost px-2 py-1">{ACTION_LABEL[a as Action]}</button>
+                  {(preview.actions || []).filter((a: Action) => a !== 'transfer').map((a: Action) => (
+                    <button key={a} type="button" onClick={() => setAll(a)} className="btn-ghost px-2 py-1">{label(a)}</button>
                   ))}
                 </div>
               </div>
@@ -194,8 +206,8 @@ export default function PromoteLearnersPage() {
                         <div className="text-xs text-theme-muted">{l.admissionNumber}</div>
                       </div>
                       <select className="input py-1 text-sm" value={actions[l.id]} onChange={e => setActions(a => ({ ...a, [l.id]: e.target.value as Action }))}>
-                        {(preview.isFinalGrade ? ['complete', 'repeat', 'transfer'] : ['promote', 'repeat', 'transfer']).map((a: any) => (
-                          <option key={a} value={a}>{ACTION_LABEL[a as Action]}</option>
+                        {(preview.actions || []).map((a: Action) => (
+                          <option key={a} value={a}>{label(a)}</option>
                         ))}
                       </select>
                     </div>
@@ -213,7 +225,7 @@ export default function PromoteLearnersPage() {
                     {counts.promote > 0 && <><b>{counts.promote}</b> promoted to <b>{targetId === '__new' ? newName || 'a new class' : preview.targets.find((t: any) => t.id === targetId)?.name || '—'}</b>. </>}
                     {counts.repeat > 0 && <><b>{counts.repeat}</b> repeating {preview.stream.gradeName}. </>}
                     {counts.transfer > 0 && <><b>{counts.transfer}</b> transferred out. </>}
-                    {counts.complete > 0 && <><b>{counts.complete}</b> completed school. </>}
+                    {counts.complete > 0 && <><b>{counts.complete}</b> {preview.completeLabel === 'Completed Junior School' ? 'completed Junior School' : 'completed school'}. </>}
                   </p>
                   <p className="text-xs text-theme-muted">You can undo this within 30 days from the list below.</p>
                   <div className="flex gap-2">
