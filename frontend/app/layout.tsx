@@ -26,7 +26,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // Set the theme class before paint to avoid a flash of the wrong theme.
-  const noFlash = `(function(){try{var s=localStorage.getItem('zaroda-theme');var t='dark';if(s){t=(JSON.parse(s).state||{}).theme||'dark';}if(t==='dark')document.documentElement.classList.add('dark');}catch(e){document.documentElement.classList.add('dark');}})();`;
+  // The teacher sign-up link (/onboard/...) always opens in light mode; it has no theme switch.
+  const noFlash = `(function(){if(location.pathname.indexOf('/onboard/')===0){document.documentElement.classList.remove('dark');return;}try{var s=localStorage.getItem('zaroda-theme');var t='dark';if(s){t=(JSON.parse(s).state||{}).theme||'dark';}if(t==='dark')document.documentElement.classList.add('dark');}catch(e){document.documentElement.classList.add('dark');}})();`;
   return (
     <html lang="en" className={`${inter.className} dark`}>
       <head>
