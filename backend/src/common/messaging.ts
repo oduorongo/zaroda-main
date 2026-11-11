@@ -23,6 +23,7 @@ export async function sendEmail(to: string, subject: string, html: string, text?
     return { ok: false, channel: 'email', detail: 'Email not configured (RESEND_API_KEY missing).' };
   }
   const from = process.env.RESEND_FROM || 'ZARODA SMS <onboarding@resend.dev>';
+  const reply_to = process.env.RESEND_REPLY_TO || 'info@zarodasolutions.app';
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -33,7 +34,7 @@ export async function sendEmail(to: string, subject: string, html: string, text?
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        from, to, subject, html,
+        from, reply_to, to, subject, html,
         text: text || html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
       }),
       signal: controller.signal,
