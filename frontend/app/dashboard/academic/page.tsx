@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Users, Grid, CheckSquare, FileText, Calendar, Search, Plus, ChevronRight, BarChart3, ClipboardList, UserPlus, UserCheck, GraduationCap, Calculator, FileStack, ArrowUpCircle } from 'lucide-react';
+import { Users, Grid, CheckSquare, FileText, Calendar, Search, Plus, ChevronRight, BarChart3, ClipboardList, UserPlus, UserCheck, GraduationCap, Calculator, FileStack, ArrowUpCircle, Award } from 'lucide-react';
 import apiClient from '@/lib/api/client';
 import { useAuth, isHoi } from '@/lib/hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -25,6 +25,7 @@ export default function AcademicPage() {
     { icon: Calendar,   label: 'Timetable',     sub: 'KICD CBC schedule',  href: '/dashboard/academic/timetable',    color: 'bg-purple-600'},
     { icon: FileText,   label: 'Report Cards',  sub: 'CBC assessments',    href: '/dashboard/academic/report-cards', color: 'bg-[#f5820a]' },
     { icon: BarChart3,  label: 'Mark List',     sub: 'Raw scores → ranking',href: '/dashboard/academic/mark-list',   color: 'bg-rose-600'  },
+    { icon: Award,      label: 'KJSEA Results', sub: 'Grade 9 national exam analysis', href: '/dashboard/academic/kjsea', color: 'bg-emerald-700' },
     { icon: Calculator, label: 'Enter Marks',   sub: 'Add marks for a teacher', href: '/dashboard/academic/enter-marks', color: 'bg-pink-600' },
     { icon: FileStack,  label: 'Paper 1 & 2 Setup', sub: 'Flag multi-paper subjects', href: '/dashboard/academic/subject-papers', color: 'bg-violet-600' },
     { icon: FileText,   label: 'Term Report',   sub: 'Per-assessment levels', href: '/dashboard/academic/term-report', color: 'bg-[#1a2e5a]' },
