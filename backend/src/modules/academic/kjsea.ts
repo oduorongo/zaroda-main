@@ -3,6 +3,8 @@ import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SchoolOnly } from '../../common/decorators/access.decorator';
 import { currentSchoolYear, schoolYearOr } from '../../common/school-year';
+import { schoolHeadInfo } from '../../common/school-letterhead';
+import { safeImageSrc } from '../../common/security';
 
 /** KJSEA subject codes. Each candidate sits one religious education paper: 908, 909 or 910. */
 export const KJSEA_SUBJECTS = [
@@ -59,8 +61,11 @@ export class KjseaService {
          LEFT JOIN kjsea_results k ON k.tenant_id::text = $1 AND k.learner_id::text = l.id::text AND k.school_year = $2
         ORDER BY l.first_name, l.last_name`,
       [tenantId, year, year === currentSchoolYear()]);
+    // The same letterhead the report cards and mark lists carry: badge, name, contacts, motto.
+    const head = await schoolHeadInfo(this.ds, tenantId);
     return {
       year, currentYear: currentSchoolYear(),
+      school: { name: head.name || '', logo: safeImageSrc(head.logo) || null, address: head.address || '', phone: head.phone || '', email: head.email || '', motto: head.motto || '' },
       canEdit: EDIT_ROLES.includes(user.role),
       subjects: KJSEA_SUBJECTS,
       learners,

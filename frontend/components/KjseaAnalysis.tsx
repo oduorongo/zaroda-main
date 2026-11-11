@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
  */
 
 type Subject = { code: string; name: string };
+type School = { name: string; logo: string | null; address: string; phone: string; email: string; motto: string };
 type Row = { id: string; name: string; admissionNumber: string; gender: string; stream: string | null; points: Record<string, number> };
 
 const RE_CODES = ['908', '909', '910'];
@@ -42,7 +43,7 @@ const fmt = (n: number | null, d = 2) => n === null || Number.isNaN(n) ? '—' :
 export default function KjseaAnalysis() {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(thisYear);
-  const [data, setData] = useState<{ canEdit: boolean; subjects: Subject[]; learners: Row[] } | null>(null);
+  const [data, setData] = useState<{ canEdit: boolean; subjects: Subject[]; learners: Row[]; school?: School } | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, Record<string, number | ''>>>({});
@@ -50,12 +51,11 @@ export default function KjseaAnalysis() {
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
-  const [schoolName, setSchoolName] = useState('');
-  useEffect(() => {
-    apiClient.get('/schools/settings').then(r => setSchoolName(r.data?.schoolName || '')).catch(() => {});
-  }, []);
-  // On every printed and downloaded page, as on the school's own analysis sheet.
-  const pageTitle = `${schoolName ? `${schoolName.toUpperCase()} — ` : ''}KJSEA ${year} RESULTS ANALYSIS`;
+  // The school's letterhead details, the same ones report cards and mark lists print.
+  const school: Partial<School> = data?.school || {};
+  const contacts = [school.address, school.phone, school.email].filter(Boolean).join(' · ');
+  // Heads every PDF page after the first (the first opens with the full letterhead).
+  const pageTitle = `${school.name ? `${school.name.toUpperCase()} — ` : ''}KJSEA ${year} RESULTS ANALYSIS`;
 
   /**
    * A real PDF file of the analysis. Only the sections marked data-pdf-section are drawn, so nothing from
@@ -87,8 +87,7 @@ export default function KjseaAnalysis() {
         pdf.setTextColor(0, 0, 0);
       };
       const newPage = () => { pdf.addPage(); pageHeader(); return TOP; };
-      pageHeader();
-      let y = TOP;
+      let y = M;   // page 1 opens with the letterhead section itself
 
       for (const sec of Array.from(root.querySelectorAll<HTMLElement>('[data-pdf-section]'))) {
         const width = Math.max(sec.scrollWidth, sec.offsetWidth);
@@ -117,7 +116,10 @@ export default function KjseaAnalysis() {
           pdf.addImage(slice.toDataURL('image/png'), 'PNG', M, y, canvas.width * ptPerPx, (to - from) * ptPerPx);
           y += (to - from) * ptPerPx;
         };
-        if (y + fullH > BOTTOM && y > TOP) y = newPage();
+        // A new page only when the section would then fit whole. One longer than a page (the mark list)
+        // starts straight after what is above it and runs on, unless just a sliver of the page is left.
+        const fitsOnFreshPage = fullH <= BOTTOM - TOP;
+        if (y > TOP && ((y + fullH > BOTTOM && fitsOnFreshPage) || BOTTOM - y < 120)) y = newPage();
 
         let start = 0;
         while (start < canvas.height - 1) {
@@ -311,10 +313,9 @@ export default function KjseaAnalysis() {
           )}
         </div>
       </div>
-      {/* On paper the browser repeats this table's head and foot on every page: the title at the top,
-          the Zaroda line at the bottom. On screen the head and foot are hidden and it lays out like a div. */}
+      {/* On paper the browser repeats this table's foot on every page: the Zaroda line at the bottom.
+          On screen the foot is hidden and the table lays out like a div. */}
       <table className="kjsea-shell">
-        <thead><tr><td><div className="kjsea-page-title">{pageTitle}</div></td></tr></thead>
         <tfoot><tr><td><div className="kjsea-page-footer">Powered by <b>ZARODA SOLUTIONS</b> - Innovative. Reliable. Forward.</div></td></tr></tfoot>
         <tbody><tr><td><div className="space-y-6">
 
@@ -325,6 +326,15 @@ export default function KjseaAnalysis() {
       ) : (
         <>
           {/* Summary */}
+          {/* Letterhead, as on report cards and mark lists: badge, name, contacts, motto, then the title. */}
+          <div className="bg-surface pb-2 text-center" style={{ borderBottom: '3px solid #d4af37' }} data-pdf-section>
+            {school.logo && <img src={school.logo} alt="" className="mx-auto mb-1.5 h-[60px] w-auto" />}
+            <div className="text-xl font-black text-theme-heading">{school.name || 'School'}</div>
+            {contacts && <div className="text-[11px] text-theme-muted">{contacts}</div>}
+            {school.motto && <div className="text-[11px] italic text-theme-muted">“{school.motto}”</div>}
+            <div className="mt-0.5 text-sm font-bold text-theme-heading">KJSEA {year} RESULTS ANALYSIS</div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-pdf-section>
             {[
               ['Candidates', `${sat.length}${sat.length !== learners.length ? ` of ${learners.length}` : ''}`],
