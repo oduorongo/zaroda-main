@@ -99,6 +99,30 @@ export default function PromoteLearnersPage() {
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not undo'); }
   };
 
+  const allSame = (a: Action) => Object.keys(actions).length > 0 && Object.values(actions).every(x => x === a);
+
+  const confirmBox = preview && preview.learners.length > 0 && (
+    !confirming ? (
+      <button className="btn-primary" disabled={!!blockingTarget} onClick={() => setConfirming(true)}>Review and confirm</button>
+    ) : (
+      <div className="rounded-lg bg-surface-2 p-4 space-y-3">
+        <p className="text-sm text-theme-heading">
+          {counts.promote > 0 && <><b>{counts.promote}</b> promoted to <b>{targetId === '__new' ? newName || 'a new class' : preview.targets.find((t: any) => t.id === targetId)?.name || '—'}</b>. </>}
+          {counts.repeat > 0 && <><b>{counts.repeat}</b> repeating {preview.stream.gradeName}. </>}
+          {counts.transfer > 0 && <><b>{counts.transfer}</b> transferred out. </>}
+          {counts.complete > 0 && <><b>{counts.complete}</b> {preview.completeLabel === 'Completed Junior School' ? 'completed Junior School' : 'completed school'}. </>}
+        </p>
+        <p className="text-xs text-theme-muted">You can undo this within 30 days from the list below.</p>
+        <div className="flex gap-2">
+          <button className="btn-primary" disabled={saving} onClick={submit}>
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Confirm
+          </button>
+          <button className="btn-ghost" disabled={saving} onClick={() => setConfirming(false)}>Back</button>
+        </div>
+      </div>
+    )
+  );
+
   if (user && !isHoi(user.role || '')) {
     return <div className="card p-8 text-center text-theme-muted">Only the HOI, a deputy, the Director of Studies or a school administrator can promote learners.</div>;
   }
@@ -187,10 +211,14 @@ export default function PromoteLearnersPage() {
                 <div className="flex flex-wrap gap-1 text-xs">
                   <span className="text-theme-muted self-center">Set all:</span>
                   {(preview.actions || []).filter((a: Action) => a !== 'transfer').map((a: Action) => (
-                    <button key={a} type="button" onClick={() => setAll(a)} className="btn-ghost px-2 py-1">{label(a)}</button>
+                    <button key={a} type="button" onClick={() => setAll(a)} aria-pressed={allSame(a)}
+                      className={allSame(a) ? 'btn-primary px-2 py-1' : 'btn-ghost px-2 py-1'}>
+                      {allSame(a) && <CheckCircle2 size={12} />} {label(a)}
+                    </button>
                   ))}
                 </div>
               </div>
+              {preview.learners.length > 0 && <div className="mb-3">{confirmBox}</div>}
               {preview.learners.length === 0 ? (
                 <p className="text-sm text-theme-muted">
                   {preview.alreadyMoved > 0
@@ -216,27 +244,7 @@ export default function PromoteLearnersPage() {
               )}
             </div>
 
-            {preview.learners.length > 0 && (
-              !confirming ? (
-                <button className="btn-primary" disabled={!!blockingTarget} onClick={() => setConfirming(true)}>Review and confirm</button>
-              ) : (
-                <div className="rounded-lg bg-surface-2 p-4 space-y-3">
-                  <p className="text-sm text-theme-heading">
-                    {counts.promote > 0 && <><b>{counts.promote}</b> promoted to <b>{targetId === '__new' ? newName || 'a new class' : preview.targets.find((t: any) => t.id === targetId)?.name || '—'}</b>. </>}
-                    {counts.repeat > 0 && <><b>{counts.repeat}</b> repeating {preview.stream.gradeName}. </>}
-                    {counts.transfer > 0 && <><b>{counts.transfer}</b> transferred out. </>}
-                    {counts.complete > 0 && <><b>{counts.complete}</b> {preview.completeLabel === 'Completed Junior School' ? 'completed Junior School' : 'completed school'}. </>}
-                  </p>
-                  <p className="text-xs text-theme-muted">You can undo this within 30 days from the list below.</p>
-                  <div className="flex gap-2">
-                    <button className="btn-primary" disabled={saving} onClick={submit}>
-                      {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Confirm
-                    </button>
-                    <button className="btn-ghost" disabled={saving} onClick={() => setConfirming(false)}>Back</button>
-                  </div>
-                </div>
-              )
-            )}
+            {preview.learners.length > 10 && confirmBox}
           </div>
         </>
       )}
