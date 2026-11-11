@@ -14,6 +14,15 @@ type Subject = { code: string; name: string };
 type Row = { id: string; name: string; admissionNumber: string; gender: string; stream: string | null; points: Record<string, number> };
 
 const RE_CODES = ['908', '909', '910'];
+/** Short subject names shown under each code, for staff still learning the KJSEA codes. */
+const ABBR: Record<string, string> = {
+  '901': 'ENG', '902': 'KIS', '903': 'MAT', '905': 'ISC', '906': 'AGR', '907': 'SST',
+  '908': 'CRE', '909': 'IRE', '910': 'HRE', '911': 'CAS', '912': 'PTS',
+};
+/** A column heading: the code, with its abbreviation underneath. */
+function CodeHead({ code, abbr }: { code: string; abbr: string }) {
+  return (<><div>{code}</div><div className="text-[10px] font-medium text-theme-muted leading-tight">{abbr}</div></>);
+}
 /** KJSEA points and their performance levels. */
 const LEVELS = [
   { pts: 8, code: 'EE1' }, { pts: 7, code: 'EE2' }, { pts: 6, code: 'ME1' }, { pts: 5, code: 'ME2' },
@@ -52,13 +61,13 @@ export default function KjseaAnalysis() {
     return used.length ? used : ['908'];
   }, [learners]);
   const columns = useMemo(() => {
-    const out: { key: string; label: string; name: string }[] = [];
+    const out: { key: string; label: string; abbr: string; name: string }[] = [];
     for (const s of subjects) {
       if (RE_CODES.includes(s.code)) {
-        if (s.code === '908') out.push({ key: 'RE', label: reInUse.join('/'), name: reInUse.map(c => subjects.find(x => x.code === c)?.name).join('/') });
+        if (s.code === '908') out.push({ key: 'RE', label: reInUse.join('/'), abbr: reInUse.map(c => ABBR[c]).join('/'), name: reInUse.map(c => subjects.find(x => x.code === c)?.name).join('/') });
         continue;
       }
-      out.push({ key: s.code, label: s.code, name: s.name });
+      out.push({ key: s.code, label: s.code, abbr: ABBR[s.code] || '', name: s.name });
     }
     return out;
   }, [subjects, reInUse]);
@@ -215,7 +224,7 @@ export default function KjseaAnalysis() {
               <thead className="bg-surface-2">
                 <tr>
                   <th className={th}>#</th><th className={th}>Candidate</th><th className={th}>Adm</th><th className={th}>G</th>
-                  {columns.map(c => <th key={c.key} className={`${th} text-center`} title={c.name}>{c.label}</th>)}
+                  {columns.map(c => <th key={c.key} className={`${th} text-center`} title={c.name}><CodeHead code={c.label} abbr={c.abbr} /></th>)}
                   <th className={`${th} text-center`}>/72</th><th className={`${th} text-center`}>%</th>
                   <th className={`${th} text-center`}>PL</th><th className={`${th} text-center`}>/8</th>
                 </tr>
@@ -286,7 +295,7 @@ export default function KjseaAnalysis() {
               {[...subjectStats].filter(s => s.entries).sort((a, b) => (b.mean || 0) - (a.mean || 0)).map((s, i) => (
                 <div key={s.code} className="flex items-center gap-3 text-sm">
                   <span className="w-5 text-theme-muted">{i + 1}</span>
-                  <span className="w-12 font-semibold text-theme-heading">{s.code}</span>
+                  <span className="w-20 font-semibold text-theme-heading">{s.code} <span className="text-xs font-medium text-theme-muted">{ABBR[s.code]}</span></span>
                   <span className="w-44 truncate text-theme-muted hidden sm:inline">{nameOf(s.code)}</span>
                   <div className="flex-1 h-2.5 rounded bg-surface-2 overflow-hidden"><div className="h-full rounded bg-[#1a2e5a]" style={{ width: `${((s.mean || 0) / 8) * 100}%` }} /></div>
                   <span className="w-16 text-right font-semibold">{fmt(s.mean, 4)}</span>
@@ -300,7 +309,7 @@ export default function KjseaAnalysis() {
             <h2 className="text-sm font-semibold text-theme-heading px-4 pt-4 pb-2">Level distribution per learning area</h2>
             <table className="w-full text-sm">
               <thead className="bg-surface-2">
-                <tr><th className={th}>Level</th><th className={`${th} text-center`}>Pts</th>{subjectStats.map(s => <th key={s.code} className={`${th} text-center`} title={nameOf(s.code)}>{s.code}</th>)}</tr>
+                <tr><th className={th}>Level</th><th className={`${th} text-center`}>Pts</th>{subjectStats.map(s => <th key={s.code} className={`${th} text-center`} title={nameOf(s.code)}><CodeHead code={s.code} abbr={ABBR[s.code] || ''} /></th>)}</tr>
               </thead>
               <tbody>
                 {LEVELS.map(lv => (
@@ -342,7 +351,7 @@ export default function KjseaAnalysis() {
               <thead className="bg-surface-2">
                 <tr>
                   <th className={th} rowSpan={2}>Level</th>
-                  {subjectStats.map(s => <th key={s.code} className={`${th} text-center`} colSpan={3} title={nameOf(s.code)} style={{ borderLeft: '1px solid var(--border)' }}>{s.code}</th>)}
+                  {subjectStats.map(s => <th key={s.code} className={`${th} text-center`} colSpan={3} title={nameOf(s.code)} style={{ borderLeft: '1px solid var(--border)' }}><CodeHead code={s.code} abbr={ABBR[s.code] || ''} /></th>)}
                 </tr>
                 <tr>
                   {subjectStats.map(s => (
@@ -384,6 +393,9 @@ export default function KjseaAnalysis() {
             </table>
           </div>
 
+          <p className="text-xs text-theme-muted">
+            Subjects: {subjects.map(s => `${s.code} ${ABBR[s.code] || ''} = ${s.name}`).join(' · ')}.
+          </p>
           <p className="text-xs text-theme-muted">
             Levels: {LEVELS.map(l => `${l.code} = ${l.pts}`).join(' · ')}. Overall PL from the percentage: 90+ = 8, 75–89 = 7, 58–74 = 6, 41–57 = 5, 31–40 = 4, 21–30 = 3, 11–20 = 2, below = 1.
           </p>
