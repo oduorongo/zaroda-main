@@ -40,7 +40,8 @@ export function SubscriptionNotice({ role }: { role?: string }) {
   const grace = billable.filter((x: any) => x.status === 'grace');
   const dueSoon = billable.filter((x: any) => x.status === 'due_soon');
   const link = <Link href="/dashboard/subscription" className="font-semibold underline whitespace-nowrap">Open Subscription →</Link>;
-  const box = 'mb-4 rounded-xl px-4 py-3 text-sm flex gap-2 items-start border';
+  // no-print: the notice is for the screen only, never on printed or saved pages.
+  const box = 'no-print mb-4 rounded-xl px-4 py-3 text-sm flex gap-2 items-start border';
 
   if (lapsed.length) {
     return (
