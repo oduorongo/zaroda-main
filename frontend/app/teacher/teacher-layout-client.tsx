@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Home, CheckSquare, BarChart3, Calendar, BookOpen, Users,
   Sparkles, Menu, X, LogOut, Sun, Moon, UserPlus, ClipboardCheck, ClipboardList, FileText, ListChecks, ArrowLeft, Share2, TrendingUp,
-  DollarSign, KeyRound,
+  DollarSign, KeyRound, Award,
 } from 'lucide-react';
 import { useAuth, isTeacher, isIndividualAccount } from '@/lib/hooks/useAuth';
 import { ShareZaroda } from '@/components/ShareZaroda';
@@ -28,6 +28,7 @@ const TEACHER_NAV = [
   { href: '/teacher/cats',       icon: ClipboardList, label: 'CATs' },
   { href: '/teacher/assessment', icon: ClipboardCheck, label: 'Assessment Rubric' },
   { href: '/teacher/report-card', icon: FileText, label: 'Report Card' },
+  { href: '/teacher/kjsea',      icon: Award,       label: 'KJSEA Results' },
   { href: '/teacher/timetable',  icon: Calendar,    label: 'My Timetable' },
   // The teaching workflow above stays flat — it is the daily job and burying it
   // behind a tile page would cost a click every time. These four are school-wide

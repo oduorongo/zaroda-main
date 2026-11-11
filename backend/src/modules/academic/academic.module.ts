@@ -27,6 +27,7 @@ import {
 } from './kicd-timetable.constants';
 import { AutoTimetabler } from './auto-timetabler';
 import { PromotionController, PromotionService } from './promotion';
+import { KjseaController, KjseaService } from './kjsea';
 import { getGradeLearningAreas, resolveLearningArea } from '../pdf/learning-area.util';
 import { percentToPoints as cbcPercentToPoints, percentToLevelCode as cbcPercentToLevelCode } from '../pdf/cbc-report.helper';
 import {
@@ -3365,8 +3366,8 @@ export class AcademicController {
 // ── Module ───────────────────────────────────────────────
 @Module({
   imports: [TypeOrmModule.forFeature([Stream, Learner, Attendance, AssessmentResult])],
-  controllers: [AcademicController, PromotionController],
-  providers:   [AcademicService, PdfExportService, PromotionService],
+  controllers: [AcademicController, PromotionController, KjseaController],
+  providers:   [AcademicService, PdfExportService, PromotionService, KjseaService],
   exports:     [AcademicService],
 })
 export class AcademicModule {}
