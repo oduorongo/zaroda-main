@@ -24,7 +24,7 @@ export class SalesSyncService {
 
   @Cron('*/30 * * * *')
   async run() {
-    const key = process.env.SALES_SYNC_KEY || '';
+    const key = (process.env.SALES_SYNC_KEY || '').trim().replace(/^["']+|["']+$/g, '').trim();
     if (key.length < 24 || this.running) return;
     this.running = true;
     try {
@@ -44,7 +44,7 @@ export class SalesSyncService {
       const url = `${(process.env.POS_API_URL || 'https://api.zarodashop.com').replace(/\/+$/, '')}/sales-sync/school`;
       const send = async (body: object) => {
         const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-sales-sync-key': key }, body: JSON.stringify(body) });
-        if (!res.ok) throw new Error(`POS answered ${res.status}`);
+        if (!res.ok) throw new Error(`POS answered ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
         return res.json();
       };
       const unmatched: string[] = [];
