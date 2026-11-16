@@ -20,6 +20,7 @@ import * as bcrypt from 'bcryptjs';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { revokeSessions } from '../../common/sessions';
 import { generateTempPassword } from '../../common/security';
+import { webUrl } from '../../common/web-url';
 
 @Entity('teacher_onboard_links')
 export class TeacherOnboardLink {
@@ -61,7 +62,7 @@ export class TeacherOnboardService {
   ) {}
 
   private appBase() {
-    return (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3001').replace(/\/$/, '');
+    return webUrl();
   }
 
   // Admin generates (or reuses) the active onboarding link for their school.

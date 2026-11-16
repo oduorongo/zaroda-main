@@ -6237,6 +6237,7 @@ export class HrModule {}
 // REFERRAL MODULE (Share invite links)
 // ═══════════════════════════════════════════════════════════
 import * as crypto from 'crypto';
+import { webUrl } from '../common/web-url';
 
 @Entity('class_teacher_invites')
 class ClassTeacherInvite {
@@ -6261,7 +6262,7 @@ class ReferralController {
   generateInvite(@Request() req: any) {
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const baseUrl = process.env.APP_URL || 'http://localhost:3001';
+    const baseUrl = webUrl();
     return {
       token:   rawToken,   // returned once, never stored
       inviteUrl: `${baseUrl}/invite/${rawToken}`,
@@ -8220,7 +8221,7 @@ class AdminController {
 
     const result: any = { recipients: tenants.length };
     const defaultMessage = (name: string) =>
-      `Hi, this is a reminder from ZARODA to finish setting up ${name} — add your classes, teachers and students so your school is ready to use. Log in at https://app.zarodasolutions.app to continue.`;
+      `Hi, this is a reminder from ZARODA to finish setting up ${name} — add your classes, teachers and students so your school is ready to use. Log in at ${webUrl()} to continue.`;
     // Full HTML version of the same reminder — mirrors scripts/send-onboarding-
     // reminders.js (the daily automated version of this same reminder) so both
     // read identically regardless of which one sent it.
@@ -8241,12 +8242,12 @@ class AdminController {
             <li>✅ Send SMS directly to parents</li>
           </ul>
           <p style="margin-top: 24px;">
-            <a href="https://app.zarodasolutions.app" style="background: #1a2e5a; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+            <a href="${webUrl()}" style="background: #1a2e5a; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
               Complete Your Setup Today
             </a>
           </p>
           <p>Log in and complete the remaining setup steps so you can start using the full power of ZARODA SMS.</p>
-          <p><a href="https://app.zarodasolutions.app" style="color: #1a2e5a;">zarodasolutions.app</a></p>
+          <p><a href="${webUrl()}" style="color: #1a2e5a;">${webUrl().replace(/^https?:\/\//, '')}</a></p>
           <p>Don&rsquo;t stop at onboarding&mdash;complete your setup and move from registration to real impact!</p>
           <p>Thank you for choosing <strong>ZARODA Solutions</strong>.</p>
           <p style="margin-top: 24px; color: #1a2e5a; font-weight: bold; letter-spacing: 0.5px;">
