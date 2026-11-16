@@ -178,11 +178,10 @@ export default function DashboardLayoutClient({ children }: { children: React.Re
       </div>
 
       {/* Nav */}
-      {/* On phones the menu and the bottom links scroll together inside one list, so the
-          menu is never squeezed into a thin strip by the bottom block. On desktop the
-          wrapper vanishes (lg:contents) and the nav scrolls above a pinned bottom block. */}
-      <div className="flex-1 min-h-0 overflow-y-auto lg:contents">
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+      {/* The menu and the bottom links scroll together inside one list on every screen, so the
+          menu is never squeezed into a thin strip by the bottom block; only the user card stays pinned. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+      <nav className="px-3 py-3 space-y-0.5">
         {navItems.map(item => {
           const Icon   = item.icon;
           const active = isActive(item.href, (item as any).match);
