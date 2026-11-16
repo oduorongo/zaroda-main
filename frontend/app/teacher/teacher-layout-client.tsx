@@ -115,9 +115,9 @@ export default function TeacherLayoutClient({ children }: { children: React.Reac
           <div className="font-black text-[#fdba74] leading-tight text-[11px]">MANAGEMENT SYSTEM</div>
         </div>
       </div>
-      {/* Phones: menu and bottom links scroll together; desktop: wrapper vanishes (lg:contents). */}
-      <div className="flex-1 min-h-0 overflow-y-auto lg:contents">
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+      {/* Menu and bottom links scroll together on every screen. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+      <nav className="px-3 space-y-1">
         {navItems.map(n => {
           const Icon = n.icon;
           const blocked = isIndividualAccount(user?.accountType) && !INDIVIDUAL_ALLOWED_HREFS.includes(n.href);
