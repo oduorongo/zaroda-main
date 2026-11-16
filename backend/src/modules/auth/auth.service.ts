@@ -19,6 +19,7 @@ import { revokeSessions } from '../../common/sessions';
 import { tokenMatchesUser } from './jwt.strategy';
 import { findSimilarSchools } from '../../common/school-similarity';
 import { notifyOwner } from '../../common/owner-notify';
+import { webUrl } from '../../common/web-url';
 
 // Hosts a password-reset link may point at. A client-supplied appUrl outside this
 // list is ignored, so a reset email can never carry the token to someone else's site.
@@ -337,7 +338,7 @@ export class AuthService {
         { name: `${dto.adminFirstName} ${dto.adminLastName}`.trim(), email: savedUser.email, phone: dto.phone }).catch(() => null);
 
       // Fire-and-forget: sendEmail fails soft and must never block or fail signup.
-      const appUrl = process.env.APP_URL || 'https://app.zarodasolutions.app';
+      const appUrl = webUrl();
       sendEmail(
         savedUser.email,
         `Welcome to ZARODA, ${dto.schoolName}!`,
@@ -558,7 +559,7 @@ export class AuthService {
     this.notifyNewSchool('Teacher upgraded to a school', tenant.id, dto,
       { name: `${user.firstName} ${user.lastName}`.trim(), email: user.email, phone: user.phone }).catch(() => null);
 
-    const appUrl = process.env.APP_URL || 'https://app.zarodasolutions.app';
+    const appUrl = webUrl();
     sendEmail(
       user.email,
       `Welcome to ZARODA, ${dto.schoolName}!`,

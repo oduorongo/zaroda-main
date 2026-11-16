@@ -29,6 +29,7 @@ import {
   LAUNCH_FREE_UNTIL, FREE_UNTIL_SQL,
   ensureBillingTables, loadCoverage, needsPaying, syncTenantPaidUntil, Coverage,
 } from '../../common/subscription';
+import { webUrl } from '../../common/web-url';
 
 const ADMIN_ROLES = ['hoi', 'dhois', 'school_admin', 'tenant_owner'];
 
@@ -49,7 +50,7 @@ function callbackUrl(): string {
 }
 
 function appUrl(): string {
-  return (process.env.APP_URL || 'https://app.zarodasolutions.app').replace(/\/+$/, '');
+  return webUrl();
 }
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
