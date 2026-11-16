@@ -9,8 +9,8 @@ import { HttpException } from '@nestjs/common';
 // at different times lapse on different dates. Only streams with at least one active
 // learner are billable; empty streams are never charged and never locked.
 //
-// Free period: every school that joined in 2026 (or earlier) is free until
-// 15 January 2027. A school joining from 2027 gets the rest of the term it joins
+// Free period: every school that joined before 16 November 2026 (the launch cohort) is free until
+// 15 January 2027. A school joining from then gets its first term free: the rest of the term it joins
 // in (or, joining in a holiday, the coming term) free, up to the day before the
 // following term opens.
 //
@@ -32,7 +32,7 @@ export const GRACE_DAYS = 14;
 export const DUE_SOON_DAYS = 30;
 
 // Everyone who joined before this date is on the launch free period.
-export const LAUNCH_COHORT_BEFORE = '2027-01-01';
+export const LAUNCH_COHORT_BEFORE = '2026-11-16';
 export const LAUNCH_FREE_UNTIL = '2027-01-15';
 
 // Kenyan school terms as [opening, closing]. Used only to work out a new school's

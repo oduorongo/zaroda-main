@@ -8,7 +8,7 @@ export const metadata = {
   alternates: { canonical: '/legal/terms' },
 };
 
-const UPDATED = '22 September 2026';
+const UPDATED = '16 November 2026';
 
 export default function TermsPage() {
   return (
@@ -71,10 +71,11 @@ export default function TermsPage() {
 
       <h2>4. Subscriptions and payment</h2>
       <p>
-        <strong>Zaroda SMS is free for the whole of 2026, with every module unlocked.</strong>{' '}
-        Nothing is payable until 15 January 2027. Module access is not restricted during this
-        period — it begins to follow your plan once you subscribe, which is what the next two
-        paragraphs describe.
+        <strong>A school&apos;s first term on Zaroda SMS is free, with every module unlocked:</strong>{' '}
+        the rest of the term it joins in or, if it joins during a school holiday, the whole of the
+        coming term. Schools that joined before 16 November 2026 are free until 15 January 2027.
+        Module access is not restricted during the free period — it begins to follow your plan once
+        you subscribe, which is what the next two paragraphs describe.
       </p>
       <p>
         <strong>Essential</strong> is the base subscription and is charged per stream, per year:
