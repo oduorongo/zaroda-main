@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsArray, IsBoolean } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsArray, IsBoolean, MaxLength } from 'class-validator';
 
 export class SignupDto {
   @IsString()  schoolName:      string;
@@ -25,6 +25,9 @@ export class SignupDto {
 
   // Set once the person has seen the similar-name warning and confirmed it's a different school.
   @IsOptional() @IsBoolean() confirmNewSchool?: boolean;
+
+  // ZARODA sales team member who brought the school in: their id from the ?agent= link, or a phone/email typed in.
+  @IsOptional() @IsString() @MaxLength(120) agent?: string;
 }
 
 // Lightweight signup for a teacher whose school isn't a ZARODA tenant — no
@@ -71,6 +74,9 @@ export class UpgradeToSchoolDto {
   @IsOptional() @IsArray()  schoolLevels?: string[];
   @IsOptional() @IsString() ownership?:    string;
   @IsOptional() @IsBoolean() confirmNewSchool?: boolean;
+
+  // ZARODA sales team member who brought the school in: their id from the ?agent= link, or a phone/email typed in.
+  @IsOptional() @IsString() @MaxLength(120) agent?: string;
 }
 
 export class SimilarSchoolsDto {

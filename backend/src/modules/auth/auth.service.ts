@@ -210,6 +210,14 @@ export class AuthService {
 
   // ── Signup ──────────────────────────────────────────────
   // Same school signing up twice under another KNEC code: warn until the person confirms.
+  // The ZARODA sales team member who brought the school in (see SalesSyncModule). Set once, after
+  // signup has committed, and never allowed to fail it.
+  private recordSalesAgent(tenantId: string, agent?: string) {
+    const ref = (agent || '').trim().slice(0, 120);
+    if (!ref) return;
+    this.dataSource.query(`UPDATE tenants SET sales_agent_ref = $1 WHERE id = $2 AND sales_agent_ref IS NULL`, [ref, tenantId]).catch(() => null);
+  }
+
   private async assertNotDuplicateSchool(dto: { schoolName: string; county?: string; confirmNewSchool?: boolean }, excludeTenantId?: string) {
     if (dto.confirmNewSchool) return;
     const matches = await findSimilarSchools(this.dataSource, dto.schoolName, { county: dto.county, excludeTenantId });
@@ -324,6 +332,7 @@ export class AuthService {
 
       await queryRunner.commitTransaction();
 
+      this.recordSalesAgent(savedTenant.id, dto.agent);
       this.notifyNewSchool('New school signed up', savedTenant.id, dto,
         { name: `${dto.adminFirstName} ${dto.adminLastName}`.trim(), email: savedUser.email, phone: dto.phone }).catch(() => null);
 
@@ -538,6 +547,7 @@ export class AuthService {
       });
 
       await queryRunner.commitTransaction();
+      this.recordSalesAgent(tenant.id, dto.agent);
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;

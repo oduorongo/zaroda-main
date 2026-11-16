@@ -97,6 +97,8 @@ services:
         sync: false
       - key: TUMA_API_KEY
         sync: false
+      - key: SALES_SYNC_KEY
+        sync: false
 
   # ── Frontend (Next.js) ──────────────────────────────────────────────────
   - type: web

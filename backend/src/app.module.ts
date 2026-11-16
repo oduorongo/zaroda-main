@@ -21,6 +21,7 @@ import { ProfessionalRecordsModule } from './modules/professional-records/profes
 import { SeniorSelectionModule }    from './modules/senior-selection/senior-selection.module';
 import { CatModule }                from './modules/cat/cat.module';
 import { BillingModule }            from './modules/billing/billing.module';
+import { SalesSyncModule }          from './modules/sales-sync/sales-sync.module';
 import { ComplianceModule }         from './modules/compliance/compliance.module';
 import { PiiAuditInterceptor }      from './common/pii-audit';
 
@@ -92,6 +93,7 @@ import { PiiAuditInterceptor }      from './common/pii-audit';
     SeniorSelectionModule,
     CatModule,
     BillingModule,
+    SalesSyncModule,
     ComplianceModule,
   ],
   // Global so any controller can opt a route into the PII access trail with

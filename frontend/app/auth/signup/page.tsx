@@ -83,6 +83,14 @@ export default function SignupPage() {
     countyId: '', county: '', subCountyId: '', subCounty: '', zone: '',
   });
 
+  // ZARODA sales team member who brought the school in: from their link (?agent=...) or typed in.
+  const [agent,     setAgent]     = useState('');
+  const [agentLink, setAgentLink] = useState(false);
+  useEffect(() => {
+    const fromLink = new URLSearchParams(window.location.search).get('agent')?.trim();
+    if (fromLink) { setAgent(fromLink.slice(0, 120)); setAgentLink(true); }
+  }, []);
+
   // Try loading counties from API — fallback to hardcoded list if API fails
   useEffect(() => {
     fetch(`${API}/location/counties`)
@@ -198,7 +206,7 @@ export default function SignupPage() {
       const res = await fetch(`${API}/auth/signup`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...form, ...location, schoolLevels, ownership, confirmNewSchool: confirmedNew }),
+        body:    JSON.stringify({ ...form, ...location, schoolLevels, ownership, confirmNewSchool: confirmedNew, ...(agent.trim() ? { agent: agent.trim() } : {}) }),
       });
 
       const data = await res.json();
@@ -353,6 +361,15 @@ export default function SignupPage() {
               <input type="tel" value={form.phone} onChange={set('phone')}
                 placeholder="+254 700 000 000" className="input"/>
             </div>
+            {agentLink ? (
+              <p className="text-xs text-gray-500">Signing up through a ZARODA team member&apos;s link.</p>
+            ) : (
+              <div>
+                <label className="label">ZARODA marketer&apos;s phone or email (optional)</label>
+                <input value={agent} onChange={e => setAgent(e.target.value.slice(0, 120))}
+                  placeholder="If a ZARODA team member helped you" className="input"/>
+              </div>
+            )}
             <div>
               <label className="label">Password *</label>
               <div className="relative">
