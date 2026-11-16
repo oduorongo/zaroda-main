@@ -192,7 +192,7 @@ export default function HomePage() {
               <span className="w-1.5 h-1.5 bg-[#d4af37] rounded-full"/> Made in Kenya for Kenyan schools
             </div>
             <div className="inline-flex items-center gap-2 bg-[#d4af37]/15 border border-[#d4af37]/40 text-[#d4af37] text-sm font-bold px-4 py-1.5 rounded-full">
-              🎉 FREE for all of 2026 — subscription begins 15 Jan 2027
+              🎉 Your first term is FREE — no card needed
             </div>
             <Link href="/auth/signup-individual"
               className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-purple-500/25 transition-colors">
@@ -359,9 +359,9 @@ export default function HomePage() {
           <p className="text-[#f5820a] font-bold text-sm uppercase tracking-widest mb-2">Simple pricing</p>
           <h2 className="text-3xl md:text-4xl font-black text-[#1a2e5a]">Pay per stream, per year</h2>
           <div className="inline-flex items-center gap-2 bg-green-50 border border-green-300 text-green-700 text-sm font-bold px-4 py-2 rounded-full mt-4">
-            🎉 Free for the whole of 2026 — you pay nothing until 15 January 2027
+            🎉 Your first term is free — you pay nothing until it ends
           </div>
-          <p className="text-[#7a82a8] mt-3">The prices below take effect from 15 Jan 2027. Save 30% when you have 3 or more streams.</p>
+          <p className="text-[#7a82a8] mt-3">The prices below apply after your free first term. Save 30% when you have 3 or more streams.</p>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
@@ -381,7 +381,7 @@ export default function HomePage() {
         </div>
 
         <div className="text-center mt-8 text-sm text-[#7a82a8]">
-          <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> Free all of 2026</span>
+          <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-green-600"/> First term free</span>
         </div>
 
         {/* Essential vs Pro — a second, separate choice from the per-stream price
@@ -530,7 +530,7 @@ export default function HomePage() {
               <li><a href="#features" className="hover:text-white">Features</a></li>
               <li><a href="#pricing" className="hover:text-white">Pricing</a></li>
               <li><Link href="/retooling" className="hover:text-white">Retooling</Link></li>
-              <li><Link href="/auth/signup" className="hover:text-white">Free in 2026</Link></li>
+              <li><Link href="/auth/signup" className="hover:text-white">First term free</Link></li>
               <li><Link href="/auth/login" className="hover:text-white">Sign In</Link></li>
               <li><Link href="/legal/privacy" className="hover:text-white">Privacy Policy</Link></li>
               <li><Link href="/legal/terms" className="hover:text-white">Terms of Service</Link></li>

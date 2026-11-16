@@ -18,7 +18,7 @@ Still adding and ranking marks on paper, writing report cards by hand, and typin
 
 A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}
 
-🎉 *FREE for the whole of 2026* — no card needed. Subscription only begins on 15 January 2027.`;
+🎉 *Your school's first term is FREE* — no card needed.`;
 
   const detailed =
 `Dear colleague teacher,
@@ -46,7 +46,7 @@ If your school still struggles with:
 
 A class teacher can sign up and manage learners and subject teachers — the rest of the school follows 👉 ${link}
 
-🎉 *FREE for the whole of 2026* — every feature, no card required. Subscription only begins on 15 January 2027, so the entire 2026 school year is on us.`;
+🎉 *Your school's first term is FREE* — every feature, no card required. You pay only after the free term ends.`;
 
   return { short, detailed };
 }
