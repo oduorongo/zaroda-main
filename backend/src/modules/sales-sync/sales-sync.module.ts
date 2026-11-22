@@ -3,7 +3,9 @@
 // Every 30 minutes the ZARODA POS API is sent:
 //  - schools that signed up with a team member's link or marketer phone/email
 //    (tenants.sales_agent_ref) and their successful subscription payments, so the member is paid commission;
-//  - every school's successful subscription payment (receipts), so it is posted to ZARODA's own books.
+//  - every school's successful subscription payment (receipts), so it is posted to ZARODA's own books;
+//  - every teacher's paid Professional Records wallet top-up by M-Pesa (not referral bonuses), to /sales-sync/income,
+//    so it is posted to ZARODA's books as professional records income.
 // The POS side ignores anything it has already stored, so sending everything each time is safe.
 // Needs SALES_SYNC_KEY (same value as SCHOOL_SALES_SYNC_KEY on the POS API); POS_API_URL
 // defaults to https://api.zarodashop.com. Without the key nothing is sent.
@@ -79,6 +81,36 @@ export class SalesSyncService {
             ...(r.reference ? { reference: String(r.reference).slice(0, 64) } : {}),
           })),
         });
+      }
+
+      // Professional Records wallet top-ups paid by M-Pesa (referral bonuses are free credit, not income).
+      const incomeUrl = `${(process.env.POS_API_URL || 'https://api.zarodashop.com').replace(/\/+$/, '')}/sales-sync/income`;
+      const topups = await this.ds.query(
+        `SELECT w.id::text AS id, COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), 'A teacher') AS teacher,
+                t.name AS school, w.amount::float AS "amountKes", w.updated_at AS "paidAt", w.mpesa_receipt_number AS reference
+           FROM pr_wallet_transactions w
+           LEFT JOIN users u ON u.id::text = w.teacher_id::text
+           LEFT JOIN tenants t ON t.id::text = w.tenant_id::text
+          WHERE w.type = 'topup' AND w.status = 'paid' AND w.amount > 0 AND w.checkout_request_id IS NOT NULL
+            AND COALESCE(w.reference_type, '') <> 'referral'`,
+      ).catch(() => []);
+      for (const part of chunks(topups, RECEIPT_CHUNK)) {
+        const res = await fetch(incomeUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-income-sync-key': key },
+          body: JSON.stringify({
+            app: 'SCHOOL_RECORDS',
+            receipts: part.map((w: any) => ({
+              id: w.id,
+              payer: `${String(w.teacher).slice(0, 100)}${w.school ? `, ${String(w.school).slice(0, 90)}` : ''}`,
+              description: 'Professional records wallet top-up',
+              amountKes: Math.round(Number(w.amountKes) * 100) / 100,
+              paidAt: iso(w.paidAt),
+              ...(w.reference ? { reference: String(w.reference).slice(0, 60) } : {}),
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error(`POS income answered ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
       }
     } catch (err) {
       console.warn('[sales-sync] could not report to the POS:', (err as Error).message);
